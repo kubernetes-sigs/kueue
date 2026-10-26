@@ -85,22 +85,34 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 
 ### 2. Priority Constraints (`priority`)
 
-**Optional.** Defines priority criteria for candidate workloads using relative priority comparison against the incoming preemptor workload and/or priority class name filters (`Workload.spec.priorityClassRef.name`, populated by Kueue for both `WorkloadPriorityClass` and Pod `PriorityClass`). When multiple constraints are specified, all must be satisfied:
+**Optional.** Defines priority comparison criteria against the incoming preemptor workload. If specified, both `mode` and `comparison` are required:
 
-- **`mode`** (Optional; must be specified together with `comparison`):
+- **`mode`** (Required):
   - `Base`: Compares raw priority values assigned in `Workload.spec.priority`.
   - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/reference/labels-and-annotations/#kueuex-k8siopriority-boost)).
-- **`comparison`** (Optional; must be specified together with `mode`):
+- **`comparison`** (Required):
   - `LessThan`: Candidate priority < Preemptor priority.
   - `LessThanOrEqual`: Candidate priority <= Preemptor priority.
   - `GreaterThan`: Candidate priority > Preemptor priority.
   - `GreaterThanOrEqual`: Candidate priority >= Preemptor priority.
-- **`matchNames`** (Optional): Allowlist of `PriorityClass` or `WorkloadPriorityClass` names (OR semantics). Workloads without a `priorityClassRef` do not match.
-- **`notMatchNames`** (Optional): Denylist of `PriorityClass` or `WorkloadPriorityClass` names. Workloads without a `priorityClassRef` always match.
 
-When `WorkloadPriorityClassDefaulting` is enabled and a `"default"` `WorkloadPriorityClass` exists, or when a `globalDefault` Pod `PriorityClass` is configured, its name (e.g., `"default"`) can be used in `matchNames` or `notMatchNames` to match or exclude workloads that do not explicitly specify a priority class.
+### 3. Priority Class Selector (`priorityClassSelector`)
 
-### 3. Custom Numeric Labels (`numericLabels`)
+**Optional.** Filters candidate workloads by their priority class (`Workload.spec.priorityClassRef`, populated by Kueue for both `WorkloadPriorityClass` and Pod `PriorityClass`). When both `sourceRef` and `nameExpressions` are specified, a candidate must satisfy both:
+
+- **`sourceRef`** (Optional): Filters workloads by the API `group` and `kind` of their priority class:
+  - `group: kueue.x-k8s.io` and `kind: WorkloadPriorityClass` for Kueue `WorkloadPriorityClass`.
+  - `group: scheduling.k8s.io` and `kind: PriorityClass` for Kubernetes Pod `PriorityClass`.
+  - Workloads without a `priorityClassRef` do not match when `sourceRef` is set. If omitted, priority classes of either source match.
+- **`nameExpressions`** (Optional): A non-empty list of selector requirements (up to 16 items) matched against `Workload.spec.priorityClassRef.name` (all requirements must be satisfied):
+  - **`operator`** (Required):
+    - `In`: Candidate's `spec.priorityClassRef.name` must match one of the listed `values` (workloads without a `priorityClassRef` do not match).
+    - `NotIn`: Candidate's `spec.priorityClassRef.name` must not match any of the listed `values` (workloads without a `priorityClassRef` always match).
+  - **`values`** (Required): A non-empty set of priority class names (up to 16 items).
+
+When `WorkloadPriorityClassDefaulting` is enabled and a `"default"` `WorkloadPriorityClass` exists, or when a `globalDefault` Pod `PriorityClass` is configured, its name (e.g., `"default"`) can be used in `nameExpressions` to match or exclude workloads that do not explicitly specify a priority class.
+
+### 4. Custom Numeric Labels (`numericLabels`)
 
 **Optional.** A list of numeric label constraints allowing candidate filtering based on integer workload labels (e.g., number of GPUs/TPUs, slice index, or node count). Multiple numeric label constraints in a selector are joined using an AND rule (all constraints must be satisfied):
 
@@ -113,7 +125,7 @@ When `WorkloadPriorityClassDefaulting` is enabled and a `"default"` `WorkloadPri
 Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not automatically copied to the Kueue `Workload` resource unless their keys are listed in `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2). Ensure your custom numeric label keys are configured for copying.
 {{% /alert %}}
 
-### 4. Label Selectors (`labelSelector` & `clusterQueueSelector`)
+### 5. Label Selectors (`labelSelector` & `clusterQueueSelector`)
 
 **Optional.** Standard Kubernetes label selectors:
 - **`labelSelector`**: Filters candidate `Workload` metadata.
@@ -121,10 +133,10 @@ Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not autom
 
 ## Preemptor Selectors
 
-**Optional.** A rule can also restrict which incoming (preempting) workloads are allowed to activate it. If omitted, any incoming workload in the queue can trigger the rule:
+**Optional.** A rule can also restrict which incoming (preempting) workloads are allowed to activate it. When both selectors are specified, an incoming workload must satisfy both. If omitted, any incoming workload in the queue can trigger the rule:
 
 - **`preemptorSelector`**: A standard Kubernetes label selector filtering incoming `Workload` metadata.
-- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef.name` using `matchNames` and `notMatchNames` (with the same semantics as `priority` in candidate selectors).
+- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef` using `sourceRef` and `nameExpressions` (with the same semantics as `priorityClassSelector` in candidate selectors).
 
 ---
 
