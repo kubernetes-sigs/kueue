@@ -66,6 +66,10 @@ type GenericJob interface {
 	IsActive() bool
 
 	// PodsReady indicates whether all job-derived pods are ready.
+	// For an elastic job, it should only consider the Pods admitted by the latest
+	// admitted Workload slice, and ignore the Pods of a pending scale-up, such as
+	// scheduling-gated Pods. While a replacement slice is pending, Kueue records
+	// PodsReady on the admitted slice and evaluates the PodsReady timeout there.
 	PodsReady(ctx context.Context, c client.Client) bool
 
 	// GVK returns the GroupVersionKind for the job.
