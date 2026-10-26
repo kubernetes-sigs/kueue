@@ -139,19 +139,7 @@ order:
 
 The [quick start](/docs/getting-started/quick-start/#4-clean-up) cleans up in the same order.
 
-Anything you keep instead stays as Kueue left it: a Job that Kueue suspended stays
-suspended, and a Pod keeps the `kueue.x-k8s.io/admission` scheduling gate, so it never
-starts.
-
-If something stays in `Terminating` while Kueue still runs:
-
-- Pods in a Pod group: delete their Workload, and Kueue removes its finalizer from
-  them; see [Troubleshooting Pods](/docs/tasks/troubleshooting/troubleshooting_pods/).
-- A Workload: see [Identifying the Workload for your Job](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job).
-- A ClusterQueue: it is deleted once no Workload reserves its quota; see
-  [Troubleshooting delete ClusterQueue](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/).
-
-If an uninstall is already stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
+If an uninstall is stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
 
 ### Uninstall
 
