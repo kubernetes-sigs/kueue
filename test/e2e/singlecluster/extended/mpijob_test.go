@@ -194,7 +194,7 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 			})
 
 			ginkgo.By("Stopping the ClusterQueue to make the MPIJob be stopped and suspended")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 			ginkgo.By("Waiting for the mpiJob to be suspended", func() {
 				jobKey := client.ObjectKeyFromObject(mpiJob)

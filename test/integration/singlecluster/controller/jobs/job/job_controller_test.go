@@ -7002,7 +7002,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("draining the ClusterQueue to evict the workload without deleting it")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 		ginkgo.By("the workload slice is evicted and the job is suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -7014,7 +7014,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("resuming the ClusterQueue")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.None)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.None)
 
 		ginkgo.By("the same workload slice is re-admitted and the job restarts with the same slice name")
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacementSlice)

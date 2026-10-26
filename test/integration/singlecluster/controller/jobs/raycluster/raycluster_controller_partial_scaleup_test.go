@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(0)
 
 		ginkgo.By("resuming the ClusterQueue with the quota unchanged")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.None)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.None)
 
 		ginkgo.By("the probe itself is admitted at 6 workers, with no change to the quota")
 		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, workersGroupName, 6)
@@ -643,7 +643,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
@@ -709,7 +709,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
-		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+		behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}

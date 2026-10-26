@@ -1574,14 +1574,14 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 
 			ginkgo.By("stopping the ClusterQueue to make it inactive")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
+			behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.Hold)
 
 			ginkgo.By("verifying pending workloads are reported as inadmissible")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
 
 			ginkgo.By("resuming the ClusterQueue to make it active")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
+			behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.None)
 
 			ginkgo.By("verifying they restore to active statuses")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")

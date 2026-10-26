@@ -4153,7 +4153,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
-				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+				behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
@@ -4188,7 +4188,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Resuming the ClusterQueue", func() {
-				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
+				behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.None)
 			})
 
 			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
@@ -4230,7 +4230,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
-				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+				behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
@@ -4266,7 +4266,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Resuming the ClusterQueue", func() {
-				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
+				behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.None)
 			})
 
 			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {

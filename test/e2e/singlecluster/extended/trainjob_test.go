@@ -203,7 +203,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			})
 
 			ginkgo.By("Stopping the ClusterQueue to make the TrainJob be stopped and suspended")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 			ginkgo.By("Waiting for the TrainJob to be suspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

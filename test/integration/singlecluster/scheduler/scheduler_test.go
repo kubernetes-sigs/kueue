@@ -631,7 +631,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 5)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, prodClusterQ, kueue.None)
+				behavioral.SetStopPolicy(ctx, k8sClient, prodClusterQ, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
@@ -729,7 +729,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, prodQueue, kueue.None)
+				behavioral.SetStopPolicy(ctx, k8sClient, prodQueue, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
@@ -2647,7 +2647,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.MustCreate(ctx, k8sClient, admittedWl2)
 
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl1, admittedWl2)
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cqTeamA, kueue.Hold)
+			behavioral.SetStopPolicy(ctx, k8sClient, cqTeamA, kueue.Hold)
 
 			// pendingWl exceed nominal+borrowing quota and cannot preempt as priority based
 			// premption within CQ is disabled.
@@ -2667,7 +2667,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Queue(kueue.LocalQueueName(lqTeamA.Name)).Request(corev1.ResourceCPU, "1").Priority(10).Obj()
 			behavioral.MustCreate(ctx, k8sClient, blockedWl)
 
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cqTeamA, kueue.None)
+			behavioral.SetStopPolicy(ctx, k8sClient, cqTeamA, kueue.None)
 
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl, blockedWl)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, borrowingWl)
@@ -3022,7 +3022,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
 
 			ginkgo.By("Stopping the ClusterQueue")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 
 			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
 			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
@@ -3053,7 +3053,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 2)
 
 			ginkgo.By("Restart the ClusterQueue by removing its stopPolicy")
-			behavioral.UnsetClusterQueueStopPolicy(ctx, k8sClient, cq)
+			behavioral.UnsetStopPolicy(ctx, k8sClient, cq)
 
 			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 
@@ -3065,7 +3065,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		drainClusterQueue := func() {
 			ginkgo.By("Stopping the ClusterQueue")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 		}
 
 		expectEvictedByClusterQueueStopped := func(wl *kueue.Workload) {
@@ -3092,7 +3092,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			ginkgo.By("Holding the LocalQueue")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, queue, kueue.Hold)
+			behavioral.SetStopPolicy(ctx, k8sClient, queue, kueue.Hold)
 			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 
 			drainClusterQueue()
@@ -3167,7 +3167,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Stopping the LocalQueue")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
 
 			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
 			behavioral.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
@@ -3211,7 +3211,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 
 			ginkgo.By("Restart the LocalQueue by removing its stopPolicy")
-			behavioral.UnsetLocalQueueStopPolicy(ctx, k8sClient, lq)
+			behavioral.UnsetStopPolicy(ctx, k8sClient, lq)
 
 			ginkgo.By("Checking the condition of LocalQueue is active")
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -190,7 +190,7 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 			})
 
 			ginkgo.By("Stopping the ClusterQueue to make the JobSet be stopped and suspended")
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 			ginkgo.By("Waiting for the jobSet to be suspended", func() {
 				jobKey := client.ObjectKeyFromObject(jobSet)

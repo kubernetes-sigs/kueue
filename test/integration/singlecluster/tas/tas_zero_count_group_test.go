@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		})
 		ginkgo.By("reclaiming the completed workers and draining the queue", func() {
 			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
-			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+			behavioral.SetStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			gomega.Expect(wl.Status.Admission).To(gomega.BeNil())
@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		})
 		ginkgo.By("removing the larger node and resuming with capacity for the remaining leader", func() {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
-			behavioral.UnsetClusterQueueStopPolicy(ctx, k8sClient, cq)
+			behavioral.UnsetStopPolicy(ctx, k8sClient, cq)
 		})
 		ginkgo.By("readmitting only the remaining pod on the smaller flavor", func() {
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -1474,7 +1474,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("making the LocalQueue inactive (should transition to Suspended)")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.Hold)
+			behavioral.SetStopPolicy(ctx, k8sClient, localQueue, kueue.Hold)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wl2Key, &updatedWl)).To(gomega.Succeed())
@@ -1502,7 +1502,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("reactivating the workload and making the LocalQueue active again (should transition back to WaitingForQuota)")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.None)
+			behavioral.SetStopPolicy(ctx, k8sClient, localQueue, kueue.None)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
