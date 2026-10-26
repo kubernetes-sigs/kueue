@@ -108,7 +108,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		NewReconciler:     NewReconciler,
 		SetupWebhook:      SetupWebhook,
 		JobType:           &corev1.Pod{},
-		MultiKueueAdapter: &multiKueueAdapter{},
+		MultiKueueAdapter: &multiKueueAdapter{clock: realClock},
 	})
 }
 
