@@ -11,6 +11,7 @@ jobs:
     run-sync-hugo-version:
         if: >-
           ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+              && github.event.pull_request.user.login == 'dependabot[bot]'
               && github.actor == 'dependabot[bot]'
               && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test') }}
         runs-on: ubuntu-latest
