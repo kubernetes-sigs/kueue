@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 
@@ -53,6 +54,11 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 
 func SetupIndexes(context.Context, client.FieldIndexer) error {
 	return nil
+}
+
+// GetWorkloadName returns the name of the Workload of one slice.
+func GetWorkloadName(uid types.UID, name string, slice int32) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%d", name, slice), uid, gvk)
 }
 
 func CanSupportIntegration(...jobframework.Option) (bool, error) {
