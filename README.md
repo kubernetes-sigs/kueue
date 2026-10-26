@@ -17,13 +17,14 @@ Learn more in the [overview](https://kueue.sigs.k8s.io/docs/overview/).
 ## Capabilities at a glance
 
 - **[Fair sharing](https://kueue.sigs.k8s.io/docs/concepts/fair_sharing/)** — share quota fairly across teams, with borrowing through [cohorts](https://kueue.sigs.k8s.io/docs/concepts/cohort/) and optional preemption.
+- **[Hierarchical quotas](https://kueue.sigs.k8s.io/docs/concepts/cohort/#hierarchical-cohorts)** — organize quota in a tree of cohorts, such as departments and teams.
+- **[Flavor fungibility](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility)** — choose when to try another [resource flavor](https://kueue.sigs.k8s.io/docs/concepts/resource_flavor/), such as spot nodes, before borrowing or preempting.
+- **[Elastic workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/)** — scale supported jobs up or down without suspending them, reserving quota for each scale-up.
+- **[Admission checks](https://kueue.sigs.k8s.io/docs/concepts/admission_check/)** — hold workloads until external checks pass, such as node capacity from cluster-autoscaler.
+- **[Device quotas (DRA)](https://kueue.sigs.k8s.io/docs/concepts/dynamic_resource_allocation/)** — admit workloads only when there is quota for the GPUs and other devices they request through DRA.
+- **[All-or-nothing (gang) scheduling](https://kueue.sigs.k8s.io/docs/concepts/all_or_nothing/)** — by default, no Pods start until there is quota for all of them.
 - **[Topology-Aware Scheduling (TAS)](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/)** — place communicating Pods close together, such as on one rack.
 - **[MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/)** — dispatch workloads to other clusters with free capacity.
-- **[Elastic workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/)** — scale supported jobs up or down without suspending them.
-- **[Admission checks](https://kueue.sigs.k8s.io/docs/concepts/admission_check/)** — hold workloads until external checks pass, such as node capacity from cluster-autoscaler.
-- **[All-or-nothing (gang) scheduling](https://kueue.sigs.k8s.io/docs/concepts/all_or_nothing/)** — by default, no Pods start until there is quota for all of them.
-- **[Flavor fungibility](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility)** — choose when to try another [resource flavor](https://kueue.sigs.k8s.io/docs/concepts/resource_flavor/), such as spot nodes, before borrowing or preempting.
-- **[Device quotas (DRA)](https://kueue.sigs.k8s.io/docs/concepts/dynamic_resource_allocation/)** — admit workloads only when there is quota for the GPUs and other devices they request through DRA.
 
 <details>
 <summary><strong>Integrations:</strong> Kubernetes Job, JobSet, KubeRay, LeaderWorkerSet and more</summary>
@@ -106,16 +107,16 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 ## Production readiness
 
-- [Used in production](https://kueue.sigs.k8s.io/community/adopters/) by 20+ organizations.
+- Used in production; see the [public adopters](https://kueue.sigs.k8s.io/community/adopters/).
 - Minor releases about every two months; see the [release process](RELEASE.md).
-- Unit, integration and scalability tests, plus end-to-end tests on every [Kubernetes version Kueue officially supports](https://kueue.sigs.k8s.io/docs/getting-started/installation/).
+- Unit, integration and scalability tests, plus end-to-end tests on every [Kubernetes version Kueue officially supports](https://kueue.sigs.k8s.io/docs/getting-started/installation/#before-you-begin).
 
 <details>
 <summary><strong>Testing and compatibility</strong></summary>
 
 **API stability:** core APIs use `v1beta2` and follow the [Kubernetes deprecation policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/).
 
-**Testing:** the dashboards below track the `main` branch, and end-to-end suites run on Kind clusters. For release compatibility, see the [installation guide](https://kueue.sigs.k8s.io/docs/getting-started/installation/); for scalability, see the [performance test setup](test/performance).
+**Testing:** the dashboards below track the `main` branch, and end-to-end suites run on Kind clusters. For supported Kubernetes versions, see the [installation prerequisites](https://kueue.sigs.k8s.io/docs/getting-started/installation/#before-you-begin); for scalability, see the [performance test setup](test/performance).
 
 | Kubernetes version | E2E dashboards |
 | :--- | :--- |
@@ -139,7 +140,7 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 ## Community
 
-**Connect:** [Slack](https://kubernetes.slack.com/messages/wg-batch) · [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) · [talks](https://kueue.sigs.k8s.io/community/talks_and_presentations/)<br>
+**Connect:** [WG Batch](https://github.com/kubernetes/community/tree/main/wg-batch) · [Slack](https://kubernetes.slack.com/messages/wg-batch) · [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) · [talks](https://kueue.sigs.k8s.io/community/talks_and_presentations/)<br>
 **Contribute:** [contributing guide](CONTRIBUTING.md) · [Kubernetes community](https://kubernetes.io/community/) · [code of conduct](code-of-conduct.md)
 
 ### Help Kueue grow
