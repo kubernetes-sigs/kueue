@@ -516,13 +516,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// and drop the finalizer.
 	if wl != nil && !wl.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload has a deletion timestamp")
-		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
-		if err != nil {
-			err = fmt.Errorf("suspending job with deleted Workload: %w", err)
-		} else {
-			err = workload.RemoveFinalizer(ctx, r.client, wl)
+		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted"); err != nil {
+			return ctrl.Result{}, fmt.Errorf("suspending job with deleted Workload: %w", err)
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
 
 	// 2. handle job is on hold.
@@ -572,8 +569,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 3. handle workload is nil.
 	if wl == nil {
 		log.V(3).Info("The workload is nil, handle job with no workload")
-		err := r.handleJobWithNoWorkload(ctx, job, object)
-		return ctrl.Result{}, err
+		if err := r.handleJobWithNoWorkload(ctx, job, object); err != nil {
+			return ctrl.Result{}, fmt.Errorf("handling job with no Workload: %w", err)
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// 4. update reclaimable counts if implemented by the job
@@ -632,16 +631,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if workload.IsAdmitted(wl) {
-			err := r.startJob(ctx, job, object, wl)
-			if err != nil {
+			log.V(4).Info("Job admitted, unsuspending")
+			if err := r.startJob(ctx, job, object, wl); err != nil {
 				if podset.IsPermanent(err) {
 					log.Error(err, "Job cannot start because of a permanent error")
 					// Mark the workload as finished with failure since the is no point to retry.
-					errUpdateStatus := workloadfinish.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock)
-					return ctrl.Result{}, errUpdateStatus
+					if errUpdateStatus := workloadfinish.Finish(ctx, r.client, wl, FailedToStartFinishedReason, err.Error(), r.clock); errUpdateStatus != nil {
+						return ctrl.Result{}, fmt.Errorf("finishing Workload %s after permanent start failure: %w", klog.KObj(wl), errUpdateStatus)
+					}
+					return ctrl.Result{}, nil
 				}
+				return ctrl.Result{}, fmt.Errorf("starting job: %w", err)
 			}
-			return ctrl.Result{}, err
+			return ctrl.Result{}, nil
 		}
 
 		if workload.HasQuotaReservation(wl) {
@@ -664,11 +666,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if WorkloadSliceEnabled(job) {
 			return ctrl.Result{}, nil
 		}
-		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
-		if err != nil {
-			err = fmt.Errorf("suspending job without Workload admission: %w", err)
+		if err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue"); err != nil {
+			return ctrl.Result{}, fmt.Errorf("suspending job without Workload admission: %w", err)
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, nil
 	}
 
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
@@ -981,11 +982,7 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	var topLevelJob client.Object
 	for {
 		if seen.Has(currentObj.GetUID()) {
-			log.Error(ErrCyclicOwnership,
-				"Terminated search for Kueue-managed Job because of cyclic ownership",
-				"currentObj", klog.KObj(currentObj),
-			)
-			return nil, ErrCyclicOwnership
+			return nil, fmt.Errorf("%w: %s is its own ancestor", ErrCyclicOwnership, klog.KObj(currentObj))
 		}
 		seen.Insert(currentObj.GetUID())
 
