@@ -96,8 +96,9 @@ function e2e_is_truthy {
     esac
 }
 
-# Runs a step and logs how long it took, so CI logs show where e2e time goes:
-#   e2e-timing: step=kind/install_jobset status=0 duration=42s
+# Runs a step and logs how long it took, so CI logs show where e2e time goes.
+# The fields follow the make-timing lines from hack/make-timed-shell.sh:
+#   e2e-timing: started=2026-10-24T05:47:19Z finished=2026-10-24T05:48:01Z status=0 duration=42s step=kind/install_jobset
 # Callers must run with errexit on and invoke it as a plain command, not inside
 # "if", "&&" or "||": bash disables errexit for the whole function there, so a
 # failing step would keep running and be logged as status=0.
@@ -110,11 +111,14 @@ function e2e_timed {
     local label=$1
     shift
     local start=$SECONDS
+    local started_at
+    started_at=$(e2e_timestamp)
     E2E_TIMED_STEP=$label
     E2E_TIMED_START=$start
+    E2E_TIMED_STARTED_AT=$started_at
     "$@"
     E2E_TIMED_STEP=""
-    echo "e2e-timing: step=${label} status=0 duration=$((SECONDS - start))s"
+    echo "e2e-timing: started=${started_at} finished=$(e2e_timestamp) status=0 duration=$((SECONDS - start))s step=${label}"
 }
 
 # Logs the e2e_timed step that was still running when the script exited, with
@@ -123,8 +127,13 @@ function e2e_timed {
 # $1 exit status of the script
 function e2e_timed_log_unfinished {
     if [[ -n ${E2E_TIMED_STEP:-} ]]; then
-        echo "e2e-timing: step=${E2E_TIMED_STEP} status=$1 duration=$((SECONDS - E2E_TIMED_START))s"
+        echo "e2e-timing: started=${E2E_TIMED_STARTED_AT} finished=$(e2e_timestamp) status=$1 duration=$((SECONDS - E2E_TIMED_START))s step=${E2E_TIMED_STEP}"
     fi
+}
+
+# Prints the current UTC time in the format hack/make-timed-shell.sh uses.
+function e2e_timestamp {
+    date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
 # Returns success when the kind node Kubernetes version supports image volumes,
