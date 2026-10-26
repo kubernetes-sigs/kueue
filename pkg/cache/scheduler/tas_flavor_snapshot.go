@@ -943,25 +943,16 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		// Without an admission there is nothing to replace; take the fresh-placement path.
 		if workload.HasUnhealthyNodes(wlObj) && wlObj.Status.Admission != nil {
 			unhealthyNodeName := workload.FirstUnhealthyNodeName(wlObj)
-			if len(trs) > 1 && len(groupDomainsOnHealthyNodes(wlObj, groupKey, unhealthyNodeName, "")) == 0 {
-				// Every Pod of the PodSet group ran on the failed node, so nothing
-				// pins the group to a domain any more; place the group again as a whole.
+			// When no Pod of the PodSet group remains on a healthy node, nothing pins the
+			// group to a domain. Replacing each PodSet on its own could then pick a different
+			// domain for each, so the group is placed again as a whole. A single PodSet has
+			// no siblings to split from, so the per-PodSet replacement below suffices.
+			wholeGroupOnUnhealthyNodes := len(trs) > 1 && len(groupDomainsOnHealthyNodes(wlObj, groupKey, "")) == 0
+			if wholeGroupOnUnhealthyNodes {
 				log.V(3).Info("Placing the PodSet group again, none of its Pods remain on a healthy node", "unhealthyNode", unhealthyNodeName)
-				// tr.Count excludes reclaimable Pods, but the admission still counts them,
-				// so place as many Pods as the previous assignment held.
-				trs = slices.Clone(trs)
-				for i := range trs {
-					psa := findPSA(wlObj, trs[i].PodSet.Name)
-					if psa == nil || psa.TopologyAssignment == nil {
-						continue
-					}
-
-					trs[i].Count = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
-				}
-
-				leader, workers := findLeaderAndWorkers(trs)
+				trs = withAdmittedCounts(wlObj, trs)
 				// Node replacement repairs an admitted Workload, so it does not apply topology spreading.
-				if reason := s.assignPodSetGroup(ctx, trs, workers, leader, assumedUsage, opts, nil, result); reason != "" {
+				if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, nil, result); reason != "" {
 					return result
 				}
 				continue
@@ -978,7 +969,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
 				existingAssignment := psa.TopologyAssignment
-				groupAnchor := groupDomainsOnHealthyNodes(wlObj, groupKey, unhealthyNodeName, tr.PodSet.Name)
+				groupAnchor := groupDomainsOnHealthyNodes(wlObj, groupKey, tr.PodSet.Name)
 				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, &tr, utiltas.InternalFrom(existingAssignment), groupAnchor, opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
@@ -1003,7 +994,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			}
 
 			// Normal path: no previous assignment or stale assignment
-			if reason := s.assignPodSetGroup(ctx, trs, workers, leader, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
+			if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
 				return result
 			}
 		}
@@ -1017,13 +1008,12 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 func (s *TASFlavorSnapshot) assignPodSetGroup(
 	ctx context.Context,
 	trs FlavorTASRequests,
-	workers TASPodSetRequests,
-	leader *TASPodSetRequests,
 	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 	podSetGroupCounts *SpreadTreeCount,
 	result map[kueue.PodSetReference]tasPodSetAssignmentResult,
 ) string {
+	leader, workers := findLeaderAndWorkers(trs)
 	assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCounts)
 	for _, tr := range trs {
 		podSetName := tr.PodSet.Name
@@ -1040,15 +1030,14 @@ func (s *TASFlavorSnapshot) assignPodSetGroup(
 }
 
 // groupDomainsOnHealthyNodes returns the domains that the PodSets of the
-// group, other than skip, keep in their topology assignments once unhealthyNode
-// is removed. They pin the topology domain of the whole group during a node
+// group, other than skip, keep in their topology assignments once the unhealthy
+// nodes are removed. They pin the topology domain of the whole group during a node
 // replacement. An empty skip includes every PodSet of the group.
 // The PodSets are read from the Workload, because a PodSet that has no Pod on
 // the unhealthy node is not among the TAS requests of the second pass.
 func groupDomainsOnHealthyNodes(
 	wl *kueue.Workload,
 	group utiltas.PodSetGroupKey,
-	unhealthyNode string,
 	skip kueue.PodSetReference,
 ) []utiltas.TopologyDomainAssignment {
 	var domains []utiltas.TopologyDomainAssignment
@@ -1062,11 +1051,29 @@ func groupDomainsOnHealthyNodes(
 			continue
 		}
 		ta := utiltas.InternalFrom(psa.TopologyAssignment)
-		deleteDomain(ta, unhealthyNode)
+		for _, node := range wl.Status.UnhealthyNodes {
+			deleteDomain(ta, node.Name)
+		}
 		domains = append(domains, ta.Domains...)
 	}
 
 	return domains
+}
+
+// withAdmittedCounts returns a copy of trs in which each PodSet requests as many
+// Pods as its previous topology assignment held. tr.Count excludes reclaimable Pods,
+// but the admission still counts them.
+func withAdmittedCounts(wl *kueue.Workload, trs FlavorTASRequests) FlavorTASRequests {
+	trs = slices.Clone(trs)
+	for i := range trs {
+		psa := findPSA(wl, trs[i].PodSet.Name)
+		if psa == nil || psa.TopologyAssignment == nil {
+			continue
+		}
+
+		trs[i].Count = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+	}
+	return trs
 }
 
 // BuildTopologyAssignmentsForPodSet returns TAS assignment based on the registered
