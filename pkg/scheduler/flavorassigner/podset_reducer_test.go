@@ -24,6 +24,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestSearch(t *testing.T) {
@@ -133,7 +134,7 @@ func TestSearch(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			red := NewPodSetReducer(tc.podSets, func(counts []int32) (int32, bool) {
+			red := NewPodSetReducer(tc.podSets, func(counts workload.PodSetsCounts) (int32, bool) {
 				total := int32(0)
 				for _, v := range counts {
 					total += v
@@ -159,15 +160,17 @@ func TestSearchTotalDeltaLarge(t *testing.T) {
 		*utiltestingapi.MakePodSet("ps3", 1).SetMinimumCount(0).Obj(),
 	}
 
-	fits := func(counts []int32) ([]int32, bool) {
-		total := int64(counts[0]) + int64(counts[1]) + int64(counts[2])
+	fits := func(counts workload.PodSetsCounts) (workload.PodSetsCounts, bool) {
+		// A PodSet missing from counts is left unscaled by Assign, so a probe must
+		// carry every PodSet, including those shrunk to 0.
+		if len(counts) != len(podSets) {
+			t.Errorf("Unexpected probe counts %v, want an entry for each of %d PodSets", counts, len(podSets))
+		}
+		total := int64(counts["ps1"]) + int64(counts["ps2"]) + int64(counts["ps3"])
 		if total > 1 {
 			return nil, false
 		}
-
-		out := make([]int32, len(counts))
-		copy(out, counts)
-		return out, true
+		return counts, true
 	}
 
 	red := NewPodSetReducer(podSets, fits)
@@ -181,7 +184,7 @@ func TestSearchTotalDeltaLarge(t *testing.T) {
 		t.Fatal("Expected a solution")
 	}
 
-	wantCount := []int32{0, 0, 0}
+	wantCount := workload.PodSetsCounts{"ps1": 0, "ps2": 0, "ps3": 0}
 	if diff := cmp.Diff(wantCount, count); diff != "" {
 		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
