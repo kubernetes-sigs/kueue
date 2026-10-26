@@ -130,17 +130,26 @@ and the objects and their CustomResourceDefinitions stay in `Terminating`.
 To avoid this, delete the Kueue objects while the controller is still running, in this
 order:
 
-1. The jobs and Pods that Kueue manages. Their Workloads are deleted with them. If Pods
-   in a Pod group stay in `Terminating`, delete their Workload: Kueue then removes its
-   `kueue.x-k8s.io/managed` finalizer from them; see [Troubleshooting Pods](/docs/tasks/troubleshooting/troubleshooting_pods/).
-   A Workload in `Terminating` is removed once Kueue has stopped its job; if one stays,
-   the Kueue controller logs say why the job could not be stopped.
-2. LocalQueues and ClusterQueues. A ClusterQueue is deleted once no Workload reserves
-   its quota; see [Troubleshooting delete ClusterQueue](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/).
-3. Cohorts, ResourceFlavors and AdmissionChecks.
-4. Topologies.
+1. Jobs submitted to Kueue, of any kind (Jobs, JobSets, Pods and so on).
+2. Workloads. Most are deleted with their jobs; delete any that `kubectl get workloads -A`
+   still lists, such as a prebuilt Workload that no job adopted.
+3. LocalQueues and ClusterQueues.
+4. Cohorts, ResourceFlavors and AdmissionChecks.
+5. Topologies.
 
 The [quick start](/docs/getting-started/quick-start/#4-clean-up) cleans up in the same order.
+
+Anything you keep instead stays as Kueue left it: a Job that Kueue suspended stays
+suspended, and a Pod keeps the `kueue.x-k8s.io/admission` scheduling gate, so it never
+starts.
+
+If something stays in `Terminating` while Kueue still runs:
+
+- Pods in a Pod group: delete their Workload, and Kueue removes its finalizer from
+  them; see [Troubleshooting Pods](/docs/tasks/troubleshooting/troubleshooting_pods/).
+- A Workload: see [Identifying the Workload for your Job](/docs/tasks/troubleshooting/troubleshooting_jobs/#identifying-the-workload-for-your-job).
+- A ClusterQueue: it is deleted once no Workload reserves its quota; see
+  [Troubleshooting delete ClusterQueue](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/).
 
 If an uninstall is already stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
 
