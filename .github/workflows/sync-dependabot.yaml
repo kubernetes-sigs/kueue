@@ -4,11 +4,20 @@ name: Dependabot Version Sync
 on:
   pull_request_target:
     branches: [ main ]
+    # Dependabot adds labels after opening the PR, so the "opened" event has none.
+    types: [ opened, synchronize, reopened, labeled ]
 
 jobs:
     run-sync-hugo-version:
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test') && github.actor == 'dependabot[bot]' }}
+        if: >-
+          ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+              && github.event.pull_request.user.login == 'dependabot[bot]'
+              && github.actor == 'dependabot[bot]'
+              && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test') }}
         runs-on: ubuntu-latest
+
+        concurrency:
+          group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
 
         # Permission required to edit a PR
         permissions:
