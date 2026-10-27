@@ -308,6 +308,22 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
 			})
 
+			ginkgo.It("should not allow to unset topologyName", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.TopologyName = nil
+				err := k8sClient.Update(ctx, tasFlavor)
+				gomega.Expect(err).Should(utiltesting.BeInvalidError())
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring("topologyName is immutable when topologyName is set"))
+			})
+
+			ginkgo.It("should not allow to remove all nodeLabels", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+				tasFlavor.Spec.NodeLabels = nil
+				err := k8sClient.Update(ctx, tasFlavor)
+				gomega.Expect(err).Should(utiltesting.BeInvalidError())
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring("at least one nodeLabel is required when topology is set"))
+			})
+
 			ginkgo.It("should allow to update nodeTaints", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
 				tasFlavor.Spec.NodeTaints = []corev1.Taint{{
