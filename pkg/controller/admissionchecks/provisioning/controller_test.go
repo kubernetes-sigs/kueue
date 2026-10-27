@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -181,7 +182,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 
 	cases := map[string]struct {
 		wl              *kueue.Workload
-		previousCounts  map[kueue.PodSetReference]int32
+		previousCounts  workload.PodSetsCounts
 		wantPodSetNames []kueue.PodSetReference
 		wantCounts      []int32
 	}{
@@ -192,7 +193,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"elastic worker scale-up omits unchanged head": {
 			wl: makeWL(1, 2),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 0,
 			},
@@ -201,7 +202,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"elastic worker scale 2 to 4 requests only the increment": {
 			wl: makeWL(1, 4),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 2,
 			},
@@ -210,7 +211,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"fully covered previous counts request nothing": {
 			wl: makeWL(1, 2),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 2,
 			},
@@ -268,12 +269,12 @@ func TestPreviousSlicePodSetCounts(t *testing.T) {
 	cases := map[string]struct {
 		featureEnabled bool
 		current        *kueue.Workload
-		wantCounts     map[kueue.PodSetReference]int32
+		wantCounts     workload.PodSetsCounts
 	}{
 		"elastic workload with the feature enabled gets the admitted baseline": {
 			featureEnabled: true,
 			current:        elastic,
-			wantCounts:     map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts:     workload.PodSetsCounts{"workers": 2},
 		},
 		"feature disabled requests the full size": {
 			featureEnabled: false,
