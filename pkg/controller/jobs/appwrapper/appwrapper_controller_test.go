@@ -45,6 +45,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingappwrapper "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 )
@@ -176,6 +177,7 @@ func TestPodSets(t *testing.T) {
 
 func TestRunWithPodSetsInfo(t *testing.T) {
 	testCases := map[string]struct {
+		jobSet          bool
 		grouped         bool
 		templateOffset  string
 		infoAnnotations map[string]string
@@ -207,24 +209,74 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			grouped:    true,
 			disableTAS: true,
 		},
+		"grouped JobSet": {
+			jobSet:          true,
+			grouped:         true,
+			infoAnnotations: map[string]string{"admission": "value"},
+			wantAnnotations: map[string]string{"admission": "value", kueue.PodIndexOffsetAnnotation: "0"},
+		},
+		"grouped JobSet with nil admission annotations": {
+			jobSet:          true,
+			grouped:         true,
+			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "0"},
+		},
+		"JobSet explicit template offset is preserved": {
+			jobSet:          true,
+			grouped:         true,
+			templateOffset:  "2",
+			infoAnnotations: map[string]string{"admission": "value"},
+			wantAnnotations: map[string]string{"admission": "value"},
+		},
+		"JobSet explicit admission offset is preserved": {
+			jobSet:          true,
+			grouped:         true,
+			infoAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
+			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
+		},
+		"ungrouped JobSet": {
+			jobSet: true,
+		},
+		"JobSet TAS disabled": {
+			jobSet:     true,
+			grouped:    true,
+			disableTAS: true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, !tc.disableTAS)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			pytorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
-				PyTorchReplicaSpecsDefault().
-				Parallelism(4).
-				SetTypeMeta()
-			for _, replicaType := range []kftraining.ReplicaType{kftraining.PyTorchJobReplicaTypeMaster, kftraining.PyTorchJobReplicaTypeWorker} {
-				if tc.grouped {
-					pytorchJob.PodAnnotation(replicaType, kueue.PodSetGroupName, "training").
-						PodAnnotation(replicaType, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack")
+			annotations := make(map[string]string)
+			if tc.grouped {
+				annotations[kueue.PodSetGroupName] = "training"
+				annotations[kueue.PodSetRequiredTopologyAnnotation] = "cloud.com/rack"
+			}
+			if tc.templateOffset != "" {
+				annotations[kueue.PodIndexOffsetAnnotation] = tc.templateOffset
+			}
+			component := testingappwrapper.Component{}
+			if tc.jobSet {
+				component.Template = testingjobset.MakeJobSet("jobset", "ns").
+					ReplicatedJobs(
+						testingjobset.ReplicatedJobRequirements{
+							Name: "master", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: maps.Clone(annotations),
+						},
+						testingjobset.ReplicatedJobRequirements{
+							Name: "worker", Replicas: 2, Parallelism: 2, Completions: 2, PodAnnotations: maps.Clone(annotations),
+						},
+					).SetTypeMeta().Obj()
+			} else {
+				pytorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+					PyTorchReplicaSpecsDefault().
+					Parallelism(4).
+					SetTypeMeta()
+				for _, replicaType := range []kftraining.ReplicaType{kftraining.PyTorchJobReplicaTypeMaster, kftraining.PyTorchJobReplicaTypeWorker} {
+					for key, value := range annotations {
+						pytorchJob.PodAnnotation(replicaType, key, value)
+					}
 				}
-				if tc.templateOffset != "" {
-					pytorchJob.PodAnnotation(replicaType, kueue.PodIndexOffsetAnnotation, tc.templateOffset)
-				}
+				component.Template = pytorchJob.Obj()
 			}
 			batchJob := utiltestingjob.MakeJob("job", "ns").
 				PodAnnotation(kueue.PodSetGroupName, "other").
@@ -232,7 +284,7 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 				Obj()
 			aw := testingappwrapper.MakeAppWrapper("aw", "ns").
 				Component(testingappwrapper.Component{Template: batchJob}).
-				Component(testingappwrapper.Component{Template: pytorchJob.Obj()}).
+				Component(component).
 				Obj()
 			originalComponents := aw.DeepCopy().Spec.Components
 			originalAnnotations := maps.Clone(tc.infoAnnotations)

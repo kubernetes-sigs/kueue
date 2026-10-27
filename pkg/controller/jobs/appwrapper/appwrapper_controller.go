@@ -33,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -186,7 +187,10 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 			if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
 				return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 			}
-			if obj.GroupVersionKind() != kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind) {
+			switch obj.GroupVersionKind() {
+			case kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind),
+				jobsetapi.SchemeGroupVersion.WithKind("JobSet"):
+			default:
 				continue
 			}
 			for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
@@ -197,7 +201,7 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 				if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
 					continue
 				}
-				// Child jobs bypass Kubeflow's job-start path, so pass its default through PodSetInfos.
+				// Child jobs bypass their integrations' job-start paths, so pass the default through PodSetInfos.
 				jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
 				if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
 					annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
