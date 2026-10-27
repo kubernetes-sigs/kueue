@@ -486,7 +486,7 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             timeFromCreation:
+             timeSinceCreation:
                maxSeconds: 3600
    ```
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
@@ -795,23 +795,24 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   // +optional
   ExecutionTime *PreemptionConfigTimeConstraint `json:"executionTime,omitempty"`
 
-  // timeFromCreation defines the requirements for candidates based on workload age since creation.
+  // timeSinceCreation defines the requirements for candidates based on workload age since creation.
   // A workload's time from creation is the elapsed duration measured from metadata.creationTimestamp
   // until the time of preemption evaluation.
   // Workloads not matching these requirements will not be considered as preemption candidates.
   // If nil, no creation time requirements are enforced.
   //
   // +optional
-  TimeFromCreation *PreemptionConfigTimeConstraint `json:"timeFromCreation,omitempty"`
+  TimeSinceCreation *PreemptionConfigTimeConstraint `json:"timeSinceCreation,omitempty"`
 }
 
 // PreemptionConfigTimeConstraint describes the rules for filtering preemption candidates based on a
 // time duration metric, such as cumulative execution time or age since creation.
 // For example, this can be used to protect newly admitted workloads from immediate preemption by
 // setting minSeconds on executionTime, or to protect older workloads near completion by setting
-// maxSeconds on timeFromCreation.
+// maxSeconds on timeSinceCreation.
 // Multiple fields are joined using AND-rule (all specified bounds and comparisons have to be satisfied).
 //
+// +kubebuilder:validation:AtLeastOneOf=minSeconds;maxSeconds;comparison
 // +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
 type PreemptionConfigTimeConstraint struct {
   // minSeconds specifies the minimum duration (inclusive) a candidate workload must have
@@ -819,7 +820,7 @@ type PreemptionConfigTimeConstraint struct {
   // If not specified, no lower bound is enforced.
   //
   // +optional
-  // +kubebuilder:validation:Minimum=0
+  // +kubebuilder:validation:Minimum=1
   MinSeconds *int32 `json:"minSeconds,omitempty"`
 
   // maxSeconds specifies the maximum duration (inclusive) a candidate workload can have
@@ -827,7 +828,7 @@ type PreemptionConfigTimeConstraint struct {
   // If not specified, no upper bound is enforced.
   //
   // +optional
-  // +kubebuilder:validation:Minimum=0
+  // +kubebuilder:validation:Minimum=1
   MaxSeconds *int32 `json:"maxSeconds,omitempty"`
 
   // comparison defines how the candidate's duration compares to the preemptor's
