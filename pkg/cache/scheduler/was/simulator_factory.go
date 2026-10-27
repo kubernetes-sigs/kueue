@@ -20,11 +20,8 @@ package was
 
 import (
 	"context"
-	"maps"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -46,6 +43,7 @@ import (
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -54,7 +52,7 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
-	pods        podTracker
+	pods        podtracker.Tracker
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
@@ -97,10 +95,6 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 
 	return &wasSimulatorFactory{
 		newSnapshot: snapshotFn,
-		pods: podTracker{
-			pods:         make(podsByKey),
-			workloadPods: make(podsByWorkload),
-		},
 	}, nil
 }
 
@@ -166,7 +160,7 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 }
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	tracker := s.pods.copy()
+	tracker := s.pods.Clone()
 
 	for _, wl := range simulator.AssumedWorkloads(options...) {
 		vPods := VirtualPodsForWorkload(wl)
@@ -175,24 +169,24 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		}
 
 		wlKey := client.ObjectKeyFromObject(wl)
-		tracker.clearWorkload(wlKey)
+		tracker.RemoveWorkload(wlKey)
 
 		for _, vPod := range vPods {
-			tracker.savePod(client.ObjectKeyFromObject(vPod), vPod)
+			tracker.Track(vPod)
 		}
 	}
 
-	allPods := tracker.pods.toSlice()
+	allPods := tracker.Pods()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot:    clusterSnap,
-		podsByWorkload: tracker.workloadPods,
+		wasSnapshot: clusterSnap,
+		pods:        tracker,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
-		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, tracker.workloadPods), nodes)
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)
 	}
 
 	return snapshot, nil
@@ -201,14 +195,10 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 // podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
 // cannot remove them, so they keep occupying their node even when the caller assumes
 // every Workload is gone.
-func podsNotManagedByKueue(allPods []*corev1.Pod, byWorkload podsByWorkload) []*corev1.Pod {
-	managed := sets.New[client.ObjectKey]()
-	for _, pods := range byWorkload {
-		managed.Insert(slices.Collect(maps.Keys(pods))...)
-	}
+func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 	var kept []*corev1.Pod
 	for _, pod := range allPods {
-		if !managed.Has(client.ObjectKeyFromObject(pod)) {
+		if pod.Annotations[kueue.WorkloadAnnotation] == "" {
 			kept = append(kept, pod)
 		}
 	}
@@ -223,9 +213,9 @@ func (s *wasSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
 			"missing annotation", kueue.WorkloadAnnotation,
 		)
 	}
-	s.pods.track(pod)
+	s.pods.Track(pod)
 }
 
 func (s *wasSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) string {
-	return s.pods.untrack(key)
+	return s.pods.Untrack(key)
 }
