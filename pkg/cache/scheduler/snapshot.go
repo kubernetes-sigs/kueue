@@ -61,11 +61,6 @@ type Snapshot struct {
 	// capacity, fixed once the snapshot is built.
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 
-	// released holds workloads that stay in their ClusterQueue after their
-	// usage has left the snapshot. Removing or restoring them, including in
-	// simulations, leaves the usage untouched.
-	released sets.Set[workload.Reference]
-
 	// candidateOrderCache memoizes per-CQ preemption candidate ordering per snapshot.
 	candidateOrderCache *CandidateOrderCache
 }
@@ -82,7 +77,7 @@ func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	if !s.released.Has(workload.Key(wl.Obj)) {
+	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.removeUsage(cq, wl.Usage())
 	}
 }
@@ -92,7 +87,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	if !s.released.Has(workload.Key(wl.Obj)) {
+	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.AddUsage(cq, wl.Usage())
 	}
 }
@@ -102,14 +97,15 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 // as a replaced workload slice.
 func (s *Snapshot) ReleaseWorkloadUsage(wl *workload.Info) {
 	key := workload.Key(wl.Obj)
-	if s.released.Has(key) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if cq.released.Has(key) {
 		return
 	}
-	if s.released == nil {
-		s.released = sets.New[workload.Reference]()
+	if cq.released == nil {
+		cq.released = sets.New[workload.Reference]()
 	}
-	s.released.Insert(key)
-	s.removeUsage(s.ClusterQueue(wl.ClusterQueue), wl.Usage())
+	cq.released.Insert(key)
+	s.removeUsage(cq, wl.Usage())
 }
 
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
@@ -185,7 +181,7 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 	}
 	cqUsages := make([]cqUsage, 0, len(workloads))
 	for _, w := range workloads {
-		if s.released.Has(workload.Key(w.Obj)) {
+		if s.ClusterQueue(w.ClusterQueue).released.Has(workload.Key(w.Obj)) {
 			continue
 		}
 		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
