@@ -383,7 +383,7 @@ test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-deepintegration
 .PHONY: test-tas-e2e-deepintegration
 test-tas-e2e-deepintegration: export JOBSET_VERSION := $(JOBSET_VERSION)
 test-tas-e2e-deepintegration: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
-test-tas-e2e-deepintegration: GINKGO_ARGS ?= --label-filter="feature:was_deepintegration"
+test-tas-e2e-deepintegration: GINKGO_ARGS ?= --label-filter="feature:was-deepintegration"
 test-tas-e2e-deepintegration: setup-e2e-env run-test-tas-e2e-deepintegration-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-was-deep-tas-extended

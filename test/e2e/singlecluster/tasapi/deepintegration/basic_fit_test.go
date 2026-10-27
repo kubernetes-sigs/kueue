@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -37,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit", "feature:was_deepintegration"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit", "feature:was-deepintegration"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -203,7 +204,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": sampleJob.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": sampleJob.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wlLookupKey), func() {
@@ -237,7 +238,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job1 pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
 		})
 
 		// Job 2 requests 1 GPU. Quota fits (8 + 1 <= 16), but all 8 nodes are currently busy
@@ -294,7 +295,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job2 pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wl2Key), func() {
@@ -327,7 +328,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job1 pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
 		})
 
 		job2 := testingjob.MakeJob("job-waiting-on-deactivation", ns.Name).
@@ -387,7 +388,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job2 pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wl2Key), func() {
@@ -404,4 +405,5 @@ func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 		Status: metav1.ConditionFalse,
 		Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
+	g.Expect(cond.Message).Should(gomega.ContainSubstring(was.FailedReasonSkipped))
 }

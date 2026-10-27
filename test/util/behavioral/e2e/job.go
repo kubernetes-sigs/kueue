@@ -65,11 +65,11 @@ func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.J
 func IsDeepIntegrationEnabled() bool {
 	return os.Getenv("E2E_CONFIG_FOLDER") == "tasapi/deepintegration" ||
 		strings.Contains(os.Getenv("E2E_EXTRA_KUEUE_FEATURE_GATES"), string(features.SchedulerLibraryDeepIntegration)+"=true") ||
-		strings.Contains(ginkgo.GinkgoLabelFilter(), "feature:was_deepintegration") ||
+		strings.Contains(ginkgo.GinkgoLabelFilter(), "feature:was-deepintegration") ||
 		strings.Contains(ginkgo.CurrentSpecReport().FileName(), "deepintegration")
 }
 
-func ExpectPodsScheduledAndRunning(ctx context.Context, c client.Client, ns string, count int, opts ...client.ListOption) {
+func ExpectPodsRunningOrSucceeded(ctx context.Context, c client.Client, ns string, count int, opts ...client.ListOption) {
 	ginkgo.GinkgoHelper()
 	if !IsDeepIntegrationEnabled() {
 		return

@@ -38,6 +38,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
@@ -148,7 +149,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 						Enabled: nodeFilters,
 					},
 					PlacementGenerate: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: "TopologyPlacementGenerator"}},
+						Enabled: []schedulerconfig.Plugin{{Name: topologyaware.Name}},
 					},
 				},
 				PluginConfig: config,

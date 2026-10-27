@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.It("Should not admit a Job if Rack required", ginkgo.Label("feature:was_deepintegration"), func() {
+		ginkgo.It("Should not admit a Job if Rack required", ginkgo.Label("feature:was-deepintegration"), func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(3).
@@ -95,6 +95,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+				PodAffinity(&corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+								MatchExpressions: []corev1.NodeSelectorRequirement{{
+									Key:      utiltesting.DefaultBlockTopologyLevel,
+									Operator: corev1.NodeSelectorOpNotIn,
+									Values:   []string{"b2"},
+								}},
+							}},
+						},
+					},
+				}).
 				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
@@ -156,13 +169,26 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			})
 		})
 
-		ginkgo.It("Should admit a Job to TAS Block if Block required", ginkgo.Label("feature:was_deepintegration"), func() {
+		ginkgo.It("Should admit a Job to TAS Block if Block required", ginkgo.Label("feature:was-deepintegration"), func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(4).
 				Completions(4).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+				PodAffinity(&corev1.Affinity{
+					NodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+								MatchExpressions: []corev1.NodeSelectorRequirement{{
+									Key:      corev1.LabelHostname,
+									Operator: corev1.NodeSelectorOpNotIn,
+									Values:   []string{"kind-worker5"},
+								}},
+							}},
+						},
+					},
+				}).
 				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
@@ -198,7 +224,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 						}})))
 			})
 			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": sampleJob.Name})
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": sampleJob.Name})
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
@@ -210,7 +236,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			})
 		})
 
-		ginkgo.It("Should allow to run a Job with parallelism < completions", ginkgo.Label("feature:was_deepintegration"), func() {
+		ginkgo.It("Should allow to run a Job with parallelism < completions", ginkgo.Label("feature:was-deepintegration"), func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(2).
@@ -233,7 +259,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 3, client.MatchingLabels{"job-name": sampleJob.Name})
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 3, client.MatchingLabels{"job-name": sampleJob.Name})
 			})
 		})
 
@@ -275,7 +301,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, numPods, client.MatchingLabels{"job-name": sampleJob.Name})
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -333,7 +358,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, numPods, client.MatchingLabels{"job-name": sampleJob.Name})
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {

@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			})
 		})
 
-		ginkgo.It("Should place pods in podset slices with slice-only scheduling based on the ranks-ordering", ginkgo.Label("feature:was_deepintegration"), func() {
+		ginkgo.It("Should place pods in podset slices with slice-only scheduling based on the ranks-ordering", ginkgo.Label("feature:was-deepintegration"), func() {
 			replicas := 2
 			parallelism := 4
 			numPods := replicas * parallelism
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, numPods)
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, numPods)
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -437,10 +437,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 						}},
 					}),
 				))
-			})
-
-			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 2)
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {

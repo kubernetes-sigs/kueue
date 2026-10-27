@@ -19,14 +19,11 @@ package deepintegration
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -42,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requirements", ginkgo.Label(e2e.Shard1, "area:tas", "feature:was_deepintegration"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requirements", ginkgo.Label(e2e.Shard1, "area:tas", "feature:was-deepintegration"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -167,7 +164,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 
 		const totalPods = 10
 		ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, totalPods)
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, totalPods)
 		})
 
 		ginkgo.By("verify topology placement of 3-slice-level pods and grouped pods", func() {
@@ -313,7 +310,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 
 		const totalPods = 11
 		ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, totalPods)
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, totalPods)
 		})
 
 		ginkgo.By("verify topology placement of group-1 and group-2 pods", func() {
@@ -424,7 +421,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 		})
 
 		ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 2)
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2)
 		})
 
 		ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
@@ -432,7 +429,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 		})
 	})
 
-	ginkgo.It("Should not admit a JobSet with 2-slice-level required topology when neither level alone is the bottleneck", func() {
+	ginkgo.It("Should not admit a JobSet with 2-slice-level required topology when neither level alone is the bottleneck", ginkgo.Serial, func() {
 		type nodeTopologyConfig struct {
 			name     string
 			block    string
@@ -523,13 +520,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Multi-Level and Mixed Requireme
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
-				cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).ShouldNot(gomega.BeNil())
-				g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
-					Type:   kueue.WorkloadQuotaReserved,
-					Status: metav1.ConditionFalse,
-					Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
+				expectQuotaReservedFailure(g, createdWorkload)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
