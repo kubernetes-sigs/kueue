@@ -18,6 +18,7 @@ package flavorassigner
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -37,6 +38,40 @@ func TestResolvePodSetFailures(t *testing.T) {
 		"workers":     workerStatus,
 		"no-attempts": leaderStatus,
 	}
+	basePodSetAssignment := PodSetAssignment{
+		Flavors: ResourceAssignment{
+			corev1.ResourceCPU:    {Name: "compute", Mode: Fit},
+			corev1.ResourceMemory: {Name: "compute", Mode: Fit},
+			"example.com/gpu":     {Name: "gpu", Mode: Fit},
+			corev1.ResourcePods:   {Name: "unrecorded", Mode: Fit},
+		},
+		FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+			{Flavor: "unused", Mode: NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
+			{Flavor: "gpu", Mode: Fit, Borrow: 2, Reasons: []string{"borrowed quota"}},
+			{Flavor: "compute", Mode: Fit},
+			{Flavor: "compute", Mode: Fit, Reasons: []string{"later attempt"}},
+		},
+	}
+	makePodSetAssignment := func(name kueue.PodSetReference, status Status, mode, attemptMode FlavorAssignmentMode, reason string) PodSetAssignment {
+		psa := basePodSetAssignment
+		psa.Name = name
+		psa.Status = status
+		psa.Flavors = make(ResourceAssignment, len(basePodSetAssignment.Flavors))
+		for resource, flavor := range basePodSetAssignment.Flavors {
+			assignment := *flavor
+			assignment.Mode = mode
+			psa.Flavors[resource] = &assignment
+		}
+		psa.FlavorAssignmentAttempts = slices.Clone(basePodSetAssignment.FlavorAssignmentAttempts)
+		for i := range psa.FlavorAssignmentAttempts {
+			psa.FlavorAssignmentAttempts[i].Reasons = slices.Clone(psa.FlavorAssignmentAttempts[i].Reasons)
+		}
+		psa.FlavorAssignmentAttempts[1].Mode = attemptMode
+		psa.FlavorAssignmentAttempts[1].NoFitReason = reason
+		psa.FlavorAssignmentAttempts[2].Mode = attemptMode
+		psa.FlavorAssignmentAttempts[2].NoFitReason = reason
+		return psa
+	}
 	cases := map[string]struct {
 		observability   bool
 		failures        map[kueue.PodSetReference]*Status
@@ -45,22 +80,27 @@ func TestResolvePodSetFailures(t *testing.T) {
 		wantStatuses    []Status
 		wantReasons     []string
 	}{
-		"multiple failed PodSets update only assigned flavor attempts": {
-			observability: true, failures: failures,
-			wantMode: NoFit, wantAttemptMode: NoFit,
-			wantStatuses: []Status{*leaderStatus, *workerStatus},
-			wantReasons:  []string{kueue.WorkloadQuotaReservedReasonSimulationFailed, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
+		"when multiple failed PodSets update only assigned flavor attempts": {
+			observability:   true,
+			failures:        failures,
+			wantMode:        NoFit,
+			wantAttemptMode: NoFit,
+			wantStatuses:    []Status{*leaderStatus, *workerStatus},
+			wantReasons:     []string{kueue.WorkloadQuotaReservedReasonSimulationFailed, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
 		},
 		"observability disabled preserves attempts": {
-			failures: failures,
-			wantMode: NoFit, wantAttemptMode: Fit,
-			wantStatuses: []Status{*leaderStatus, *workerStatus},
-			wantReasons:  []string{"", ""},
+			failures:        failures,
+			wantMode:        NoFit,
+			wantAttemptMode: Fit,
+			wantStatuses:    []Status{*leaderStatus, *workerStatus},
+			wantReasons:     []string{"", ""},
 		},
 		"no failures preserves assignments and attempts": {
-			observability: true,
-			wantMode:      Fit, wantAttemptMode: Fit,
-			wantStatuses: []Status{{}, {}}, wantReasons: []string{"", ""},
+			observability:   true,
+			wantMode:        Fit,
+			wantAttemptMode: Fit,
+			wantStatuses:    []Status{{}, {}},
+			wantReasons:     []string{"", ""},
 		},
 	}
 	for name, tc := range cases {
@@ -69,36 +109,8 @@ func TestResolvePodSetFailures(t *testing.T) {
 			assignment := Assignment{representativeMode: new(Fit)}
 			want := Assignment{representativeMode: new(tc.wantMode)}
 			for i, psName := range []kueue.PodSetReference{"leader", "workers"} {
-				assignment.PodSets = append(assignment.PodSets, PodSetAssignment{
-					Name: psName,
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "compute", Mode: Fit},
-						corev1.ResourceMemory: {Name: "compute", Mode: Fit},
-						"example.com/gpu":     {Name: "gpu", Mode: Fit},
-						corev1.ResourcePods:   {Name: "unrecorded", Mode: Fit},
-					},
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{Flavor: "unused", Mode: NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
-						{Flavor: "gpu", Mode: Fit, Borrow: 2, Reasons: []string{"borrowed quota"}},
-						{Flavor: "compute", Mode: Fit},
-						{Flavor: "compute", Mode: Fit, Reasons: []string{"later attempt"}},
-					},
-				})
-				want.PodSets = append(want.PodSets, PodSetAssignment{
-					Name: psName, Status: tc.wantStatuses[i],
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "compute", Mode: tc.wantMode},
-						corev1.ResourceMemory: {Name: "compute", Mode: tc.wantMode},
-						"example.com/gpu":     {Name: "gpu", Mode: tc.wantMode},
-						corev1.ResourcePods:   {Name: "unrecorded", Mode: tc.wantMode},
-					},
-					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
-						{Flavor: "unused", Mode: NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
-						{Flavor: "gpu", Mode: tc.wantAttemptMode, NoFitReason: tc.wantReasons[i], Borrow: 2, Reasons: []string{"borrowed quota"}},
-						{Flavor: "compute", Mode: tc.wantAttemptMode, NoFitReason: tc.wantReasons[i]},
-						{Flavor: "compute", Mode: Fit, Reasons: []string{"later attempt"}},
-					},
-				})
+				assignment.PodSets = append(assignment.PodSets, makePodSetAssignment(psName, Status{}, Fit, Fit, ""))
+				want.PodSets = append(want.PodSets, makePodSetAssignment(psName, tc.wantStatuses[i], tc.wantMode, tc.wantAttemptMode, tc.wantReasons[i]))
 			}
 			assignment.PodSets = append(assignment.PodSets, PodSetAssignment{
 				Name:                     "healthy",
