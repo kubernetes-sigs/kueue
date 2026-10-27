@@ -41,9 +41,11 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
 		cq *kueue.ClusterQueue
+		// probe is created with a dry run to observe what the webhook defaults.
+		probe *testingds.DisaggregatedSetWrapper
 	)
 
-	// startManager starts Kueue and creates a ClusterQueue with quota.
+	// startManager starts Kueue with the options of the enclosing When.
 	startManager := func(opts ...jobframework.Option) {
 		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DisaggregatedSetIntegration, true)
@@ -52,7 +54,14 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			jobframework.WithEnabledFrameworks([]string{disaggregatedset.FrameworkName, "pod"}),
 		)
 		fwk.StartManager(ctx, cfg, managerSetup(nil, opts...))
+	}
+
+	// The fixtures are created after the BeforeEach of the enclosing When has
+	// started the manager, whose webhooks they go through.
+	ginkgo.JustBeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ds-")
+		probe = testingds.MakeDisaggregatedSet("probe", ns.Name).
+			Roles(testingds.MakeRole("prefill").Replicas(0))
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -62,7 +71,7 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 				Obj()).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, cq)
-	}
+	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -112,19 +121,6 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 		return types.NamespacedName{Name: disaggregatedset.GetWorkloadName(ds.UID, ds.Name, 0), Namespace: ds.Namespace}
 	}
 
-	// expectLabelDefaulted waits until a new DisaggregatedSet gets the label,
-	// which shows that the webhook observes the default object.
-	expectLabelDefaulted := func(key, value string) {
-		ginkgo.GinkgoHelper()
-		gomega.Eventually(func(g gomega.Gomega) {
-			probe := testingds.MakeDisaggregatedSet("probe", ns.Name).
-				Roles(testingds.MakeRole("prefill").Replicas(0)).
-				Obj()
-			g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
-			g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(key, value))
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-	}
-
 	ginkgo.When("only DisaggregatedSets with a queue name are managed", func() {
 		ginkgo.BeforeEach(func() {
 			startManager()
@@ -132,7 +128,13 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 
 		ginkgo.It("should manage a DisaggregatedSet without a queue name through the namespace default LocalQueue", func() {
 			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(string(controllerconstants.DefaultLocalQueueName), ns.Name).ClusterQueue(cq.Name).Obj())
-			expectLabelDefaulted(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName))
+			ginkgo.By("waiting until the webhook observes the default", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					dryRun := probe.Clone().Obj()
+					g.Expect(k8sClient.Create(ctx, dryRun, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(dryRun.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
 			ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
 				Roles(testingds.MakeRole("prefill").Request(corev1.ResourceCPU, "100m")).
@@ -151,7 +153,13 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			setReadyReplicas(ds, 1)
 
 			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(string(controllerconstants.DefaultLocalQueueName), ns.Name).ClusterQueue(cq.Name).Obj())
-			expectLabelDefaulted(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName))
+			ginkgo.By("waiting until the webhook observes the default", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					dryRun := probe.Clone().Obj()
+					g.Expect(k8sClient.Create(ctx, dryRun, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(dryRun.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
 			ginkgo.By("updating the running DisaggregatedSet, which stays unmanaged", func() {
 				update(ds, func(ds *disaggregatedsetv1.DisaggregatedSet) {
@@ -191,7 +199,13 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
 			})
-			expectLabelDefaulted(controllerconstants.WorkloadPriorityClassLabel, controllerconstants.DefaultWorkloadPriorityClassName)
+			ginkgo.By("waiting until the webhook observes the default", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					dryRun := probe.Clone().Obj()
+					g.Expect(k8sClient.Create(ctx, dryRun, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(dryRun.Labels).To(gomega.HaveKeyWithValue(controllerconstants.WorkloadPriorityClassLabel, controllerconstants.DefaultWorkloadPriorityClassName))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
 			ginkgo.By("updating the running DisaggregatedSet, which keeps no priority class", func() {
 				update(ds, func(ds *disaggregatedsetv1.DisaggregatedSet) {

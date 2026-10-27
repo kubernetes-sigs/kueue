@@ -56,27 +56,14 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 		lq *kueue.LocalQueue
 	)
 
-	// startManager starts Kueue with the configuration and creates a queue
-	// with quota.
-	startManager := func(configuration *config.Configuration, cqWrapper *utiltestingapi.ClusterQueueWrapper) {
+	// startManager starts Kueue with the configuration of the test case.
+	startManager := func(configuration *config.Configuration) {
 		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DisaggregatedSetIntegration, true)
 		fwk.StartManager(ctx, cfg, managerSetup(configuration,
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{disaggregatedset.FrameworkName, "pod"}),
 		))
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ds-")
-
-		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
-		behavioral.MustCreate(ctx, k8sClient, fl)
-		cq = cqWrapper.
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
-				Resource(corev1.ResourceCPU, "9").
-				Obj()).
-			Obj()
-		behavioral.MustCreate(ctx, k8sClient, cq)
-		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		behavioral.MustCreate(ctx, k8sClient, lq)
 	}
 
 	ginkgo.AfterEach(func() {
@@ -88,38 +75,6 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 
 	sliceKey := func(ds *disaggregatedsetv1.DisaggregatedSet) types.NamespacedName {
 		return types.NamespacedName{Name: disaggregatedset.GetWorkloadName(ds.UID, ds.Name, 0), Namespace: ds.Namespace}
-	}
-
-	// createChildren creates the child LeaderWorkerSet and its leader
-	// StatefulSet, as the DisaggregatedSet and LeaderWorkerSet controllers do,
-	// and returns a wrapper for their first leader Pod.
-	createChildren := func(ds *disaggregatedsetv1.DisaggregatedSet, replicas int32) *testingpod.PodWrapper {
-		ginkgo.GinkgoHelper()
-		lws := testinglws.MakeLeaderWorkerSet(lwsName, ns.Name).
-			OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
-			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
-			Label(disaggregatedsetv1.SliceLabelKey, "0").
-			Label(disaggregatedsetv1.RoleLabelKey, "decode").
-			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
-			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
-			Obj()
-		behavioral.MustCreate(ctx, k8sClient, lws)
-		sts := testingsts.MakeStatefulSet(lwsName, ns.Name).
-			OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
-			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
-			Replicas(replicas).
-			Obj()
-		behavioral.MustCreate(ctx, k8sClient, sts)
-		return testingpod.MakePod(lwsName+"-0", ns.Name).
-			OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
-			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
-			Label(disaggregatedsetv1.SliceLabelKey, "0").
-			Label(disaggregatedsetv1.RoleLabelKey, "decode").
-			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
-			Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
-			SuspendedByParent(disaggregatedset.FrameworkName).
-			KueueSchedulingGate().
-			KueueFinalizer()
 	}
 
 	setReady := func(pod *corev1.Pod, ready corev1.ConditionStatus) {
@@ -146,14 +101,48 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 				Timeout:         metav1.Duration{Duration: time.Minute},
 				RecoveryTimeout: &metav1.Duration{Duration: time.Second},
 			},
-		}, utiltestingapi.MakeClusterQueue("cq"))
+		})
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ds-")
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		behavioral.MustCreate(ctx, k8sClient, fl)
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "9").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
 
 		ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
 			Queue(lq.Name).
 			Roles(testingds.MakeRole("decode").Replicas(2).Request(corev1.ResourceCPU, "100m")).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, ds)
-		leaderPod := createChildren(ds, 2)
+		ginkgo.By("creating the child LeaderWorkerSet and its leader StatefulSet, as their controllers do")
+		lws := testinglws.MakeLeaderWorkerSet(lwsName, ns.Name).
+			OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Label(disaggregatedsetv1.SliceLabelKey, "0").
+			Label(disaggregatedsetv1.RoleLabelKey, "decode").
+			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+		sts := testingsts.MakeStatefulSet(lwsName, ns.Name).
+			OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Replicas(2).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+		leaderPod := testingpod.MakePod(lwsName+"-0", ns.Name).
+			OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Label(disaggregatedsetv1.SliceLabelKey, "0").
+			Label(disaggregatedsetv1.RoleLabelKey, "decode").
+			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+			Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
+			SuspendedByParent(disaggregatedset.FrameworkName).
+			KueueSchedulingGate().
+			KueueFinalizer()
 		pod0 := leaderPod.Clone().Obj()
 		pod1 := leaderPod.Clone().Name(lwsName + "-1").Obj()
 		behavioral.MustCreate(ctx, k8sClient, pod0)
@@ -207,14 +196,50 @@ var _ = ginkgo.Describe("DisaggregatedSet slice", ginkgo.Label("job:disaggregate
 			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
 		})
 		behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
-		startManager(nil, utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check"))
+		startManager(nil)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ds-")
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		behavioral.MustCreate(ctx, k8sClient, fl)
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			AdmissionChecks("check").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "9").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
 
 		ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
 			Queue(lq.Name).
 			Roles(testingds.MakeRole("decode").WithLeader().Size(2).Request(corev1.ResourceCPU, "100m")).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, ds)
-		leader := createChildren(ds, 1).Obj()
+		ginkgo.By("creating the child LeaderWorkerSet and its leader StatefulSet, as their controllers do")
+		lws := testinglws.MakeLeaderWorkerSet(lwsName, ns.Name).
+			OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Label(disaggregatedsetv1.SliceLabelKey, "0").
+			Label(disaggregatedsetv1.RoleLabelKey, "decode").
+			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+		sts := testingsts.MakeStatefulSet(lwsName, ns.Name).
+			OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Replicas(1).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+		leaderPod := testingpod.MakePod(lwsName+"-0", ns.Name).
+			OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
+			Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+			Label(disaggregatedsetv1.SliceLabelKey, "0").
+			Label(disaggregatedsetv1.RoleLabelKey, "decode").
+			Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+			Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
+			SuspendedByParent(disaggregatedset.FrameworkName).
+			KueueSchedulingGate().
+			KueueFinalizer()
+		leader := leaderPod.Obj()
 		behavioral.MustCreate(ctx, k8sClient, leader)
 		workerSTS := testingsts.MakeStatefulSet(leader.Name, ns.Name).
 			OwnerReferenceWithUID(leader.Name, corev1.SchemeGroupVersion.WithKind("Pod"), string(leader.UID)).
