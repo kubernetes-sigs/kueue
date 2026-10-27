@@ -19,11 +19,14 @@ package appwrapper
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -175,6 +178,36 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(j), awPodSetsInfo); err != nil {
 		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		for idx := range j.Spec.Components {
+			component := &j.Spec.Components[idx]
+			obj := &unstructured.Unstructured{}
+			if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
+				return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
+			}
+			if obj.GroupVersionKind() != kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind) {
+				continue
+			}
+			for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
+				template, err := awutils.GetPodTemplateSpec(obj, ps.Path)
+				if err != nil {
+					return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
+				}
+				if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+					continue
+				}
+				// Child jobs bypass Kubeflow's job-start path, so pass its default through PodSetInfos.
+				jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+				if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+					annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
+					maps.Copy(annotations, component.PodSetInfos[psIndex].Annotations)
+					component.PodSetInfos[psIndex].Annotations = annotations
+				}
+			}
+		}
+	}
+
 	j.Spec.Suspend = false
 	return nil
 }
