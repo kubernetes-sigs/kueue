@@ -74,11 +74,10 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
 func wantsTheSamePort() FlavorTASRequests {
-	unconstrained := true
 	return FlavorTASRequests{{
 		PodSet: &kueue.PodSet{
 			Name:            "main",
-			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: &unconstrained},
+			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: new(true)},
 			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 				Containers: []corev1.Container{{
 					Name:  "c",

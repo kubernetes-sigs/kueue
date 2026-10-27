@@ -105,8 +105,6 @@ func TestQuantityToFloat64(t *testing.T) {
 
 func TestConvertResourceGroups(t *testing.T) {
 	nominalQuota := resource.MustParse("4")
-	borrowingLimit := resource.MustParse("2")
-	lendingLimit := resource.MustParse("1")
 
 	rgs := []kueueapi.ResourceGroup{
 		{
@@ -118,8 +116,8 @@ func TestConvertResourceGroups(t *testing.T) {
 						{
 							Name:           "cpu",
 							NominalQuota:   nominalQuota,
-							BorrowingLimit: &borrowingLimit,
-							LendingLimit:   &lendingLimit,
+							BorrowingLimit: new(resource.MustParse("2")),
+							LendingLimit:   new(resource.MustParse("1")),
 						},
 					},
 				},

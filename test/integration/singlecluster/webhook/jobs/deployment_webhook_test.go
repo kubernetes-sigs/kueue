@@ -221,14 +221,13 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			// the foregroundDeletion finalizer (as the GC would add during teardown).
 			childDeployment := testingdeployment.MakeDeployment("child-deployment", ns.Name).Obj()
 			childDeployment.Finalizers = []string{metav1.FinalizerDeleteDependents}
-			isController := true
 			childDeployment.OwnerReferences = []metav1.OwnerReference{
 				{
 					APIVersion: deployGVK.GroupVersion().String(),
 					Kind:       deployGVK.Kind,
 					Name:       parentDeployment.Name,
 					UID:        parentDeployment.UID,
-					Controller: &isController,
+					Controller: new(true),
 				},
 			}
 			behavioral.MustCreate(ctx, k8sClient, childDeployment)
@@ -237,9 +236,8 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			// finalizers so it disappears from the API server immediately,
 			// simulating the "background delete while foreground chain is active"
 			// scenario described in the bug report.
-			background := metav1.DeletePropagationBackground
 			gomega.Expect(k8sClient.Delete(ctx, parentDeployment, &client.DeleteOptions{
-				PropagationPolicy: &background,
+				PropagationPolicy: new(metav1.DeletePropagationBackground),
 			})).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
