@@ -533,81 +533,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		if done, result, err := r.reconcileActive(ctx, &wl, draPreprocessed, draQueueOptions); done {
 			return result, err
 		}
-	} else {
-		var updated, evicted bool
-		var underlyingCause kueue.EvictionUnderlyingCause
-		reason := kueue.WorkloadDeactivated
-		message := "The workload is deactivated"
-		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-		if dtCond != nil {
-			underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
-			message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
-		}
-		if !workloadevict.IsEvicted(&wl) {
-			updated = true
-			evicted = true
-		}
-		// If the Workload is already evicted, the branch below calls `clientutil.PatchStatus`
-		// instead of Evict(), which is the only place that clears DeactivationTarget.
-		// Left in place, that condition would still be true the next time this Workload is
-		// activated, causing it to be deactivated again immediately.
-		if dtCond != nil || wl.Status.RequeueState != nil {
-			updated = true
-		}
-		prepare := func(wl *kueue.Workload) {
-			if dtCond != nil {
-				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-				// Consuming a DeactivationTarget on an already-evicted Workload (evicted is
-				// false) skips Evict(), so record the deactivation reason and reset the checks
-				// here. Otherwise the Evicted condition keeps the reason of the earlier
-				// eviction, and a Rejected check would re-deactivate the Workload as soon as it
-				// is reactivated.
-				if !evicted {
-					workloadevict.SetEvictedCondition(wl, r.clock.Now(),
-						workloadpatching.ReasonWithCause(reason, string(underlyingCause)), message)
-					workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
-				}
-			}
-			if wl.Status.RequeueState != nil {
-				// Clear RequeueState using Merge Patch instead of SSA.
-				// SSA cannot delete a pointer field with json:",omitempty" when it's owned
-				// by a different field manager. Merge Patch handles this correctly.
-				wl.Status.RequeueState = nil
-			}
-		}
-		if updated {
-			if evicted {
-				exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl)
-				if err := workloadevict.Evict(
-					ctx,
-					r.client,
-					r.recorder,
-					&wl,
-					reason,
-					message,
-					underlyingCause,
-					r.clock,
-					exposeLqMetrics,
-					r.roleTracker,
-					r.customLabels,
-					workloadevict.WithCustomPrepare(prepare),
-				); err != nil {
-					if !apierrors.IsNotFound(err) {
-						return ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
-					}
-				}
-			} else {
-				if err := clientutil.PatchStatus(ctx, r.client, &wl, func() (bool, error) {
-					prepare(&wl)
-					return true, nil
-				}); err != nil {
-					if !apierrors.IsNotFound(err) {
-						return ctrl.Result{}, fmt.Errorf("updating workload: %w", err)
-					}
-				}
-			}
-			return ctrl.Result{}, nil
-		}
+	} else if done, result, err := r.reconcileInactive(ctx, &wl); done {
+		return result, err
 	}
 
 	lq := kueue.LocalQueue{}
@@ -951,6 +878,89 @@ func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Wor
 		}
 
 		log.V(3).Info("Workload requeued after backoff")
+		return true, ctrl.Result{}, nil
+	}
+	return false, ctrl.Result{}, nil
+}
+
+// reconcileInactive evicts a deactivated workload, or, when it is already
+// evicted, consumes its DeactivationTarget condition and clears its RequeueState.
+// Returns done=true when the workload status was updated and reconciliation should stop.
+func (r *WorkloadReconciler) reconcileInactive(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	var updated, evicted bool
+	var underlyingCause kueue.EvictionUnderlyingCause
+	reason := kueue.WorkloadDeactivated
+	message := "The workload is deactivated"
+	dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+	if dtCond != nil {
+		underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
+		message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
+	}
+	if !workloadevict.IsEvicted(wl) {
+		updated = true
+		evicted = true
+	}
+	// If the Workload is already evicted, the branch below calls `clientutil.PatchStatus`
+	// instead of Evict(), which is the only place that clears DeactivationTarget.
+	// Left in place, that condition would still be true the next time this Workload is
+	// activated, causing it to be deactivated again immediately.
+	if dtCond != nil || wl.Status.RequeueState != nil {
+		updated = true
+	}
+	prepare := func(wl *kueue.Workload) {
+		if dtCond != nil {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+			// Consuming a DeactivationTarget on an already-evicted Workload (evicted is
+			// false) skips Evict(), so record the deactivation reason and reset the checks
+			// here. Otherwise the Evicted condition keeps the reason of the earlier
+			// eviction, and a Rejected check would re-deactivate the Workload as soon as it
+			// is reactivated.
+			if !evicted {
+				workloadevict.SetEvictedCondition(wl, r.clock.Now(),
+					workloadpatching.ReasonWithCause(reason, string(underlyingCause)), message)
+				workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+			}
+		}
+		if wl.Status.RequeueState != nil {
+			// Clear RequeueState using Merge Patch instead of SSA.
+			// SSA cannot delete a pointer field with json:",omitempty" when it's owned
+			// by a different field manager. Merge Patch handles this correctly.
+			wl.Status.RequeueState = nil
+		}
+	}
+	if updated {
+		if evicted {
+			exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
+			if err := workloadevict.Evict(
+				ctx,
+				r.client,
+				r.recorder,
+				wl,
+				reason,
+				message,
+				underlyingCause,
+				r.clock,
+				exposeLqMetrics,
+				r.roleTracker,
+				r.customLabels,
+				workloadevict.WithCustomPrepare(prepare),
+			); err != nil {
+				if !apierrors.IsNotFound(err) {
+					return true, ctrl.Result{}, fmt.Errorf("setting eviction: %w", err)
+				}
+			}
+		} else {
+			if err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+				prepare(wl)
+				return true, nil
+			}); err != nil {
+				if !apierrors.IsNotFound(err) {
+					return true, ctrl.Result{}, fmt.Errorf("updating workload: %w", err)
+				}
+			}
+		}
 		return true, ctrl.Result{}, nil
 	}
 	return false, ctrl.Result{}, nil
