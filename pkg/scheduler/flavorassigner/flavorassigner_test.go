@@ -8533,12 +8533,14 @@ func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 			old := utiltestingapi.MakeWorkload("old", "default").
+				UID("old-uid").
 				Annotation(constants.ElasticJobAnnotation, "true").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Assignment(corev1.ResourceCPU, "flavor-1", "2").TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).Obj()).Obj()).Obj(), time.Now()).
 				AdmittedAt(true, time.Now()).
 				Obj()
 			oldInfo := workload.NewInfo(log, old)
+			cq.Workloads[workload.Key(old)] = oldInfo
 			cq.AddUsage(oldInfo.Usage())
 			cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(tc.otherUsage)})
 			before, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()

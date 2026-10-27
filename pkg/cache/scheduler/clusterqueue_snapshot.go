@@ -50,9 +50,12 @@ const (
 )
 
 type ClusterQueueSnapshot struct {
-	Name                      kueue.ClusterQueueReference
-	ResourceGroups            []ResourceGroup
-	Workloads                 map[workload.Reference]*workload.Info
+	Name           kueue.ClusterQueueReference
+	ResourceGroups []ResourceGroup
+	Workloads      map[workload.Reference]*workload.Info
+	// released holds workloads retained for conflict checks after their usage
+	// has left this snapshot. Simulations must not subtract that usage again.
+	released                  sets.Set[workload.Reference]
 	WorkloadsNotReady         sets.Set[workload.Reference]
 	NamespaceSelector         labels.Selector
 	Preemption                kueue.ClusterQueuePreemption
@@ -88,6 +91,17 @@ func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *Resou
 		}
 	}
 	return nil
+}
+
+// WorkloadUsageIsAccounted reports whether this exact workload is present and
+// its usage has not already been released in this scheduling cycle.
+func (c *ClusterQueueSnapshot) WorkloadUsageIsAccounted(wl *workload.Info) bool {
+	if wl == nil || wl.Obj == nil {
+		return false
+	}
+	key := workload.Key(wl.Obj)
+	current := c.Workloads[key]
+	return current != nil && current.Obj.UID == wl.Obj.UID && !c.released.Has(key)
 }
 
 // SimulateUsageAddition modifies the snapshot by adding usage, and

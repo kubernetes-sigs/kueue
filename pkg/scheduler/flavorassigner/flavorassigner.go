@@ -517,15 +517,9 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
-			// Elastic placement accounts for the previous assignment itself.
-			// Remove its cached usage during the search to avoid counting it twice.
-			restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
-			defer restore()
-		}
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
+			result := assignment.FindTopologyAssignments(ctx, a.cq, tasRequests, schdcache.WithWorkload(a.wl.Obj))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				assignment.ResolvePodSetFailure(
@@ -540,8 +534,9 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		}
 		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 			// Don't preempt other workloads if looking for a failed node replacement
-			result := a.cq.FindTopologyAssignmentsForWorkload(
+			result := assignment.FindTopologyAssignments(
 				ctx,
+				a.cq,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkload(a.wl.Obj),
