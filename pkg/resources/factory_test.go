@@ -34,6 +34,8 @@ func TestPodRequests(t *testing.T) {
 	cases := map[string]struct {
 		podSpec corev1.PodSpec
 		want    corev1.ResourceList
+		// wantWithoutOverhead defaults to want when unset.
+		wantWithoutOverhead corev1.ResourceList
 	}{
 		"valid pod-level request is retained": {
 			podSpec: corev1.PodSpec{
@@ -69,7 +71,8 @@ func TestPodRequests(t *testing.T) {
 				},
 				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 			},
-			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("9")},
+			want:                corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("9")},
+			wantWithoutOverhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 		},
 		// Regression test for #14255.
 		"init container request is included in the aggregate": {
@@ -159,19 +162,48 @@ func TestPodRequests(t *testing.T) {
 				}}},
 				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
 			},
-			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+			want:                corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+			wantWithoutOverhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		// Regression test for #14015.
+		"a negative sidecar does not spend the overhead": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					RestartPolicy: &restartAlways,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("-3")},
+					},
+				}},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("8")},
+				}}},
+				Overhead: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			},
+			want:                corev1.ResourceList{"example.com/gpu": resource.MustParse("9")},
+			wantWithoutOverhead: corev1.ResourceList{"example.com/gpu": resource.MustParse("8")},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := PodRequests(&tc.podSpec)
-			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b resource.Quantity) bool {
-				return a.Cmp(b) == 0
-			})); diff != "" {
-				t.Errorf("PodRequests() mismatch (-want +got):\n%s", diff)
+			assertResourceList(t, "PodRequests", tc.want, PodRequests(&tc.podSpec))
+			wantWithoutOverhead := tc.want
+			if tc.wantWithoutOverhead != nil {
+				wantWithoutOverhead = tc.wantWithoutOverhead
 			}
+			assertResourceList(t, "PodRequestsWithoutOverhead", wantWithoutOverhead, PodRequestsWithoutOverhead(&tc.podSpec))
 		})
+	}
+}
+
+// assertResourceList compares two ResourceLists, treating equal quantities as
+// equal.
+func assertResourceList(t *testing.T, funcName string, want, got corev1.ResourceList) {
+	t.Helper()
+	if diff := cmp.Diff(want, got, cmp.Comparer(func(a, b resource.Quantity) bool {
+		return a.Cmp(b) == 0
+	})); diff != "" {
+		t.Errorf("%s() mismatch (-want +got):\n%s", funcName, diff)
 	}
 }
 

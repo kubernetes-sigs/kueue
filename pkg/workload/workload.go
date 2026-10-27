@@ -776,13 +776,13 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 // so a pod overhead or a transformation output carried under the same name is left
 // where it is.
 func subtractReplacedRequestsFrom(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
-	containerRequests := resources.ContainerRequests(spec)
+	askedFor := resources.PodRequestsWithoutOverhead(spec)
 	for extRes := range replaced {
 		q, ok := retained[extRes]
 		if !ok {
 			continue
 		}
-		q.Sub(containerRequests[extRes])
+		q.Sub(askedFor[extRes])
 		if q.CmpInt64(0) <= 0 {
 			delete(retained, extRes)
 			continue
