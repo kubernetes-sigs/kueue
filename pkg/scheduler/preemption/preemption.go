@@ -127,6 +127,7 @@ type preemptionCtx struct {
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
 	tasRequests           schdcache.WorkloadTASRequests
+	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
 }
@@ -203,6 +204,7 @@ func (p *Preemptor) buildContext(
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
+		assignment:        assignment,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
@@ -585,8 +587,9 @@ func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workload, given the simulated usage of the snapshot. It always succeeds if the
 // workload has no topology requests.
 func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) bool {
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
+	tasResult := preemptionCtx.assignment.FindTopologyAssignments(
 		ctx,
+		preemptionCtx.preemptorCQ,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
 	)
@@ -605,21 +608,16 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInRequestedResources checks whether the preemptor CQ's
-// usage is at or below nominal quota (usage <= nominal) for all positive
-// flavor-resource requests assigned to the incoming workload.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is that
-// this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
+// requestedFlavorResources returns the flavor-resources with a positive
+// request assigned to the incoming workload.
+func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
+	frs := sets.New[resources.FlavorResource]()
 	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if request.CmpInt64(0) <= 0 {
-			continue
-		}
-		if preemptionCtx.preemptorCQ.Borrowing(fr) {
-			return false
+		if request.CmpInt64(0) > 0 {
+			frs.Insert(fr)
 		}
 	}
-	return true
+	return frs
 }
 
 // buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.
