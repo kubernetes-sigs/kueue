@@ -233,6 +233,25 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 		})
 	})
 
+	ginkgo.DescribeTable("should reject a Kueue annotation in role metadata only on a managed DisaggregatedSet",
+		func(key, value string) {
+			behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
+				Roles(testingds.MakeRole("prefill").Annotation(key, value)).
+				Obj())
+			gomega.Expect(k8sClient.Create(ctx, testingds.MakeDisaggregatedSet("ds-managed", ns.Name).
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").Annotation(key, value)).
+				Obj())).To(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+key+"]")),
+			))
+		},
+		ginkgo.Entry("elastic job", kueueconstants.ElasticJobAnnotation, "true"),
+		ginkgo.Entry("elastic job scale-up strategy", kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "atomic"),
+		ginkgo.Entry("admission gate", kueueconstants.AdmissionGatedByAnnotation, "example.com/gate"),
+		ginkgo.Entry("waitForPodsReady", constants.WaitForPodsReadyAnnotation, `{"timeout":"5m"}`),
+	)
+
 	ginkgo.When("a slice Workload would be too large", func() {
 		ginkgo.It("should reject a maximum membership above 1,000 Pods only on a managed DisaggregatedSet", func() {
 			behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
@@ -483,6 +502,15 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 			})).To(gomega.SatisfyAll(
 				utiltesting.BeForbiddenError(),
 				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].spec.leaderWorkerTemplate.workerTemplate.metadata.annotations")),
+			))
+		})
+
+		ginkgo.It("should reject adding an admission gate to role metadata", func() {
+			gomega.Expect(update(ds, func(ds *disaggregatedsetv1.DisaggregatedSet) {
+				ds.Spec.Roles[0].Annotations = map[string]string{kueueconstants.AdmissionGatedByAnnotation: "example.com/gate"}
+			})).To(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+kueueconstants.AdmissionGatedByAnnotation+"]")),
 			))
 		})
 

@@ -59,6 +59,13 @@ Set the queue name and the `kueue.x-k8s.io/priority-class` label only on the
 DisaggregatedSet itself. Kueue rejects them in role metadata and in the leader
 and worker templates, because a change there starts a rollout.
 
+Kueue also rejects the `kueue.x-k8s.io/elastic-job`,
+`kueue.x-k8s.io/elastic-job-scale-up-strategy`, `kueue.x-k8s.io/admission-gated-by`
+and `kueue.x-k8s.io/wait-for-pods-ready` annotations in role metadata. The
+DisaggregatedSet controller copies role metadata to each child LeaderWorkerSet,
+where Kueue could reject these annotations and block the DisaggregatedSet. Set the
+admission-gate and `waitForPodsReady` annotations on the DisaggregatedSet itself.
+
 ### b. Resource needs
 
 Kueue creates one Workload per slice. The Workload has one PodSet per role, or

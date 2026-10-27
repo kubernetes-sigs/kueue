@@ -35,6 +35,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -165,6 +166,17 @@ var (
 // DisaggregatedSet, but start a rollout when they change.
 var forbiddenRoleLabels = []string{constants.QueueLabel, constants.WorkloadPriorityClassLabel}
 
+// forbiddenRoleAnnotations are annotations that the DisaggregatedSet controller
+// copies from role metadata to the child LeaderWorkerSet. The LeaderWorkerSet
+// webhook validates them on every LeaderWorkerSet, so a value that it rejects
+// would keep the DisaggregatedSet controller from creating or updating the child.
+var forbiddenRoleAnnotations = []string{
+	kueueconstants.ElasticJobAnnotation,
+	kueueconstants.ElasticJobScaleUpStrategyAnnotationKey,
+	kueueconstants.AdmissionGatedByAnnotation,
+	constants.WaitForPodsReadyAnnotation,
+}
+
 func (wh *Webhook) ValidateCreate(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("disaggregatedset-webhook")
 	log.V(5).Info("Validating create")
@@ -277,7 +289,8 @@ func validateManaged(ds *disaggregatedsetv1.DisaggregatedSet) (field.ErrorList, 
 }
 
 // validateRole rejects the DisaggregatedSet features that the integration does
-// not support, and the Kueue labels that would only start a rollout.
+// not support, the Kueue labels that would only start a rollout, and the Kueue
+// annotations that the LeaderWorkerSet webhook could reject on a child.
 func validateRole(role *disaggregatedsetv1.DisaggregatedRoleSpec, rolePath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	roleSpecPath := rolePath.Child("spec")
@@ -315,6 +328,8 @@ func validateRole(role *disaggregatedsetv1.DisaggregatedRoleSpec, rolePath *fiel
 	}
 
 	allErrs = append(allErrs, validateForbiddenLabels(role.Labels, rolePath.Child("metadata", "labels"))...)
+	allErrs = append(allErrs, validateForbiddenKeys(role.Annotations, forbiddenRoleAnnotations, rolePath.Child("metadata", "annotations"),
+		"is not supported in role metadata of a DisaggregatedSet managed by Kueue")...)
 	if leader := role.Spec.LeaderWorkerTemplate.LeaderTemplate; leader != nil {
 		allErrs = append(allErrs, validateForbiddenLabels(leader.Labels, lwtPath.Child("leaderTemplate", "metadata", "labels"))...)
 	}
@@ -324,11 +339,15 @@ func validateRole(role *disaggregatedsetv1.DisaggregatedRoleSpec, rolePath *fiel
 }
 
 func validateForbiddenLabels(roleLabels map[string]string, labelsPath *field.Path) field.ErrorList {
+	return validateForbiddenKeys(roleLabels, forbiddenRoleLabels, labelsPath,
+		"must be set on the DisaggregatedSet metadata instead of a role")
+}
+
+func validateForbiddenKeys(values map[string]string, forbiddenKeys []string, mapPath *field.Path, detail string) field.ErrorList {
 	var allErrs field.ErrorList
-	for _, key := range forbiddenRoleLabels {
-		if _, found := roleLabels[key]; found {
-			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(key),
-				"must be set on the DisaggregatedSet metadata instead of a role"))
+	for _, key := range forbiddenKeys {
+		if _, found := values[key]; found {
+			allErrs = append(allErrs, field.Forbidden(mapPath.Key(key), detail))
 		}
 	}
 	return allErrs

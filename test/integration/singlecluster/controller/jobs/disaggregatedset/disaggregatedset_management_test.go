@@ -17,12 +17,15 @@ limitations under the License.
 package disaggregatedset
 
 import (
+	"maps"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -33,6 +36,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingds "sigs.k8s.io/kueue/pkg/util/testingjobs/disaggregatedset"
+	testinglws "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -138,6 +142,36 @@ var _ = ginkgo.Describe("DisaggregatedSet management", ginkgo.Label("job:disaggr
 
 			gomega.Expect(ds.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, string(controllerconstants.DefaultLocalQueueName)))
 			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, sliceKey(ds))
+		})
+
+		ginkgo.It("should let the LeaderWorkerSet webhook accept a child LeaderWorkerSet of a managed DisaggregatedSet", func() {
+			ds := testingds.MakeDisaggregatedSet("ds", ns.Name).
+				Queue("queue").
+				Roles(testingds.MakeRole("decode").WithLeader().Size(2).
+					Label("app", "llm").
+					Annotation("example.com/role", "decode").
+					Request(corev1.ResourceCPU, "100m").
+					PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					PodTemplateAnnotation(kueue.PodSetGroupName, "group")).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ds)
+
+			ginkgo.By("creating the child LeaderWorkerSet from the role metadata and templates, as the DisaggregatedSet controller does")
+			role := ds.Spec.Roles[0]
+			lws := testinglws.MakeLeaderWorkerSet("ds-rev-decode", ns.Name).
+				OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
+				Obj()
+			lws.Labels = maps.Clone(role.Labels)
+			lws.Annotations = maps.Clone(role.Annotations)
+			lws.Spec = *role.Spec.DeepCopy()
+			lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			ginkgo.By("checking that the LeaderWorkerSet webhook did not stamp the templates")
+			gomega.Expect(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations).
+				To(gomega.Equal(role.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations))
+			gomega.Expect(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations).
+				To(gomega.Equal(role.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations))
 		})
 
 		ginkgo.It("should manage a running DisaggregatedSet through the default LocalQueue only after its roles are scaled to zero", func() {

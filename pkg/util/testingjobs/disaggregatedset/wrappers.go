@@ -198,6 +198,12 @@ func (w *RoleWrapper) Label(k, v string) *RoleWrapper {
 	return w
 }
 
+// Annotation sets an annotation in the role metadata.
+func (w *RoleWrapper) Annotation(k, v string) *RoleWrapper {
+	setKey(&w.Annotations, k, v)
+	return w
+}
+
 // LeaderTemplateLabel sets a label on the leader template.
 func (w *RoleWrapper) LeaderTemplateLabel(k, v string) *RoleWrapper {
 	setKey(&w.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels, k, v)
