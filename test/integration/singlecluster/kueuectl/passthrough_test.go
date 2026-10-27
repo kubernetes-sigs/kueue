@@ -80,6 +80,12 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 			obj := makeObject(ns.Name)
 			behavioral.MustCreate(ctx, k8sClient, obj)
 			key := client.ObjectKeyFromObject(obj)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, key, obj)).Should(utiltesting.BeNotFoundError())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
 			identityArgs := []string{oType, key.Name}
 			if len(key.Namespace) > 0 {
