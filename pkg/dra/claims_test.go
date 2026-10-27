@@ -1162,7 +1162,8 @@ func Test_GetResourceRequests(t *testing.T) {
 					{Name: "req-first", ResourceClaimTemplateName: new("claim-tmpl-first")},
 				}
 			},
-			lookup: defaultLookup,
+			lookup:       defaultLookup,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: false},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0), "", ""),
 			},
@@ -1812,7 +1813,8 @@ func TestChargesForClaimSpec(t *testing.T) {
 					testingdra.MakeFirstAvailableRequest("r", testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 1).Obj()).Obj(),
 				).
 				Build(),
-			wantErr: true,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: false},
+			wantErr:      true,
 		},
 		"independent requests add their own counts": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().
