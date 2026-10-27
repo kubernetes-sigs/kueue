@@ -18,6 +18,7 @@ package flavorassigner
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 
@@ -73,27 +74,55 @@ func TestResolvePodSetFailures(t *testing.T) {
 		return psa
 	}
 	cases := map[string]struct {
-		observability   bool
-		failures        map[kueue.PodSetReference]*Status
-		wantMode        FlavorAssignmentMode
-		wantAttemptMode FlavorAssignmentMode
-		wantStatuses    []Status
-		wantReasons     []string
+		observability        bool
+		failures             map[kueue.PodSetReference]*Status
+		wantMode             FlavorAssignmentMode
+		wantAttemptMode      FlavorAssignmentMode
+		wantStatuses         []Status
+		wantNoAttemptsStatus Status
+		wantReasons          []string
 	}{
 		"when multiple failed PodSets update only assigned flavor attempts": {
-			observability:   true,
-			failures:        failures,
+			observability:        true,
+			failures:             failures,
+			wantMode:             NoFit,
+			wantAttemptMode:      NoFit,
+			wantStatuses:         []Status{*leaderStatus, *workerStatus},
+			wantNoAttemptsStatus: *leaderStatus,
+			wantReasons:          []string{kueue.WorkloadQuotaReservedReasonSimulationFailed, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
+		},
+		"observability disabled preserves attempts": {
+			failures:             failures,
+			wantMode:             NoFit,
+			wantAttemptMode:      Fit,
+			wantStatuses:         []Status{*leaderStatus, *workerStatus},
+			wantNoAttemptsStatus: *leaderStatus,
+			wantReasons:          []string{"", ""},
+		},
+		"failures in the prefix preserve remaining PodSets": {
+			observability: true,
+			failures: map[kueue.PodSetReference]*Status{
+				"leader":  leaderStatus,
+				"workers": workerStatus,
+			},
 			wantMode:        NoFit,
 			wantAttemptMode: NoFit,
 			wantStatuses:    []Status{*leaderStatus, *workerStatus},
 			wantReasons:     []string{kueue.WorkloadQuotaReservedReasonSimulationFailed, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
 		},
-		"observability disabled preserves attempts": {
-			failures:        failures,
-			wantMode:        NoFit,
-			wantAttemptMode: Fit,
-			wantStatuses:    []Status{*leaderStatus, *workerStatus},
-			wantReasons:     []string{"", ""},
+		"unknown failure names do not prevent resolving known failures": {
+			observability: true,
+			failures: map[kueue.PodSetReference]*Status{
+				"leader":      leaderStatus,
+				"workers":     workerStatus,
+				"no-attempts": leaderStatus,
+				"unknown":     leaderStatus,
+			},
+			wantMode:             NoFit,
+			wantAttemptMode:      NoFit,
+			wantStatuses:         []Status{*leaderStatus, *workerStatus},
+			wantNoAttemptsStatus: *leaderStatus,
+			wantReasons:          []string{kueue.WorkloadQuotaReservedReasonSimulationFailed, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
 		},
 		"no failures preserves assignments and attempts": {
 			observability:   true,
@@ -121,9 +150,14 @@ func TestResolvePodSetFailures(t *testing.T) {
 				Name:                     "healthy",
 				Flavors:                  ResourceAssignment{corev1.ResourceCPU: {Name: "compute", Mode: Fit}},
 				FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "compute", Mode: Fit}},
-			}, PodSetAssignment{Name: "no-attempts", Status: tc.wantStatuses[0]})
+			}, PodSetAssignment{Name: "no-attempts", Status: tc.wantNoAttemptsStatus})
 
+			wantFailures := maps.Clone(tc.failures)
 			assignment.ResolvePodSetFailures(tc.failures, NoFit)
+
+			if diff := cmp.Diff(wantFailures, tc.failures, cmp.AllowUnexported(Status{}), cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected changes to failures (-want +got):\n%s", diff)
+			}
 
 			if diff := cmp.Diff(want, assignment, cmp.AllowUnexported(Assignment{}, Status{}, FlavorAssignment{}), cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected assignment (-want +got):\n%s", diff)

@@ -101,13 +101,18 @@ func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMod
 // Attempts are updated only when UnadmittedWorkloadsObservability is enabled.
 func (a *Assignment) ResolvePodSetFailures(failures map[kueue.PodSetReference]*Status, targetMode FlavorAssignmentMode) {
 	recordAttempts := features.Enabled(features.UnadmittedWorkloadsObservability)
+	remaining := len(failures)
 	for i := range a.PodSets {
+		if remaining == 0 {
+			break
+		}
 		psAssignment := &a.PodSets[i]
 		if status, failed := failures[psAssignment.Name]; failed {
 			a.resolvePodSetFailure(psAssignment, targetMode, status)
 			if recordAttempts {
 				psAssignment.markAssignedFlavorAttempts(targetMode, status.noFitReason)
 			}
+			remaining--
 		}
 	}
 }
