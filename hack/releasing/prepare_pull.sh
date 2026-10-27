@@ -342,9 +342,7 @@ function push_and_create_pr() {
   fi
 }
 
-function prepare_release_pr() {
-  local PREPARE_RELEASE_BRANCH PREPARE_RELEASE_BRANCH_UNIQUE PREPARE_RELEASE_PR_NAME
-
+if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
   PREPARE_RELEASE_BRANCH="prepare-${RELEASE_BRANCH}"
   declare -r PREPARE_RELEASE_BRANCH
   PREPARE_RELEASE_BRANCH_UNIQUE="${PREPARE_RELEASE_BRANCH}-$(date +%s)"
@@ -355,24 +353,19 @@ function prepare_release_pr() {
 
   prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 
-  if [[ -n "${DRY_RUN}" ]]; then
+  # A dry run with --target all must still prepare the main branch below.
+  if [[ -z "${DRY_RUN}" ]]; then
+    push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
+    PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
+    if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
+      RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
+      gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+        echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+      }
+    fi
+  else
     echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
-    # Return from this phase so --target all still prepares main.
-    return 0
   fi
-
-  push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
-  PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
-  if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
-    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
-    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
-      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-    }
-  fi
-}
-
-if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
-  prepare_release_pr
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
