@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -54,6 +55,7 @@ var (
 	role0LeaderMetaPath    = role0LWTPath.Child("leaderTemplate", "metadata")
 	role0WorkerMetaPath    = role0LWTPath.Child("workerTemplate", "metadata")
 	role1WorkerMetaPath    = rolesPath.Index(1).Child("spec", "leaderWorkerTemplate", "workerTemplate", "metadata")
+	role0AnnotationsPath   = rolesPath.Index(0).Child("metadata", "annotations")
 )
 
 func TestDefault(t *testing.T) {
@@ -370,6 +372,39 @@ func TestValidateCreate(t *testing.T) {
 				field.Forbidden(role0WorkerMetaPath.Child("labels").Key(constants.QueueLabel), ""),
 			}.ToAggregate(),
 		},
+		"Kueue annotations in role metadata": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").
+					Annotation(kueueconstants.ElasticJobAnnotation, "true").
+					Annotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "atomic").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+					Annotation(constants.WaitForPodsReadyAnnotation, `{"timeout":"5m"}`)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(role0AnnotationsPath.Key(kueueconstants.ElasticJobAnnotation), ""),
+				field.Forbidden(role0AnnotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey), ""),
+				field.Forbidden(role0AnnotationsPath.Key(kueueconstants.AdmissionGatedByAnnotation), ""),
+				field.Forbidden(role0AnnotationsPath.Key(constants.WaitForPodsReadyAnnotation), ""),
+			}.ToAggregate(),
+		},
+		"pod group fast admission in the Pod templates": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").WithLeader().
+					PodTemplateAnnotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(role0LeaderMetaPath.Child("annotations").Key(podconstants.GroupFastAdmissionAnnotationKey), ""),
+				field.Forbidden(role0WorkerMetaPath.Child("annotations").Key(podconstants.GroupFastAdmissionAnnotationKey), ""),
+			}.ToAggregate(),
+		},
+		"unmanaged DisaggregatedSet with Kueue annotations in role metadata is accepted": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Roles(testingds.MakeRole("prefill").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate")).
+				Obj(),
+		},
 		"generated PodSet names collide": {
 			ds: testingds.MakeDisaggregatedSet("ds", "").
 				Queue("queue").
@@ -632,6 +667,36 @@ func TestValidateCreate(t *testing.T) {
 					WorkerTemplateAnnotation(kueue.PodSetSliceSizeAnnotation, "2")).
 				Obj(),
 		},
+		"slice size within one group of a role with several replicas": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").Size(2).Replicas(2).
+					WorkerTemplateAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/host").
+					WorkerTemplateAnnotation(kueue.PodSetSliceSizeAnnotation, "2")).
+				Obj(),
+		},
+		"slice size larger than one group of a role with several replicas": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").Size(2).Replicas(2).
+					WorkerTemplateAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/host").
+					WorkerTemplateAnnotation(kueue.PodSetSliceSizeAnnotation, "4")).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(role0WorkerMetaPath.Child("annotations").Key(kueue.PodSetSliceSizeAnnotation), nil, ""),
+			}.ToAggregate(),
+		},
+		"slice size larger than the workers of one group of a role with a leader": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("decode").WithLeader().Size(3).Replicas(2).
+					WorkerTemplateAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/host").
+					WorkerTemplateAnnotation(kueue.PodSetSliceSizeAnnotation, "3")).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(role0WorkerMetaPath.Child("annotations").Key(kueue.PodSetSliceSizeAnnotation), nil, ""),
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -800,6 +865,16 @@ func TestValidateUpdate(t *testing.T) {
 		"changing slices while running": {
 			oldObj: baseDS.Clone().Roles(baseRole).RoleStatus("prefill", 1).Obj(),
 			newObj: baseDS.Clone().Slices(3).Roles(baseRole).RoleStatus("prefill", 1).Obj(),
+		},
+		"adding an admission gate to role metadata": {
+			oldObj: baseDS.Clone().Roles(baseRole).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().
+				Roles(baseRole.Clone().Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate")).
+				RoleStatus("prefill", 1).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(role0AnnotationsPath.Key(kueueconstants.AdmissionGatedByAnnotation), ""),
+			}.ToAggregate(),
 		},
 		"raising maxUnavailable above the maximum membership": {
 			oldObj: baseDS.Clone().Roles(baseRole).RoleStatus("prefill", 1).Obj(),

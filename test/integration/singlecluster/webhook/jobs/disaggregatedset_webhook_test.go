@@ -233,6 +233,43 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 		})
 	})
 
+	ginkgo.It("should reject Kueue annotations in role metadata only on a managed DisaggregatedSet", func() {
+		role := testingds.MakeRole("prefill").
+			Annotation(kueueconstants.ElasticJobAnnotation, "true").
+			Annotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "atomic").
+			Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate").
+			Annotation(constants.WaitForPodsReadyAnnotation, `{"timeout":"5m"}`)
+		behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
+			Roles(role).
+			Obj())
+		gomega.Expect(k8sClient.Create(ctx, testingds.MakeDisaggregatedSet("ds-managed", ns.Name).
+			Queue("queue").
+			Roles(role).
+			Obj())).To(gomega.SatisfyAll(
+			utiltesting.BeForbiddenError(),
+			gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+kueueconstants.ElasticJobAnnotation+"]")),
+			gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+kueueconstants.ElasticJobScaleUpStrategyAnnotationKey+"]")),
+			gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+kueueconstants.AdmissionGatedByAnnotation+"]")),
+			gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+constants.WaitForPodsReadyAnnotation+"]")),
+		))
+	})
+
+	ginkgo.It("should reject pod group fast admission in the worker template only on a managed DisaggregatedSet", func() {
+		role := testingds.MakeRole("prefill").
+			WorkerTemplateAnnotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue)
+		behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
+			Roles(role).
+			Obj())
+		gomega.Expect(k8sClient.Create(ctx, testingds.MakeDisaggregatedSet("ds-managed", ns.Name).
+			Queue("queue").
+			Roles(role).
+			Obj())).To(gomega.SatisfyAll(
+			utiltesting.BeForbiddenError(),
+			gomega.MatchError(gomega.ContainSubstring("spec.roles[0].spec.leaderWorkerTemplate.workerTemplate.metadata.annotations["+
+				podconstants.GroupFastAdmissionAnnotationKey+"]")),
+		))
+	})
+
 	ginkgo.When("a slice Workload would be too large", func() {
 		ginkgo.It("should reject a maximum membership above 1,000 Pods only on a managed DisaggregatedSet", func() {
 			behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
@@ -483,6 +520,15 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 			})).To(gomega.SatisfyAll(
 				utiltesting.BeForbiddenError(),
 				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].spec.leaderWorkerTemplate.workerTemplate.metadata.annotations")),
+			))
+		})
+
+		ginkgo.It("should reject adding an admission gate to role metadata", func() {
+			gomega.Expect(update(ds, func(ds *disaggregatedsetv1.DisaggregatedSet) {
+				ds.Spec.Roles[0].Annotations = map[string]string{kueueconstants.AdmissionGatedByAnnotation: "example.com/gate"}
+			})).To(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].metadata.annotations["+kueueconstants.AdmissionGatedByAnnotation+"]")),
 			))
 		})
 

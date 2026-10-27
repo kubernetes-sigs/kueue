@@ -59,6 +59,13 @@ Set the queue name and the `kueue.x-k8s.io/priority-class` label only on the
 DisaggregatedSet itself. Kueue rejects them in role metadata and in the leader
 and worker templates, because a change there starts a rollout.
 
+Kueue also rejects the `kueue.x-k8s.io/elastic-job`,
+`kueue.x-k8s.io/elastic-job-scale-up-strategy`, `kueue.x-k8s.io/admission-gated-by`
+and `kueue.x-k8s.io/wait-for-pods-ready` annotations in role metadata. The
+DisaggregatedSet controller copies role metadata to each child LeaderWorkerSet,
+where Kueue could reject these annotations and block the DisaggregatedSet. Set the
+admission-gate and `waitForPodsReady` annotations on the DisaggregatedSet itself.
+
 ### b. Resource needs
 
 Kueue creates one Workload per slice. The Workload has one PodSet per role, or
@@ -119,8 +126,9 @@ kubectl create -f sample-disaggregatedset.yaml
   topology assignments.
 - Kueue rejects these features on a DisaggregatedSet that it manages:
   `scaling.mode: External`, `subRoles`, role `spec.scheduling`,
-  `groupIdentity: Hash`, `maxSurge` above zero, `leaderWorkerTemplate.maxGroupRestarts`
-  and `leaderWorkerTemplate.restartBackoff`.
+  `groupIdentity: Hash`, `maxSurge` above zero, `leaderWorkerTemplate.maxGroupRestarts`,
+  `leaderWorkerTemplate.restartBackoff`, and the `kueue.x-k8s.io/pod-group-fast-admission`
+  annotation in the leader and worker templates.
 
 ## Configure Topology Aware Scheduling
 
@@ -135,6 +143,12 @@ template, `size > 1` and `replicas: 1`.
 
 A role template with TAS annotations cannot be combined with a
 `placementPolicy.type` other than `None`.
+
+The `kueue.x-k8s.io/podset-slice-size` annotation of a template can be at most
+the number of Pods that the template has in one group of the role: `size` for a
+role without a leader template, and `size - 1` for the workers of a role with
+one. Each child LeaderWorkerSet is validated with this limit, even though Kueue
+places the Pods of all groups of the role in one PodSet.
 
 ## Troubleshooting
 

@@ -93,7 +93,10 @@ type rolePodSet struct {
 	name     kueue.PodSetReference
 	roleName string
 	count    int64
-	template *corev1.PodTemplateSpec
+	// groupCount is the Pod count of the PodSet that the LeaderWorkerSet
+	// integration builds for one group of the child LeaderWorkerSet.
+	groupCount int32
+	template   *corev1.PodTemplateSpec
 	// metaPath is the path of the template metadata, used in validation errors.
 	metaPath *field.Path
 }
@@ -149,27 +152,30 @@ func rolePodSets(role *disaggregatedsetv1.DisaggregatedRoleSpec, rolePath *field
 
 	if lwt.LeaderTemplate == nil {
 		return []rolePodSet{{
-			name:     kueue.PodSetReference(role.Name),
-			roleName: role.Name,
-			count:    replicas * size,
-			template: &lwt.WorkerTemplate,
-			metaPath: workerMetaPath,
+			name:       kueue.PodSetReference(role.Name),
+			roleName:   role.Name,
+			count:      replicas * size,
+			groupCount: int32(size),
+			template:   &lwt.WorkerTemplate,
+			metaPath:   workerMetaPath,
 		}}
 	}
 	podSets := []rolePodSet{{
-		name:     kueue.PodSetReference(role.Name + leaderPodSetSuffix),
-		roleName: role.Name,
-		count:    replicas,
-		template: lwt.LeaderTemplate,
-		metaPath: lwtPath.Child("leaderTemplate", "metadata"),
+		name:       kueue.PodSetReference(role.Name + leaderPodSetSuffix),
+		roleName:   role.Name,
+		count:      replicas,
+		groupCount: 1,
+		template:   lwt.LeaderTemplate,
+		metaPath:   lwtPath.Child("leaderTemplate", "metadata"),
 	}}
 	if size > 1 {
 		podSets = append(podSets, rolePodSet{
-			name:     kueue.PodSetReference(role.Name + workerPodSetSuffix),
-			roleName: role.Name,
-			count:    replicas * (size - 1),
-			template: &lwt.WorkerTemplate,
-			metaPath: workerMetaPath,
+			name:       kueue.PodSetReference(role.Name + workerPodSetSuffix),
+			roleName:   role.Name,
+			count:      replicas * (size - 1),
+			groupCount: int32(size - 1),
+			template:   &lwt.WorkerTemplate,
+			metaPath:   workerMetaPath,
 		})
 	}
 	return podSets
