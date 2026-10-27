@@ -459,6 +459,9 @@ mapping, not the request, decides which devices share a budget.
   time on a best-effort basis. Workloads with CEL selectors that match fewer devices than requested are rejected
   to prevent quota leaks. `firstAvailable` requests under source-less mappings compile their
   selectors but skip this device check, since only one alternative has to be satisfiable.
+  A Workload in a ClusterQueue with a MultiKueue admission check also compiles its CEL selectors
+  on the manager but skips the `ResourceSlice` availability check for source-less mappings,
+  leaving device matching to the worker cluster.
   This validation uses the upstream DRA CEL compiler from [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel).
   On the other hand, devices can be allocated between Kueue's check and scheduling, and new ResourceSlices published after
   validation can make previously-unsatisfiable workloads satisfiable. Kueue does not
@@ -780,6 +783,13 @@ The validation has two stages:
      know whether they need to adjust their CEL selectors / request admin hardware changes, or wait for
      quota to become available.
 
+When the Workload's target ClusterQueue has a MultiKueue admission check, the manager runs Stage 1
+(**CEL Compilation**) so invalid expressions are still rejected before dispatch, but skips Stage 2
+(**CEL Evaluation Against Cluster Devices**) for source-less (device-count) mappings. A MultiKueue
+manager typically has no local `ResourceSlices`, and the worker cluster runs Stage 2 against its own
+`ResourceSlices` when admitting the dispatched Workload. Counter-based and capacity-based mappings
+still read `ResourceSlices` on the manager to compute the quota charge.
+
 **Example**: A ResourceClaimTemplate requesting 2 GPUs with `device.capacity["gpu.example.com"].memory.compareTo(quantity("80Gi")) >= 0`
 will be checked against actual devices in the cluster. If only 1 device matches, the workload is rejected
 before consuming quota.
@@ -850,6 +860,7 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
 5. CEL Selector Validation: For requests with CEL selectors:
    - Compile CEL expressions and reject workloads with invalid syntax
    - Evaluate CEL selectors against actual devices from ResourceSlices, pre-filtering by DeviceClass
+     (skipped for source-less mappings when the target ClusterQueue has a MultiKueue admission check)
    - Reject workloads where fewer devices match than requested count
 6. Resource Preprocessing:
    - Calculate total device count per device class across all containers and init containers
@@ -2190,7 +2201,22 @@ is more valuable than CPU time for fair sharing purposes.
 
 ### MultiKueue Integration
 
-DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
+DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism.
+ResourceClaimTemplates and DeviceClasses must be deployed on worker clusters by users; they are not
+automatically synced.
+
+For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
+does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
+- **Source-less (device-count) mappings**: Kueue compiles CEL selectors in ResourceClaimTemplates to
+  reject invalid expressions early, but skips the CEL device availability check against local
+  `ResourceSlices` (just as the per-node [DRA Device Feasibility](#what-the-check-does-not-decide)
+  check is skipped on the manager). The manager reserves quota using the request's `count`, and the
+  worker cluster runs the CEL availability check against its own `ResourceSlices` before admitting
+  the dispatched Workload.
+- **Counter-based and capacity-based mappings**: Kueue still reads `ResourceSlices` on the manager
+  to resolve `consumesCounters` or `RequestPolicy` values for quota charging, so skipping the CEL
+  availability check does not remove the need for `ResourceSlices` on the manager when `sources` are
+  configured.
 
 ### Test Plan
 
@@ -2262,7 +2288,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Extended Resources: Testing extended resource detection, DeviceClass lookup, and resource translation
 - Late DeviceClass creation: Testing workload inadmissibility when DeviceClass does not exist
 - CEL validation: Testing CEL compilation errors, evaluation against ResourceSlice devices, and rejection
-  of workloads with unsatisfiable CEL selectors
+  of workloads with unsatisfiable CEL selectors, as well as skipping the ResourceSlice availability
+  check (while still rejecting invalid CEL syntax) when the ClusterQueue has a MultiKueue admission check
 - DRA disabled rejection: Testing that workloads with ResourceClaimTemplates or ResourceClaims are
   rejected as inadmissible when `DynamicResourceAllocation` is off and `KueueDRARejectWorkloadsWhenDRADisabled` is on,
   and that non-DRA workloads are still admitted normally
@@ -2544,6 +2571,9 @@ each. It asserts that each alternative is allocated once and that the Workload i
   checking before admission, so quota is not reserved for unplaceable Workloads
 - Device taints in device feasibility: September 2026 by @sohankunkerkar, gated by
   `KueueDRAIntegrationDeviceTaints` so they graduate separately from the check
+- Skip DRA CEL availability check on MultiKueue manager: October 2026 by @ekam-walia —
+  skip `ResourceSlice` CEL availability check for ClusterQueues with a MultiKueue admission check
+  (see [#17769](https://github.com/kubernetes-sigs/kueue/issues/17769))
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
