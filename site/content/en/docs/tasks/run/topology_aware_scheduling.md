@@ -70,6 +70,14 @@ placement intent for the PodSet. Pick the one that matches your workload:
 You set exactly one of these annotations on the Pod template's
 `metadata.annotations` (not on the Job's top-level metadata).
 
+{{% alert title="Note" color="primary" %}}
+On a TAS-only `ClusterQueue`, omitting all three annotations uses implicit TAS,
+whereas on a `ClusterQueue` that mixes TAS and non-TAS flavors in the same
+`resourceGroup`, you **must** set one of the three annotations on any PodSet
+that needs a TAS flavor; see
+[Implicit TAS and mixed-flavor ClusterQueues](/docs/concepts/topology_aware_scheduling/#implicit-tas-and-mixed-flavor-clusterqueues).
+{{% /alert %}}
+
 ### Required: same-domain placement
 
 The `kueue.x-k8s.io/podset-required-topology` annotation requires Kueue to
@@ -287,7 +295,16 @@ If the Workload stays in `Pending` state:
 - Verify that the topology label in your same-domain placement annotation, such
   as `kueue.x-k8s.io/podset-required-topology` or
   `kueue.x-k8s.io/podset-preferred-topology`, matches one of the referenced
-  `Topology` object's `spec.levels[].nodeLabel` values.
+  `Topology` object's `spec.levels[].nodeLabel` values. Even with
+  `podset-preferred-topology`, requesting a label that is not listed in
+  `Topology.spec.levels` causes the flavor to be rejected with
+  `Flavor "<name>" does not contain the requested level`.
+- If the admission condition reports
+  `Flavor "<name>" supports only TopologyAwareScheduling`, the target
+  `ClusterQueue` mixes TAS and non-TAS flavors and your PodTemplate is missing a
+  `kueue.x-k8s.io/podset-*-topology` annotation (or the annotation was placed on
+  the Job's top-level `metadata.annotations` instead of
+  `spec.template.metadata.annotations`).
 - For `required` placement, verify at least one domain at the requested level
   has enough free capacity to fit the entire PodSet.
 
