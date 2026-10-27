@@ -78,7 +78,7 @@ Priorities include integrating with Workload-Aware Scheduling (WAS) in kube-sche
 
 ## Get started
 
-Kubernetes 1.34 or newer is recommended; older versions may work but aren't tested.
+Kubernetes 1.35 or newer is recommended; older versions may work but aren't tested.
 Install the latest release, or see the [other installation options, including Helm](https://kueue.sigs.k8s.io/docs/getting-started/installation/):
 
 ```shell
@@ -120,7 +120,6 @@ Browse [concepts](https://kueue.sigs.k8s.io/docs/concepts/), [task guides](https
 
 | Kubernetes version | E2E dashboards |
 | :--- | :--- |
-| 1.34 | [baseline](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-34) · [extended shard 0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-34) · [extended shard 1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-34) · [extended shard 2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-34) |
 | 1.35 | [baseline](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-35) · [extended shard 0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-35) · [extended shard 1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-35) · [extended shard 2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-35) |
 | 1.36 | [baseline](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-36) · [extended shard 0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-36) · [extended shard 1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-36) · [extended shard 2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-36) |
 | 1.37 | [baseline](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-baseline-main-1-37) · [extended shard 0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-0-main-1-37) · [extended shard 1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-1-main-1-37) · [extended shard 2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-extended-shard-2-main-1-37) |
