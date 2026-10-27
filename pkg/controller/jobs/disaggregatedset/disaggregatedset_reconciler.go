@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -124,6 +126,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named(controllerName).
 		Watches(&kueue.Workload{}, &workloadHandler{}).
 		Watches(&corev1.Pod{}, &podHandler{}).
+		Watches(&leaderworkersetv1.LeaderWorkerSet{}, &childDeletionHandler{}).
+		Watches(&appsv1.StatefulSet{}, &childDeletionHandler{}).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "disaggregatedset-reconciler"),
 		}).
@@ -138,15 +142,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	ds := &disaggregatedsetv1.DisaggregatedSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, ds); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return reconcile.Result{}, err
+		}
 		// The Workloads of a deleted DisaggregatedSet are garbage-collected
-		// through their owner reference.
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+		// through their owner reference. Kueue no longer manages its Pods.
+		return reconcile.Result{}, r.releasePods(ctx, req.Namespace, req.Name)
 	}
 	// Workload and Pod events bypass the predicate.
 	if !ds.DeletionTimestamp.IsZero() || !r.handle(ds) {
 		return reconcile.Result{}, nil
 	}
-	return reconcile.Result{}, r.reconcileWorkloads(ctx, ds)
+	if err := r.reconcileWorkloads(ctx, ds); err != nil {
+		return reconcile.Result{}, err
+	}
+	// Pods are reconciled after the Workloads, so that they join existing ones.
+	return reconcile.Result{}, r.reconcilePods(ctx, ds)
 }
 
 func (r *Reconciler) reconcileWorkloads(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet) error {
@@ -444,8 +455,10 @@ func (r *Reconciler) Update(e event.UpdateEvent) bool {
 	return r.handle(e.ObjectNew)
 }
 
+// Delete requeues a deleted DisaggregatedSet, so that the Pods it leaves
+// behind, for example after a delete with --cascade=orphan, are released.
 func (r *Reconciler) Delete(event.DeleteEvent) bool {
-	return false
+	return true
 }
 
 // handle reports whether Kueue manages the DisaggregatedSet.
@@ -540,4 +553,33 @@ func (h *podHandler) enqueue(ctx context.Context, obj client.Object, q workqueue
 	)
 	q.AddAfter(reconcile.Request{Namespace: pod.Namespace, Name: dsName},
 		constants.UpdatesBatchPeriod)
+}
+
+// childDeletionHandler requeues the DisaggregatedSet of a deleted child
+// LeaderWorkerSet or StatefulSet. After a delete with --cascade=orphan, no Pod
+// event follows, and the Pods of the deleted object must still be released.
+type childDeletionHandler struct{}
+
+var _ handler.EventHandler = (*childDeletionHandler)(nil)
+
+func (h *childDeletionHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *childDeletionHandler) Update(context.Context, event.UpdateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *childDeletionHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	dsName, ok := e.Object.GetLabels()[disaggregatedsetv1.SetNameLabelKey]
+	if !ok {
+		return
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Queueing reconcile for the DisaggregatedSet of a deleted child object",
+		"object", klog.KObj(e.Object),
+		"disaggregatedset", klog.ObjectRef{Namespace: e.Object.GetNamespace(), Name: dsName},
+	)
+	q.AddAfter(reconcile.Request{Namespace: e.Object.GetNamespace(), Name: dsName},
+		constants.UpdatesBatchPeriod)
+}
+
+func (h *childDeletionHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }

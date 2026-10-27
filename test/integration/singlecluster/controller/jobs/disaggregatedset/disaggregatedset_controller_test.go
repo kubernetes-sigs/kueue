@@ -21,26 +21,38 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingds "sigs.k8s.io/kueue/pkg/util/testingjobs/disaggregatedset"
+	testinglws "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingsts "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var dsGVK = disaggregatedsetv1.GroupVersion.WithKind("DisaggregatedSet")
+var (
+	dsGVK  = disaggregatedsetv1.GroupVersion.WithKind("DisaggregatedSet")
+	lwsGVK = leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet")
+	stsGVK = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+)
 
 var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggregatedset", "area:jobs"), func() {
 	var (
@@ -417,5 +429,195 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 		})
 
 		behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, sliceKey(ds, 0), sliceKey(ds, 1))
+	})
+
+	ginkgo.When("the child objects of a slice exist", func() {
+		const (
+			lwsName = "ds-0-rev-prefill"
+			role    = "prefill"
+		)
+		var (
+			ds  *disaggregatedsetv1.DisaggregatedSet
+			lws *leaderworkersetv1.LeaderWorkerSet
+			sts *appsv1.StatefulSet
+			// basePod is a slice Pod as the StatefulSet controller creates it.
+			basePod *testingpod.PodWrapper
+		)
+
+		ginkgo.BeforeEach(func() {
+			ds = testingds.MakeDisaggregatedSet("ds", ns.Name).
+				Queue(lq.Name).
+				Roles(testingds.MakeRole(role).Replicas(2).Request(corev1.ResourceCPU, "100m")).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ds)
+
+			lws = testinglws.MakeLeaderWorkerSet(lwsName, ns.Name).
+				OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
+				Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+				Label(disaggregatedsetv1.SliceLabelKey, "0").
+				Label(disaggregatedsetv1.RoleLabelKey, role).
+				Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			sts = testingsts.MakeStatefulSet(lwsName, ns.Name).
+				OwnerReferenceWithUID(lws.Name, lwsGVK, string(lws.UID)).
+				Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+				Replicas(2).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sts)
+
+			basePod = testingpod.MakePod(lwsName+"-0", ns.Name).
+				OwnerReferenceWithUID(sts.Name, stsGVK, string(sts.UID)).
+				Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+				Label(disaggregatedsetv1.SliceLabelKey, "0").
+				Label(disaggregatedsetv1.RoleLabelKey, role).
+				Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+				SuspendedByParent(disaggregatedset.FrameworkName).
+				KueueSchedulingGate().
+				KueueFinalizer()
+		})
+
+		expectGated := func(pod *corev1.Pod, gated bool) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+				g.Expect(utilpod.HasGate(pod, podconstants.SchedulingGateName)).To(gomega.Equal(gated))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("should adopt the slice Pods and ungate them once the slice is admitted", func() {
+			pods := []*corev1.Pod{basePod.Clone().Obj(), basePod.Clone().Name(lwsName + "-1").Obj()}
+			for _, pod := range pods {
+				behavioral.MustCreate(ctx, k8sClient, pod)
+			}
+
+			wlName := sliceKey(ds, 0).Name
+			for _, pod := range pods {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Labels).To(gomega.HaveKeyWithValue(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue))
+					g.Expect(pod.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, lq.Name))
+					g.Expect(pod.Annotations).To(gomega.HaveKeyWithValue(podconstants.GroupNameAnnotation, wlName))
+					g.Expect(pod.Annotations).To(gomega.HaveKeyWithValue(controllerconstants.PrebuiltWorkloadAnnotation, wlName))
+					g.Expect(pod.Annotations).To(gomega.HaveKeyWithValue(podconstants.GroupTotalCountAnnotation, "2"))
+					g.Expect(pod.Annotations).To(gomega.HaveKeyWithValue(podconstants.RoleHashAnnotation, role))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, sliceKey(ds, 0))
+			for _, pod := range pods {
+				expectGated(pod, false)
+			}
+		})
+
+		ginkgo.It("should keep a Pod gated that requests more than its role template", func() {
+			pod := basePod.Clone().Obj()
+			behavioral.MustCreate(ctx, k8sClient, pod)
+			largePod := basePod.Clone().Name(lwsName+"-1").Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, largePod)
+
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, sliceKey(ds, 0))
+			expectGated(pod, false)
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(largePod), largePod)).To(gomega.Succeed())
+				g.Expect(utilpod.HasGate(largePod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				events, err := behavioral.EventsForObject(ctx, k8sClient, client.ObjectKeyFromObject(largePod))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(events).To(gomega.ContainElement(gomega.HaveField("Reason", podcontroller.ReasonPodExceedsRoleRequests)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not adopt a Pod that only carries the DisaggregatedSet labels", func() {
+			forged := testingpod.MakePod("forged", ns.Name).
+				Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+				Label(disaggregatedsetv1.SliceLabelKey, "0").
+				Label(disaggregatedsetv1.RoleLabelKey, role).
+				Label(disaggregatedsetv1.RevisionLabelKey, "rev").
+				SuspendedByParent(disaggregatedset.FrameworkName).
+				KueueSchedulingGate().
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, forged)
+
+			behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: disaggregatedset.ReasonPodNotAdopted,
+				Type:   corev1.EventTypeWarning,
+				Note:   "Not adopted by DisaggregatedSet ds: forged is not controlled by a StatefulSet",
+			})
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(forged), forged)).To(gomega.Succeed())
+			gomega.Expect(forged.Labels).NotTo(gomega.HaveKey(constants.ManagedByKueueLabelKey))
+			gomega.Expect(utilpod.HasGate(forged, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+		})
+
+		ginkgo.It("should not adopt a Pod of a real StatefulSet with an unexpected name", func() {
+			pod := basePod.Clone().Name(lwsName + "-7").Obj()
+			behavioral.MustCreate(ctx, k8sClient, pod)
+
+			behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: disaggregatedset.ReasonPodNotAdopted,
+				Type:   corev1.EventTypeWarning,
+				Note:   fmt.Sprintf("Not adopted by DisaggregatedSet ds: ordinal 7 is outside the replicas of StatefulSet %s", sts.Name),
+			})
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+			gomega.Expect(pod.Labels).NotTo(gomega.HaveKey(constants.ManagedByKueueLabelKey))
+			gomega.Expect(utilpod.HasGate(pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
+		})
+
+		ginkgo.When("an adopted Pod stays gated", func() {
+			var pod *corev1.Pod
+
+			ginkgo.BeforeEach(func() {
+				// The pod-group reconciler keeps a Pod that requests more than its
+				// role template gated, even when the slice is admitted.
+				pod = basePod.Clone().Request(corev1.ResourceCPU, "1").Obj()
+				behavioral.MustCreate(ctx, k8sClient, pod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Labels).To(gomega.HaveKey(constants.ManagedByKueueLabelKey))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				expectGated(pod, true)
+			})
+
+			ginkgo.It("should ungate the Pod when its StatefulSet is deleted", func() {
+				gomega.Expect(k8sClient.Delete(ctx, sts)).To(gomega.Succeed())
+				expectGated(pod, false)
+			})
+
+			ginkgo.It("should ungate the Pod when its LeaderWorkerSet is deleted", func() {
+				gomega.Expect(k8sClient.Delete(ctx, lws)).To(gomega.Succeed())
+				expectGated(pod, false)
+			})
+
+			ginkgo.It("should ungate the Pod when its StatefulSet is deleted with --cascade=orphan", func() {
+				ginkgo.By("clearing the owner reference of the Pod, as the garbage collector does", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+						pod.OwnerReferences = nil
+						g.Expect(k8sClient.Update(ctx, pod)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+				gomega.Expect(k8sClient.Delete(ctx, sts)).To(gomega.Succeed())
+				expectGated(pod, false)
+			})
+
+			ginkgo.It("should ungate the Pod when its LeaderWorkerSet is deleted with --cascade=orphan", func() {
+				ginkgo.By("clearing the owner reference of the StatefulSet, as the garbage collector does", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+						sts.OwnerReferences = nil
+						g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+				gomega.Expect(k8sClient.Delete(ctx, lws)).To(gomega.Succeed())
+				expectGated(pod, false)
+			})
+
+			ginkgo.It("should ungate the Pod when its DisaggregatedSet is deleted", func() {
+				gomega.Expect(k8sClient.Delete(ctx, ds)).To(gomega.Succeed())
+				expectGated(pod, false)
+			})
+		})
 	})
 })

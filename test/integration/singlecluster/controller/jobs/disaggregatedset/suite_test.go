@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -142,6 +143,8 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = disaggregatedset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, setupOpts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = leaderworkerset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = statefulset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
