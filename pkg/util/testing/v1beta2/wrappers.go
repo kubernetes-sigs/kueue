@@ -1536,6 +1536,14 @@ func (p *PodSetAssignmentWrapper) ResourceUsage(resourceName corev1.ResourceName
 	return p
 }
 
+func (p *PodSetAssignmentWrapper) PerPodRequest(resourceName corev1.ResourceName, quantity string) *PodSetAssignmentWrapper {
+	if p.PodSetAssignment.PerPodRequests == nil {
+		p.PodSetAssignment.PerPodRequests = make(corev1.ResourceList)
+	}
+	p.PodSetAssignment.PerPodRequests[resourceName] = resource.MustParse(quantity)
+	return p
+}
+
 func (p *PodSetAssignmentWrapper) Count(count int32) *PodSetAssignmentWrapper {
 	p.PodSetAssignment.Count = new(count)
 	return p

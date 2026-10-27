@@ -1249,6 +1249,13 @@ func (in *PodSetAssignment) DeepCopyInto(out *PodSetAssignment) {
 			(*out)[key] = val.DeepCopy()
 		}
 	}
+	if in.PerPodRequests != nil {
+		in, out := &in.PerPodRequests, &out.PerPodRequests
+		*out = make(corev1.ResourceList, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val.DeepCopy()
+		}
+	}
 	if in.Count != nil {
 		in, out := &in.Count, &out.Count
 		*out = new(int32)

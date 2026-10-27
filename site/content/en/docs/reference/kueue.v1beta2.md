@@ -2293,6 +2293,16 @@ the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 This field will not change in case of quota reclaim.</p>
 </td>
 </tr>
+<tr><td><code>perPodRequests</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
+</td>
+<td>
+   <p>perPodRequests records the untransformed effective requests of one Pod
+at admission time, including RuntimeClass overhead and defaults. It is
+used to verify that Pods in an admitted group fit their reserved role.
+Older admissions may not have this field.</p>
+</td>
+</tr>
 <tr><td><code>count</code><br/>
 <code>int32</code>
 </td>

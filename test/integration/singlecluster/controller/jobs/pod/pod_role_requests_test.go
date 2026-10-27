@@ -388,6 +388,51 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 			})
 		})
 
+		ginkgo.It("Should ungate pods when admission reserved the larger RuntimeClass overhead", func() {
+			const workloadName = "runtime-class-overhead-admitted"
+			runtimeClass := utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, runtimeClass)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
+			})
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &nodev1.RuntimeClass{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			pod1 := testingpod.MakePod("test-pod1", ns.Name).
+				GroupNameLabel(workloadName).GroupTotalCount("2").RoleHash(roleHash).
+				Request(corev1.ResourceCPU, "1").RuntimeClass(runtimeClass.Name).
+				Queue(lq.Name).PrebuiltWorkloadLabel(workloadName).Obj()
+			pod2 := testingpod.MakePod("test-pod2", ns.Name).
+				GroupNameLabel(workloadName).GroupTotalCount("2").RoleHash(roleHash).
+				Request(corev1.ResourceCPU, "1").RuntimeClass(runtimeClass.Name).
+				Queue(lq.Name).PrebuiltWorkloadLabel(workloadName).Obj()
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(roleHash, 2).PodSpec(*pod1.Spec.DeepCopy()).
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).Obj()).
+				Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, pod1)
+			behavioral.MustCreate(ctx, k8sClient, pod2)
+			gomega.Expect(pod1.Spec.Overhead).To(gomega.BeComparableTo(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("500m"),
+			}))
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+			gomega.Eventually(func(g gomega.Gomega) {
+				admitted := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wlKey, admitted)).To(gomega.Succeed())
+				g.Expect(admitted.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(admitted.Status.Admission.PodSetAssignments[0].PerPodRequests[corev1.ResourceCPU]).To(gomega.Equal(resource.MustParse("1500m")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pod1), nil)
+			behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pod2), nil)
+		})
+
 		ginkgo.It("Should preserve the PodSet overhead bound for a replacement pod when the RuntimeClass overhead increases", func() {
 			const workloadName = "runtime-class-overhead-update"
 			runtimeClass := utiltesting.MakeRuntimeClass("kata", "kata").

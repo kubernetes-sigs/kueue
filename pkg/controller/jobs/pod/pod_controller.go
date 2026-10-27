@@ -998,9 +998,10 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // rewritten to make the check sound. A pod exceeding its reservation gets a Warning
 // event and is left gated instead of failing the group, so that such a pod cannot
 // disrupt an already admitted group.
-// The role bounds come from the effective PodSet spec, preserving any overhead
-// already recorded in the template. ResourceUsage can contain transformed
-// resources, so it cannot be compared directly with the Pod requests.
+// The role bounds come from the untransformed requests recorded at admission.
+// For older admissions without that snapshot, the effective PodSet spec keeps
+// any overhead recorded in the template as a conservative bound. ResourceUsage
+// can contain transformed resources, so it cannot be compared with Pod requests.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1014,6 +1015,14 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	}
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
+	admittedRequests := make(map[kueue.PodSetReference]corev1.ResourceList)
+	if wl.Status.Admission != nil {
+		for _, assignment := range wl.Status.Admission.PodSetAssignments {
+			if len(assignment.PerPodRequests) > 0 {
+				admittedRequests[assignment.Name] = assignment.PerPodRequests
+			}
+		}
+	}
 	for i := range wl.Spec.PodSets {
 		// A RuntimeClass update must not increase the overhead allowed for an
 		// existing role: its Pods and quota reservation may still use the old value.
@@ -1037,6 +1046,9 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 			return nil, fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
 		}
 		reserved := resources.NewRequestsFromPodSpec(podSpec)
+		if atAdmission, found := admittedRequests[kueue.NewPodSetReference(role)]; found {
+			reserved = resources.NewRequestsFromResourceList(atAdmission)
+		}
 		resourceName, exceeds := firstExceededResource(pod, reserved)
 		if !exceeds {
 			continue

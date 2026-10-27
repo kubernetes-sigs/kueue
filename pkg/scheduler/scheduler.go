@@ -1023,6 +1023,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		ClusterQueue:      e.ClusterQueue,
 		PodSetAssignments: e.assignment.ToAPI(log, e.Obj),
 	}
+	if !workload.NeedsSecondPass(e.Obj) {
+		for i := range admission.PodSetAssignments {
+			psa := &admission.PodSetAssignments[i]
+			if spec := e.PodSpecByName(psa.Name); spec != nil && spec.RuntimeClassName != nil {
+				psa.PerPodRequests = resources.PodRequests(spec)
+			}
+		}
+	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
 	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission)
