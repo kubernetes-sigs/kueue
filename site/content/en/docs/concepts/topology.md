@@ -107,12 +107,14 @@ When a ResourceFlavor references a Topology:
   place; in Kueue v0.18 and v0.19, `.spec.nodeLabels` and `.spec.tolerations`
   are also immutable once `.spec.topologyName` is set.
 
-When the `TopologyAwareScheduling` feature gate is enabled, Kueue retains the
-`kueue.x-k8s.io/resource-in-use` finalizer on any `Topology` object referenced
-by a `ResourceFlavor` to prevent deletion, and marks any `ClusterQueue`
-referencing a flavor whose `Topology` does not exist as inactive
-(`TopologyNotFound`). Create the `Topology` object before referencing it from a
-`ResourceFlavor`.
+Kueue adds the `kueue.x-k8s.io/resource-in-use` finalizer to every `Topology`
+and removes it only once no `ResourceFlavor` references that `Topology`. The TAS
+controllers do this, and they do not run while `TopologyAwareScheduling` is
+disabled, so a `Topology` deleted while TAS is disabled stays in `Terminating`
+until TAS is re-enabled. When `TopologyAwareScheduling` is enabled, Kueue also
+marks any `ClusterQueue` that uses a flavor whose `Topology` does not exist as
+inactive (`TopologyNotFound`), so create the `Topology` before referencing it
+from a `ResourceFlavor`.
 
 Because `.spec.topologyName` cannot be unset in place, disabling TAS on an
 existing flavor without performing a blue/green `ResourceFlavor` replacement

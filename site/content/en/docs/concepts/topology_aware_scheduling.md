@@ -165,8 +165,8 @@ unannotated PodSets can only be assigned non-TAS flavors
 (`Flavor "<name>" supports only TopologyAwareScheduling`), and PodSets with a
 `kueue.x-k8s.io/podset-*-topology` annotation can only be assigned TAS flavors
 (`Flavor "<name>" does not support TopologyAwareScheduling`) for the resources
-they request. In a `ClusterQueue` that offers both TAS and non-TAS flavors in
-the same `resourceGroup` (for example, `[gpu-tas, gpu-standard]`, or
+they request. For example, in a `ClusterQueue` that offers both TAS and non-TAS
+flavors in the same `resourceGroup` (such as `[gpu-tas, gpu-standard]`, or
 `[gpu-tas, cpu-only]` where `cpu-only` has `0` `nvidia.com/gpu` quota),
 workloads that need the TAS flavor **must** set
 `kueue.x-k8s.io/podset-required-topology`,

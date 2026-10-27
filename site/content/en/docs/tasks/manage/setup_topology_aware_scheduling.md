@@ -68,8 +68,9 @@ In `sample-queues.yaml`, the `nominalQuota` is intentionally set high (100 CPUs)
 {{% /alert %}}
 
 In production clusters, create the `Topology` object before setting
-`spec.topologyName` on a `ResourceFlavor` (otherwise referencing `ClusterQueue`s
-become inactive with `TopologyNotFound` until the `Topology` exists). For
+`spec.topologyName` on a `ResourceFlavor`; otherwise `ClusterQueue`s that
+reference that flavor become inactive with `TopologyNotFound` until the
+`Topology` exists. For
 details on `ResourceFlavor` mutability constraints and disabling TAS on an
 existing flavor, see
 [Referencing a Topology from a ResourceFlavor](/docs/concepts/topology/#referencing-a-topology-from-a-resourceflavor).
