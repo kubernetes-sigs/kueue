@@ -505,34 +505,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 	}
 
-	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
-	if finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
-		if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
-			return ctrl.Result{}, nil
-		}
-
-		now := r.clock.Now()
-		expirationTime := finishedCond.LastTransitionTime.Add(*r.workloadRetention.afterFinished)
-		if now.Before(expirationTime) {
-			remainingTime := expirationTime.Sub(now)
-			log.V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
-			return ctrl.Result{RequeueAfter: remainingTime}, nil
-		}
-
-		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
-		// However, WorkloadSlices and other paths can mark a Workload as Finished without
-		// going through the job finalization path that normally removes it. Remove only
-		// Kueue's finalizer before deleting; otherwise Kubernetes may only set
-		// deletionTimestamp and the Workload can remain stuck until the finalizer is removed.
-		deleteRequested, err := workload.Delete(ctx, r.client, &wl)
-		if err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		if deleteRequested {
-			r.recorder.Eventf(&wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
-		}
-
-		return ctrl.Result{}, nil
+	if done, result, err := r.reconcileFinished(ctx, &wl); done {
+		return result, err
 	}
 
 	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
@@ -899,6 +873,43 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileFinished deletes a finished workload once its retention period has
+// elapsed, and requeues it until then.
+// Returns done=true when the workload is finished and reconciliation should stop.
+func (r *WorkloadReconciler) reconcileFinished(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+	finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if finishedCond == nil || finishedCond.Status != metav1.ConditionTrue {
+		return false, ctrl.Result{}, nil
+	}
+
+	if r.workloadRetention == nil || r.workloadRetention.afterFinished == nil {
+		return true, ctrl.Result{}, nil
+	}
+
+	now := r.clock.Now()
+	expirationTime := finishedCond.LastTransitionTime.Add(*r.workloadRetention.afterFinished)
+	if now.Before(expirationTime) {
+		remainingTime := expirationTime.Sub(now)
+		ctrl.LoggerFrom(ctx).V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
+		return true, ctrl.Result{RequeueAfter: remainingTime}, nil
+	}
+
+	// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
+	// However, WorkloadSlices and other paths can mark a Workload as Finished without
+	// going through the job finalization path that normally removes it. Remove only
+	// Kueue's finalizer before deleting; otherwise Kubernetes may only set
+	// deletionTimestamp and the Workload can remain stuck until the finalizer is removed.
+	deleteRequested, err := workload.Delete(ctx, r.client, wl)
+	if err != nil {
+		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if deleteRequested {
+		r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "Deleted", "Deleted", "Deleted finished workload due to elapsed retention")
+	}
+
+	return true, ctrl.Result{}, nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.
