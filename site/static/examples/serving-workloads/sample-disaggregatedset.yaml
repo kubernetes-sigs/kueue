@@ -1,0 +1,43 @@
+apiVersion: disaggregatedset.x-k8s.io/v1
+kind: DisaggregatedSet
+metadata:
+  name: model-server
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  slices: 2
+  roles:
+  - name: prefill
+    spec:
+      replicas: 2
+      leaderWorkerTemplate:
+        size: 1
+        workerTemplate:
+          spec:
+            containers:
+            - name: prefill
+              image: registry.k8s.io/nginx-slim:0.27
+              resources:
+                requests:
+                  cpu: "200m"
+  - name: decode
+    spec:
+      replicas: 1
+      leaderWorkerTemplate:
+        size: 2
+        leaderTemplate:
+          spec:
+            containers:
+            - name: decode-leader
+              image: registry.k8s.io/nginx-slim:0.27
+              resources:
+                requests:
+                  cpu: "100m"
+        workerTemplate:
+          spec:
+            containers:
+            - name: decode-worker
+              image: registry.k8s.io/nginx-slim:0.27
+              resources:
+                requests:
+                  cpu: "200m"

@@ -267,6 +267,43 @@ func (w *RoleWrapper) Request(name corev1.ResourceName, quantity string) *RoleWr
 	return w
 }
 
+// RequestAndLimit sets a resource request and limit on the first container of
+// every template of the role.
+func (w *RoleWrapper) RequestAndLimit(name corev1.ResourceName, quantity string) *RoleWrapper {
+	for _, t := range w.templates() {
+		resources := &t.Spec.Containers[0].Resources
+		resources.Requests[name] = resource.MustParse(quantity)
+		if resources.Limits == nil {
+			resources.Limits = corev1.ResourceList{}
+		}
+		resources.Limits[name] = resource.MustParse(quantity)
+	}
+	return w
+}
+
+// Args sets the arguments of the first container of every template of the role.
+func (w *RoleWrapper) Args(args ...string) *RoleWrapper {
+	for _, t := range w.templates() {
+		t.Spec.Containers[0].Args = args
+	}
+	return w
+}
+
+// TerminationGracePeriod sets the termination grace period of every template
+// of the role.
+func (w *RoleWrapper) TerminationGracePeriod(seconds int64) *RoleWrapper {
+	for _, t := range w.templates() {
+		t.Spec.TerminationGracePeriodSeconds = &seconds
+	}
+	return w
+}
+
+// StartupPolicy sets the startup policy of the role.
+func (w *RoleWrapper) StartupPolicy(p leaderworkersetv1.StartupPolicyType) *RoleWrapper {
+	w.Spec.StartupPolicy = p
+	return w
+}
+
 func (w *RoleWrapper) templates() []*corev1.PodTemplateSpec {
 	templates := []*corev1.PodTemplateSpec{&w.Spec.LeaderWorkerTemplate.WorkerTemplate}
 	if w.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
