@@ -142,6 +142,46 @@ func TestFetchCohorts(t *testing.T) {
 				},
 			},
 		},
+		"implicit cohorts from cluster queues and parents are listed": {
+			objs: []ctrlclient.Object{
+				makeCohort("team", "org"),
+				makeClusterQueue("cq-a", "team"),
+				makeClusterQueue("cq-b", "other"),
+			},
+			want: []map[string]any{
+				{
+					"name":          "team",
+					"parentName":    "org",
+					"clusterQueues": []map[string]any{{"name": "cq-a"}},
+				},
+				{
+					"name":          "org",
+					"clusterQueues": []map[string]any{},
+				},
+				{
+					"name":          "other",
+					"clusterQueues": []map[string]any{{"name": "cq-b"}},
+				},
+			},
+		},
+		"denied cluster queue access lists only implicit parents": {
+			objs: []ctrlclient.Object{
+				makeCohort("team", "org"),
+				makeClusterQueue("cq-b", "other"),
+			},
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return false, nil
+			}),
+			want: []map[string]any{
+				{
+					"name":       "team",
+					"parentName": "org",
+				},
+				{
+					"name": "org",
+				},
+			},
+		},
 		"cohort list error is returned": {
 			objs:    objs,
 			funcs:   listErrorFuncs(errors.New("boom")),
@@ -206,6 +246,26 @@ func TestFetchCohortDetails(t *testing.T) {
 			}),
 			wantQueues:  []string{},
 			wantOmitted: []string{"clusterQueues"},
+		},
+		"implicit cohort referenced by a cluster queue": {
+			objs:        objs,
+			cohortName:  "other",
+			wantQueues:  []string{"cq-b"},
+			wantOmitted: []string{},
+		},
+		"implicit cohort referenced only by a cluster queue is hidden without access": {
+			objs:       objs,
+			cohortName: "other",
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return false, nil
+			}),
+			wantErr: true,
+		},
+		"implicit cohort referenced as a parent": {
+			objs:        []ctrlclient.Object{makeCohort("team", "org")},
+			cohortName:  "org",
+			wantQueues:  []string{},
+			wantOmitted: []string{},
 		},
 		"missing cohort returns error": {
 			cohortName: "missing",
