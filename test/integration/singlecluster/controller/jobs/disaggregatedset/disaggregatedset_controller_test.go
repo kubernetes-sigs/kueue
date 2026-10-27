@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DisaggregatedSetIntegration, true)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManager(ctx, cfg, managerSetup(nil,
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{disaggregatedset.FrameworkName, "pod"}),
 		))

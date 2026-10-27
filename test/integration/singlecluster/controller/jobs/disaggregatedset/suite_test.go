@@ -74,8 +74,14 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
+	if configuration == nil {
+		configuration = &config.Configuration{}
+	}
+	if configuration.WaitForPodsReady != nil {
+		opts = append(slices.Clone(opts), jobframework.WithWaitForPodsReady(configuration.WaitForPodsReady))
+	}
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 
@@ -118,7 +124,6 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = podJobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
 		failedCtrl, err := core.SetupControllers(
