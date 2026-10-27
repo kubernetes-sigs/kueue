@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", e2e.Shard0), gink
 			})
 
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
-				behavioral.SetLocalQueueStopPolicyWithTimeout(ctx, k8sClient, localQueue, kueue.Hold, behavioral.MediumTimeout)
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.Hold)
 			})
 
 			ginkgo.By("verify the LocalQueue status is updated", func() {
