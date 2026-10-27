@@ -72,9 +72,9 @@ You set exactly one of these annotations on the Pod template's
 
 {{% alert title="Note" color="primary" %}}
 On a TAS-only `ClusterQueue`, omitting all three annotations uses implicit TAS,
-whereas on a `ClusterQueue` that mixes TAS and non-TAS flavors in the same
-`resourceGroup`, you **must** set one of the three annotations on any PodSet
-that needs a TAS flavor; see
+whereas on a `ClusterQueue` that also references any non-TAS flavor (even in
+another `resourceGroup`), you **must** set one of the three annotations on any
+PodSet that needs a TAS flavor; see
 [Implicit TAS and mixed-flavor ClusterQueues](/docs/concepts/topology_aware_scheduling/#implicit-tas-and-mixed-flavor-clusterqueues).
 {{% /alert %}}
 
