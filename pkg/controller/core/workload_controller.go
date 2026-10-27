@@ -516,25 +516,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		!features.Enabled(features.KueueDRAIntegration) &&
 		features.Enabled(features.KueueDRARejectWorkloadsWhenDRADisabled) &&
 		workload.HasDRA(&wl) {
-		quotaReservedReason := workload.UnadmittedWorkloadReasonWithFallback(
-			kueue.WorkloadQuotaReservedReasonMisconfigured,
-			kueue.WorkloadInadmissible,
-		)
-		message := "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled"
-		var changed bool
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
-			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false)
-			changed = updated || requeuedChanged
-			return changed, nil
-		})
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
-		}
-		if changed {
-			log.V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", message)
-		}
-		return ctrl.Result{}, nil
+		return r.rejectDRAWhenDisabled(ctx, &wl)
 	}
 	var draQueueOptions []workload.InfoOption
 	var draPreprocessed bool
@@ -922,6 +904,30 @@ func (r *WorkloadReconciler) reconcileRequeueAtUpdate(ctx context.Context, wl *k
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
 	}
 	return true, reconcile.Result{}, nil
+}
+
+// rejectDRAWhenDisabled marks a pending workload that uses DRA resources as
+// inadmissible because the KueueDRAIntegration feature gate is not enabled.
+func (r *WorkloadReconciler) rejectDRAWhenDisabled(ctx context.Context, wl *kueue.Workload) (ctrl.Result, error) {
+	quotaReservedReason := workload.UnadmittedWorkloadReasonWithFallback(
+		kueue.WorkloadQuotaReservedReasonMisconfigured,
+		kueue.WorkloadInadmissible,
+	)
+	message := "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled"
+	var changed bool
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
+		requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false)
+		changed = updated || requeuedChanged
+		return changed, nil
+	})
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
+	}
+	if changed {
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", message)
+	}
+	return ctrl.Result{}, nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.
