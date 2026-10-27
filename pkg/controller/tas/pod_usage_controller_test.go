@@ -427,7 +427,7 @@ func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
 			r := newPodUsageReconciler(cl, nil, cache, nil)
 
 			// Seed the simulator with the running TAS pod first.
-			cache.TASCache().TrackPod(ctx, runningTASPod)
+			cache.TrackPod(ctx, runningTASPod)
 
 			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: podKey}); err != nil {
 				t.Fatalf("Reconcile failed: %v", err)
