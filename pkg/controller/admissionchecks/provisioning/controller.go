@@ -1063,7 +1063,7 @@ type MergedPodSet struct {
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
 // ProvisioningRequest must subtract from its own counts, or nil when elastic
 // ProvisioningRequest support does not apply to wl.
-func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
 		return nil, nil
 	}
@@ -1086,7 +1086,7 @@ func mergePodSets(
 	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
-	previousCounts map[kueue.PodSetReference]int32,
+	previousCounts workload.PodSetsCounts,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
