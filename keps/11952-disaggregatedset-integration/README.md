@@ -131,7 +131,8 @@ primitives.
 - Supporting `subRoles`, `groupIdentity: Hash`, LWS native gang scheduling,
   `maxGroupRestarts`, `restartBackoff`, or rollouts with `maxSurge > 0` in alpha.
 - Managing the child LWS objects of a managed DisaggregatedSet on their own. Kueue
-  labels in role metadata and templates are rejected, as described in
+  labels in role metadata and templates, and Kueue annotations in role metadata,
+  are rejected, as described in
   [Handling of child objects](#handling-of-child-objects).
 - Partial admission inside a slice, or resizing one role of an admitted slice.
 - MultiKueue support in alpha.
@@ -353,12 +354,32 @@ already defers to a managed ancestor:
 
 - **LeaderWorkerSet.** Kueue walks the owner chain of the child LWS, finds the
   managed DisaggregatedSet, and does not manage the child LWS on its own. The LWS
-  webhook stamps nothing, and the LWS reconciler creates no per-replica Workloads.
+  mutating webhook stamps nothing, and the LWS reconciler creates no per-replica
+  Workloads. The LWS validating webhook still checks every child LWS, as described
+  below.
 - **StatefulSet.** The StatefulSet integration skips StatefulSets whose template
   carries a parent annotation of another framework.
 - **Pod.** The pod webhook gates every Pod that carries the parent annotation.
 
 This requires the DisaggregatedSet integration to be enabled.
+
+The LWS validating webhook has no ancestor check, so it validates every child LWS
+that the DisaggregatedSet controller creates or updates.
+If it rejects a child LWS, the DisaggregatedSet controller cannot create or update
+it, and the DisaggregatedSet gets no Pods or stops rolling out. The error appears
+only in the events and logs of the DisaggregatedSet controller.
+To prevent this, on a managed DisaggregatedSet the Kueue DisaggregatedSet webhook
+rejects everything that the LWS validating webhook rejects on a child LWS:
+
+- The Kueue labels and annotations that the LWS webhook checks on the LWS object are
+  forbidden in role metadata, which becomes the metadata of the child LWS. For
+  example, `kueue.x-k8s.io/admission-gated-by` added to role metadata on update
+  would make the LWS webhook reject the update of the child LWS, because the
+  annotation cannot be added after creation.
+- Role templates, which become the templates of the child LWS, go through the same
+  TAS and slice-size checks as in the LWS integration.
+
+[Validation on create](#validation-on-create) lists these checks.
 
 A child LWS defers to its parent only while the DisaggregatedSet is managed.
 The DisaggregatedSet controller copies role metadata, `spec.roles[].metadata`, to
@@ -500,6 +521,11 @@ problem.
 
 #### Rollout churn
 
+A rollout creates a new child LWS per role, and its Pods belong to the same slice
+Workload as the Pods they replace. A new-revision Pod counts against the slice only
+after the Kueue DisaggregatedSet reconciler adopts it into a free slot, so it is
+never an excess member of the pod group.
+
 During a rollout, a new-revision Pod can appear while the old Pod it replaces is
 still terminating. The new Pod has another name, because it belongs to another
 child LWS, so both Pods exist at the same time. The LWS integration does not see
@@ -626,6 +652,9 @@ Mitigations:
 - Framework name `disaggregatedset.x-k8s.io/disaggregatedset`, set in
   `integrations.frameworks`. It is listed commented-out in the default configuration
   and Helm values, like the integrations whose CRDs are optional.
+- The gate guards the Kueue DisaggregatedSet webhook and reconciler. The LWS,
+  StatefulSet and Pod integrations defer only to an ancestor whose framework is
+  registered, so with the gate disabled they handle child objects as today.
 - Enabling the integration also enables the pod integration, as for LWS.
 - The integration has its own reconciler instead of the generic suspend-based job
   reconciler, like LWS, because DisaggregatedSet has no `suspend` field.
@@ -690,6 +719,12 @@ these checks:
 - the `kueue.x-k8s.io/queue-name` and `kueue.x-k8s.io/priority-class` labels are
   forbidden in role metadata and in the leader and worker templates, for the reason
   given in [Handling of child objects](#handling-of-child-objects);
+- the `kueue.x-k8s.io/elastic-job`, `kueue.x-k8s.io/elastic-job-scale-up-strategy`,
+  `kueue.x-k8s.io/admission-gated-by` and `kueue.x-k8s.io/wait-for-pods-ready`
+  annotations are forbidden in role metadata, so the LWS validating webhook accepts
+  every child LWS, as described in
+  [Handling of child objects](#handling-of-child-objects). The admission-gate and
+  `waitForPodsReady` annotations are set on the DisaggregatedSet metadata instead;
 - the maximum membership of a slice and the size of the role templates are within
   the limits in [Workload PodSet limit](#workload-podset-limit). The membership
   limit also keeps each PodSet count within int32;
@@ -725,7 +760,7 @@ the rollout replaces them.
 
 On update of a managed DisaggregatedSet, it also runs these checks:
 
-- the same unsupported-feature, label and Pod count checks as on create;
+- the same unsupported-feature, label, annotation and Pod count checks as on create;
 - the same priority-class rules as the LWS integration: adding a priority class is
   rejected while any role has Ready replicas, removing it is always rejected, and
   changing it to another class is allowed;
@@ -1040,7 +1075,7 @@ keeps its own code until the helpers are reviewed against a second user.
 | Partial admission | Not supported. A slice is admitted as a whole. |
 | Elastic jobs, `kueue.x-k8s.io/elastic-job` | Rejected, as for LWS. |
 | MultiKueue | Not supported in alpha. Required for beta. |
-| LeaderWorkerSet, StatefulSet and Pod integrations | No changes. See [Handling of child objects](#handling-of-child-objects). |
+| LeaderWorkerSet, StatefulSet and Pod integrations | No changes. The LWS validating webhook still checks child LWS objects. See [Handling of child objects](#handling-of-child-objects). |
 
 ### Observability
 
@@ -1120,6 +1155,10 @@ In `test/integration/singlecluster/webhook/jobs`:
 - a queue-name or priority-class label in role metadata or in a leader or worker
   template is rejected on a managed DisaggregatedSet and accepted on an unmanaged
   one;
+- the elastic-job, admission-gate and `waitForPodsReady` annotations in role
+  metadata are rejected on a managed DisaggregatedSet;
+- a child LWS built from the role metadata and templates of a managed
+  DisaggregatedSet that uses TAS annotations is accepted by the LWS webhook;
 - a slice whose maximum membership is more than 1,000 Pods, or with a PodSet
   count that overflows int32, is rejected, also when an update raises
   `maxUnavailable`;
