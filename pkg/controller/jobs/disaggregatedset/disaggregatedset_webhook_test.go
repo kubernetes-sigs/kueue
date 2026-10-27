@@ -427,6 +427,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"maximum membership at the limit": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			ds: testingds.MakeDisaggregatedSet("ds", "").
 				Queue("queue").
 				Roles(testingds.MakeRole("prefill").Replicas(998)).
@@ -468,11 +469,20 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(rolesPath, nil, ""),
 			}.ToAggregate(),
 		},
-		"projected Workload size without TAS": {
+		"projected Workload size without TAS annotations within the TAS budget": {
 			ds: testingds.MakeDisaggregatedSet("ds", "").
 				Queue("queue").
-				Roles(testingds.MakeRole("prefill").Replicas(998)).
+				Roles(testingds.MakeRole("prefill").Replicas(749)).
 				Obj(),
+		},
+		"projected Workload size without TAS annotations above the TAS budget": {
+			ds: testingds.MakeDisaggregatedSet("ds", "").
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").Replicas(750)).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(rolesPath, nil, ""),
+			}.ToAggregate(),
 		},
 		"projected Workload size with TAS above the limit": {
 			ds: testingds.MakeDisaggregatedSet("ds", "").

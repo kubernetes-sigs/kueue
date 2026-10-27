@@ -376,7 +376,9 @@ func validateSliceSize(ds *disaggregatedsetv1.DisaggregatedSet, podSets []rolePo
 		return field.ErrorList{field.Invalid(rolesPath, templates,
 			fmt.Sprintf("role templates use %d bytes, must be no more than %d", templates, maxTemplateBytes))}, nil
 	}
-	withTAS := features.Enabled(features.TopologyAwareScheduling) && hasTASAnnotation(podSets)
+	// A ClusterQueue with only TAS flavors assigns a topology also to Pods
+	// without TAS annotations, and the slice can be admitted to any ClusterQueue.
+	withTAS := features.Enabled(features.TopologyAwareScheduling)
 	if projected := projectedWorkloadBytes(templates, membership, withTAS); projected > safeWorkloadBytes {
 		return field.ErrorList{field.Invalid(rolesPath, projected,
 			fmt.Sprintf("the slice Workload can reach %d bytes, must be no more than %d; reduce the Pods per slice or the role templates",
