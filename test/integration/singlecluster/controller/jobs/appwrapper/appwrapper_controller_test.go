@@ -37,6 +37,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -51,6 +52,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1039,6 +1041,114 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 				pod.Name = fmt.Sprintf("replica-%d-%d", psIndex, index)
 				pod.Namespace = ns.Name
 				pod.Labels[kftraining.ReplicaIndexLabel] = strconv.Itoa(index)
+				pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+				behavioral.MustCreate(ctx, k8sClient, pod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).To(gomega.Equal(map[string]string{
+						nodeGroupLabel: "tas",
+						tasBlockLabel:  expectedBlocks[index],
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+		}
+	})
+
+	ginkgo.It("should place grouped JobSet pods by index across topology domains", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
+		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
+		gomega.Expect(k8sClient.Status().Update(ctx, &nodes[0])).To(gomega.Succeed())
+		nodes = append(nodes, *testingnode.MakeNode("b2").
+			Label(nodeGroupLabel, "tas").
+			Label(tasBlockLabel, "b2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().Obj())
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes[1:])
+
+		jobSet := testingjobset.MakeJobSet("jobset", ns.Name).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name: "leader", Replicas: 1, Parallelism: 1, Completions: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                   "training",
+						kueue.PodSetPreferredTopologyAnnotation: tasBlockLabel,
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "worker", Replicas: 2, Parallelism: 2, Completions: 2,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                   "training",
+						kueue.PodSetPreferredTopologyAnnotation: tasBlockLabel,
+					},
+				},
+			).
+			Request("leader", corev1.ResourceCPU, "1").
+			Request("worker", corev1.ResourceCPU, "1").
+			SetTypeMeta().Obj()
+		for i := range jobSet.Spec.ReplicatedJobs {
+			jobSet.Spec.ReplicatedJobs[i].Template.Spec.CompletionMode = new(batchv1.IndexedCompletion)
+		}
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{Template: jobSet}).
+			Queue(localQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, aw)
+		wl := &kueue.Workload{
+			Name:      workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID),
+			Namespace: ns.Name,
+		}
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
+			g.Expect(aw.Spec.Suspend).To(gomega.BeFalse())
+			g.Expect(aw.Spec.Components[0].PodSetInfos).To(gomega.HaveLen(2))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+		gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
+
+		for psIndex, replicatedJob := range jobSet.Spec.ReplicatedJobs {
+			assignment := wl.Status.Admission.PodSetAssignments[psIndex]
+			gomega.Expect(assignment.TopologyAssignment).NotTo(gomega.BeNil())
+			domains := slices.Collect(tas.InternalSeqFrom(assignment.TopologyAssignment))
+			var expectedBlocks []string
+			for _, domain := range domains {
+				for range domain.Count {
+					expectedBlocks = append(expectedBlocks, domain.Values[0])
+				}
+			}
+			indexes := []int{0}
+			if replicatedJob.Name == "worker" {
+				gomega.Expect(domains).To(gomega.HaveLen(2))
+				indexes = []int{int(domains[0].Count)}
+				for i := 3; i >= 0; i-- {
+					if i != indexes[0] {
+						indexes = append(indexes, i)
+					}
+				}
+			}
+			template := replicatedJob.Template.Spec.Template.DeepCopy()
+			info := aw.Spec.Components[0].PodSetInfos[psIndex]
+			gomega.Expect(podset.Merge(ctrl.LoggerFrom(ctx), &template.ObjectMeta, &template.Spec, podset.PodSetInfo{
+				Annotations:     info.Annotations,
+				Labels:          info.Labels,
+				NodeSelector:    info.NodeSelector,
+				Tolerations:     info.Tolerations,
+				SchedulingGates: info.SchedulingGates,
+			})).To(gomega.Succeed())
+			for _, index := range indexes {
+				pod := &corev1.Pod{
+					ObjectMeta: *template.ObjectMeta.DeepCopy(),
+					Spec:       *template.Spec.DeepCopy(),
+				}
+				pod.Name = fmt.Sprintf("replica-%d-%d", psIndex, index)
+				pod.Namespace = ns.Name
+				pod.Labels[batchv1.JobCompletionIndexAnnotation] = strconv.Itoa(index % int(*replicatedJob.Template.Spec.Parallelism))
+				pod.Labels[jobsetapi.JobIndexKey] = strconv.Itoa(index / int(*replicatedJob.Template.Spec.Parallelism))
 				pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
 				behavioral.MustCreate(ctx, k8sClient, pod)
 				gomega.Eventually(func(g gomega.Gomega) {
