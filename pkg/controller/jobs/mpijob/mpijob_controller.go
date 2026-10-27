@@ -205,7 +205,7 @@ func (j *MPIJob) PriorityClass() string {
 	return ""
 }
 
-func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

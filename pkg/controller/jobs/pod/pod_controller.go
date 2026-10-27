@@ -544,7 +544,7 @@ func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
 // of ready (or succeeded) pods. For pod groups (plain Pod groups, StatefulSet,
 // LeaderWorkerSet), the not-ready count is evaluated across all pods in the
 // group without distinguishing between PodSet roles (e.g., leader vs. worker).
-func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
+func (p *Pod) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	if !p.isGroup {
 		return p.isPodReadyOrSucceeded(&p.pod)
 	}
