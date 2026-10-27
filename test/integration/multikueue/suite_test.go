@@ -17,7 +17,12 @@ limitations under the License.
 package multikueue
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -26,8 +31,10 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,10 +57,12 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	workloadleaderworkerset "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -64,7 +73,8 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -90,8 +100,10 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
-func (c *cluster) StopAndTeardown() {
-	c.fwk.StopManager(c.ctx)
+func (c *cluster) stopAndTeardown() {
+	ctx, cancel := context.WithTimeout(c.ctx, behavioral.LongTimeout)
+	defer cancel()
+	c.fwk.StopManager(ctx)
 	c.fwk.Teardown()
 }
 
@@ -109,24 +121,26 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	util.RunSuite(t, "MultiKueue Suite")
+	behavioral.RunSuite(t, "MultiKueue Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		DepCRDPaths: []string{
-			util.JobsetCrds,
-			util.TrainingOperatorCrds,
-			util.MpiOperatorCrds,
-			util.RayOperatorCrds,
-			util.AppWrapperCrds,
-			util.KfTrainerCrds,
-			util.AutoscalerCrds,
-			util.ClusterProfileCrds,
+			behavioral.JobsetCrds,
+			behavioral.TrainingOperatorCrds,
+			behavioral.MpiOperatorCrds,
+			behavioral.RayOperatorCrds,
+			behavioral.AppWrapperCrds,
+			behavioral.KfTrainerCrds,
+			behavioral.AutoscalerCrds,
+			behavioral.ClusterProfileCrds,
+			behavioral.LeaderWorkerSetCrds,
 		},
-		APIServerFeatureGates: apiFeatureGates,
+		APIServerFeatureGates:     apiFeatureGates,
+		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
 	mu.Lock()
 	c.cfg = c.fwk.Init()
@@ -142,6 +156,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 }
 
 func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, cacheSink func(*schdcache.Cache)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		ctx = context.WithValue(ctx, managerSetupOptionsKey{}, managerSetupOptions{
 			resourceFormatter: formatter,
@@ -152,6 +167,7 @@ func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, c
 }
 
 func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *resources.ResourceFormatter {
+	ginkgo.GinkgoHelper()
 	mapper := dra.NewResourceMapper()
 	gomega.Expect(mapper.PopulateFromConfiguration([]config.DeviceClassMapping{
 		{
@@ -174,10 +190,12 @@ func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *reso
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	setupManager(ctx, mgr)
 }
 
 func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
+	ginkgo.GinkgoHelper()
 	options, _ := ctx.Value(managerSetupOptionsKey{}).(managerSetupOptions)
 	resourceFormatter := options.resourceFormatter
 	if resourceFormatter == nil {
@@ -197,7 +215,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		qcache.WithPreemptionExpectations(preemptionExpecations),
 		qcache.WithResourceFormatter(resourceFormatter),
 	}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 	jobOptions := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithCache(cCache),
@@ -214,8 +232,10 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		workloadpod.FrameworkName,
 		workloadrayjob.FrameworkName,
 		workloadraycluster.FrameworkName,
+		workloadrayservice.FrameworkName,
 		workloadaw.FrameworkName,
 		workloadtrainjob.FrameworkName,
+		workloadleaderworkerset.FrameworkName,
 	} {
 		integrationManager.EnableIntegration(frameworkName)
 	}
@@ -402,6 +422,21 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	err = workloadrayservice.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	rayServiceReconciler, err := workloadrayservice.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = rayServiceReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadrayservice.SetupRayServiceWebhook(mgr, jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -432,6 +467,21 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	err = workloadtrainjob.SetupTrainJobWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	err = workloadleaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	lwsReconciler, err := workloadleaderworkerset.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = lwsReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadleaderworkerset.SetupWebhook(mgr, jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -452,7 +502,9 @@ func managerAndMultiKueueSetup(
 	gcInterval time.Duration,
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
+	extraOptions ...multikueue.SetupOption,
 ) {
+	ginkgo.GinkgoHelper()
 	integrationManager := setupManager(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
@@ -461,13 +513,15 @@ func managerAndMultiKueueSetup(
 	adapters, err := integrationManager.GetMultiKueueAdapters(enabledIntegrations)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+	controllerOptions := []multikueue.SetupOption{
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-		multikueue.WithEventsBatchPeriod(250*time.Millisecond),
+		multikueue.WithEventsBatchPeriod(250 * time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
-	)
+	}
+	controllerOptions = append(controllerOptions, extraOptions...)
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name, controllerOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	configuration := &config.Configuration{
@@ -488,7 +542,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			managerTestCluster = createCluster(nil)
+			managerTestCluster = createCluster(nil, "MutatingAdmissionPolicy=true")
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
@@ -517,11 +571,32 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
-	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+
+	ginkgo.By("deploying MutatingAdmissionPolicy manifests to manager cluster", func() {
+		mapManifestPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "map", "manifests.yaml")
+		manifestBytes, err := os.ReadFile(mapManifestPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		decoder := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 4096)
+		for {
+			var rawObj unstructured.Unstructured
+			if err := decoder.Decode(&rawObj); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if len(rawObj.Object) == 0 {
+				continue
+			}
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, &rawObj)
+		}
+	})
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.StopAndTeardown()
-	worker1TestCluster.StopAndTeardown()
-	worker2TestCluster.StopAndTeardown()
+	managerTestCluster.stopAndTeardown()
+	worker1TestCluster.stopAndTeardown()
+	worker2TestCluster.stopAndTeardown()
 })

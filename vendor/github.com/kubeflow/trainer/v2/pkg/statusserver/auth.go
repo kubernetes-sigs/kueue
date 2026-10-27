@@ -113,10 +113,14 @@ func (p *projectedServiceAccountTokenAuthorizer) Authorize(ctx context.Context, 
 	return true, nil
 }
 
+// extractRawToken returns the credentials of an RFC 7235 "Bearer" Authorization header.
+// The scheme is matched case-insensitively, and any amount of surrounding or separating
+// whitespace is tolerated. An empty string is returned when the header does not carry
+// exactly one bearer credential.
 func extractRawToken(authHeader string) string {
-	parts := strings.Split(authHeader, " ")
+	parts := strings.Fields(authHeader)
 
-	if len(parts) != 2 || parts[0] != "Bearer" {
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		return ""
 	}
 

@@ -267,14 +267,14 @@ kubectl --context kind-manager apply -f examples/multikueue/tas/manager-setup.ya
 Verify that all components are active:
 
 ```bash
-kubectl --context kind-manager get clusterqueue,admissioncheck,multikueuecluster
+kubectl --context kind-manager get clusterqueue,admissioncheck,multikueuecluster -o wide
 ```
 
 Expected output:
 
 ```
-NAME                                        COHORT   PENDING WORKLOADS
-clusterqueue.kueue.x-k8s.io/cluster-queue            0
+NAME                                     COHORT   STRATEGY         PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   REASON
+clusterqueue.kueue.x-k8s.io/cluster-queue            BestEffortFIFO   0                   0                    True     Ready
 
 NAME                                          AGE
 admissioncheck.kueue.x-k8s.io/multikueue-ac   5m

@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.19.0](https://img.shields.io/badge/Version-0.19.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.0](https://img.shields.io/badge/AppVersion-v0.19.0-informational?style=flat-square)
+![Version: 0.20.3](https://img.shields.io/badge/Version-0.20.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.20.3](https://img.shields.io/badge/AppVersion-v0.20.3-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.3" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.3" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.3" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -107,11 +107,150 @@ for more information on installing kueue with metrics using our Helm chart.
 
 ### Configuration
 
+#### Manager configuration
+
+When `managerConfig.mode` is omitted, a supplied
+`managerConfig.controllerManagerConfigYaml` takes precedence as a
+complete configuration, including an explicitly empty string. Otherwise,
+`managerConfig.structuredOverrides` merges with chart defaults. The manager and
+job webhooks use the same resolved configuration.
+
+| Inputs (mode omitted) | Behavior |
+|---|---|
+| Neither supplied | Use chart defaults. |
+| Only `structuredOverrides` | Merge overrides with chart defaults. An empty map uses defaults. |
+| `controllerManagerConfigYaml` supplied | Use the YAML as a complete replacement; ignore structured overrides. |
+| `controllerManagerConfigYaml: ""` | Keep the legacy empty configuration; certificate-management settings still apply. |
+
+Select an input explicitly with optional `managerConfig.mode`:
+
+| Mode | Behavior |
+|---|---|
+| Omitted | Use the precedence above. |
+| `structured` | Merge structured overrides with chart defaults; ignore YAML. |
+| `yaml` | Use supplied YAML, including `""`; otherwise use chart defaults. Ignore structured overrides. |
+
+Wrapper charts can leave mode unset so their consumers' YAML customizations
+continue to take precedence over the wrapper's structured settings.
+
+For structured configuration, specify only your customizations:
+
+```yaml
+managerConfig:
+  structuredOverrides:
+    clientConnection:
+      qps: 600
+    integrations:
+      frameworks: ["batch/job", "pod"]
+```
+
+Maps merge recursively, lists and scalars replace, and `null` removes fields
+inside `structuredOverrides`. For removals during upgrades, follow
+[Removing overrides during upgrades](#removing-overrides-during-upgrades) below.
+When structured configuration is selected, absent or empty `structuredOverrides`
+uses chart defaults when no saved overrides are reused. `structuredOverrides: null`
+is invalid. The two inputs are never merged together. Existing certificate-management
+defaults still apply when `internalCertManagement` is not set.
+
+The active defaults are defined only in
+[templates/manager/_config.tpl](templates/manager/_config.tpl). They stay separate
+from saved user values so settings without an override in the effective Helm
+values follow the selected chart version's defaults. Reuse flags retain
+previously saved overrides, even when omitted from the new values file.
+
+Tools that read the default YAML string directly from `values.yaml` must instead
+read the rendered manager ConfigMap. Full YAML configuration remains supported;
+existing YAML users do not need to migrate.
+
+##### Migrating to structured overrides
+
+Copy intentional customizations from your YAML into `structuredOverrides`.
+The YAML settings are not converted automatically.
+
+To migrate while retaining other saved Helm values, explicitly supply
+`managerConfig.mode: structured` along with your overrides:
+
+```yaml
+managerConfig:
+  mode: structured
+  structuredOverrides:
+    clientConnection:
+      qps: 600
+```
+
+```sh
+helm upgrade kueue <chart> --namespace kueue-system \
+  --reuse-values --values values.yaml
+```
+
+Structured mode ignores retained YAML. Keep the mode in your values file for
+subsequent upgrades. To switch back, explicitly set `mode: yaml` and supply the
+full YAML configuration; omitting mode from a file does not clear a saved mode
+when reusing values.
+
+Alternatively, leave mode unset, remove the `controllerManagerConfigYaml` key,
+and use `--reset-values` with a values file containing all customizations you
+want to retain, including settings outside `managerConfig`. Setting YAML to
+`""` still selects an empty YAML configuration, not structured overrides.
+Ensure that a parent chart or another values file does not supply the YAML key.
+
+Without explicit structured mode, the first `--reuse-values` upgrade can carry
+the old chart's default YAML even if you never supplied it, causing structured
+overrides to be ignored. Supply mode in your upgrade values; new wrapper defaults
+alone may not take effect with reuse. Mode does not change Helm's handling of
+omitted overrides or `null`; see
+[Removing overrides during upgrades](#removing-overrides-during-upgrades).
+When Kueue is a dependency, nest the settings under its dependency name or alias.
+
+| Subsequent upgrade options | Behavior |
+|---|---|
+| `--reuse-values` or `--reset-then-reuse-values` | Keep saved settings, including YAML and structured overrides. New values replace matching settings; omitted saved settings remain. For removals, follow the instructions below. |
+| `--reset-values` | Use chart defaults and the supplied values. Include all customizations you want to retain. |
+| No reuse or reset flag | Helm retains saved values if no new values are supplied; supplying nonempty new values replaces the saved inputs. |
+
+Helm rejects unknown keys directly under `managerConfig`. The only allowed keys
+are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. If supplied,
+mode must be `yaml` or `structured`. Both configuration inputs must
+have the correct type even when not selected: `structuredOverrides` is a map,
+and `controllerManagerConfigYaml` is a string. Empty maps and empty strings are
+valid. Fields inside the selected configuration are validated by Kueue when it
+loads the configuration. Run `helm lint <chart> --values values.yaml` before
+upgrading and review the rendered configuration.
+
+When upgrading, remove or correct unknown manager input keys and incorrectly
+typed inputs. These values may previously have been ignored.
+
+##### Removing overrides during upgrades
+
+Reuse flags retain saved overrides omitted from your new values file. They can
+also discard `null` removal instructions before the chart sees them.
+
+To remove an override or configuration field:
+
+| Intent | Change in `structuredOverrides` |
+|---|---|
+| Restore the chart default | Omit the override |
+| Remove the rendered field | Set it to `null` |
+
+Supply a values file containing **all customizations you want to retain**,
+including those outside `managerConfig`, then run:
+
+```sh
+helm upgrade kueue <chart> --namespace kueue-system \
+  --reset-values --values values.yaml
+```
+
+Keep `mode: structured` if you use it; otherwise omit `controllerManagerConfigYaml`.
+Resetting values discards saved customizations not included in the file.
+
+#### Chart values
+
 The following table lists the configurable parameters of the kueue chart and their default values.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
+| controllerManager.affinity | object | `{}` | ControllerManager's affinity |
 | controllerManager.dnsPolicy | string | `""` | ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
 | controllerManager.hostNetwork | bool | `false` | Run the ControllerManager pod on the host network. Needed where the API server reaches the webhook/visibility endpoints via node IPs rather than pod IPs. |
@@ -132,7 +271,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
 | controllerManager.nodeSelector | object | `{}` | ControllerManager's nodeSelector |
 | controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
-| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
+| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's minAvailable |
 | controllerManager.readinessProbe.failureThreshold | int | `3` | ControllerManager's readinessProbe failureThreshold |
 | controllerManager.readinessProbe.initialDelaySeconds | int | `5` | ControllerManager's readinessProbe initialDelaySeconds |
 | controllerManager.readinessProbe.periodSeconds | int | `10` | ControllerManager's readinessProbe periodSeconds |
@@ -142,8 +281,10 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.strategy | object | `{}` | ControllerManager Deployment's update strategy. When hostNetwork is enabled the manager's ports bind to the node, so the default RollingUpdate surge cannot schedule a second pod onto an already-occupied node; set maxSurge: 0 to roll in place. |
 | controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
+| enableAlphaAPIs | bool | `false` | Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider) |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
+| enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+) |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
@@ -188,15 +329,23 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
 | kueueViz.frontend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz frontend pod resources |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
-| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
+| kueueViz.ingress.annotations | object | `{}` | Path-routed ingress annotations. Do not set `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path breaks routing of the backend prefixes. |
+| kueueViz.ingress.enabled | bool | `false` | Enable a single path-routed ingress serving the KueueViz dashboard and its backend on one host. While enabled, the per-component `backend.ingress` and `frontend.ingress` objects are not rendered. |
+| kueueViz.ingress.host | string | `"kueueviz.local"` | Host serving both the dashboard and the backend |
+| kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
+| kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
+| kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
+| managerConfig | object | `{}` | Manager configuration inputs. Defaults are defined in templates/manager/_config.tpl. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
-| metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
+| metrics.serviceMonitor.tlsConfig | object | `{}` | ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate issued by cert-manager if `enableCertManager` is true, and skips verification otherwise. When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true unless set explicitly. |
 | metricsService.annotations | object | `{}` | metricsService's annotations |
 | metricsService.labels | object | `{}` | metricsService's labels |
 | metricsService.ports | list | `[{"name":"https","port":8443,"protocol":"TCP","targetPort":8443}]` | metricsService's ports |
 | metricsService.type | string | `"ClusterIP"` | metricsService's type |
 | mutatingWebhook.reinvocationPolicy | string | `"Never"` | MutatingWebhookConfiguration's reinvocationPolicy |
 | nameOverride | string | `""` | Override the resource name |
+| networkPolicy.enabled | bool | `false` | Enable ingress NetworkPolicies for the Kueue components. Requires NetworkPolicy enforcement. ControllerManager policies are skipped when controllerManager.hostNetwork is enabled because enforcement for host-network pods depends on the CNI plugin. |
+| networkPolicy.extraIngress | list | `[]` | Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress rules are additive, so these permit extra traffic and cannot narrow the built-in rules. |
 | webhookService.ipDualStack.enabled | bool | `false` | webhookService's ipDualStack enabled |
 | webhookService.ipDualStack.ipFamilies | list | `["IPv6","IPv4"]` | webhookService's ipDualStack ipFamilies |
 | webhookService.ipDualStack.ipFamilyPolicy | string | `"PreferDualStack"` | webhookService's ipDualStack ipFamilyPolicy |

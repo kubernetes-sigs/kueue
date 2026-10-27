@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -153,6 +155,13 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// jobHasMultipleWorkloads reports whether the job creates a workload per component,
+// e.g. one per LeaderWorkerSet group.
+func (g *wlGroup) jobHasMultipleWorkloads() bool {
+	_, ok := g.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter)
+	return ok
+}
+
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
@@ -162,12 +171,33 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
+	return g.removeRemoteWorkload(ctx, cluster)
+}
 
+// removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
+// controller object unless another workload of the job still uses it. A job with several
+// workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
+// object shared by all of them.
+func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
+	if g.jobHasMultipleWorkloads() {
+		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
+		if err != nil {
+			return err
+		}
+		if shared {
+			return g.removeRemoteWorkload(ctx, cluster)
+		}
+	}
+	return g.RemoveRemoteObjects(ctx, cluster)
+}
+
+func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
 	remWl := g.remotes[cluster]
 	if remWl == nil {
 		return nil
 	}
 
+	remoteClient := g.remoteClients[cluster].getClient()
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
 		if err := remoteClient.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
@@ -180,6 +210,27 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	}
 	g.remotes[cluster] = nil
 	return nil
+}
+
+// hasOtherWorkloadsOnCluster reports whether another workload of the same job, not being
+// deleted, finished, or evicted, is admitted on or nominated to the cluster. It reads the
+// local workloads only, so that no remote cluster is listed.
+func (g *wlGroup) hasOtherWorkloadsOnCluster(ctx context.Context, cluster string) (bool, error) {
+	componentWorkloads, err := listComponentWorkloads(ctx, g.localClient, g.local)
+	if err != nil || componentWorkloads == nil {
+		return false, err
+	}
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name == g.local.Name || !member.DeletionTimestamp.IsZero() ||
+			workloadfinish.IsFinished(member) || !workload.HasQuotaReservation(member) {
+			continue
+		}
+		if workload.ClusterName(member) == cluster || slices.Contains(member.Status.NominatedClusterNames, cluster) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -255,10 +306,15 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if isDeleted {
 		for cluster := range grp.remotes {
-			err := grp.RemoveRemoteObjects(ctx, cluster)
+			err := grp.removeUnsharedRemoteObjects(ctx, cluster)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
+		}
+		// A scale down deletes this workload but leaves the other workloads of the job
+		// unchanged, so enqueue them to sync the shared remote controller object.
+		if grp.jobHasMultipleWorkloads() {
+			w.enqueueComponentWorkloads(ctx, wl)
 		}
 		// Remote workloads on unavailable clusters will be cleaned up by
 		// the per-cluster GC once the cluster reconnects.
@@ -369,10 +425,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1. Ignore Elastic workloads Finished when:
 	// - Workload is "Finished" as a result workload slice replacement, OR
-	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
+	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
+	//   unless it was evicted and its remote objects need cleanup.
+	scaleUpInProgress := !group.IsFinished() &&
+		!workload.HasQuotaReservation(group.local) &&
+		workloadslicing.ScaledUp(group.local) &&
+		!workloadevict.IsEvicted(group.local)
 	if group.IsElasticWorkload() &&
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
+			scaleUpInProgress) {
 		return reconcile.Result{}, nil
 	}
 
@@ -380,9 +441,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
 		for rem := range group.remotes {
-			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
+			}
+		}
+		if !group.IsFinished() {
+			if err := w.resetLocalStatus(ctx, group); err != nil {
+				errs = append(errs, err)
+				log.V(2).Error(err, "Resetting local job status")
 			}
 		}
 		if len(group.unavailableClusters) > 0 {
@@ -394,18 +461,21 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
-		// A remote OutOfSync finish is a sync failure, not a job completion: reset to Retry to
-		// re-dispatch rather than finishing (which would strand the manager Job). Always return so
-		// it never falls through to Finish; patch only while still Ready so a re-reconcile can't
-		// see Retry and wrongly finish. Elastic workloads use OutOfSync for slice replacement.
-		if remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload() {
+		// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
+		// reset to Retry to re-dispatch rather than finishing (which would strand the manager
+		// Job/Pod). Always return so it never falls through to Finish; patch only while still
+		// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
+		// OutOfSync for slice replacement, so they are excluded from that reason's reset.
+		isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
+			remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
+		if isSyncFailure {
 			if acs == nil || acs.State != kueue.CheckStateReady {
-				log.V(3).Info("Skipping remote OutOfSync reset, admission check is not Ready", "workerCluster", remote)
+				log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
 				return reconcile.Result{}, nil
 			}
 			msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
 			if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
-				log.Error(err, "Resetting admission check after remote OutOfSync", "workerCluster", remote)
+				log.Error(err, "Resetting admission check after remote sync failure", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
 				return reconcile.Result{}, err
 			}
 			w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
@@ -480,6 +550,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				log.Error(err, "Failed to patch workload status")
 				return reconcile.Result{}, err
 			}
+
+			metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
 
 			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
 			return reconcile.Result{}, nil
@@ -633,6 +705,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{RequeueAfter: requeueAfter}, nil
 	}
 
+	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
+	// Reset it here too: if quota is reserved again before a reconcile sees the
+	// workload without one, step 2 never runs. A failed reset does not block the
+	// nomination; its error is returned so that the reconcile is retried.
+	resetErr := w.resetLocalStatus(ctx, group)
+	if resetErr != nil {
+		log.V(2).Error(resetErr, "Resetting local job status")
+	}
+
 	// 7. Open the preemption gate if applicable
 	var requeueAfterSynchronize time.Duration
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
@@ -653,14 +734,24 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// admission check is not yet Pending.
 	if workload.ShouldSkipClusterNomination(acs, group.local, group.IsElasticWorkload()) {
 		log.V(3).Info("Skipping cluster nomination phase")
-		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
+		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
 	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
-	return res, err
+	return res, errors.Join(resetErr, err)
+}
+
+// resetLocalStatus resets the status copied from a remote object onto the local
+// job, for adapters that support it.
+func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) error {
+	resetter, ok := group.jobAdapter.(jobframework.MultiKueueLocalStatusResetter)
+	if !ok {
+		return nil
+	}
+	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
@@ -671,7 +762,7 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 
-func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
+func listComponentWorkloads(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.WorkloadList, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	ownerGVK, hasGVK := wl.Annotations[constants.JobOwnerGVKAnnotation]
@@ -694,7 +785,7 @@ func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Wor
 	}
 
 	componentWorkloads := &kueue.WorkloadList{}
-	if err := w.client.List(ctx, componentWorkloads,
+	if err := c.List(ctx, componentWorkloads,
 		client.InNamespace(wl.Namespace),
 		client.MatchingFields{indexer.OwnerReferenceUID: ownerUID},
 	); err != nil {
@@ -786,7 +877,7 @@ func (w *wlReconciler) allExpectedWorkloadsExist(ctx context.Context, wl *kueue.
 func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, wl)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, wl)
 	if err != nil || componentWorkloads == nil {
 		return
 	}
@@ -837,19 +928,11 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-// nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order.
-func nominatedClusterSetsEqual(stored, current []string) bool {
-	slices.Sort(stored)
-	slices.Sort(current)
-	return slices.Equal(stored, current)
-}
-
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -860,7 +943,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		return reconcile.Result{}, nil
 	}
 
-	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
+	if group.jobHasMultipleWorkloads() && componentWorkloads != nil {
 		allExist, err := w.allExpectedWorkloadsExist(ctx, group.local, group.jobAdapter, len(componentWorkloads.Items))
 		if err != nil {
 			return reconcile.Result{}, err
@@ -913,14 +996,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 
-		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
+		// group.remotes is a map, so iteration order is non-deterministic; sort only
+		// when we are about to persist, for a stable stored nomination.
+		slices.Sort(nominatedWorkers)
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
+				return false, nil
 			}
+			wl.Status.NominatedClusterNames = nominatedWorkers
+			return true, nil
+		}); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
 		}
 	} else {
 		// Incremental dispatcher and External dispatcher path
@@ -1124,27 +1211,121 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	return ac.Spec.Parameters.Name
 }
 
+// localJobHandler enqueues the workload(s) owned by a manager-side job when the
+// job's spec changes.
+//
+// Normally a job spec edit makes the job controller update the workload, which in
+// turn reconciles this admission-check controller. But a spec change that does not
+// alter the workload's PodSets (e.g. a RayService serveConfigV2 edit) leaves the
+// workload untouched, so that path never fires and this controller would only
+// reconcile on the next periodic requeue. This handler bridges that gap by watching
+// the job directly, so such a change promptly re-runs SyncJob.
+type localJobHandler struct {
+	client            client.Client
+	gvk               schema.GroupVersionKind
+	eventsBatchPeriod time.Duration
+}
+
+var _ handler.EventHandler = (*localJobHandler)(nil)
+
+func (h *localJobHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// React to spec changes only; a status-only update (e.g. status synced back
+	// from the worker) neither needs nor should re-trigger a sync.
+	//
+	// TODO: generation bumps only on spec changes, so metadata-only edits (labels,
+	// annotations) are filtered out here. Revisit if a future adapter needs to forward
+	// such metadata to the worker.
+	if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
+		return
+	}
+	h.queue(ctx, e.ObjectNew, q)
+}
+
+func (h *localJobHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	wls := &kueue.WorkloadList{}
+	if err := h.client.List(ctx, wls, client.InNamespace(obj.GetNamespace()),
+		client.MatchingFields{indexer.OwnerReferenceIndexKey(h.gvk): obj.GetName()}); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Listing workloads for manager job", "job", klog.KObj(obj))
+		return
+	}
+	for i := range wls.Items {
+		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wls.Items[i])}, h.eventsBatchPeriod)
+	}
+}
+
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.AddAfter(reconcile.Request{
 				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName(),
-			}}, w.eventsBatchPeriod)
+				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
 		},
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
-		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
+		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
+
+	c, err := builder.
 		WithEventFilter(w).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload-reconciler"),
 		}).
-		Complete(w)
+		Build(w)
+	if err != nil {
+		return err
+	}
+
+	// Watch the local (manager) job objects of adapters that forward spec changes
+	// after admission. Such an edit (e.g. RayService serveConfigV2) does not alter the
+	// workload CR, so it does not reconcile this controller through the usual path;
+	// watching the job directly lets it promptly trigger a sync instead of waiting for
+	// the next periodic requeue.
+	//
+	// The watch is added on the built controller (not the builder) and only once the
+	// job's CRD is served (jobframework.WaitForAPI). A job CRD may be installed after
+	// Kueue starts (e.g. KubeRay), so adding it to the builder would make this
+	// controller's cache sync fail and crash-loop the manager; deferring degrades
+	// gracefully and picks the watch up when the CRD appears.
+	if features.Enabled(features.MultiKueueRemoteSpecSync) {
+		for _, adapter := range w.adapters {
+			lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
+			if !ok {
+				continue
+			}
+			emptyJob := lw.NewEmptyLocalJob()
+			if emptyJob == nil {
+				continue
+			}
+			gvk := adapter.GVK()
+			h := &localJobHandler{client: w.client, gvk: gvk, eventsBatchPeriod: w.eventsBatchPeriod}
+			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload-reconciler")
+				jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
+					if err := c.Watch(source.Kind(mgr.GetCache(), emptyJob, h)); err != nil {
+						log.Error(err, "Unable to watch local job for MultiKueue spec sync", "gvk", gvk)
+					}
+				})
+				return nil
+			})); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {

@@ -55,6 +55,42 @@ const (
 	tokenValidationTimeout = 5 * time.Second
 )
 
+// secondaryWatch is an informer that may drive live updates only when the caller
+// can watch that resource cluster-wide.
+type secondaryWatch struct {
+	gvk schema.GroupVersionKind
+	gvr schema.GroupVersionResource
+}
+
+// gvksWithAuthorizedSecondaryWatches returns primary plus each secondary GVK the
+// caller may watch. primary is included as-is because route middleware already
+// authorized it; pass nil when every informer is optional, as with /ws/namespaces.
+// A nil authorizer keeps every secondary informer. An authorization error fails
+// the socket closed and returns no GVKs; callers still pass that result to
+// GenericWebSocketHandler so it can write the close frame.
+func (h *Handlers) gvksWithAuthorizedSecondaryWatches(c *gin.Context, identity middleware.Identity, primary []schema.GroupVersionKind, secondary ...secondaryWatch) []schema.GroupVersionKind {
+	gvks := make([]schema.GroupVersionKind, 0, len(primary)+len(secondary))
+	gvks = append(gvks, primary...)
+	if h.authorizer == nil {
+		for _, watch := range secondary {
+			gvks = append(gvks, watch.gvk)
+		}
+		return gvks
+	}
+
+	for _, watch := range secondary {
+		allowed, err := h.authorizer.Authorize(c.Request.Context(), identity, middleware.ResourceAccess("watch", watch.gvr, "", ""))
+		if err != nil {
+			middleware.AbortWithWebSocketAwareStatus(c, http.StatusServiceUnavailable, "authorization service unavailable", middleware.WSCloseServiceUnavailable)
+			return nil
+		}
+		if allowed {
+			gvks = append(gvks, watch.gvk)
+		}
+	}
+	return gvks
+}
+
 // GenericWebSocketHandler creates a WebSocket endpoint with informer-based real-time updates
 // Accepts one or more GroupVersionKinds to watch for changes
 func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context) (any, error), gvks ...schema.GroupVersionKind) gin.HandlerFunc {
@@ -63,7 +99,7 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		slog.Debug("WebSocket handler started")
 
 		// Extract the bearer token stored by auth.Middleware (empty when auth is disabled).
-		token, _ := c.Get("token")
+		token, _ := c.Get(middleware.ContextKeyToken)
 		tokenStr, _ := token.(string)
 
 		// Upgrade the HTTP connection to a WebSocket connection
@@ -76,6 +112,17 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		defer conn.Close()
 		conn.SetReadLimit(8192)
 		slog.Debug("WebSocket connection established", "duration", time.Since(connStart))
+
+		if wsErr, exists := c.Get(middleware.ContextKeyWSError); exists {
+			wsStatus, _ := c.Get(middleware.ContextKeyWSStatus)
+			code := websocket.ClosePolicyViolation
+			if status, ok := wsStatus.(int); ok {
+				code = status
+			}
+			_ = conn.SetWriteDeadline(time.Now().Add(writeDeadlineExtension))
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, wsErr.(string)))
+			return
+		}
 
 		ctx, cancel := context.WithCancel(c.Request.Context())
 		defer cancel()
@@ -210,6 +257,15 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		authTickerC = authTicker.C
 	}
 
+	var heartbeatTicker *time.Ticker
+	var heartbeatTickerC <-chan time.Time
+
+	if h.heartbeatInterval > 0 {
+		heartbeatTicker = time.NewTicker(h.heartbeatInterval)
+		defer heartbeatTicker.Stop()
+		heartbeatTickerC = heartbeatTicker.C
+	}
+
 	// Handle updates from the informers
 	for {
 		select {
@@ -238,6 +294,16 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		case <-updateChan:
 			if err := h.sendData(ctx, conn, dataFetcher); err != nil {
 				slog.Error("Error sending update", "error", err)
+				return
+			}
+
+		case <-heartbeatTickerC:
+			if err := conn.WriteControl(
+				websocket.PingMessage,
+				nil,
+				time.Now().Add(writeDeadlineExtension),
+			); err != nil {
+				slog.Warn("Failed to send WebSocket heartbeat", "error", err)
 				return
 			}
 		}

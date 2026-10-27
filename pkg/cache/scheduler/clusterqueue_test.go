@@ -25,7 +25,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -126,22 +128,22 @@ func TestClusterQueueUpdate(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	cases := []struct {
-		name                         string
-		cq                           *kueue.ClusterQueue
-		newcq                        *kueue.ClusterQueue
-		wantLastAssignmentGeneration int64
+		name                              string
+		cq                                *kueue.ClusterQueue
+		newcq                             *kueue.ClusterQueue
+		wantAllocatableResourceGeneration int64
 	}{
 		{
-			name:                         "RGs not change",
-			cq:                           &clusterQueue,
-			newcq:                        clusterQueue.DeepCopy(),
-			wantLastAssignmentGeneration: 1,
+			name:                              "RGs not change",
+			cq:                                &clusterQueue,
+			newcq:                             clusterQueue.DeepCopy(),
+			wantAllocatableResourceGeneration: 1,
 		},
 		{
-			name:                         "RGs changed",
-			cq:                           &clusterQueue,
-			newcq:                        &newClusterQueue,
-			wantLastAssignmentGeneration: 2,
+			name:                              "RGs changed",
+			cq:                                &clusterQueue,
+			newcq:                             &newClusterQueue,
+			wantAllocatableResourceGeneration: 2,
 		},
 	}
 	for _, tc := range cases {
@@ -169,7 +171,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			if diff := cmp.Diff(
-				tc.wantLastAssignmentGeneration,
+				tc.wantAllocatableResourceGeneration,
 				snapshot.ClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
@@ -648,4 +650,197 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	cqSpec := utiltestingapi.MakeClusterQueue("cq-eff").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+
+	if err := cache.AddClusterQueue(ctx, cqSpec); err != nil {
+		t.Fatalf("failed to add CQ to cache: %v", err)
+	}
+
+	cqObj := cache.hm.ClusterQueue("cq-eff")
+	if cqObj == nil {
+		t.Fatalf("expected clusterqueue cq-eff in cache")
+	}
+
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
+		t.Errorf("expected nominal quota 5000 from spec, got %v", q.Nominal)
+	}
+
+	cqEffective := utiltestingapi.MakeClusterQueue("cq-eff").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).Obj()
+
+	if err := cache.UpdateClusterQueue(log, cqEffective); err != nil {
+		t.Fatalf("failed to update CQ in cache: %v", err)
+	}
+
+	cqObj = cache.hm.ClusterQueue("cq-eff")
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
+		t.Errorf("expected nominal quota 10000 from EffectiveQuotas, got %v", q.Nominal)
+	}
+
+	cqCleared := utiltestingapi.MakeClusterQueue("cq-eff").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+
+	if err := cache.UpdateClusterQueue(log, cqCleared); err != nil {
+		t.Fatalf("failed to update CQ in cache: %v", err)
+	}
+
+	cqObj = cache.hm.ClusterQueue("cq-eff")
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
+		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// An effective quota past int64 must arrive as the number it is, compare equal
+// when rewritten, and fall back to the spec when cleared.
+func TestClusterQueueEffectiveQuotasPastInt64(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	cqSpec := utiltestingapi.MakeClusterQueue("cq-big").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+	cqEffective := utiltestingapi.MakeClusterQueue("cq-big").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1E").Obj(),
+		).Obj()
+
+	if err := cache.AddClusterQueue(ctx, cqSpec); err != nil {
+		t.Fatalf("AddClusterQueue() = %v", err)
+	}
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	if err := cache.UpdateClusterQueue(log, cqEffective); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj := cache.hm.ClusterQueue("cq-big")
+	// 1E of CPU is 10^18 cores, which is 10^21 milliCPU and past int64.
+	if got := cqObj.resourceNode.Quotas[fr].Nominal.String(); got != "1000000000000000000000" {
+		t.Errorf("effective quota = %s, want 1000000000000000000000", got)
+	}
+
+	// Rewriting the same effective quota is not a change.
+	genBefore := cqObj.AllocatableResourceGeneration
+	if err := cache.UpdateClusterQueue(log, cqEffective); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if got := cqObj.AllocatableResourceGeneration; got != genBefore {
+		t.Errorf("AllocatableResourceGeneration moved from %d to %d for an unchanged quota", genBefore, got)
+	}
+
+	if err := cache.UpdateClusterQueue(log, cqSpec); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if !cqObj.resourceNode.Quotas[fr].Nominal.Equal(resources.NewAmount(5000)) {
+		t.Errorf("after clearing the effective quota = %s, want 5000",
+			cqObj.resourceNode.Quotas[fr].Nominal)
+	}
+}
+
+func TestClusterQueueLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	const cqName = "cq"
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue(cqName).
+		Label("env", "prod").
+		Label("tier", "batch").
+		Obj()
+
+	cache := New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+
+	snap, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "prod", "tier": "batch"}, snap.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Unexpected snapshot labels (-want,+got):\n%s", diff)
+	}
+
+	// Verify mutating original object does not affect snapshot or cache
+	cq.Labels["env"] = "mutated"
+	snap2, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "prod", "tier": "batch"}, snap2.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Snapshot was mutated by modifying original object (-want,+got):\n%s", diff)
+	}
+
+	// Verify UpdateClusterQueue updates labels and clones them
+	updatedCQ := utiltestingapi.MakeClusterQueue(cqName).
+		Label("env", "staging").
+		Obj()
+	if err := cache.UpdateClusterQueue(log, updatedCQ); err != nil {
+		t.Fatalf("Failed to update cluster queue: %v", err)
+	}
+	snap3, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "staging"}, snap3.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Unexpected updated snapshot labels (-want,+got):\n%s", diff)
+	}
+
+	// Verify mutating updated object does not affect subsequent snapshot
+	updatedCQ.Labels["env"] = "mutated-again"
+	snap4, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "staging"}, snap4.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Snapshot was mutated by modifying updated object (-want,+got):\n%s", diff)
+	}
+
+	// Verify DeleteClusterQueue removes it from subsequent snapshots
+	cache.DeleteClusterQueue(updatedCQ)
+	snap5, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if snap5.ClusterQueue(cqName) != nil {
+		t.Errorf("Expected ClusterQueue %q to be deleted from snapshot, but it was present", cqName)
+	}
+
+	t.Run("labels ignored when ConfigurablePreemptions feature gate is disabled", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, false)
+		cacheDisabled := New(utiltesting.NewFakeClient())
+		if err := cacheDisabled.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed to add cluster queue: %v", err)
+		}
+		snapDisabled, err := cacheDisabled.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("Failed to snapshot: %v", err)
+		}
+		if snapDisabled.ClusterQueue(cqName).Labels != nil {
+			t.Errorf("Expected snapshot labels to be nil when feature gate is disabled, got %v", snapDisabled.ClusterQueue(cqName).Labels)
+		}
+	})
 }

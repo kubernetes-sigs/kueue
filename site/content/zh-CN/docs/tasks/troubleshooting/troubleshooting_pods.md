@@ -23,11 +23,11 @@ Pod 可能没有 `kueue.x-k8s.io/managed` 标签的原因如下：
 
 1. [Pod 集成被禁用](/docs/tasks/run/plain_pods/#before-you-begin)。
 2. Pod 所属的命名空间不满足
-   [`managedJobsNamespaceSelector`](/docs/reference/kueue-config.v1beta1/#Configuration)
+   [`managedJobsNamespaceSelector`](/zh-cn/docs/reference/kueue-config.v1beta2/#Configuration)
    的要求。
 3. Pod 由 Kueue 管理的 Job 或等效 CRD 拥有。
 4. Pod 没有 `kueue.x-k8s.io/queue-name` 标签，并且
-   [`manageJobsWithoutQueueName`](/docs/reference/kueue-config.v1beta1/#Configuration)
+   [`manageJobsWithoutQueueName`](/zh-cn/docs/reference/kueue-config.v1beta2/#Configuration)
    设置为 `false`。
 
 {{% alert title="注意" color="primary" %}}

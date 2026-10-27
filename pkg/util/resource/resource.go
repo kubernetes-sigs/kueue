@@ -38,7 +38,7 @@ func mergeResourceList(a, b corev1.ResourceList, f resolveConflict) corev1.Resou
 		if va, exists := ret[k]; !exists {
 			ret[k] = vb.DeepCopy()
 		} else if f != nil {
-			ret[k] = f(va, vb)
+			ret[k] = f(va, vb).DeepCopy()
 		}
 	}
 	return ret
@@ -114,20 +114,6 @@ func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
 	return ret
 }
 
-func IsZero(rl corev1.ResourceList) bool {
-	if len(rl) != 0 {
-		return false
-	}
-
-	for _, qty := range rl {
-		if !qty.IsZero() {
-			return false
-		}
-	}
-
-	return true
-}
-
 // IsExtendedResourceName returns true if the resource name is an extended resource.
 // An extended resource is a fully-qualified resource name with a domain prefix
 // that is not in the kubernetes.io namespace and is not a standard resource.
@@ -146,4 +132,13 @@ func isNativeResource(name corev1.ResourceName) bool {
 
 func isHugePageResourceName(name corev1.ResourceName) bool {
 	return strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix)
+}
+
+// MultiplyQuantity returns the product of two resource.Quantity values with arbitrary precision.
+func MultiplyQuantity(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
 }

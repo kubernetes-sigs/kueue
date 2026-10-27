@@ -384,7 +384,7 @@ func TestUpdateConcurrent(t *testing.T) {
 
 // TestUpdateOrDeleteConcurrentWithPush verifies that UpdateOrDelete eliminates
 // the TOCTOU between checking canClearPenalty and calling Delete in the
-// original AfsEntryPenalties.Sub implementation
+// original AfsEntryPenalties.Sub implementation (since consolidated into AfsUsageLedger)
 // (https://github.com/kubernetes-sigs/kueue/issues/12546).
 func TestUpdateOrDeleteConcurrentWithPush(t *testing.T) {
 	const key = "default/lq1"
@@ -422,5 +422,24 @@ func TestUpdateOrDeleteConcurrentWithPush(t *testing.T) {
 	got, _ := syncMap.Get(key)
 	if got != n {
 		t.Errorf("lost updates: got %d, want %d", got, n)
+	}
+}
+
+func TestUpdateIfPresent(t *testing.T) {
+	syncMap := NewSyncMap[string, int](0)
+
+	if got, found := syncMap.UpdateIfPresent("absent", func(v int) int { return v + 1 }); found || got != 0 {
+		t.Errorf("UpdateIfPresent() on an absent key = (%d, %t), want (0, false)", got, found)
+	}
+	if _, found := syncMap.Get("absent"); found {
+		t.Error("UpdateIfPresent() created an entry for an absent key")
+	}
+
+	syncMap.Add("present", 1)
+	if got, found := syncMap.UpdateIfPresent("present", func(v int) int { return v + 1 }); !found || got != 2 {
+		t.Errorf("UpdateIfPresent() on a present key = (%d, %t), want (2, true)", got, found)
+	}
+	if got, _ := syncMap.Get("present"); got != 2 {
+		t.Errorf("stored value = %d, want 2", got)
 	}
 }

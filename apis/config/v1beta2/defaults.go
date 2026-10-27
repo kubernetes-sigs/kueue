@@ -27,6 +27,8 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -41,8 +43,8 @@ const (
 	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 300.0
-	DefaultClientConnectionBurst          int32   = 500
+	DefaultClientConnectionQPS            float32 = 1000.0
+	DefaultClientConnectionBurst          int32   = 1000
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
 	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
@@ -53,6 +55,7 @@ const (
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
+	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
 )
 
 func getOperatorNamespace() string {
@@ -71,6 +74,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.Namespace = cmp.Or(cfg.Namespace, new(getOperatorNamespace()))
 	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, new(DefaultWebhookPort))
 	cfg.Webhook.CertDir = cmp.Or(cfg.Webhook.CertDir, DefaultWebhookCertDir)
+	if features.Enabled(features.MetricsAccessControl) && cfg.Metrics.AccessControlMode == nil {
+		cfg.Metrics.AccessControlMode = new(MetricsAccessControlModeDelegated)
+	}
 	cfg.Metrics.BindAddress = cmp.Or(cfg.Metrics.BindAddress, DefaultMetricsBindAddress)
 	cfg.Health.HealthProbeBindAddress = cmp.Or(cfg.Health.HealthProbeBindAddress, DefaultHealthProbeBindAddress)
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
@@ -114,6 +120,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, new(EvictionTimestamp))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, new(int32(DefaultRequeuingBackoffBaseSeconds)))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, new(int32(DefaultRequeuingBackoffMaxSeconds)))
+		cfg.WaitForPodsReady.MaxTimeoutOnWorkload = cmp.Or(cfg.WaitForPodsReady.MaxTimeoutOnWorkload, &metav1.Duration{Duration: DefaultMaxTimeoutOnWorkload})
 	}
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})

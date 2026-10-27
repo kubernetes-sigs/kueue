@@ -31,7 +31,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func makePassThroughWorkload(ns string) client.Object {
@@ -48,6 +48,14 @@ func makePassThroughClusterQueue(_ string) client.Object {
 
 func makePassThroughResourceFlavor(_ string) client.Object {
 	return utiltestingapi.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
+}
+
+func makePassThroughCohort(_ string) client.Object {
+	return utiltestingapi.MakeCohort("pass-through-cohort").Parent("parent-1").Obj()
+}
+
+func makePassThroughTopology(_ string) client.Object {
+	return utiltestingapi.MakeDefaultThreeLevelTopology("pass-through-topology")
 }
 
 func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {
@@ -69,16 +77,17 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.DescribeTable("Pass-through commands",
+	ginkgo.DescribeTable(
+		"Pass-through commands",
 		func(oType string, makeObject func(ns string) client.Object, getPath string, expectGet string, patch string, expectGetAfterPatch string, deleteArgs ...string) {
 			obj := makeObject(ns.Name)
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 			key := client.ObjectKeyFromObject(obj)
 
 			identityArgs := []string{oType, key.Name}
@@ -123,7 +132,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, obj)).Should(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		},
 		ginkgo.Entry("Workload", framework.SlowSpec, "workload", makePassThroughWorkload, "{.spec.active}", "'true'", `{"spec":{"active":false}}`, "'false'", "--yes"),
@@ -134,5 +143,25 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		ginkgo.Entry("ClusterQueue(short)", "cq", makePassThroughClusterQueue, "{.spec.stopPolicy}", "'None'", `{"spec":{"stopPolicy":"Hold"}}`, "'Hold'"),
 		ginkgo.Entry("ResourceFlavor", "resourceflavor", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
 		ginkgo.Entry("ResourceFlavor(short)", "rf", makePassThroughResourceFlavor, "{.spec.nodeLabels.type}", "'small'", `{"spec":{"nodeLabels":{"type":"large"}}}`, "'large'"),
+		ginkgo.Entry("Cohort", "cohort", makePassThroughCohort, "{.spec.parentName}", "'parent-1'", `{"spec":{"parentName":"parent-2"}}`, "'parent-2'"),
+		ginkgo.Entry("Cohort(short)", "co", makePassThroughCohort, "{.spec.parentName}", "'parent-1'", `{"spec":{"parentName":"parent-2"}}`, "'parent-2'"),
+		ginkgo.Entry(
+			"Topology",
+			"topology",
+			makePassThroughTopology,
+			"{.spec.levels[0].nodeLabel}",
+			"'cloud.provider.com/topology-block'",
+			`{"spec":{"levels":[{"nodeLabel":"cloud.provider.com/topology-rack"},{"nodeLabel":"cloud.provider.com/topology-block"},{"nodeLabel":"kubernetes.io/hostname"}]}}`,
+			"'cloud.provider.com/topology-rack'",
+		),
+		ginkgo.Entry(
+			"Topology(short)",
+			"topo",
+			makePassThroughTopology,
+			"{.spec.levels[0].nodeLabel}",
+			"'cloud.provider.com/topology-block'",
+			`{"spec":{"levels":[{"nodeLabel":"cloud.provider.com/topology-rack"},{"nodeLabel":"cloud.provider.com/topology-block"},{"nodeLabel":"kubernetes.io/hostname"}]}}`,
+			"'cloud.provider.com/topology-rack'",
+		),
 	)
 })

@@ -13,6 +13,8 @@ resources:
   - ../components/kueueviz/
 
 patches:
+# Drop the path-routed Ingress; this overlay exposes each component on its own host.
+- path: remove_shared_ingress.yaml
 # Add ingress annotations and tls config for nginx backend ingress controller
 - path: backend_ingress_patch.yaml
 # Add ingress annotations and tls config for nginx frontend ingress controller

@@ -29,7 +29,7 @@ import (
 //
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheckApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the AdmissionCheck.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the AdmissionCheck.

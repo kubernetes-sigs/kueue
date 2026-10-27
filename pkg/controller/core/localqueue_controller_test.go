@@ -27,9 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -37,18 +39,22 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
 	resourceGPU = corev1.ResourceName("GPU")
 )
+
+const pendingWlKey queueafs.WorkloadReference = "ns/pending-wl"
 
 func TestLocalQueueReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -62,9 +68,9 @@ func TestLocalQueueReconcile(t *testing.T) {
 		afsConfig                *config.AdmissionFairSharing
 		runningWls               []kueue.Workload
 		wantRequeueAfter         *time.Duration
-		initialConsumedResources queueafs.ConsumedResourcesEntry
+		initialConsumedResources queueafs.UsageLedgerEntry
 		pendingEntryPenalty      corev1.ResourceList
-		wantConsumedResources    *queueafs.ConsumedResourcesEntry
+		wantConsumedResources    *queueafs.UsageLedgerEntry
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
@@ -178,7 +184,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -216,7 +222,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -245,7 +251,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantConsumedResources: &queueafs.ConsumedResourcesEntry{
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -273,7 +279,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -321,7 +327,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 					resourceGPU:        resource.MustParse("16"),
@@ -383,7 +389,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -431,7 +437,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -469,7 +475,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					resourceGPU: resource.MustParse("8"),
 				},
@@ -517,7 +523,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					resourceGPU: resource.MustParse("8"),
 				},
@@ -569,7 +575,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("8"),
 				},
@@ -751,7 +757,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("2"),
 				},
@@ -784,7 +790,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantConsumedResources: &queueafs.ConsumedResourcesEntry{
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("7"),
 				},
@@ -819,7 +825,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("2"),
 				},
@@ -852,7 +858,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantConsumedResources: &queueafs.ConsumedResourcesEntry{
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("3"),
 				},
@@ -875,7 +881,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					Weight: new(resource.MustParse("1")),
 				}).
 				Obj(),
-			initialConsumedResources: queueafs.ConsumedResourcesEntry{
+			initialConsumedResources: queueafs.UsageLedgerEntry{
 				Resources: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("500m"),
 				},
@@ -908,7 +914,9 @@ func TestLocalQueueReconcile(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objs...).
 				WithStatusSubresource(objs...).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
 				Build()
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
@@ -918,7 +926,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
-				cqCache.AddOrUpdateWorkload(log, &wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
@@ -932,14 +940,14 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			if tc.initialConsumedResources.Resources != nil {
 				lqKey := utilqueue.Key(tc.localQueue)
-				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+				qManager.AfsUsageLedger.Update(lqKey, func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry {
 					return tc.initialConsumedResources
 				})
 			}
 			if tc.pendingEntryPenalty != nil {
 				// A pending entry penalty bypasses the sampling-interval guard so
 				// the tick runs even when the cached LastUpdate is not yet stale.
-				qManager.AfsEntryPenalties.Push(utilqueue.Key(tc.localQueue), tc.pendingEntryPenalty)
+				qManager.AfsUsageLedger.PushPenalty(utilqueue.Key(tc.localQueue), pendingWlKey, tc.pendingEntryPenalty, clock.Now())
 			}
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithClock(clock),
@@ -972,18 +980,27 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			cmpOpts := cmp.Options{
 				cmpopts.EquateEmpty(),
-				util.IgnoreConditionTimestamps,
-				util.IgnoreObjectMetaResourceVersion,
+				behavioral.IgnoreConditionTimestamps,
+				behavioral.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 
+			if tc.pendingEntryPenalty != nil {
+				// The per-Workload record must survive the tick's entry rewrite,
+				// or the later settlement finds nothing to fold.
+				gotEntry, _ := qManager.AfsUsageLedger.Get(utilqueue.Key(tc.localQueue))
+				if !gotEntry.HasPenaltyRecord(pendingWlKey) {
+					t.Error("the reconcile tick dropped the pending per-Workload penalty record")
+				}
+			}
+
 			if tc.wantConsumedResources != nil {
-				gotEntry, found := qManager.AfsConsumedResources.Get(utilqueue.Key(tc.localQueue))
+				gotEntry, found := qManager.AfsUsageLedger.Get(utilqueue.Key(tc.localQueue))
 				if !found {
-					t.Fatal("expected an AfsConsumedResources entry after reconcile")
+					t.Fatal("expected an AfsUsageLedger entry after reconcile")
 				}
 				if diff := cmp.Diff(tc.wantConsumedResources.Resources, gotEntry.Resources, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("unexpected consumed resources in cache entry (-want,+got):\n%s", diff)
@@ -1033,7 +1050,9 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(objs...).
 		WithStatusSubresource(objs...).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		}).
 		Build()
 
 	ctx, _ := utiltesting.ContextWithLog(t)
@@ -1049,14 +1068,14 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 	if err := qManager.AddLocalQueue(ctx, localQueue); err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	qManager.AfsConsumedResources.Set(lqKey, corev1.ResourceList{
+	qManager.AfsUsageLedger.SetForTest(lqKey, corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("8"),
 		resourceGPU:        resource.MustParse("4"),
 	}, now.Add(-5*time.Minute))
-	qManager.AfsEntryPenalties.Push(lqKey, corev1.ResourceList{
+	qManager.AfsUsageLedger.PushPenalty(lqKey, pendingWlKey, corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("1"),
 		resourceGPU:        resource.MustParse("1"),
-	})
+	}, now)
 
 	reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 		WithClock(clock),
@@ -1078,5 +1097,336 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 	const wantUsage = 20
 	if got[0].Value != wantUsage {
 		t.Fatalf("Expected LocalQueue AFS usage metric value %v, got %v", wantUsage, got[0].Value)
+	}
+}
+
+// TestLocalQueueUpdateStatusIfChanged verifies the recomputed LocalQueue status and that the status
+// is written to the API server only when it changes.
+func TestLocalQueueUpdateStatusIfChanged(t *testing.T) {
+	const (
+		cqName   = "test-cluster-queue"
+		lqName   = "test-queue"
+		readyMsg = "Can submit new workloads to localQueue"
+	)
+	cases := map[string]struct {
+		localQueue        *kueue.LocalQueue
+		conditionStatus   metav1.ConditionStatus
+		reason            string
+		message           string
+		wantLocalQueue    *kueue.LocalQueue
+		wantStatusUpdates int
+	}{
+		"status unchanged": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+		},
+		"condition changes": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			wantStatusUpdates: 1,
+		},
+		"stale pending workloads count": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				PendingWorkloads(3).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			wantStatusUpdates: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clusterQueue := utiltestingapi.MakeClusterQueue(cqName).Obj()
+			var statusUpdates int
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(clusterQueue, tc.localQueue).
+				WithStatusSubresource(clusterQueue, tc.localQueue).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusUpdates)}).
+				Build()
+			cqCache := schdcache.New(cl)
+			// AddClusterQueue loads the LocalQueues pointing at the ClusterQueue from the client.
+			if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, tc.localQueue); err != nil {
+				t.Fatalf("Inserting localQueue in manager: %v", err)
+			}
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache)
+
+			if err := reconciler.UpdateStatusIfChanged(ctx, tc.localQueue, tc.conditionStatus, tc.reason, tc.message); err != nil {
+				t.Fatalf("Updating localQueue status: %v", err)
+			}
+			statusCmpOpts := cmp.Options{
+				behavioral.IgnoreConditionTimestamps,
+				cmpopts.EquateEmpty(),
+			}
+			if diff := cmp.Diff(tc.wantLocalQueue.Status, tc.localQueue.Status, statusCmpOpts...); diff != "" {
+				t.Errorf("unexpected LocalQueueStatus (-want,+got):\n%s", diff)
+			}
+			if statusUpdates != tc.wantStatusUpdates {
+				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
+			}
+		})
+	}
+}
+
+// The usage the consumed history decays towards has to be read at the accounting
+// anchor on the sampling path as well, not only where the entry penalty settles.
+// Sampling admitted usage while settling at quota reservation would decay a
+// check-gated Workload's cost away while it still holds quota.
+func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		atQuotaReservation bool
+		// The anchor moves only for ClusterQueues that admit on usage, so a
+		// LocalQueue under any other ClusterQueue keeps reporting admitted usage.
+		admitsOnUsage bool
+		wantCPUMilli  int64
+	}{
+		"the admitted anchor does not sample a Workload that only reserved quota": {
+			admitsOnUsage: true,
+			wantCPUMilli:  0,
+		},
+		"the quota-reservation anchor samples it": {
+			atQuotaReservation: true,
+			admitsOnUsage:      true,
+			wantCPUMilli:       2_000,
+		},
+		"the quota-reservation anchor leaves a ClusterQueue that does not admit on usage alone": {
+			atQuotaReservation: true,
+			wantCPUMilli:       0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
+			clock := testingclock.NewFakeClock(now)
+			afsConfig := &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			}
+			cqWrapper := utiltestingapi.MakeClusterQueue("cq-anchor").Active(metav1.ConditionTrue)
+			if tc.admitsOnUsage {
+				cqWrapper.AdmissionMode(kueue.UsageBasedAdmissionFairSharing)
+			}
+			clusterQueue := cqWrapper.Obj()
+			localQueue := utiltestingapi.MakeLocalQueue("lq-anchor", "default").
+				ClusterQueue("cq-anchor").
+				Active(metav1.ConditionTrue).
+				Obj()
+			lqKey := utilqueue.Key(localQueue)
+
+			objs := []client.Object{clusterQueue, localQueue}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				Build()
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			cqCache := schdcache.New(cl)
+			if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("couldn't add the cluster queue to the scheduler cache: %v", err)
+			}
+			// AddClusterQueue already registered the LocalQueue from the client.
+			if _, err := cqCache.GetCacheLocalQueue(localQueue.Spec.ClusterQueue, lqKey); err != nil {
+				t.Fatalf("the local queue is not in the scheduler cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+			if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("couldn't add the cluster queue to the queue manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, localQueue); err != nil {
+				t.Fatalf("couldn't add the local queue to the queue manager: %v", err)
+			}
+
+			// A Workload holding quota while it waits for its AdmissionChecks:
+			// counted by the quota-reservation anchor, invisible to the admitted one.
+			reserved := utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq-anchor").
+				Request(corev1.ResourceCPU, "4").
+				SimpleReserveQuota("cq-anchor", "rf", now).
+				Obj()
+			if !cqCache.AddOrUpdateWorkload(ctx, log, reserved) {
+				t.Fatal("couldn't add the quota-reserving workload to the scheduler cache")
+			}
+
+			// One half-life of decay gives live usage weight 0.5. A fresh entry
+			// weights it zero, which would make the two anchors indistinguishable.
+			qManager.AfsUsageLedger.SetForTest(lqKey, corev1.ResourceList{}, now.Add(-5*time.Minute))
+
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithClock(clock),
+				WithAdmissionFairSharingConfig(afsConfig))
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(localQueue)}); err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+
+			var got kueue.LocalQueue
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(localQueue), &got); err != nil {
+				t.Fatalf("couldn't read the LocalQueue back: %v", err)
+			}
+			gotCPU := got.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			if gotCPU.MilliValue() != tc.wantCPUMilli {
+				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+		})
+	}
+}
+
+func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	clConfig := []config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
+	}
+
+	testCases := map[string]struct {
+		reconcileBeforeUpdate bool
+	}{
+		"reconcile before update": {
+			reconcileBeforeUpdate: true,
+		},
+		"update before reconcile": {
+			reconcileBeforeUpdate: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cLabels := kueuemetrics.NewCustomLabels(clConfig)
+			t.Cleanup(func() {
+				kueuemetrics.InitMetricVectors(nil)
+			})
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue(cq.Name).
+				Label("team", "alpha").
+				Obj()
+			updatedLQ := lq.DeepCopy()
+			updatedLQ.Labels["team"] = "beta"
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(cq, updatedLQ).WithStatusSubresource(cq, updatedLQ).Build()
+			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithCustomLabels(cLabels),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: labels.Everything(),
+			}
+			r := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithCustomLabels(cLabels),
+				WithLocalQueueMetrics(lqMetrics),
+			)
+
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to manager: %v", err)
+			}
+			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+
+			// Verify initial metric with custom_team_lq=alpha
+			initialAlpha := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "alpha",
+			})
+			if len(initialAlpha) == 0 {
+				t.Fatal("Expected pending workload metric with custom_team_lq=alpha")
+			}
+
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(lq)}
+			updateEvt := event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: updatedLQ}
+
+			if tc.reconcileBeforeUpdate {
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+			} else {
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+
+			// Stale alpha series must be cleaned up
+			gotAlpha := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "alpha",
+			})
+			if len(gotAlpha) != 0 {
+				t.Errorf("Expected stale custom_team_lq=alpha series to be cleaned up, got %v", gotAlpha)
+			}
+
+			// New beta series must be present
+			gotBeta := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "beta",
+			})
+			if len(gotBeta) == 0 {
+				t.Errorf("Expected custom_team_lq=beta series to be reported")
+			}
+		})
 	}
 }

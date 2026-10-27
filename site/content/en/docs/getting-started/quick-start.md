@@ -42,22 +42,26 @@ kubectl get clusterqueue cluster-queue -o wide
 The output is similar to the following:
 
 ```
-NAME            COHORT   STRATEGY         PENDING WORKLOADS   ADMITTED WORKLOADS
-cluster-queue            BestEffortFIFO   0                   0
+NAME            COHORT   STRATEGY         PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   REASON
+cluster-queue            BestEffortFIFO   0                   0                    True     Ready
 ```
 
 Verify the LocalQueue is ready in the `default` namespace:
 
 ```shell
-kubectl get localqueue user-queue -n default
+kubectl get localqueue user-queue -n default -o wide
 ```
 
 The output is similar to the following:
 
 ```
-NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
-user-queue   cluster-queue   0                   0
+NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   REASON
+user-queue   cluster-queue   0                   0                    True     Ready
 ```
+
+The `ACTIVE` and `REASON` columns are shown with `-o wide` and reflect each queue's
+`Active` condition. An active queue shows `True` and `Ready`. If `ACTIVE` is `False`,
+use `REASON` to help identify why the queue is inactive.
 
 ## 2. Submit a Job
 

@@ -18,7 +18,6 @@ package tas
 
 import (
 	"context"
-	"maps"
 	"sync"
 	"time"
 
@@ -131,14 +130,18 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
 			r.notifyFreedNode(removedNode)
 		}
-		r.cache.TASCache().UntrackPod(req.NamespacedName)
+		if removedNode := r.cache.TASCache().UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 		return ctrl.Result{}, nil
 	}
 
 	if isScheduledAndRunning(&pod) {
-		r.cache.TASCache().TrackPod(&pod)
+		r.cache.TASCache().TrackPod(ctx, &pod)
 	} else {
-		r.cache.TASCache().UntrackPod(req.NamespacedName)
+		if removedNode := r.cache.TASCache().UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 	}
 
 	if belongsToNonTASCache(&pod) {
@@ -231,9 +234,10 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 		}
 	}
 	if cqNames.Len() > 0 {
-		log.V(3).
-			Info("Requeueing inadmissible workloads after non-TAS pod freed capacity",
+		if logV := log.V(3); logV.Enabled() {
+			logV.Info("Requeueing inadmissible workloads after non-TAS pod freed capacity",
 				"nodes", sets.List(nodes), "clusterQueues", sets.List(cqNames))
+		}
 		qcache.NotifyRetryInadmissible(r.queues, cqNames)
 	}
 }
@@ -258,9 +262,9 @@ func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
 	if oldPod.Generation == newPod.Generation {
 		return false
 	}
-	return !maps.Equal(
-		resources.ToMap(resources.NewRequestsFromPodSpec(&oldPod.Spec)),
-		resources.ToMap(resources.NewRequestsFromPodSpec(&newPod.Spec)),
+	return !resources.Equal(
+		resources.NewRequestsFromPodSpec(&oldPod.Spec),
+		resources.NewRequestsFromPodSpec(&newPod.Spec),
 	)
 }
 
@@ -285,6 +289,6 @@ func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) 
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASPodUsageController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-pod-usage-reconciler")).
 		Complete(r)
 }

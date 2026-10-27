@@ -145,18 +145,6 @@ func (b *Builder) Trainer(info *runtime.Info, trainJob *trainer.TrainJob) *Build
 			for j, container := range rJob.Template.Spec.Template.Spec.Containers {
 				if *container.Name == constants.Node {
 					if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil {
-						if resourcesPerNode := jobTrainer.ResourcesPerNode; resourcesPerNode != nil &&
-							(resourcesPerNode.Limits != nil || resourcesPerNode.Requests != nil) {
-							requirements := corev1ac.ResourceRequirements()
-							if limits := resourcesPerNode.Limits; limits != nil {
-								requirements.WithLimits(limits)
-							}
-							if requests := resourcesPerNode.Requests; requests != nil {
-								requirements.WithRequests(requests)
-							}
-							b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].
-								WithResources(requirements)
-						}
 						apply.UpsertEnvVars(
 							&b.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Env,
 							apply.EnvVars(jobTrainer.Env...)...,

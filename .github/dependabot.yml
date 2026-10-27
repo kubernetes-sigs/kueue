@@ -1,6 +1,20 @@
 version: 2
 updates:
 
+  # Weekly ecosystems run on different days, so their PRs don't start presubmits together.
+
+  # Maintain Python dependencies and hashes for release scripts.
+  - package-ecosystem: "pip"
+    directory: "/hack/releasing"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+
   # Maintain dependencies for go.
   - package-ecosystem: "gomod"
     directories:
@@ -11,6 +25,7 @@ updates:
       - "/cmd/experimental/kueue-populator"
     schedule:
       interval: "weekly"
+      day: "tuesday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -59,6 +74,8 @@ updates:
       - "/hack/testing/cypress"
       - "/hack/testing/depcheck"
       - "/hack/testing/linkchecker"
+      - "/hack/testing/prometheus"
+      - "/hack/testing/prometheus-operator"
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
@@ -68,11 +85,18 @@ updates:
       - "/hack/testing/spark"
     schedule:
       interval: "weekly"
+      day: "monday"
     labels:
       - "ok-to-test"
       - "release-note-none"
       - "dependencies"
       - "area/dependency"
+    groups:
+      # Group Prometheus and prometheus-operator into one PR, so they bump in sync
+      # instead of one lagging behind the other.
+      prometheus-stack:
+        patterns:
+          - "quay.io/prometheus*"
 
   # Maintain npm dependencies
   - package-ecosystem: "npm"
@@ -82,6 +106,7 @@ updates:
       - /test/e2e/kueueviz
     schedule:
       interval: "weekly"
+      day: "wednesday"
     labels:
       - "ok-to-test"
       - "release-note-none"

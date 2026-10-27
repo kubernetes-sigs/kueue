@@ -37,14 +37,16 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	gcInterval               time.Duration
+	origin                   string
+	workerLostTimeout        time.Duration
+	eventsBatchPeriod        time.Duration
+	adapters                 map[string]jobframework.MultiKueueAdapter
+	dispatcherName           string
+	clusterProfileConfig     *configapi.ClusterProfile
+	clusterProfileCRDPresent bool
+	roleTracker              *roletracker.RoleTracker
+	clientConnection         *configapi.ClientConnection
 }
 
 type SetupOption func(o *SetupOptions)
@@ -101,10 +103,26 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 	}
 }
 
+// WithClusterProfileCRDPresent records whether the ClusterProfile CRD is
+// installed. The ClusterProfile watch is only registered when the CRD exists,
+// otherwise the watch would sync against a cache entry that was never
+// configured and the manager would exit.
+func WithClusterProfileCRDPresent(present bool) SetupOption {
+	return func(o *SetupOptions) {
+		o.clusterProfileCRDPresent = present
+	}
+}
+
 // WithRoleTracker sets the role tracker for HA logging.
 func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	return func(o *SetupOptions) {
 		o.roleTracker = tracker
+	}
+}
+
+func WithClientConnection(c *configapi.ClientConnection) SetupOption {
+	return func(o *SetupOptions) {
+		o.clientConnection = c
 	}
 }
 
@@ -137,7 +155,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	if features.Enabled(features.MultiKueueClusterProfile) && options.clusterProfileConfig != nil {
 		providers := options.clusterProfileConfig.AccessProviders
 		if len(providers) == 0 {
-			providers = options.clusterProfileConfig.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is accepted for backward compatibility.
+			providers = options.clusterProfileConfig.CredentialsProviders
 		}
 		p := make([]access.Provider, 0, len(providers))
 		for i := range providers {
@@ -153,9 +171,17 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	cRec := newClustersReconciler(
-		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
-		options.adapters, cpAccessProvider, options.roleTracker,
-		mgr.GetEventRecorder("multikueue-cluster"),
+		mgr.GetClient(),
+		namespace,
+		withGCInterval(options.gcInterval),
+		withOrigin(options.origin),
+		withFSWatcher(fsWatcher),
+		withAdapters(options.adapters),
+		withClusterProfileAccessProvider(cpAccessProvider),
+		withRoleTracker(options.roleTracker),
+		withEventRecorder(mgr.GetEventRecorder("multikueue-cluster")),
+		withClientConnection(options.clientConnection),
+		withClusterProfileCRDPresent(options.clusterProfileCRDPresent),
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {

@@ -133,6 +133,35 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.tolerations
+  - it: should set affinity when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: "kubernetes.io/hostname"
+                labelSelector:
+                  matchLabels:
+                    control-plane: "controller-manager"
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: "kubernetes.io/hostname"
+                  labelSelector:
+                    matchLabels:
+                      control-plane: "controller-manager"
+  - it: should not render affinity if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        affinity: {}
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
   - it: should use default log level
     template: manager/manager.yaml
     asserts:

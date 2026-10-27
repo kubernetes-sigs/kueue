@@ -293,7 +293,10 @@ assignment while its pod is still draining the termination grace period on the
 original node — an assignment no pod can consume, blocking the newly assigned
 node's capacity for the full grace period. With the gate enabled, evicted pod-owned
 Workloads get `Requeued=False` instead: the Workload finishes with its pod, and the
-owning controller's replacement pod arrives as a new Workload.
+owning controller's replacement pod arrives as a new Workload. This applies only once
+the pod's `kueue.x-k8s.io/admission` scheduling gate has been removed. A pod that still
+carries that gate at eviction time, for example because an AdmissionCheck was still
+pending, has not been placed and is not deleted, so its Workload is requeued as usual.
 
 #### Usage Scenarios
 
@@ -432,6 +435,30 @@ outer slice size.
 
 This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology`
 and `kueue.x-k8s.io/podset-slice-size`.
+
+### Partial slices
+
+When the slice size does not evenly divide the number of pods in the PodSet,
+the trailing pods form one partial slice, which is placed in a single
+topology domain just like a full slice. For example, 10 pods with a slice size
+of 4 are placed as two slices of 4 pods and one slice of 2 pods. This behavior
+is controlled by the `TASPartialSlices` feature gate, which is enabled by
+default.
+
+The partial slice is charged for the pods it actually holds, so a PodSet is
+admitted into a topology that has exactly as many free slots as the PodSet has
+pods. Kueue takes it into account while it chooses the domains, so a domain that
+has room for the full slices but not for the trailing pods is passed over, and
+the trailing pods share a domain with full slices whenever one of them has room
+for them.
+
+The partial slice is always the last one, so that the pod ranks of every
+other slice stay within a single domain.
+
+Partial slices are supported for a single slice layer only. The inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes, so the
+outermost size still has to evenly divide the PodSet.
 
 ## Drawbacks
 

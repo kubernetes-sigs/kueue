@@ -133,7 +133,7 @@ kueuectl list workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_Q
     <tr>
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
-            <p>Filter workloads by status. Must be &#34;all&#34;, &#34;pending&#34;, &#34;admitted&#34; or &#34;finished&#34;</p>
+            <p>Filter workloads by status. Must be &#34;all&#34;, &#34;pending&#34;, &#34;quotareserved&#34;, &#34;admitted&#34; or &#34;finished&#34;</p>
         </td>
     </tr>
     <tr>

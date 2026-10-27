@@ -43,11 +43,9 @@ type PodWrapper struct {
 // MakePod creates a wrapper for a pod with a single container.
 func MakePod(name, ns string) *PodWrapper {
 	return &PodWrapper{corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
@@ -178,6 +176,11 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
+// GroupMaxNotReadyCount updates the pod.GroupMaxNotReadyCountAnnotation of the Pod
+func (p *PodWrapper) GroupMaxNotReadyCount(count string) *PodWrapper {
+	return p.Annotation(podconstants.GroupMaxNotReadyCountAnnotation, count)
+}
+
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueue.PodGroupPodIndexLabel, index)
@@ -257,6 +260,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// SchedulingGroup makes the Pod belong to the given PodGroup.
+func (p *PodWrapper) SchedulingGroup(podGroupName string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &podGroupName}
+	return p
+}
+
 func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
 	if p.Spec.Affinity == nil {
 		p.Spec.Affinity = &corev1.Affinity{}
@@ -325,6 +334,21 @@ func (p *PodWrapper) NodeName(name string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodWrapper {
+	p.Spec.Containers[0].Ports = append(p.Spec.Containers[0].Ports, corev1.ContainerPort{
+		ContainerPort: container,
+		HostPort:      host,
+		Protocol:      protocol,
+	})
+	return p
+}
+
+// ContainerName sets the name of the default container.
+func (p *PodWrapper) ContainerName(name string) *PodWrapper {
+	p.Spec.Containers[0].Name = name
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -353,9 +377,21 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	return p
 }
 
+// RuntimeClass sets the RuntimeClassName of the Pod.
+func (p *PodWrapper) RuntimeClass(name string) *PodWrapper {
+	p.Spec.RuntimeClassName = &name
+	return p
+}
+
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
 	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))
+	return p
+}
+
+// OwnerReferenceWithUID adds an ownerReference with a custom UID.
+func (p *PodWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *PodWrapper {
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, uid, new(true), new(true))
 	return p
 }
 
@@ -383,6 +419,18 @@ func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
 	return p
 }
 
+// StatusPodIP updates status pod IP of the Pod.
+func (p *PodWrapper) StatusPodIP(ip string) *PodWrapper {
+	p.Status.PodIP = ip
+	return p
+}
+
+// StatusContainerStatuses updates status container statuses of the Pod.
+func (p *PodWrapper) StatusContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
+	p.Status.ContainerStatuses = statuses
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
@@ -394,6 +442,12 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
 	p.Pod.DeletionTimestamp = &timestamp
+	return p
+}
+
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
 	return p
 }
 

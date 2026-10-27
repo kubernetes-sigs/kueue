@@ -1,5 +1,6 @@
 ---
-name: Flaking Test
+name: 🎲 Flaking Test
+title: "🎲 "
 about: Report flaky tests or jobs in Kueue
 labels: kind/flake, kind/bug
 

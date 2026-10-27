@@ -35,6 +35,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -66,8 +67,10 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults")
 
-	// drop minCounts if PartialAdmission is not enabled
-	if !features.Enabled(features.PartialAdmission) {
+	// Drop minCounts unless a feature that honors them is enabled for this Workload: classic
+	// PartialAdmission, or elastic partial scale-up (KEP-12100) for elastic jobs. minCounts of a
+	// disabled feature must not reach the scheduler.
+	if !workload.MinCountsUsable(wl) {
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
@@ -114,17 +117,30 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	variableCountPodSets := 0
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
-		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
+		psPath := specPath.Child("podSets").Index(i)
+		allErrs = append(allErrs, validatePodSet(ps, psPath)...)
+		var oldPS *kueue.PodSet
+		if oldObj != nil {
+			oldPS = podset.FindPodSetByName(oldObj.Spec.PodSets, ps.Name)
+		}
+		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
 		}
 	}
 
-	if variableCountPodSets > 1 {
+	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
+
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
+
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -182,11 +198,32 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Requests, resPath.Child("requests"))...)
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Limits, resPath.Child("limits"))...)
 	}
-
-	if features.Enabled(features.TASValidateWorkloadSliceSize) {
-		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
+	allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
+	if features.Enabled(features.TASRejectFalseUnconstrainedTopology) &&
+		ps.TopologyRequest != nil && ps.TopologyRequest.Unconstrained != nil && !*ps.TopologyRequest.Unconstrained {
+		allErrs = append(allErrs, field.Invalid(path.Child("topologyRequest", "unconstrained"), false, "must be true"))
 	}
 
+	return allErrs
+}
+
+// validatePodSetOverhead rejects negative pod overhead, which is added to the
+// PodSet requests that quota is charged for. On update, an entry unchanged from
+// the old PodSet with the same name is allowed, so Workloads that already carry
+// a negative overhead can still be updated, e.g. to remove Kueue's finalizer.
+func validatePodSetOverhead(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
+	if !features.Enabled(features.WorkloadValidateResourcesAreNonNegative) {
+		return nil
+	}
+	var allErrs field.ErrorList
+	for name, quantity := range ps.Template.Spec.Overhead {
+		if oldPS != nil {
+			if oldQuantity, found := oldPS.Template.Spec.Overhead[name]; found && oldQuantity.Equal(quantity) {
+				continue
+			}
+		}
+		allErrs = append(allErrs, validateResourceQuantity(quantity, path.Key(string(name)))...)
+	}
 	return allErrs
 }
 
@@ -304,8 +341,8 @@ func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.Erro
 		}
 		if count := ptr.Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
-				if (resources.ResourceValue(k, v) % int64(count)) != 0 {
-					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
+				if resources.AmountFromQuantity(k, v).RemInt64(int64(count)).Sign() != 0 {
+					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", count)))
 				}
 			}
 		}

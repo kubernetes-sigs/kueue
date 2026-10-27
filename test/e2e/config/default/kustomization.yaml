@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
 - ../../../../config/dev
 - ../../../../config/visibility-apf
+# Alpha CRDs are opt-in, so config/default leaves them out. e2e installs them to cover
+# alpha-level APIs such as PreemptionConfig.
+- ../../../../config/components/crd/alpha
 
 replicas:
 - name: kueue-controller-manager

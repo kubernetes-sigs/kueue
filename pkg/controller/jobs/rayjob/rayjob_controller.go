@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 )
 
 var (
@@ -52,13 +53,15 @@ const (
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:      SetupIndexes,
-		NewJob:            newJob,
-		NewReconciler:     NewReconciler,
-		SetupWebhook:      SetupRayJobWebhook,
-		JobType:           &rayv1.RayJob{},
-		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
+		SetupIndexes:  SetupIndexes,
+		NewJob:        newJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupRayJobWebhook,
+		JobType:       &rayv1.RayJob{},
+		AddToScheme:   rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticRuntimeSync()),
+		),
 	})
 }
 
@@ -90,6 +93,14 @@ var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
+
+func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -192,18 +203,19 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 }
 
 func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	if expected := j.expectedPodSetsCount(); len(podSetsInfo) != expected {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
 		)
-		return false
+		return changed
 	}
 
 	// RayCluster pod sets come first, the optional submitter pod set is last.
 	rayClusterLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
-	changed := raycluster.RestorePodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen])
+	changed = raycluster.RestorePodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen]) || changed
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {

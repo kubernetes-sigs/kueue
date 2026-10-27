@@ -47,14 +47,14 @@ func TestSliceRequests_Conversion(t *testing.T) {
 	}{
 		"multiple resources": {
 			input: MapRequests{
-				corev1.ResourceCPU:    1000,
-				corev1.ResourceMemory: 2048,
-				"nvidia.com/gpu":      2,
+				corev1.ResourceCPU:    NewAmount(1000),
+				corev1.ResourceMemory: NewAmount(2048),
+				"nvidia.com/gpu":      NewAmount(2),
 			},
 			want: MapRequests{
-				corev1.ResourceCPU:    1000,
-				corev1.ResourceMemory: 2048,
-				"nvidia.com/gpu":      2,
+				corev1.ResourceCPU:    NewAmount(1000),
+				corev1.ResourceMemory: NewAmount(2048),
+				"nvidia.com/gpu":      NewAmount(2),
 			},
 		},
 		"empty_map": {
@@ -63,10 +63,10 @@ func TestSliceRequests_Conversion(t *testing.T) {
 		},
 		"map with zero values": {
 			input: MapRequests{
-				corev1.ResourceCPU: 0,
+				corev1.ResourceCPU: NewAmount(0),
 			},
 			want: MapRequests{
-				corev1.ResourceCPU: 0,
+				corev1.ResourceCPU: NewAmount(0),
 			},
 		},
 		"nil_map": {
@@ -96,23 +96,23 @@ func TestSliceRequests_Conversion(t *testing.T) {
 func TestSliceRequests_EdgeCases(t *testing.T) {
 	var nilSR *SliceRequests
 	called := false
-	nilSR.ForEach(func(name corev1.ResourceName, val int64) {
+	nilSR.ForEach(func(name corev1.ResourceName, val Amount) {
 		called = true
 	})
 	if called {
 		t.Errorf("expected ForEach on nilSR to not execute callback")
 	}
 
-	nilSR.mergeWithInPlace(nil, func(a, b int64) int64 { return a + b })
+	nilSR.mergeWithInPlace(nil, func(a, b Amount) Amount { return a.Add(b) })
 
 	var emptySR SliceRequests
-	emptySR.mergeWithInPlace(emptySR, func(a, b int64) int64 { return a + b })
+	emptySR.mergeWithInPlace(emptySR, func(a, b Amount) Amount { return a.Add(b) })
 	if emptySR != nil {
 		t.Errorf("expected MergeWithInPlace on empty slices to leave slice empty")
 	}
 
-	e1 := resourceEntry{name: "a", hash: 100, value: 1}
-	e2 := resourceEntry{name: "b", hash: 100, value: 1}
+	e1 := resourceEntry{name: "a", hash: 100, value: NewAmount(1)}
+	e2 := resourceEntry{name: "b", hash: 100, value: NewAmount(1)}
 	if e1.cmp(e2) >= 0 {
 		t.Errorf("expected e1 < e2 for same hash but different name")
 	}
@@ -121,41 +121,41 @@ func TestSliceRequests_EdgeCases(t *testing.T) {
 func TestSliceRequests_MergeWithInPlace(t *testing.T) {
 	t.Run("with sufficient capacity", func(t *testing.T) {
 		base := make(SliceRequests, 0, 4)
-		base = append(base, resourceEntry{name: corev1.ResourceCPU, hash: hashResourceName(corev1.ResourceCPU), value: 1000})
-		other := SliceRequests{resourceEntry{name: corev1.ResourceMemory, hash: hashResourceName(corev1.ResourceMemory), value: 2048}}
+		base = append(base, resourceEntry{name: corev1.ResourceCPU, hash: hashResourceName(corev1.ResourceCPU), value: NewAmount(1000)})
+		other := SliceRequests{resourceEntry{name: corev1.ResourceMemory, hash: hashResourceName(corev1.ResourceMemory), value: NewAmount(2048)}}
 
-		base.mergeWithInPlace(other, func(a, b int64) int64 { return a + b })
-		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		base.mergeWithInPlace(other, func(a, b Amount) Amount { return a.Add(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}
 		if diff := cmp.Diff(want, MapRequests(base.ToMap())); diff != "" {
 			t.Errorf("mismatch with sufficient capacity (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("with insufficient capacity", func(t *testing.T) {
-		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
-		other := *NewSliceRequests(MapRequests{corev1.ResourceMemory: 2048})
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
+		other := *NewSliceRequests(MapRequests{corev1.ResourceMemory: NewAmount(2048)})
 
-		sr.mergeWithInPlace(other, func(a, b int64) int64 { return a + b })
-		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		sr.mergeWithInPlace(other, func(a, b Amount) Amount { return a.Add(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("mismatch with insufficient capacity (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("self merge", func(t *testing.T) {
-		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048})
-		sr.mergeWithInPlace(*sr, func(a, b int64) int64 { return a + b })
-		want := MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 4096}
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)})
+		sr.mergeWithInPlace(*sr, func(a, b Amount) Amount { return a.Add(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(2000), corev1.ResourceMemory: NewAmount(4096)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("mismatch on self merge (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("merge resulting in zero value retained", func(t *testing.T) {
-		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048})
-		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
-		sr.mergeWithInPlace(other, func(a, b int64) int64 { return a - b })
-		want := MapRequests{corev1.ResourceCPU: 0, corev1.ResourceMemory: 2048}
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)})
+		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
+		sr.mergeWithInPlace(other, func(a, b Amount) Amount { return a.Sub(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(0), corev1.ResourceMemory: NewAmount(2048)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("mismatch on zero drop merge (-want +got):\n%s", diff)
 		}
@@ -163,19 +163,19 @@ func TestSliceRequests_MergeWithInPlace(t *testing.T) {
 
 	t.Run("empty receiver with non-empty operand", func(t *testing.T) {
 		var sr SliceRequests
-		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
-		sr.mergeWithInPlace(other, func(a, b int64) int64 { return a + b })
-		want := MapRequests{corev1.ResourceCPU: 1000}
+		other := *NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
+		sr.mergeWithInPlace(other, func(a, b Amount) Amount { return a.Add(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(1000)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("mismatch on empty receiver merge (-want +got):\n%s", diff)
 		}
 	})
 
 	t.Run("non-empty receiver with empty operand", func(t *testing.T) {
-		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
 		var other SliceRequests
-		sr.mergeWithInPlace(other, func(a, b int64) int64 { return a + b })
-		want := MapRequests{corev1.ResourceCPU: 1000}
+		sr.mergeWithInPlace(other, func(a, b Amount) Amount { return a.Add(b) })
+		want := MapRequests{corev1.ResourceCPU: NewAmount(1000)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("mismatch on empty operand merge (-want +got):\n%s", diff)
 		}
@@ -189,8 +189,8 @@ func TestSliceRequests_ResourceList(t *testing.T) {
 	}
 	sr := ResourceListToSliceRequests(rl)
 	wantMap := MapRequests{
-		corev1.ResourceCPU:    2000,
-		corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+		corev1.ResourceCPU:    NewAmount(2000),
+		corev1.ResourceMemory: NewAmount(4 * 1024 * 1024 * 1024),
 	}
 	if diff := cmp.Diff(wantMap, MapRequests(sr.ToMap())); diff != "" {
 		t.Errorf("ResourceListToSliceRequests mismatch (-want +got):\n%s", diff)
@@ -209,28 +209,28 @@ func TestSliceRequests_AddAndSub(t *testing.T) {
 		want    MapRequests
 	}{
 		"add disjoint": {
-			base:    MapRequests{corev1.ResourceCPU: 1000},
+			base:    MapRequests{corev1.ResourceCPU: NewAmount(1000)},
 			op:      "add",
-			operand: MapRequests{corev1.ResourceMemory: 2048},
-			want:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			operand: MapRequests{corev1.ResourceMemory: NewAmount(2048)},
+			want:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)},
 		},
 		"add overlapping": {
-			base:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			base:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)},
 			op:      "add",
-			operand: MapRequests{corev1.ResourceMemory: 1024, "nvidia.com/gpu": 1},
-			want:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 3072, "nvidia.com/gpu": 1},
+			operand: MapRequests{corev1.ResourceMemory: NewAmount(1024), "nvidia.com/gpu": NewAmount(1)},
+			want:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(3072), "nvidia.com/gpu": NewAmount(1)},
 		},
 		"sub exact": {
-			base:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			base:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)},
 			op:      "sub",
-			operand: MapRequests{corev1.ResourceMemory: 1024},
-			want:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 1024},
+			operand: MapRequests{corev1.ResourceMemory: NewAmount(1024)},
+			want:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(1024)},
 		},
 		"sub to zero": {
-			base:    MapRequests{corev1.ResourceCPU: 1000},
+			base:    MapRequests{corev1.ResourceCPU: NewAmount(1000)},
 			op:      "sub",
-			operand: MapRequests{corev1.ResourceCPU: 1000},
-			want:    MapRequests{corev1.ResourceCPU: 0},
+			operand: MapRequests{corev1.ResourceCPU: NewAmount(1000)},
+			want:    MapRequests{corev1.ResourceCPU: NewAmount(0)},
 		},
 	}
 
@@ -251,7 +251,7 @@ func TestSliceRequests_AddAndSub(t *testing.T) {
 
 	t.Run("nil and empty operands", func(t *testing.T) {
 		var nilSR *SliceRequests
-		opSr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
+		opSr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
 		nilSR.Add(opSr)
 		nilSR.Sub(opSr)
 		opSr.Add(nil)
@@ -259,27 +259,29 @@ func TestSliceRequests_AddAndSub(t *testing.T) {
 	})
 
 	t.Run("add and sub with MapRequests operand", func(t *testing.T) {
-		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000})
-		sr.Add(MapRequests{corev1.ResourceMemory: 2048})
-		want := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+		sr := NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)})
+		sr.Add(MapRequests{corev1.ResourceMemory: NewAmount(2048)})
+		want := MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}
 		if diff := cmp.Diff(want, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("Add MapRequests mismatch (-want +got):\n%s", diff)
 		}
 
-		sr.Sub(MapRequests{corev1.ResourceCPU: 500})
-		wantSub := MapRequests{corev1.ResourceCPU: 500, corev1.ResourceMemory: 2048}
+		sr.Sub(MapRequests{corev1.ResourceCPU: NewAmount(500)})
+		wantSub := MapRequests{corev1.ResourceCPU: NewAmount(500), corev1.ResourceMemory: NewAmount(2048)}
 		if diff := cmp.Diff(wantSub, MapRequests(sr.ToMap())); diff != "" {
 			t.Errorf("Sub MapRequests mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
 
-// TestSliceRequests_SaturationMatchesMapRequests pins the two Requests
-// implementations to the same answer where int64 runs out. Which one runs is a
-// feature gate decision, so a difference here is the same cluster accounting two
-// ways.
-func TestSliceRequests_SaturationMatchesMapRequests(t *testing.T) {
+// TestSliceRequests_ExactPastInt64MatchesMapRequests pins the two Requests
+// implementations to the same exact total where int64 runs out. Which one runs
+// is a feature gate decision, so a difference here is the same cluster
+// accounting two ways.
+func TestSliceRequests_ExactPastInt64MatchesMapRequests(t *testing.T) {
 	const res = corev1.ResourceCPU
+	pastMax := NewAmount(math.MaxInt64).AddInt64(1)
+	pastMin := NewAmount(math.MinInt64).AddInt64(-1)
 	cases := map[string]struct {
 		start MapRequests
 		other MapRequests
@@ -287,45 +289,45 @@ func TestSliceRequests_SaturationMatchesMapRequests(t *testing.T) {
 		want  MapRequests
 	}{
 		"adding past MaxInt64": {
-			start: MapRequests{res: math.MaxInt64},
-			other: MapRequests{res: 1},
-			want:  MapRequests{res: math.MaxInt64},
+			start: MapRequests{res: NewAmount(math.MaxInt64)},
+			other: MapRequests{res: NewAmount(1)},
+			want:  MapRequests{res: pastMax},
 		},
 		"adding past MinInt64": {
-			start: MapRequests{res: math.MinInt64},
-			other: MapRequests{res: -1},
-			want:  MapRequests{res: math.MinInt64},
+			start: MapRequests{res: NewAmount(math.MinInt64)},
+			other: MapRequests{res: NewAmount(-1)},
+			want:  MapRequests{res: pastMin},
 		},
 		"two halves that do not fit": {
-			start: MapRequests{res: math.MaxInt64/2 + 1},
-			other: MapRequests{res: math.MaxInt64/2 + 1},
-			want:  MapRequests{res: math.MaxInt64},
+			start: MapRequests{res: NewAmount(math.MaxInt64/2 + 1)},
+			other: MapRequests{res: NewAmount(math.MaxInt64/2 + 1)},
+			want:  MapRequests{res: pastMax},
 		},
 		"subtracting a negative past MaxInt64": {
-			start: MapRequests{res: math.MaxInt64},
-			other: MapRequests{res: -1},
+			start: MapRequests{res: NewAmount(math.MaxInt64)},
+			other: MapRequests{res: NewAmount(-1)},
 			sub:   true,
-			want:  MapRequests{res: math.MaxInt64},
+			want:  MapRequests{res: pastMax},
 		},
 		"subtracting past MinInt64": {
-			start: MapRequests{res: math.MinInt64},
-			other: MapRequests{res: 1},
+			start: MapRequests{res: NewAmount(math.MinInt64)},
+			other: MapRequests{res: NewAmount(1)},
 			sub:   true,
-			want:  MapRequests{res: math.MinInt64},
+			want:  MapRequests{res: pastMin},
 		},
 		// A key the receiver does not hold takes a different route through
 		// SliceRequests: mergeInto reaches it as fn(0, b), which none of the
 		// cases above enter.
 		"subtracting MinInt64 from a key the receiver lacks": {
 			start: MapRequests{},
-			other: MapRequests{res: math.MinInt64},
+			other: MapRequests{res: NewAmount(math.MinInt64)},
 			sub:   true,
-			want:  MapRequests{res: math.MaxInt64},
+			want:  MapRequests{res: pastMax},
 		},
 		"adding MinInt64 to a key the receiver lacks": {
 			start: MapRequests{},
-			other: MapRequests{res: math.MinInt64},
-			want:  MapRequests{res: math.MinInt64},
+			other: MapRequests{res: NewAmount(math.MinInt64)},
+			want:  MapRequests{res: NewAmount(math.MinInt64)},
 		},
 	}
 	for name, tc := range cases {
@@ -351,30 +353,30 @@ func TestSliceRequests_GetValue(t *testing.T) {
 	cases := map[string]struct {
 		req  *SliceRequests
 		res  corev1.ResourceName
-		want int64
+		want Amount
 	}{
 		"existing resource": {
-			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 			res:  corev1.ResourceCPU,
-			want: 1000,
+			want: NewAmount(1000),
 		},
 		"missing resource": {
-			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 			res:  corev1.ResourceMemory,
-			want: 0,
+			want: Amount{},
 		},
 		"nil receiver": {
 			req:  nil,
 			res:  corev1.ResourceCPU,
-			want: 0,
+			want: Amount{},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.req.GetValue(tc.res)
-			if got != tc.want {
-				t.Errorf("GetValue(%s) = %d, want %d", tc.res, got, tc.want)
+			got := tc.req.ResourceValue(tc.res)
+			if !got.Equal(tc.want) {
+				t.Errorf("GetValue(%s) = %s, want %s", tc.res, got, tc.want)
 			}
 		})
 	}
@@ -387,7 +389,7 @@ func TestSliceRequests_LenAndIsEmpty(t *testing.T) {
 		wantIsEmpty bool
 	}{
 		"populated requests": {
-			req:         NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			req:         NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}),
 			wantLen:     2,
 			wantIsEmpty: false,
 		},
@@ -422,9 +424,9 @@ func TestSliceRequests_ScaledUp(t *testing.T) {
 		want   Requests
 	}{
 		"scale up non-empty": {
-			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}),
 			factor: 3,
-			want:   NewSliceRequests(MapRequests{corev1.ResourceCPU: 3000, corev1.ResourceMemory: 6144}),
+			want:   NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(3000), corev1.ResourceMemory: NewAmount(6144)}),
 		},
 		"scale up nil receiver": {
 			req:    nil,
@@ -449,8 +451,8 @@ func TestSliceRequests_Clone(t *testing.T) {
 		want Requests
 	}{
 		"clone non-empty": {
-			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
-			want: NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
+			want: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 		},
 		"clone nil receiver": {
 			req:  nil,
@@ -476,55 +478,55 @@ func TestSliceRequests_CountIn(t *testing.T) {
 		wantRes  corev1.ResourceName
 	}{
 		"normal bottleneck": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000, corev1.ResourceMemory: 20480, corev1.ResourcePods: 100}),
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 2048, corev1.ResourcePods: 10}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(10000), corev1.ResourceMemory: NewAmount(20480), corev1.ResourcePods: NewAmount(100)}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(2000), corev1.ResourceMemory: NewAmount(2048), corev1.ResourcePods: NewAmount(10)}),
 			wantCnt:  5,
 			wantRes:  corev1.ResourceCPU,
 		},
 		"missing resource": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourcePods: 500}),
-			request:  NewSliceRequests(MapRequests{corev1.ResourcePods: 1000, "nvidia.com/gpu": 1}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourcePods: NewAmount(500)}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourcePods: NewAmount(1000), "nvidia.com/gpu": NewAmount(1)}),
 			wantCnt:  0,
 			wantRes:  "nvidia.com/gpu",
 		},
 		"nil capacity": {
 			capacity: nil,
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 			wantCnt:  0,
 			wantRes:  corev1.ResourceCPU,
 		},
 		"empty capacity": {
 			capacity: &SliceRequests{},
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 			wantCnt:  0,
 			wantRes:  corev1.ResourceCPU,
 		},
 		"nil receiver": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(10000)}),
 			request:  nil,
 			wantCnt:  0,
 			wantRes:  "",
 		},
 		"large ratio overflow clamped to MaxInt32": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourceMemory: 100_000_000_000}),
-			request:  NewSliceRequests(MapRequests{corev1.ResourceMemory: 1}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceMemory: NewAmount(100_000_000_000)}),
+			request:  NewSliceRequests(MapRequests{corev1.ResourceMemory: NewAmount(1)}),
 			wantCnt:  math.MaxInt32,
 			wantRes:  corev1.ResourceMemory,
 		},
 		"non-slice capacity (MapRequests)": {
-			capacity: MapRequests{corev1.ResourceCPU: 10000, corev1.ResourceMemory: 20480},
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 2048}),
+			capacity: MapRequests{corev1.ResourceCPU: NewAmount(10000), corev1.ResourceMemory: NewAmount(20480)},
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(2000), corev1.ResourceMemory: NewAmount(2048)}),
 			wantCnt:  5,
 			wantRes:  corev1.ResourceCPU,
 		},
 		"non-slice capacity missing resource": {
-			capacity: MapRequests{corev1.ResourceCPU: 10000},
-			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 2048}),
+			capacity: MapRequests{corev1.ResourceCPU: NewAmount(10000)},
+			request:  NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(2000), corev1.ResourceMemory: NewAmount(2048)}),
 			wantCnt:  0,
 			wantRes:  corev1.ResourceMemory,
 		},
 		"empty request": {
-			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: 10000}),
+			capacity: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(10000)}),
 			request:  &SliceRequests{},
 			wantCnt:  0,
 			wantRes:  "",
@@ -548,7 +550,7 @@ func TestSliceRequests_CountIn(t *testing.T) {
 func TestSliceRequests_Set(t *testing.T) {
 	type setOp struct {
 		name corev1.ResourceName
-		val  int64
+		val  Amount
 	}
 	cases := map[string]struct {
 		req  *SliceRequests
@@ -558,34 +560,34 @@ func TestSliceRequests_Set(t *testing.T) {
 		"nil receiver": {
 			req: nil,
 			sets: []setOp{
-				{name: corev1.ResourceCPU, val: 1000},
+				{name: corev1.ResourceCPU, val: NewAmount(1000)},
 			},
 			want: nil,
 		},
 		"insert into empty slice": {
 			req: &SliceRequests{},
 			sets: []setOp{
-				{name: corev1.ResourceCPU, val: 1000},
+				{name: corev1.ResourceCPU, val: NewAmount(1000)},
 			},
-			want: MapRequests{corev1.ResourceCPU: 1000},
+			want: MapRequests{corev1.ResourceCPU: NewAmount(1000)},
 		},
 		"update existing resource": {
-			req: NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			req: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}),
 			sets: []setOp{
-				{name: corev1.ResourceCPU, val: 4000},
+				{name: corev1.ResourceCPU, val: NewAmount(4000)},
 			},
-			want: MapRequests{corev1.ResourceCPU: 4000, corev1.ResourceMemory: 2048},
+			want: MapRequests{corev1.ResourceCPU: NewAmount(4000), corev1.ResourceMemory: NewAmount(2048)},
 		},
 		"insert new resource preserving sorted order": {
-			req: NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000}),
+			req: NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000)}),
 			sets: []setOp{
-				{name: "nvidia.com/gpu", val: 2},
-				{name: corev1.ResourceMemory, val: 2048},
+				{name: "nvidia.com/gpu", val: NewAmount(2)},
+				{name: corev1.ResourceMemory, val: NewAmount(2048)},
 			},
 			want: MapRequests{
-				corev1.ResourceCPU:    1000,
-				corev1.ResourceMemory: 2048,
-				"nvidia.com/gpu":      2,
+				corev1.ResourceCPU:    NewAmount(1000),
+				corev1.ResourceMemory: NewAmount(2048),
+				"nvidia.com/gpu":      NewAmount(2),
 			},
 		},
 	}
@@ -609,9 +611,9 @@ func TestSliceRequests_ScaledDown(t *testing.T) {
 		want   Requests
 	}{
 		"scale down non-empty": {
-			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: 3000, corev1.ResourceMemory: 6144}),
+			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(3000), corev1.ResourceMemory: NewAmount(6144)}),
 			factor: 3,
-			want:   NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			want:   NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}),
 		},
 		"scale down nil receiver": {
 			req:    nil,
@@ -642,9 +644,9 @@ func TestSliceRequests_Divide(t *testing.T) {
 			want:    nil,
 		},
 		"divide by non-zero": {
-			req:     NewSliceRequests(MapRequests{corev1.ResourceCPU: 2000, corev1.ResourceMemory: 4096}),
+			req:     NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(2000), corev1.ResourceMemory: NewAmount(4096)}),
 			divisor: 2,
-			want:    MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			want:    MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)},
 		},
 	}
 	for name, tc := range cases {
@@ -669,14 +671,14 @@ func TestSliceRequests_Mul(t *testing.T) {
 			want:   nil,
 		},
 		"normal multiplication": {
-			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)}),
 			factor: 3,
-			want:   MapRequests{corev1.ResourceCPU: 3000, corev1.ResourceMemory: 6144},
+			want:   MapRequests{corev1.ResourceCPU: NewAmount(3000), corev1.ResourceMemory: NewAmount(6144)},
 		},
-		"saturating multiplication overflow": {
-			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: math.MaxInt64}),
+		"multiplication past MaxInt64": {
+			req:    NewSliceRequests(MapRequests{corev1.ResourceCPU: NewAmount(math.MaxInt64)}),
 			factor: 2,
-			want:   MapRequests{corev1.ResourceCPU: math.MaxInt64},
+			want:   MapRequests{corev1.ResourceCPU: NewAmount(math.MaxInt64).MulInt64(2)},
 		},
 	}
 	for name, tc := range cases {
@@ -705,8 +707,8 @@ func TestSliceRequests_ToResourceList(t *testing.T) {
 		},
 		"populated requests": {
 			req: NewSliceRequests(MapRequests{
-				corev1.ResourceCPU:    2000,
-				corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+				corev1.ResourceCPU:    NewAmount(2000),
+				corev1.ResourceMemory: NewAmount(4 * 1024 * 1024 * 1024),
 			}),
 			want: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),
@@ -715,7 +717,7 @@ func TestSliceRequests_ToResourceList(t *testing.T) {
 		},
 		"zero value requests": {
 			req: &SliceRequests{
-				{name: corev1.ResourceCPU, value: 0},
+				{name: corev1.ResourceCPU, value: Amount{}},
 			},
 			want: corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("0"),
@@ -734,8 +736,8 @@ func TestSliceRequests_ToResourceList(t *testing.T) {
 
 func TestSliceRequests_GreaterKeysRL(t *testing.T) {
 	baseReq := NewSliceRequests(MapRequests{
-		corev1.ResourceCPU:    2000,
-		corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+		corev1.ResourceCPU:    NewAmount(2000),
+		corev1.ResourceMemory: NewAmount(4 * 1024 * 1024 * 1024),
 	})
 	cases := map[string]struct {
 		req  *SliceRequests
@@ -776,8 +778,8 @@ func TestSliceRequests_GreaterKeysRL(t *testing.T) {
 
 func TestSliceRequests_GreaterKeys(t *testing.T) {
 	baseReq := NewSliceRequests(MapRequests{
-		corev1.ResourceCPU:    2000,
-		corev1.ResourceMemory: 4 * 1024 * 1024 * 1024,
+		corev1.ResourceCPU:    NewAmount(2000),
+		corev1.ResourceMemory: NewAmount(4 * 1024 * 1024 * 1024),
 	})
 	cases := map[string]struct {
 		req   *SliceRequests
@@ -787,27 +789,27 @@ func TestSliceRequests_GreaterKeys(t *testing.T) {
 		"greater keys found with MapRequests": {
 			req: baseReq,
 			other: MapRequests{
-				corev1.ResourceCPU:    1000,
-				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+				corev1.ResourceCPU:    NewAmount(1000),
+				corev1.ResourceMemory: NewAmount(8 * 1024 * 1024 * 1024),
 			},
 			want: []corev1.ResourceName{corev1.ResourceCPU},
 		},
 		"greater keys found with SliceRequests": {
 			req: baseReq,
 			other: NewSliceRequests(MapRequests{
-				corev1.ResourceCPU:    1000,
-				corev1.ResourceMemory: 8 * 1024 * 1024 * 1024,
+				corev1.ResourceCPU:    NewAmount(1000),
+				corev1.ResourceMemory: NewAmount(8 * 1024 * 1024 * 1024),
 			}),
 			want: []corev1.ResourceName{corev1.ResourceCPU},
 		},
 		"multiple greater keys sorted alphabetically": {
 			req: NewSliceRequests(MapRequests{
-				corev1.ResourceCPU:  2000,
-				corev1.ResourcePods: 10,
+				corev1.ResourceCPU:  NewAmount(2000),
+				corev1.ResourcePods: NewAmount(10),
 			}),
 			other: MapRequests{
-				corev1.ResourceCPU:  1000,
-				corev1.ResourcePods: 5,
+				corev1.ResourceCPU:  NewAmount(1000),
+				corev1.ResourcePods: NewAmount(5),
 			},
 			want: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourcePods},
 		},

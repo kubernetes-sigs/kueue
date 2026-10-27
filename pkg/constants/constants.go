@@ -86,4 +86,17 @@ const (
 
 	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
+
+	// WorkloadSliceReplacementForAnnotation is set on a new workload slice to indicate
+	// the key of the workload slice it is intended to replace.
+	WorkloadSliceReplacementForAnnotation = "kueue.x-k8s.io/workload-slice-replacement-for"
+
+	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
+	// partial scale up.
+	// This annotation is alpha-level.
+	// The default value is "atomic".
+	ElasticJobScaleUpStrategyAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up-strategy"
+
+	ElasticJobScaleUpStrategyAtomic  = "atomic"
+	ElasticJobScaleUpStrategyPartial = "partial"
 )

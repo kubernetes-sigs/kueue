@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 	apiskueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,11 +34,39 @@ import (
 )
 
 // CohortInformer provides access to a shared informer and lister for
-// Cohorts.
+// Cohorts. Prefer using the type-safe variant (see [TypedCohortInformer]).
 type CohortInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta2.CohortLister
 }
+
+// TypedCohortInformer provides access to a shared informer and lister for
+// Cohorts, including the type-safe TypedInformer variant.
+// It is a superset of CohortInformer.
+type TypedCohortInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() CohortIndexInformer
+	Lister() kueuev1beta2.CohortLister
+}
+
+// CohortIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type CohortIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta2.Cohort]
+
+// CohortHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for Cohort.
+type CohortHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta2.Cohort]
+
+// CohortDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for Cohort.
+type CohortDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta2.Cohort]
+
+// CohortFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for Cohort.
+type CohortFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta2.Cohort]
+
+// CohortIndexers is a specialization of [cache.TypedIndexers] for Cohort.
+type CohortIndexers = cache.TypedIndexers[*apiskueuev1beta2.Cohort]
+
+// DeletedCohort is a specialization of [cache.DeletedObject] for Cohort.
+type DeletedCohort = cache.DeletedObject[*apiskueuev1beta2.Cohort]
 
 type cohortInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -47,55 +76,132 @@ type cohortInformer struct {
 // NewCohortInformer constructs a new informer for Cohort type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedCohortInformer]).
 func NewCohortInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredCohortInformer(client, resyncPeriod, indexers, nil)
+	return NewCohortInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedCohortInformer constructs a new informer for Cohort type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedCohortInformer(client versioned.Interface, resyncPeriod time.Duration, indexers CohortIndexers) CohortIndexInformer {
+	return NewTypedCohortInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredCohortInformer constructs a new informer for Cohort type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredCohortInformer]).
 func NewFilteredCohortInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+	return NewTypedCohortInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredCohortInformer constructs a new informer for Cohort type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredCohortInformer(client versioned.Interface, resyncPeriod time.Duration, indexers CohortIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) CohortIndexInformer {
+	return NewTypedCohortInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewCohortInformerWithOptions constructs a new informer for Cohort type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedCohortInformerWithOptions]).
+func NewCohortInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedCohortInformerWithOptions(client, options)
+}
+
+// NewTypedCohortInformerWithOptions constructs a new informer for Cohort type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedCohortInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) CohortIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta2", Resource: "cohorts"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.Cohort](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta2().Cohorts().List(context.Background(), options)
+				return client.KueueV1beta2().Cohorts().List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta2().Cohorts().Watch(context.Background(), options)
+				return client.KueueV1beta2().Cohorts().Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta2().Cohorts().List(ctx, options)
+				return client.KueueV1beta2().Cohorts().List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta2().Cohorts().Watch(ctx, options)
+				return client.KueueV1beta2().Cohorts().Watch(ctx, opts)
 			},
 		}, client),
 		&apiskueuev1beta2.Cohort{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *cohortInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredCohortInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedCohortInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *cohortInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta2.Cohort{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *cohortInformer) TypedInformer() CohortIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.Cohort](f.factory.InformerFor(&apiskueuev1beta2.Cohort{}, f.defaultInformer))
 }
 
 func (f *cohortInformer) Lister() kueuev1beta2.CohortLister {
 	return kueuev1beta2.NewCohortLister(f.Informer().GetIndexer())
+}
+
+// ToTypedCohortInformer converts an untyped informer into a TypedCohortInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Cohort. If that is not the case, calling type-safe methods of the returned
+// TypedCohortInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedCohortInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedCohortInformer(informer CohortInformer) TypedCohortInformer {
+	if informer, ok := informer.(TypedCohortInformer); ok {
+		return informer
+	}
+	return &cohortTypedInformerAdapter{informer}
+}
+
+type cohortTypedInformerAdapter struct {
+	CohortInformer
+}
+
+func (a *cohortTypedInformerAdapter) TypedInformer() CohortIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.Cohort](a.Informer())
+}
+
+// ToCohortIndexInformer converts an untyped informer into a CohortIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Cohort. If that is not the case, calling type-safe methods of the returned
+// CohortIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a CohortIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToCohortIndexInformer(informer cache.SharedIndexInformer) CohortIndexInformer {
+	if informer, ok := informer.(CohortIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.Cohort](informer)
 }

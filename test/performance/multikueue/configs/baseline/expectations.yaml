@@ -1,0 +1,13 @@
+# Broad regression guardrails for the dedicated MultiKueue performance periodic.
+# The throughput floor leaves about 22% headroom below the observed CI minimum.
+# Recalibrate when the scenario or CI capacity changes.
+# The checker verifies the reported scenario against configuration.yaml before
+# applying these bounds; this file does not configure the benchmark.
+# CI measurements and rationale are documented in the benchmark README.
+minThroughputPerSecond: 35
+# Admission latency includes a workload's position in the drain queue.
+maxAdmissionP95Ms: 15_000
+maxQuotaReservationP95Ms: 1_000
+# A gap can distort timing. Retain the existing tolerance while also checking
+# throughput and latency; repeated watch restarts invalidate the run.
+maxWatchGaps: 1

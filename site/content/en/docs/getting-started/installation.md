@@ -17,6 +17,7 @@ aliases:
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Upgrade policy](#upgrade-policy)
+  - [Before you uninstall](#before-you-uninstall)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -118,6 +119,28 @@ When upgrading Kueue, review the following release notes:
 
 {{< upgrade-policy-example >}}
 
+### Before you uninstall
+
+Kueue adds the `kueue.x-k8s.io/resource-in-use` finalizer to Workloads, ClusterQueues,
+ResourceFlavors, AdmissionChecks and Topologies, and the `kueue.x-k8s.io/managed`
+finalizer to the Pods it manages. Only the Kueue controller removes these finalizers.
+If you uninstall Kueue while these objects exist, the controller is removed with them,
+and the objects and their CustomResourceDefinitions stay in `Terminating`.
+
+To avoid this, delete the Kueue objects while the controller is still running, in this
+order:
+
+1. Jobs submitted to Kueue, of any kind (Jobs, JobSets, Pods and so on).
+2. Workloads. Most are deleted with their jobs; delete any that `kubectl get workloads -A`
+   still lists, such as a prebuilt Workload that no job adopted.
+3. LocalQueues and ClusterQueues.
+4. Cohorts, ResourceFlavors and AdmissionChecks.
+5. Topologies.
+
+The [quick start](/docs/getting-started/quick-start/#4-clean-up) cleans up in the same order.
+
+If an uninstall is stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
+
 ### Uninstall
 
 To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
@@ -145,7 +168,7 @@ wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "versi
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
    `controller_manager_config.yaml` data entry. The entry represents
-   the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
+   the default [KueueConfiguration](/docs/reference/kueue-config.v1beta2).
    The contents of the ConfigMap are similar to the following:
 
 ```yaml
@@ -172,7 +195,8 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      timeout: 10m
+      timeout: 30m
+      recoveryTimeout: 5m
     integrations:
       frameworks:
       - "batch/job"
@@ -210,6 +234,7 @@ The controller runs in the `kueue-system` namespace.
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```shell
@@ -238,6 +263,7 @@ make prometheus
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```sh
@@ -247,6 +273,9 @@ make undeploy
 ## Install via Helm
 
 To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
+
+For manager configuration and migration from the YAML string, see the chart's
+[manager configuration guide](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md#manager-configuration).
 
 ## Change the feature gates configuration
 
@@ -262,7 +291,7 @@ metadata:
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     featureGates:
       ManagedJobsNamespaceSelectorAlwaysRespected: true
@@ -311,5 +340,5 @@ The ShortWorkloadNames features are available starting from versions 0.15.7 and 
 
 - Follow the [Quick Start](/docs/getting-started/quick-start) guide to run your first Job with Kueue.
 
-- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`
+- Read the [API reference](/docs/reference/kueue-config.v1beta2/#Configuration) for `Configuration`
 

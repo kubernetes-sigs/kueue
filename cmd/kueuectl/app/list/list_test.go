@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	kubetesting "k8s.io/client-go/testing"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -62,9 +63,9 @@ func TestListCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-ns1         lq1    cq1            1                   1                    60m
-ns2         lq2    cq2            2                   2                    120m
+			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+ns1         lq1    cq1            1                   1                    false    60m
+ns2         lq2    cq2            2                   2                    false    120m
 `,
 		},
 		"should print local queue list with all namespaces (short command and flag)": {
@@ -83,9 +84,9 @@ ns2         lq2    cq2            2                   2                    120m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-ns1         lq1    cq1            1                   1                    60m
-ns2         lq2    cq2            2                   2                    120m
+			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+ns1         lq1    cq1            1                   1                    false    60m
+ns2         lq2    cq2            2                   2                    false    120m
 `,
 		},
 		"should print cluster queue list": {
@@ -184,4 +185,18 @@ ns2         wl2               j2         lq2          cq2            PENDING    
 			}
 		})
 	}
+}
+
+// prependPagedListReactor makes List calls for the resource return the given
+// pages in order, simulating server-side pagination.
+func prependPagedListReactor(clientset *fake.Clientset, resource string, pages []runtime.Object) {
+	var page int
+	clientset.PrependReactor("list", resource, func(kubetesting.Action) (bool, runtime.Object, error) {
+		if page >= len(pages) {
+			return false, nil, nil
+		}
+		obj := pages[page]
+		page++
+		return true, obj, nil
+	})
 }

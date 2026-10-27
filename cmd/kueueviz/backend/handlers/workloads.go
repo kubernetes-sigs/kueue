@@ -22,9 +22,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -41,9 +43,9 @@ type workloadResult struct {
 func (h *Handlers) WorkloadsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Query("namespace")
-
+		identity, _ := middleware.IdentityFromContext(c)
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			workloads, err := h.fetchWorkloads(ctx, namespace)
+			workloads, err := h.fetchWorkloads(ctx, namespace, identity)
 			result := map[string]any{
 				"workloads": workloads,
 			}
@@ -63,7 +65,7 @@ func (h *Handlers) WorkloadDetailsWebSocketHandler() gin.HandlerFunc {
 	}
 }
 
-func (h *Handlers) fetchWorkloads(ctx context.Context, namespace string) (any, error) {
+func (h *Handlers) fetchWorkloads(ctx context.Context, namespace string, identity middleware.Identity) (any, error) {
 	wl := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wl, ctrlclient.InNamespace(namespace))
 
@@ -101,6 +103,14 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 	if localQueueName != "" {
 		lq := &kueueapi.LocalQueue{}
 		err = h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: localQueueName}, lq)
+		if apierrors.IsNotFound(err) {
+			// The LocalQueue can be deleted while its Workloads remain. Keep
+			// the details page working and fall back to the admission, if any.
+			err = nil
+			if w.Status.Admission != nil {
+				lq.Spec.ClusterQueue = w.Status.Admission.ClusterQueue
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
 		}
@@ -114,7 +124,7 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 		res.ClusterQueueName = "Unknown"
 	}
 
-	return w, nil
+	return res, nil
 }
 
 func (h *Handlers) WorkloadEventsWebSocketHandler() gin.HandlerFunc {

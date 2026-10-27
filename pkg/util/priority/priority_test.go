@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -80,8 +79,8 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta: metav1.ObjectMeta{Name: "test"},
-						Value:      50,
+						Name:  "test",
+						Value: 50,
 					},
 				},
 			},
@@ -101,7 +100,7 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault"},
+						Name:          "globalDefault",
 						GlobalDefault: true,
 						Value:         40,
 					},
@@ -114,17 +113,17 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{
 					{
-						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault1"},
+						Name:          "globalDefault1",
 						GlobalDefault: true,
 						Value:         90,
 					},
 					{
-						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault2"},
+						Name:          "globalDefault2",
 						GlobalDefault: true,
 						Value:         20,
 					},
 					{
-						ObjectMeta:    metav1.ObjectMeta{Name: "globalDefault3"},
+						Name:          "globalDefault3",
 						GlobalDefault: true,
 						Value:         50,
 					},
@@ -176,8 +175,8 @@ func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
 				Items: []kueue.WorkloadPriorityClass{
 					{
-						ObjectMeta: metav1.ObjectMeta{Name: "test"},
-						Value:      50,
+						Name:  "test",
+						Value: 50,
 					},
 				},
 			},
@@ -231,8 +230,8 @@ func TestDefaultWorkloadPriorityClassExist(t *testing.T) {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
 				Items: []kueue.WorkloadPriorityClass{
 					{
-						ObjectMeta: metav1.ObjectMeta{Name: "default"},
-						Value:      100,
+						Name:  "default",
+						Value: 100,
 					},
 				},
 			},
@@ -242,8 +241,8 @@ func TestDefaultWorkloadPriorityClassExist(t *testing.T) {
 			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
 				Items: []kueue.WorkloadPriorityClass{
 					{
-						ObjectMeta: metav1.ObjectMeta{Name: "other"},
-						Value:      50,
+						Name:  "other",
+						Value: 50,
 					},
 				},
 			},

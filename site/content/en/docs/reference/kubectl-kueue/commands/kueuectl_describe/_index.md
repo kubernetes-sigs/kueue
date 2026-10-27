@@ -173,6 +173,15 @@ Show details of a resource
         </td>
     </tr>
     <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
     </tr>
     <tr>
@@ -226,7 +235,9 @@ Show details of a resource
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl describe clusterqueue](kueuectl_describe_clusterqueue/)	 - Pass-through &#34;describe clusterqueue&#34; to kubectl
+* [kueuectl describe cohort](kueuectl_describe_cohort/)	 - Pass-through &#34;describe cohort&#34; to kubectl
 * [kueuectl describe localqueue](kueuectl_describe_localqueue/)	 - Pass-through &#34;describe localqueue&#34; to kubectl
 * [kueuectl describe resourceflavor](kueuectl_describe_resourceflavor/)	 - Pass-through &#34;describe resourceflavor&#34; to kubectl
+* [kueuectl describe topology](kueuectl_describe_topology/)	 - Pass-through &#34;describe topology&#34; to kubectl
 * [kueuectl describe workload](kueuectl_describe_workload/)	 - Pass-through &#34;describe workload&#34; to kubectl
 

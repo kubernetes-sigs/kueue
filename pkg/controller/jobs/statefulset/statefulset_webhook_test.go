@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
@@ -51,7 +52,6 @@ import (
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -59,8 +59,10 @@ var (
 )
 
 func TestDefault(t *testing.T) {
+	defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 	testCases := map[string]struct {
 		initObjs                   []client.Object
+		oldStatefulSet             *appsv1.StatefulSet
 		statefulset                *appsv1.StatefulSet
 		manageJobsWithoutQueueName bool
 		defaultLqExist             bool
@@ -149,6 +151,45 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 		},
+		"create sets the default WorkloadPriorityClass": {
+			initObjs:    []client.Object{defaultWPC},
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a not ready statefulset sets the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a ready statefulset without the priority class label does not set the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+		},
+		"update that marks a ready statefulset as not ready does not set the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+		},
+		"update of a ready statefulset that drops the priority class label sets the default WorkloadPriorityClass": {
+			initObjs: []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -156,6 +197,9 @@ func TestDefault(t *testing.T) {
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
+			if tc.oldStatefulSet != nil {
+				ctx = utiltesting.ContextWithUpdateRequest(ctx, t, tc.oldStatefulSet)
+			}
 
 			builder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
 			cli := builder.Build()
@@ -301,7 +345,7 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", utiltesting.InvalidPathMessage),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -311,7 +355,7 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", utiltesting.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -321,7 +365,7 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", utiltesting.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -362,6 +406,27 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
+		"unconstrained topology false with required topology": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "false").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations[" + kueue.PodSetUnconstrainedTopologyAnnotation + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -395,11 +460,9 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		"no changes": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:        "queue1",
-						podconstants.GroupNameLabel: "group1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:        "queue1",
+					podconstants.GroupNameLabel: "group1",
 				},
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: new(int32(3)),
@@ -413,11 +476,9 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:        "queue1",
-						podconstants.GroupNameLabel: "group1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:        "queue1",
+					podconstants.GroupNameLabel: "group1",
 				},
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: new(int32(3)),
@@ -437,6 +498,77 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				Obj(),
 			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue-new").
+				Obj(),
+		},
+		"change in queue label with quota reserved but no ready replicas": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in queue label with quota reserved in legacy workload": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: queueNameLabelPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change in queue label after quota released": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
 				Queue("test-queue-new").
 				Obj(),
 		},
@@ -502,39 +634,31 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in priority class label when suspended": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 		},
 		"set in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -549,22 +673,18 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -574,21 +694,17 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"delete in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -603,55 +719,43 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"set in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 		"change in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 		"delete in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 			},
 			wantErr: field.ErrorList{
@@ -1044,6 +1148,47 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
+		"adding conflicting TAS annotations is rejected": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"correcting invalid TAS annotations is accepted": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"conflicting TAS annotations are accepted when TAS is disabled": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1062,9 +1207,12 @@ func TestValidateUpdate(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
+			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("Unexpected warnings (-want,+got):\n%s", diff)
 			}
 		})
 	}

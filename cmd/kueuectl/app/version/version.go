@@ -18,35 +18,52 @@ package version
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/util/templates"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/pkg/version"
 )
 
 const (
-	kueueNamespace             = "kueue-system"
-	kueueControllerManagerName = "kueue-controller-manager"
-	kueueContainerName         = "manager"
+	kueueNamespace     = "kueue-system"
+	kueueContainerName = "manager"
 )
 
 var (
+	// kueueControllerManagerSelector matches the controller manager Deployment of
+	// both installers, except a Helm release that sets nameOverride. The name label
+	// keeps out the controller managers of other operators, such as JobSet, and
+	// control-plane keeps out the KueueViz Deployments.
+	kueueControllerManagerSelector = labels.SelectorFromSet(labels.Set{
+		"app.kubernetes.io/name": "kueue",
+		"control-plane":          "controller-manager",
+	}).String()
+
+	errMultipleControllerManagers = errors.New("found multiple Kueue controller manager Deployments")
+
 	versionExample = templates.Examples(`
 		# Prints the client version and the kueue controller manager image, if installed
   		kueuectl version
+
+		# Look up the controller manager in a custom install namespace
+		kueuectl version -n kueue
 	`)
 )
 
 // VersionOptions is a struct to support version command
 type VersionOptions struct {
 	K8sClientset k8s.Interface
+	Namespace    string
 
 	genericiooptions.IOStreams
 }
@@ -70,7 +87,7 @@ func NewVersionCmd(clientGetter clientgetter.ClientGetter, streams genericioopti
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter)
+			err := o.Complete(clientGetter, cmd)
 			if err != nil {
 				return err
 			}
@@ -81,7 +98,7 @@ func NewVersionCmd(clientGetter clientgetter.ClientGetter, streams genericioopti
 	return cmd
 }
 
-func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter) error {
+func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command) error {
 	var err error
 
 	o.K8sClientset, err = clientGetter.K8sClientSet()
@@ -89,16 +106,36 @@ func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter) error 
 		return err
 	}
 
+	o.Namespace = kueueNamespace
+	if ns := explicitNamespace(cmd); ns != "" {
+		o.Namespace = ns
+	}
+
 	return nil
+}
+
+// explicitNamespace returns the namespace from -n/--namespace when that flag was
+// explicitly set on the command line. The version command defaults to
+// kueue-system rather than the kubeconfig current namespace, so an unset flag
+// must not override that default.
+func explicitNamespace(cmd *cobra.Command) string {
+	f := cmd.Flags().Lookup("namespace")
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup("namespace")
+	}
+	if f == nil || !f.Changed {
+		return ""
+	}
+	return f.Value.String()
 }
 
 // Run executes version command
 func (o *VersionOptions) Run(ctx context.Context) error {
 	fmt.Fprintf(o.Out, "Client Version: %s\n", version.GitVersion)
 
-	deployment, err := o.K8sClientset.AppsV1().Deployments(kueueNamespace).Get(ctx, kueueControllerManagerName, metav1.GetOptions{})
-	if err != nil {
-		return client.IgnoreNotFound(err)
+	deployment, err := o.findControllerManager(ctx)
+	if err != nil || deployment == nil {
+		return err
 	}
 
 	for _, container := range deployment.Spec.Template.Spec.Containers {
@@ -109,4 +146,26 @@ func (o *VersionOptions) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// findControllerManager returns the Kueue controller manager Deployment in
+// o.Namespace, or nil if there is none. It looks the Deployment up by labels
+// because a Helm release can rename it (for example foo-kueue-controller-manager).
+func (o *VersionOptions) findControllerManager(ctx context.Context) (*appsv1.Deployment, error) {
+	list, err := o.K8sClientset.AppsV1().Deployments(o.Namespace).List(ctx, metav1.ListOptions{LabelSelector: kueueControllerManagerSelector})
+	if err != nil {
+		return nil, err
+	}
+	switch len(list.Items) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &list.Items[0], nil
+	default:
+		names := make([]string, 0, len(list.Items))
+		for _, d := range list.Items {
+			names = append(names, d.Name)
+		}
+		return nil, fmt.Errorf("%w in namespace %q: %s", errMultipleControllerManagers, o.Namespace, strings.Join(names, ", "))
+	}
 }

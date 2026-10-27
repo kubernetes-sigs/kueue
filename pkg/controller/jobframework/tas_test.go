@@ -104,6 +104,18 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				PodSetGroupName:    new("block"),
 			},
 		},
+		"required annotation with sub group count only": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			subGroupCount: new(int32(2)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:      new("cloud.com/block"),
+				SubGroupCount: new(int32(2)),
+			},
+		},
 		"preferred annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
@@ -125,6 +137,20 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 		},
 		"unconstrained annotation (false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+				},
+			},
+			wantErr: errUnconstrainedTopologyNotTrue,
+		},
+		"unconstrained annotation (false) with validation disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: false,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
@@ -311,6 +337,64 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefaultPodIndexOffsetForPodSetGroup(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		meta         *metav1.ObjectMeta
+		wantMeta     *metav1.ObjectMeta
+	}{
+		"PodSet group without offset": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "0",
+				},
+			},
+		},
+		"PodSet group with offset": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "2",
+				},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetGroupName:          "group",
+					kueue.PodIndexOffsetAnnotation: "2",
+				},
+			},
+		},
+		"no PodSet group": {
+			meta:     &metav1.ObjectMeta{},
+			wantMeta: &metav1.ObjectMeta{},
+		},
+		"PodSet group when TopologyAwareScheduling is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+			wantMeta: &metav1.ObjectMeta{
+				Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			DefaultPodIndexOffsetForPodSetGroup(tc.meta)
+
+			if diff := cmp.Diff(tc.wantMeta, tc.meta); len(diff) != 0 {
+				t.Errorf("Unexpected metadata (-want,+got):\n%s", diff)
 			}
 		})
 	}

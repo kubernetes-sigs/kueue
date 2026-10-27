@@ -6,13 +6,13 @@ metadata:
   copyright: The Kubernetes Authors
 ---
 
-You are an expert in Kueue's e2e testing infrastructure (`hack/testing/e2e-test.sh`, `hack/testing/e2e-common.sh`, `Makefile-test.mk`).
+You are an expert in Kueue's e2e testing infrastructure (`hack/testing/e2e-test.sh`, `hack/testing/e2e-common.sh`, `hack/make/test.mk`).
 
 ## Goal
 
 Stand up a single kind cluster with Kueue (and any required job-framework operators) deployed, ready for e2e tests or manual poking, and leave it running for fast iteration.
 
-This skill is for **single-cluster** suites: `test-e2e-baseline`, `test-e2e-extended`, `test-e2e-sequential-baseline`, `test-e2e-sequential-extended`, `test-tas-e2e-baseline`, `test-tas-e2e-extended`, `test-e2e-certmanager`, `test-e2e-dra`, `test-e2e-dra-counter`. If the user wants MultiKueue (manager + worker clusters), use the `kueue-e2e-cluster-multikueue` skill instead.
+This skill is for **single-cluster** suites: `test-e2e-baseline`, `test-e2e-extended`, `test-e2e-sequential-baseline`, `test-e2e-sequential-extended`, `test-tas-e2e-baseline`, `test-tas-e2e-extended`, `test-e2e-certmanager`, `test-e2e-dra-baseline`, `test-e2e-dra-counter`, `test-e2e-dra-capacity`. If the user wants MultiKueue (manager + worker clusters), use the `kueue-e2e-cluster-multikueue` skill instead.
 
 ## Step 1 - Confirm platform and build the Kueue image
 
@@ -32,16 +32,16 @@ Skip this step only if the user explicitly wants to use a released/staging image
 
 Map the user's request to a Makefile target:
 
-| Suite | Target |
-|---|---|
-| Baseline (default) | `test-e2e-baseline` |
-| Extended (job-framework integrations) | `test-e2e-extended` |
-| Sequential baseline | `test-e2e-sequential-baseline` |
-| Sequential extended | `test-e2e-sequential-extended` |
-| Topology-Aware Scheduling baseline | `test-tas-e2e-baseline` |
-| Topology-Aware Scheduling extended | `test-tas-e2e-extended` |
-| cert-manager | `test-e2e-certmanager` |
-| Dynamic Resource Allocation | `test-e2e-dra` / `test-e2e-dra-counter` |
+| Suite | Target                                                                     |
+|---|----------------------------------------------------------------------------|
+| Baseline (default) | `test-e2e-baseline`                                                        |
+| Extended (job-framework integrations) | `test-e2e-extended`                                                        |
+| Sequential baseline | `test-e2e-sequential-baseline`                                             |
+| Sequential extended | `test-e2e-sequential-extended`                                             |
+| Topology-Aware Scheduling baseline | `test-tas-e2e-baseline`                                                    |
+| Topology-Aware Scheduling extended | `test-tas-e2e-extended`                                                    |
+| cert-manager | `test-e2e-certmanager`                                                     |
+| Dynamic Resource Allocation | `test-e2e-dra-baseline` / `test-e2e-dra-counter` / `test-e2e-dra-capacity` |
 
 Default to `test-e2e-baseline` if the user has no preference — it is the fastest to bring up and covers the core scheduling flows.
 
@@ -70,7 +70,7 @@ Useful modifiers (combine with `E2E_MODE=dev`):
 - `E2E_SKIP_REINSTALL=true` — skip reinstalling Kueue if the deployment already exists and the image is unchanged (dev mode only, for fast reruns).
 - `E2E_SKIP_IMAGE_RELOAD=true` — skip re-pulling/reloading dependency images already cached locally / present on kind nodes (dev mode only, speeds up repeat runs).
 - `E2E_ENFORCE_OPERATOR_UPDATE=true` — force reinstalling external operators (JobSet, AppWrapper, KubeRay, etc.) even when reusing a cluster.
-- `E2E_K8S_FULL_VERSION=1.35.5` — pick a specific Kubernetes version (see `E2E_K8S_VERSIONS` in `Makefile-test.mk` for the current supported list, e.g. `1.34.8 1.35.5 1.36.1`).
+- `E2E_K8S_FULL_VERSION=1.35.5` — pick a specific Kubernetes version (see `E2E_K8S_VERSIONS` in `hack/make/test.mk` for the current supported list, e.g. `1.34.8 1.35.5 1.36.1`).
 - `KIND_CLUSTER_NAME=<name>` — use a non-default kind cluster name (default is `kind`), useful for running multiple clusters side by side.
 
 ## Step 4 - Optional: use a released or staging image instead of building

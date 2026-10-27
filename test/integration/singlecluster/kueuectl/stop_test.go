@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueuectl Stop", func() {
@@ -41,18 +41,18 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Stopping the Workload", func() {
 		ginkgo.It("Should stop the Workload", func() {
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Active(true).Obj()
 			ginkgo.By("Create a Workload")
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			createdWorkload := &kueue.Workload{}
 
@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(wl)).Should(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Stop the created Workload", func() {
@@ -77,7 +77,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsActive(wl)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).Obj()
 
 				ginkgo.By("Create a LocalQueue", func() {
-					util.MustCreate(ctx, k8sClient, lq)
+					behavioral.MustCreate(ctx, k8sClient, lq)
 				})
 
 				createdLocalQueue := &kueue.LocalQueue{}
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Stop created LocalQueue", func() {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantStopPolicy))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("Stop a LocalQueue and drain workloads",
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).Obj()
 
 				ginkgo.By("Create a LocalQueue", func() {
-					util.MustCreate(ctx, k8sClient, lq)
+					behavioral.MustCreate(ctx, k8sClient, lq)
 				})
 
 				createdLocalQueue := &kueue.LocalQueue{}
@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLocalQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdLocalQueue), createdLocalQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdLocalQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("client", "lq-dry-run-client", "client"),
@@ -170,11 +170,11 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 		ginkgo.DescribeTable("Should stop a ClusterQueue",
 			func(cq *kueue.ClusterQueue, stopCmdArgs []string, wantStopPolicy kueue.StopPolicy) {
 				ginkgo.By("Create a ClusterQueue", func() {
-					util.MustCreate(ctx, k8sClient, cq)
+					behavioral.MustCreate(ctx, k8sClient, cq)
 				})
 
 				ginkgo.DeferCleanup(func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
 
 				createdClusterQueue := &kueue.ClusterQueue{}
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Stop created ClusterQueue", func() {
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(wantStopPolicy))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("Stop a ClusterQueue and drain workloads",
@@ -217,11 +217,11 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 		ginkgo.DescribeTable("Should not stop a ClusterQueue with --dry-run",
 			func(cq *kueue.ClusterQueue, dryRunStrategy string) {
 				ginkgo.By("Create a ClusterQueue", func() {
-					util.MustCreate(ctx, k8sClient, cq)
+					behavioral.MustCreate(ctx, k8sClient, cq)
 				})
 
 				ginkgo.DeferCleanup(func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				})
 
 				createdClusterQueue := &kueue.ClusterQueue{}
@@ -229,7 +229,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdClusterQueue), createdClusterQueue)).To(gomega.Succeed())
 						g.Expect(ptr.Deref(createdClusterQueue.Spec.StopPolicy, kueue.None)).Should(gomega.Equal(kueue.None))
-					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 				})
 			},
 			ginkgo.Entry("client",

@@ -19,68 +19,94 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// CohortsWebSocketHandler streams all cohorts
+// CohortsWebSocketHandler streams all cohorts.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortsWebSocketHandler() gin.HandlerFunc {
-	// Cohorts are derived from ClusterQueues, so use ClusterQueue informer
-	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return h.fetchCohorts(ctx)
-	}, ClusterQueuesGVK())
+	return func(c *gin.Context) {
+		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchCohorts(ctx, identity)
+		}, gvks...)(c)
+	}
 }
 
-// CohortDetailsWebSocketHandler streams details for a specific cohort
+// CohortDetailsWebSocketHandler streams details for a specific cohort.
+// The ClusterQueue informer follows cluster-wide watch permission.
 func (h *Handlers) CohortDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cohortName := c.Param("cohort_name")
+		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, []schema.GroupVersionKind{CohortsGVK()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+		)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return h.fetchCohortDetails(ctx, cohortName)
-		}, ClusterQueuesGVK())(c)
+			return h.fetchCohortDetails(ctx, cohortName, identity)
+		}, gvks...)(c)
 	}
 }
 
 // Fetch all cohorts
-func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
+func (h *Handlers) fetchCohorts(ctx context.Context, identity middleware.Identity) (any, error) {
 	// Fetch all Cohort CRD objects directly
 	cohortList := &kueueapi.CohortList{}
 	if err := h.client.List(ctx, cohortList); err != nil {
 		return nil, fmt.Errorf("error fetching cohorts: %v", err)
 	}
 
-	// Fetch all ClusterQueues to map them to cohorts
-	cql := &kueueapi.ClusterQueueList{}
-	if err := h.client.List(ctx, cql); err != nil {
-		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
+	hasClusterQueuesAccess := true
+	if h.authorizer != nil {
+		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""))
+		if err != nil || !allowed {
+			hasClusterQueuesAccess = false
+		}
 	}
 
 	// Build a map of cohort name to ClusterQueues
 	cohortQueues := make(map[string][]map[string]any)
-	for _, cq := range cql.Items {
-		cohortName := string(cq.Spec.CohortName)
-		if cohortName == "" {
-			continue
+	if hasClusterQueuesAccess {
+		// Fetch all ClusterQueues to map them to cohorts
+		cql := &kueueapi.ClusterQueueList{}
+		if err := h.client.List(ctx, cql); err != nil {
+			slog.Warn("error fetching cluster queues for cohorts", "error", err)
 		}
-		cohortQueues[cohortName] = append(cohortQueues[cohortName], map[string]any{
-			"name": cq.Name,
-		})
+
+		for _, cq := range cql.Items {
+			cohortName := string(cq.Spec.CohortName)
+			if cohortName == "" {
+				continue
+			}
+			cohortQueues[cohortName] = append(cohortQueues[cohortName], map[string]any{
+				"name": cq.Name,
+			})
+		}
 	}
 
 	// Build result from Cohort CRD objects
-	var result []map[string]any
+	result := make([]map[string]any, 0)
 	for _, cohort := range cohortList.Items {
-		queues := cohortQueues[cohort.Name]
-		if queues == nil {
-			queues = []map[string]any{}
-		}
 		item := map[string]any{
-			"name":          cohort.Name,
-			"clusterQueues": queues,
+			"name": cohort.Name,
+		}
+		if hasClusterQueuesAccess {
+			queues := cohortQueues[cohort.Name]
+			if queues == nil {
+				queues = []map[string]any{}
+			}
+			item["clusterQueues"] = queues
 		}
 		if cohort.Spec.ParentName != "" {
 			item["parentName"] = string(cohort.Spec.ParentName)
@@ -92,41 +118,50 @@ func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
 }
 
 // Fetch details for a specific cohort
-func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string) (map[string]any, error) {
+func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string, identity middleware.Identity) (map[string]any, error) {
 	// Fetch the specific Cohort CRD
 	cohort := &kueueapi.Cohort{}
 	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort); err != nil {
 		return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, err)
 	}
 
-	// Retrieve all cluster queues
-	cql := &kueueapi.ClusterQueueList{}
-	if err := h.client.List(ctx, cql); err != nil {
-		return nil, fmt.Errorf("error fetching cluster queues: %v", err)
+	var clusterQueues []map[string]any
+
+	hasClusterQueuesAccess := true
+	if h.authorizer != nil {
+		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""))
+		if err != nil || !allowed {
+			hasClusterQueuesAccess = false
+		}
 	}
 
-	// Filter ClusterQueues by cohort name
-	var clusterQueues []map[string]any
-	for _, item := range cql.Items {
-		if string(item.Spec.CohortName) == cohortName {
-			clusterQueues = append(clusterQueues, map[string]any{
-				"name": item.GetName(),
-				"spec": map[string]any{
-					"cohortName":        string(item.Spec.CohortName),
-					"resourceGroups":    convertResourceGroups(item.Spec.ResourceGroups),
-					"preemption":        item.Spec.Preemption,
-					"flavorFungibility": item.Spec.FlavorFungibility,
-					"queueingStrategy":  item.Spec.QueueingStrategy,
-				},
-				"status": map[string]any{
-					"admittedWorkloads":  item.Status.AdmittedWorkloads,
-					"reservingWorkloads": item.Status.ReservingWorkloads,
-					"pendingWorkloads":   item.Status.PendingWorkloads,
-					"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
-					"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
-					"fairSharing":        item.Status.FairSharing,
-				},
-			})
+	if hasClusterQueuesAccess {
+		cql := &kueueapi.ClusterQueueList{}
+		if err := h.client.List(ctx, cql); err != nil {
+			return nil, fmt.Errorf("error fetching cluster queues: %v", err)
+		}
+
+		for _, item := range cql.Items {
+			if string(item.Spec.CohortName) == cohortName {
+				clusterQueues = append(clusterQueues, map[string]any{
+					"name": item.GetName(),
+					"spec": map[string]any{
+						"cohortName":        string(item.Spec.CohortName),
+						"resourceGroups":    convertResourceGroups(item.Spec.ResourceGroups),
+						"preemption":        item.Spec.Preemption,
+						"flavorFungibility": item.Spec.FlavorFungibility,
+						"queueingStrategy":  item.Spec.QueueingStrategy,
+					},
+					"status": map[string]any{
+						"admittedWorkloads":  item.Status.AdmittedWorkloads,
+						"reservingWorkloads": item.Status.ReservingWorkloads,
+						"pendingWorkloads":   item.Status.PendingWorkloads,
+						"flavorsUsage":       convertFlavorsUsage(item.Status.FlavorsUsage),
+						"flavorsReservation": convertFlavorsUsage(item.Status.FlavorsReservation),
+						"fairSharing":        item.Status.FairSharing,
+					},
+				})
+			}
 		}
 	}
 
@@ -134,10 +169,16 @@ func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string) (m
 		clusterQueues = []map[string]any{}
 	}
 
+	omittedPanels := []string{}
+	if !hasClusterQueuesAccess {
+		omittedPanels = append(omittedPanels, "clusterQueues")
+	}
+
 	return map[string]any{
 		"cohort":        cohortName,
 		"spec":          cohort.Spec,
 		"status":        cohort.Status,
 		"clusterQueues": clusterQueues,
+		"omittedPanels": omittedPanels,
 	}, nil
 }

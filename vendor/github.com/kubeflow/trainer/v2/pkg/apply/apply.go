@@ -62,8 +62,16 @@ func byEnvVarName(a, b corev1ac.EnvVarApplyConfiguration) bool {
 	return ptr.Equal(a.Name, b.Name)
 }
 
+// byContainerPortOrName reports whether two container ports identify the same port.
+// Kubernetes keys the container ports list by containerPort and protocol, so ports that
+// differ in either field are distinct. The name is only compared when both ports set one,
+// since the name is optional and two unnamed ports must not be treated as equal.
 func byContainerPortOrName(a, b corev1ac.ContainerPortApplyConfiguration) bool {
-	return ptr.Equal(a.ContainerPort, b.ContainerPort) || ptr.Equal(a.Name, b.Name)
+	if a.Name != nil && b.Name != nil && ptr.Equal(a.Name, b.Name) {
+		return true
+	}
+	return ptr.Equal(a.ContainerPort, b.ContainerPort) &&
+		ptr.Deref(a.Protocol, corev1.ProtocolTCP) == ptr.Deref(b.Protocol, corev1.ProtocolTCP)
 }
 
 func byVolumeName(a, b corev1ac.VolumeApplyConfiguration) bool {

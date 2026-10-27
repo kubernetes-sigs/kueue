@@ -1,0 +1,941 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package dqo
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
+)
+
+// makeSynchronizedProvider returns a synchronized CapacityProvider orchestrating
+// n flavors named "<prefix>-00", "<prefix>-01", ..., each reporting 1 CPU.
+func makeSynchronizedProvider(name, prefix string, n int) *kueuealpha.CapacityProvider {
+	flavorNames := make([]string, 0, n)
+	capacityFlavors := make([]kueuealpha.CapacityProviderNormalizedCapacityFlavor, 0, n)
+	for i := range n {
+		flavorName := fmt.Sprintf("%s-%02d", prefix, i)
+		flavorNames = append(flavorNames, flavorName)
+		capacityFlavors = append(capacityFlavors,
+			utiltestingalpha.MakeNormalizedCapacityFlavor(flavorName).
+				Resource(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	return utiltestingalpha.MakeCapacityProvider(name).
+		OrchestratedFlavors(flavorNames...).
+		Condition(metav1.Condition{
+			Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+			Status: metav1.ConditionTrue,
+			Reason: kueuealpha.CapacityProviderReasonSynchronized,
+		}).
+		Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(capacityFlavors...).Obj()).
+		Obj()
+}
+
+// makeProviderWithResources returns a synchronized CapacityProvider orchestrating
+// one flavor that reports 1 unit each of "example.com/<prefix>-00", ..., n resources.
+func makeProviderWithResources(name, flavor, prefix string, n int) *kueuealpha.CapacityProvider {
+	capacityFlavor := utiltestingalpha.MakeNormalizedCapacityFlavor(flavor)
+	for i := range n {
+		capacityFlavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/%s-%02d", prefix, i)), "1")
+	}
+	return utiltestingalpha.MakeCapacityProvider(name).
+		OrchestratedFlavors(flavor).
+		Condition(metav1.Condition{
+			Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+			Status: metav1.ConditionTrue,
+			Reason: kueuealpha.CapacityProviderReasonSynchronized,
+		}).
+		Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(capacityFlavor.Obj()).Obj()).
+		Obj()
+}
+
+// makeEffectiveCapacityFlavors returns the expected effective capacity entries
+// for n flavors named "<prefix>-00", ..., each with 1 CPU.
+func makeEffectiveCapacityFlavors(prefix string, n int) []kueuealpha.EffectiveCapacityFlavor {
+	flavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, n)
+	for i := range n {
+		flavors = append(flavors,
+			*utiltestingalpha.MakeEffectiveCapacityFlavor(fmt.Sprintf("%s-%02d", prefix, i)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	return flavors
+}
+
+func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	halfMultiplier := resource.MustParse("0.5")
+
+	cases := map[string]struct {
+		enableFeatureGate *bool
+		dqo               *kueuealpha.DynamicQuotaOrchestrator
+		capacityProviders []*kueuealpha.CapacityProvider
+		cohorts           []*kueue.Cohort
+		clusterQueues     []*kueue.ClusterQueue
+		otherDQOs         []*kueuealpha.DynamicQuotaOrchestrator
+		wantDQO           *kueuealpha.DynamicQuotaOrchestrator
+		wantCohorts       []*kueue.Cohort
+		wantClusterQueues []*kueue.ClusterQueue
+		wantErr           bool
+	}{
+		"discovery-only: provider not found": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("non-existent-provider", nil).
+				Obj(),
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("non-existent-provider", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message: "CapacityProvider \"non-existent-provider\" not found",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"discovery-only: provider not ready (no condition)": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-1\" is not synchronized",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"discovery-only: stale provider generation is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale").
+				DiscoveryProvider("cp-stale", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale").
+				DiscoveryProvider("cp-stale", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Obj(),
+		},
+		"stale provider generation retains previously applied ClusterQueue quotas": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale-retain").
+				DiscoveryProvider("cp-stale-retain", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-retain").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale-retain", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				{
+					Name: "cq-retain",
+					Status: kueue.ClusterQueueStatus{
+						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
+							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+								APIGroup: "kueue.x-k8s.io",
+								Kind:     "DynamicQuotaOrchestrator",
+								Name:     "dqo-stale-retain",
+							},
+							ResourceGroups: []kueue.ResourceGroup{},
+						},
+					},
+				},
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale-retain").
+				DiscoveryProvider("cp-stale-retain", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-retain").
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale-retain\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message: "Capacity discovery not ready",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				{
+					Name: "cq-retain",
+					Status: kueue.ClusterQueueStatus{
+						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
+							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+								APIGroup: "kueue.x-k8s.io",
+								Kind:     "DynamicQuotaOrchestrator",
+								Name:     "dqo-stale-retain",
+							},
+							ResourceGroups: []kueue.ResourceGroup{},
+						},
+					},
+				},
+			},
+		},
+		"discovery-only: failed synchronization is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-failed").
+				DiscoveryProvider("cp-failed", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-failed", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					cp.Status.Conditions[0].Status = metav1.ConditionFalse
+					cp.Status.Conditions[0].Reason = kueuealpha.CapacityProviderReasonSourceUnavailable
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-failed").
+				DiscoveryProvider("cp-failed", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-failed\" is not synchronized",
+				}).
+				Obj(),
+		},
+		"discovery-only: zero observed generation is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-zero", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-zero", "gpu", 1)
+					cp.Generation = 2
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-zero", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-zero\" synchronization is stale (observedGeneration=0, currentGeneration=2)",
+				}).
+				Obj(),
+		},
+		"discovery-only: mixed fresh and stale providers are not aggregated": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mixed").
+				DiscoveryProvider("cp-fresh", nil).
+				DiscoveryProvider("cp-stale", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-fresh", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					return cp
+				}(),
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale", "cpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mixed").
+				DiscoveryProvider("cp-fresh", nil).
+				DiscoveryProvider("cp-stale", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Obj(),
+		},
+		"discovery-only: current provider generation is ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-current").
+				DiscoveryProvider("cp-current", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-current", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-current").
+				DiscoveryProvider("cp-current", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(makeEffectiveCapacityFlavors("gpu", 1)...).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: single provider aggregated successfully": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Resource(corev1.ResourceMemory, "50Gi").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+					).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: multiple providers with multipliers": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", &halfMultiplier).
+				DiscoveryProvider("cp-2", &halfMultiplier).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+				utiltestingalpha.MakeCapacityProvider("cp-2").
+					OrchestratedFlavors("default-flavor", "gpu-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "200").
+								Obj(),
+							utiltestingalpha.MakeNormalizedCapacityFlavor("gpu-flavor").
+								Resource("nvidia.com/gpu", "8").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", &halfMultiplier).
+				DiscoveryProvider("cp-2", &halfMultiplier).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "150").
+							Obj(),
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("gpu-flavor").
+							Resource("nvidia.com/gpu", "4").
+							Obj(),
+					).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: filters flavors not declared in spec.orchestratedFlavors": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-filter").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("allowed-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("allowed-flavor").
+								Resource(corev1.ResourceCPU, "50").
+								Obj(),
+							utiltestingalpha.MakeNormalizedCapacityFlavor("unorchestrated-flavor").
+								Resource(corev1.ResourceCPU, "50").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-filter").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("allowed-flavor").
+							Resource(corev1.ResourceCPU, "50").
+							Obj(),
+					).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: no matching orchestrated flavors": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-no-match").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("other-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("provider-flavor").
+								Resource(corev1.ResourceCPU, "10").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-no-match").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("other-flavor").Obj()).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: provider reports empty capacity": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").Obj()).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: provider reports nil capacity with synchronized condition": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-nil-capacity").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-nil-capacity").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").Obj()).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: provider reports flavor with empty resources": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("empty-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("empty-flavor").Obj()).
+						Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("empty-flavor").Obj()).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: exactly 128 distinct flavors is accepted": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(append(makeEffectiveCapacityFlavors("a", 64), makeEffectiveCapacityFlavors("b", 64)...)...).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: more than 128 distinct flavors fails aggregation": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+				makeSynchronizedProvider("cp-3", "c", 1),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+					Message: "Aggregated capacity covers 129 distinct flavors, which exceeds the supported limit of 128",
+				}).
+				Obj(),
+		},
+		"discovery-only: exactly 64 distinct resources in a flavor is accepted": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeProviderWithResources("cp-1", "f1", "a", 32),
+				makeProviderWithResources("cp-2", "f1", "b", 32),
+			},
+			wantDQO: func() *kueuealpha.DynamicQuotaOrchestrator {
+				flavor := utiltestingalpha.MakeEffectiveCapacityFlavor("f1")
+				for i := range 32 {
+					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/a-%02d", i)), "1")
+					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/b-%02d", i)), "1")
+				}
+				return utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-at-limit").
+					DiscoveryProvider("cp-1", nil).
+					DiscoveryProvider("cp-2", nil).
+					EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().Flavors(*flavor.Obj()).Obj()).
+					Condition(metav1.Condition{
+						Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+						Message: "Aggregated capacity successfully computed",
+					}).
+					Obj()
+			}(),
+		},
+		"discovery-only: more than 64 distinct resources in a flavor fails aggregation": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeProviderWithResources("cp-1", "f1", "a", 64),
+				makeProviderWithResources("cp-2", "f1", "b", 1),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+					Message: "Aggregated capacity for flavor \"f1\" covers 65 distinct resources, which exceeds the supported limit of 64",
+				}).
+				Obj(),
+		},
+		"feature gate disabled": {
+			enableFeatureGate: new(bool),
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.enableFeatureGate != nil {
+				features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, *tc.enableFeatureGate)
+			}
+			builder := utiltesting.NewClientBuilder()
+
+			objs := []client.Object{tc.dqo}
+			for _, cp := range tc.capacityProviders {
+				objs = append(objs, cp)
+			}
+			for _, co := range tc.cohorts {
+				objs = append(objs, co)
+			}
+			for _, cq := range tc.clusterQueues {
+				objs = append(objs, cq)
+			}
+			for _, other := range tc.otherDQOs {
+				objs = append(objs, other)
+			}
+
+			cl := builder.WithObjects(objs...).WithStatusSubresource(objs...).Build()
+			r := NewReconciler(cl)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, err := r.Reconcile(ctx, reconcile.Request{
+				Name: tc.dqo.Name,
+			})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Reconcile error = %v, wantErr %v", err, tc.wantErr)
+			}
+
+			var gotDQO kueuealpha.DynamicQuotaOrchestrator
+			if err := cl.Get(ctx, types.NamespacedName{Name: tc.dqo.Name}, &gotDQO); err != nil {
+				t.Fatalf("Failed to get DQO: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantDQO, &gotDQO,
+				cmpopts.IgnoreTypes(metav1.TypeMeta{}),
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "CreationTimestamp", "Finalizers"),
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("Unexpected DQO (-want +got):\n%s", diff)
+			}
+
+			for _, wantCQ := range tc.wantClusterQueues {
+				var gotCQ kueue.ClusterQueue
+				if err := cl.Get(ctx, types.NamespacedName{Name: wantCQ.Name}, &gotCQ); err != nil {
+					t.Errorf("Failed to get ClusterQueue %s: %v", wantCQ.Name, err)
+					continue
+				}
+				if diff := cmp.Diff(wantCQ.Status.EffectiveQuotas, gotCQ.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected EffectiveQuotas for ClusterQueue %s (-want +got):\n%s", wantCQ.Name, diff)
+				}
+			}
+
+			for _, wantCohort := range tc.wantCohorts {
+				var gotCohort kueue.Cohort
+				if err := cl.Get(ctx, types.NamespacedName{Name: wantCohort.Name}, &gotCohort); err != nil {
+					t.Errorf("Failed to get Cohort %s: %v", wantCohort.Name, err)
+					continue
+				}
+				if diff := cmp.Diff(wantCohort.Status.EffectiveQuotas, gotCohort.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected EffectiveQuotas for Cohort %s (-want +got):\n%s", wantCohort.Name, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestOtherDQOUpdatePredicate(t *testing.T) {
+	now := metav1.Now()
+	later := metav1.NewTime(now.Add(time.Minute))
+
+	trueDistributed := utiltestingalpha.MakeDynamicQuotaOrchestrator("a").
+		DiscoveryProvider("cp-1", nil).
+		SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-x").
+		Generation(2).
+		EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+			Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj()).
+			Obj()).
+		Condition(metav1.Condition{
+			Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+			Message:            "Quotas successfully distributed",
+			LastTransitionTime: now,
+		})
+
+	cases := map[string]struct {
+		old  client.Object
+		new  client.Object
+		want bool
+	}{
+		"generation change": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				Generation(3).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-y").
+				Obj(),
+			want: true,
+		},
+		"deletion timestamp set": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				DeletionTimestamp(now.Time).
+				Obj(),
+			want: true,
+		},
+		"distributed true to false": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: later,
+				}).
+				Obj(),
+			want: true,
+		},
+		"distributed false to true": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new:  trueDistributed.Obj(),
+			want: true,
+		},
+		"absent distributed to false": {
+			old: trueDistributed.Clone().
+				Conditions().
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: true,
+		},
+		"false reason change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false message change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "old",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "new",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false timestamp change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: later,
+				}).
+				Obj(),
+			want: false,
+		},
+		"true with effective capacity rewrite": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "150").Obj()).
+					Obj()).
+				Obj(),
+			want: false,
+		},
+		"nil objects": {
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := otherDQOUpdatePredicate.Update(event.UpdateEvent{
+				ObjectOld: tc.old,
+				ObjectNew: tc.new,
+			})
+			if got != tc.want {
+				t.Errorf("Update() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

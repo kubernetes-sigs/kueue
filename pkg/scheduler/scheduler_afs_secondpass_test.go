@@ -52,8 +52,9 @@ import (
 // This is the end-to-end companion to the predicate-level TestShouldApplyEntryPenalty:
 // it proves the second-pass re-assume actually reaches the push site, so the
 // HasQuotaReservation guard is load-bearing rather than merely correct in isolation.
-// On main (no guard) the second-pass assume pushes a duplicate penalty that a single
-// settlement can never clear; here the bucket must stay empty.
+// Without the guard the second-pass assume would re-push the penalty; the ledger's
+// replace semantics would absorb the duplicate, but the guard keeps the push and
+// its rollback paired to one reservation.
 func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
@@ -125,7 +126,9 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 			&kueue.LocalQueueList{Items: []kueue.LocalQueue{lq}}).
 		WithObjects(utiltesting.MakeNamespace("default"), &provCheck).
 		WithStatusSubresource(&kueue.Workload{}).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		})
 	if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 		t.Fatalf("setting up TAS indexes: %v", err)
 	}
@@ -149,7 +152,11 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 		t.Fatalf("inserting localQueue in manager: %v", err)
 	}
 	// The reserved workload contributes its usage to the cache, mirroring production.
-	cqCache.AddOrUpdateWorkload(log, &wl)
+	storedWl := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(&wl), storedWl); err != nil {
+		t.Fatalf("getting workload: %v", err)
+	}
+	cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl)
 	if !qManager.QueueSecondPassIfNeeded(ctx, &wl, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}
@@ -185,8 +192,8 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 	}
 
 	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
-	if qManager.AfsEntryPenalties.HasPendingFor(lqKey) {
-		t.Errorf("second pass pushed a duplicate entry penalty for an already-reserved workload; bucket = %v, want empty",
-			qManager.AfsEntryPenalties.Peek(lqKey))
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("second pass pushed a duplicate entry penalty for an already-reserved workload; pending penalty = %v, want empty",
+			qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }

@@ -18,13 +18,17 @@ package testing
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/testr"
+	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2/ktesting"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 const DefaultLogLevel = -3
@@ -38,19 +42,34 @@ func LogLevelWithDefault(defaultLogLevel int) int {
 }
 
 func NewLogger(t testing.TB) logr.Logger {
-	// Map TEST_LOG_LEVEL to testr verbosity so that lower (more negative)
+	// Map TEST_LOG_LEVEL to the logger verbosity so that lower (more negative)
 	// values increase verbosity consistently with integration/e2e logging.
 	level := LogLevelWithDefault(DefaultLogLevel)
-	// testr expects higher Verbosity for more logs. Our convention is
+	// The logger expects higher Verbosity for more logs. Our convention is
 	// more negative TEST_LOG_LEVEL means more verbose. Translate by negating
 	// the level, so -3 => 3. Positive levels result in negative verbosity
 	// which effectively disables extra V logs.
-	return testr.NewWithInterface(t, testr.Options{
-		Verbosity: -level,
-	})
+	//
+	// ktesting, unlike testr, stops writing to the testing.TB when the test ends,
+	// so a goroutine the test could not join cannot log on a finished one.
+	return ktesting.NewLogger(t, ktesting.NewConfig(ktesting.Verbosity(-level)))
 }
 
 func ContextWithLog(tb testing.TB) (context.Context, logr.Logger) {
 	logger := NewLogger(tb)
 	return ctrl.LoggerInto(tb.Context(), logger), logger
+}
+
+// ContextWithUpdateRequest returns a copy of ctx that carries an UPDATE
+// admission request for oldObj, as the webhook server passes to a defaulter.
+func ContextWithUpdateRequest(ctx context.Context, tb testing.TB, oldObj runtime.Object) context.Context {
+	tb.Helper()
+	raw, err := json.Marshal(oldObj)
+	if err != nil {
+		tb.Fatalf("Failed to marshal the old object: %v", err)
+	}
+	return admission.NewContextWithRequest(ctx, admission.Request{
+		Operation: admissionv1.Update,
+		OldObject: runtime.RawExtension{Raw: raw},
+	})
 }

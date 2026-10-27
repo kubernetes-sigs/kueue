@@ -7,6 +7,9 @@ description: >
 type: docs
 ---
 
+For coverage, test levels, and maintainable test design, see
+[Writing tests](/community/contribution_guidelines/writing_tests/).
+
 ## Quick start
 
 The most common development workflows:
@@ -112,6 +115,7 @@ make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
+make test-e2e-networkpolicy
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
@@ -120,9 +124,17 @@ make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
 
+The baseline and baseline sequential targets install the opt-in ingress NetworkPolicies
+with Kueue (`E2E_NETWORK_POLICIES=true`), so admission, metrics, and visibility tests run
+under them. kind's default CNI enforces NetworkPolicy, so no extra agent is needed.
+Baseline jobs also run the policy connectivity and denial tests, regardless of their
+main suite's label filter.
+
+`test-e2e-networkpolicy` covers the policies themselves and can be run on its own.
+
 You can specify the Kubernetes version:
 ```shell
-E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
+E2E_K8S_FULL_VERSION=1.37.0 make test-e2e-baseline
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
@@ -208,7 +220,7 @@ Other variables of note when scripting a direct invocation:
 
 | Variable | Purpose |
 |----------|---------|
-| `E2E_KIND_VERSION` | Kind node image to use, e.g. `kindest/node:v1.35.0` or a locally built image name |
+| `E2E_KIND_VERSION` | Kind node image to use, e.g. `kindest/node:v1.37.0` or a locally built image name |
 | `E2E_MODE` | Set to `dev` to reuse an existing cluster on re-runs and keep the cluster on exit |
 | `E2E_RUN_ONLY_ENV` | Set to `true` to stand up the cluster and deploy Kueue, then exit before running tests |
 | `KIND_CLUSTER_NAME` | Name of the kind cluster to create/reuse |
@@ -270,7 +282,7 @@ INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
 SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
 
 **Label Taxonomy:**
-- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha`
+- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,ha`
 
 **Examples:**
 ```shell
@@ -356,7 +368,7 @@ Kueue runs as a regular pod on a worker node, and in e2e tests there are 2 repli
 
 For each log message you can from which file and line the message is coming from:
 ```log
-2025-02-03T15:51:51.502425029Z stderr F 2025-02-03T15:51:51.502117824Z	LEVEL(-2)	cluster-queue-reconciler	core/clusterqueue_controller.go:341	ClusterQueue update event	{"clusterQueue": {"name":"cluster-queue"}}
+2025-02-03T15:51:51.502425029Z stderr F 2025-02-03T15:51:51.502117824Z	LEVEL(-2)	clusterqueue-reconciler	core/clusterqueue_controller.go:341	ClusterQueue update event	{"clusterQueue": {"name":"cluster-queue"}}
 ```
 
 ---
@@ -392,7 +404,7 @@ func TestValidateClusterQueue(t *testing.T) {
 You can click on the `debug test` to debug a specific test.
 
 For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.35 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Run `export ENVTEST_K8S_VERSION=1.37 && make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
 - Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {

@@ -148,4 +148,4 @@ Parent Workload 是作业集成观察准入状态的对象。Variant Workload �
 - [设置并发准入](/docs/tasks/manage/setup_concurrent_admission)。
 - 了解 [ClusterQueue 规格顺序](/docs/concepts/cluster_queue#resource-flavors-and-resources)。
 - 阅读[工作负载概念](/docs/concepts/workload)，了解 Parent Workload 和 Variant Workload。
-- 阅读 [`ConcurrentAdmissionPolicy` API 参考](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)。
+- 阅读 [`ConcurrentAdmissionPolicy` API 参考](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)。

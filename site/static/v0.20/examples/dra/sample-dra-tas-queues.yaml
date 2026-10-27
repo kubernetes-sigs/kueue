@@ -1,0 +1,44 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: "dra-topology"
+spec:
+  levels:
+  - nodeLabel: "cloud.provider.com/topology-block"
+  - nodeLabel: "cloud.provider.com/topology-rack"
+  - nodeLabel: "kubernetes.io/hostname"
+---
+kind: ResourceFlavor
+apiVersion: kueue.x-k8s.io/v1beta2
+metadata:
+  name: "dra-tas-flavor"
+spec:
+  nodeLabels:
+    cloud.provider.com/node-group: "tas-group"
+  topologyName: "dra-topology"
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "dra-tas-cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory", "example.com/gpu"]
+    flavors:
+    - name: "dra-tas-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 100
+      - name: "memory"
+        nominalQuota: 100Gi
+      - name: "example.com/gpu"
+        nominalQuota: 8
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "dra-tas-user-queue"
+spec:
+  clusterQueue: "dra-tas-cluster-queue"

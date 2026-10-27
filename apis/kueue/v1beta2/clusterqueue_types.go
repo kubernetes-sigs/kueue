@@ -43,6 +43,7 @@ const (
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonMultiKueueWithProvisioningRequest        = "MultiKueueWithProvisioningRequest"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonCohortCycleDetected                      = "CohortCycleDetected"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
@@ -70,6 +71,12 @@ type ClusterQueueSpec struct {
 	// that provide quotas for these resources.
 	// Each resource and each flavor can only form part of one resource group.
 	// resourceGroups can be up to 16, with a max of 256 total flavors across all groups.
+	//
+	// Many flavors can increase admission latency, especially with many
+	// ClusterQueues or frequent workload submissions. Depending on
+	// flavorFungibility, the scheduler may try every flavor and simulate
+	// preemption for each. Configure only necessary flavors and evaluate
+	// performance under representative peak load.
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
@@ -157,6 +164,12 @@ type ClusterQueueSpec struct {
 	// Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
 	// Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
 	// It enables them to migrate to more preferable, whenever capacity appears.
+	//
+	// When set, resourceGroups must contain exactly one group with at most
+	// 32 flavors, and queueingStrategy must be BestEffortFIFO. Kueue creates
+	// a Variant Workload for each flavor, even if unsuitable, multiplying the
+	// number of Workloads that the scheduler and controllers process.
+	// This field is immutable.
 	//
 	// +optional
 	ConcurrentAdmissionPolicy *ConcurrentAdmissionPolicy `json:"concurrentAdmissionPolicy,omitempty"`
@@ -347,6 +360,54 @@ type ResourceQuota struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ResourceFlavorReference string
 
+// EffectiveQuotaStatus represents the active effective quota structure computed by
+// Dynamic Quota Orchestration (DQO).
+type EffectiveQuotaStatus struct {
+	// orchestratorRef identifies the component managing this value.
+	// +required
+	OrchestratorRef EffectiveQuotaStatusOrchestratorRef `json:"orchestratorRef,omitzero"`
+
+	// resourceGroups contains the quotas used by the scheduler.
+	// DQO starts with spec.resourceGroups.
+	// For each flavor in the DQO's status.effectiveCapacity, it replaces each
+	// resource's nominalQuota with its share of the effective capacity.
+	// If a resource is missing from that flavor's effective capacity, its
+	// nominalQuota is set to zero.
+	// For these resources, DQO limits any configured ClusterQueue lendingLimit
+	// to the new nominalQuota.
+	// An empty list is valid. The scheduler uses it without falling back to
+	// spec.resourceGroups.
+	//
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	ResourceGroups []ResourceGroup `json:"resourceGroups"`
+}
+
+// EffectiveQuotaStatusOrchestratorRef identifies the component managing the effective quota.
+type EffectiveQuotaStatusOrchestratorRef struct {
+	// apiGroup is the group for the resource representing the manager.
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	APIGroup string `json:"apiGroup,omitempty"`
+
+	// kind is the type of the manager setting the effective quota.
+	// +required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
+	Kind string `json:"kind,omitempty"`
+
+	// name is the name of the manager setting the effective quota.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	Name string `json:"name,omitempty"`
+}
+
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
 	// conditions hold the latest available observations of the ClusterQueue
@@ -396,6 +457,15 @@ type ClusterQueueStatus struct {
 	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
+
+	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+	// present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+	// the quotas of whole flavors.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+	// feature gate is disabled.
+	// +optional
+	EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
 }
 
 type FlavorUsage struct {
@@ -603,6 +673,8 @@ type BorrowWithinCohort struct {
 // +kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
 // +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 // +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
+// +kubebuilder:printcolumn:name="Active",JSONPath=".status.conditions[?(@.type=='Active')].status",type=string,description="Status of the ClusterQueue's Active condition",priority=1
+// +kubebuilder:printcolumn:name="Reason",JSONPath=".status.conditions[?(@.type=='Active')].reason",type=string,description="Reason for the Active condition",priority=1
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {

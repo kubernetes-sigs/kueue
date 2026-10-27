@@ -1,4 +1,4 @@
-FROM node:26-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66
+FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797
 
 # Set working directory
 WORKDIR /app
@@ -15,4 +15,4 @@ RUN npm install
 # Copy source files
 COPY . .
 
-CMD ["npm", "run", "check-unused"]
+RUN npm run check-unused

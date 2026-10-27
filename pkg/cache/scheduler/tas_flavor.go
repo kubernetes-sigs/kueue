@@ -93,9 +93,9 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// schedulingSimulator performs the node feasibility check
+	// simulatorFactory performs the node feasibility check
 	// based on topology requirements.
-	schedulingSimulator simulator.SchedulingSimulator
+	simulatorFactory simulator.Factory
 
 	resourceFormatter *resources.ResourceFormatter
 
@@ -116,15 +116,15 @@ type TASFlavorCache struct {
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:              t.client,
-		topology:            topologyInfo,
-		flavor:              flavorInfo,
-		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache:    t.nonTasUsageCache,
-		schedulingSimulator: t.schedulingSimulator,
-		resourceFormatter:   t.resourceFormatter,
-		nodesCache:          t.nodesCache,
+		client:            t.client,
+		topology:          topologyInfo,
+		flavor:            flavorInfo,
+		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:  t.nonTasUsageCache,
+		simulatorFactory:  t.simulatorFactory,
+		resourceFormatter: t.resourceFormatter,
+		nodesCache:        t.nodesCache,
 	}
 }
 
@@ -183,7 +183,10 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	ctx context.Context, log logr.Logger, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	ctx context.Context,
+	log logr.Logger,
+	schedulerSimulator simulator.SchedulerSimulator,
+	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -201,20 +204,12 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, tree.nodes)
-	if err != nil {
-		return nil, err
-	}
-
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
-
+	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
-	for domainID, usage := range tasDomainUsages {
-		snapshot.addTASUsage(domainID, usage)
-	}
+	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
 	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := tree.nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
@@ -227,14 +222,25 @@ func (c *TASFlavorCache) snapshot(
 // generation is current. Otherwise, it builds a candidate and returns the
 // newest tree retained in the cache, which may have been stored by a concurrent
 // caller. The returned tree must not be mutated.
+//
+// With TASCacheTopologyTree disabled the cache is neither read nor written, so
+// every snapshot gets a tree of its own and no tree is ever shared. Note that
+// storeTree must be skipped too: it returns the newest retained tree, which a
+// concurrent caller may have stored, and that would share a tree after all.
 func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
-	if tree := c.cachedTree(); tree != nil && tree.generation == c.nodesCache.currentGeneration() {
-		return tree, true
+	cacheTree := features.Enabled(features.TASCacheTopologyTree)
+	if cacheTree {
+		if tree := c.cachedTree(); tree != nil && tree.generation == c.nodesCache.currentGeneration() {
+			return tree, true
+		}
 	}
 	// snapshot already holds c.RLock. Do not use c.NodeLabels here: a recursive
 	// RLock can deadlock if a writer is waiting between the two acquisitions.
 	nodes, generation := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
 	tree := newTopologyTree(c.topology.Levels, nodes, generation)
+	if !cacheTree {
+		return tree, false
+	}
 	return c.storeTree(tree), false
 }
 
@@ -281,7 +287,7 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.CreateEmpty()
+			c.usage[domainID] = resources.NewRequests()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())

@@ -31,6 +31,7 @@ import (
 var (
 	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
 	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
+	errUnconstrainedTopologyNotTrue  = errors.New("unconstrained topology annotation must be true")
 )
 
 type podSetTopologyRequestBuilder struct {
@@ -47,6 +48,16 @@ func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *pod
 
 func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
 	p.subGroupIndexLabel = subGroupIndexLabel
+	p.subGroupCount = subGroupCount
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupIndexLabel(subGroupIndexLabel *string) *podSetTopologyRequestBuilder {
+	p.subGroupIndexLabel = subGroupIndexLabel
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupCount(subGroupCount *int32) *podSetTopologyRequestBuilder {
 	p.subGroupCount = subGroupCount
 	return p
 }
@@ -78,6 +89,9 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		unconstrained, err := strconv.ParseBool(unconstrained)
 		if err != nil {
 			return nil, err
+		}
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
+			return nil, errUnconstrainedTopologyNotTrue
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
@@ -114,4 +128,25 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 	}
 
 	return &psTopologyReq, nil
+}
+
+// DefaultPodIndexOffsetForPodSetGroup sets the Pod index offset annotation to 0
+// on a Pod template in a PodSet group, unless it is already set. Without it, the
+// topology ungater shifts the ranks of the larger PodSet in the group by the
+// size of the smaller one, which only matches integrations whose Pod indexes
+// continue across the group, such as LeaderWorkerSet.
+// Integrations call it when they start an admitted job, not in the webhook:
+// during an upgrade, a Kueue replica whose validation still rejects the
+// annotation in a PodSet group fails the job update, which Kueue retries,
+// instead of the user's request.
+func DefaultPodIndexOffsetForPodSetGroup(meta *metav1.ObjectMeta) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	if _, grouped := meta.Annotations[kueue.PodSetGroupName]; !grouped {
+		return
+	}
+	if _, found := meta.Annotations[kueue.PodIndexOffsetAnnotation]; !found {
+		meta.Annotations[kueue.PodIndexOffsetAnnotation] = "0"
+	}
 }

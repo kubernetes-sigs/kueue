@@ -123,42 +123,78 @@ Then access the dashboard at [http://localhost:8080](http://localhost:8080).
 
 ### Ingress
 
-For production deployments, configure an Ingress resource:
+The chart can expose the dashboard and its backend on a **single host** by path, which
+avoids a second DNS record and removes the need for CORS configuration. Enable it with:
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kueueviz-ingress
-  namespace: kueue-system
-spec:
-  rules:
-    - host: kueueviz.example.com
-      http:
-        paths:
-          - path: /api(/|$)(.*)
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-backend
-                port:
-                  number: 8080
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-frontend
-                port:
-                  number: 8080
-  tls:
-    - hosts:
-        - kueueviz.example.com # replace with your domain
-      secretName: kueueviz-tls # you need to create a TLS secret at first
+```bash
+helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
+  --version={{< param "chart_version" >}} \
+  --namespace kueue-system \
+  --set enableKueueViz=true \
+  --set kueueViz.ingress.enabled=true \
+  --set kueueViz.ingress.host=kueueviz.example.com \
+  --set kueueViz.ingress.tlsSecretName=kueueviz-tls
 ```
+
+This renders one Ingress that routes `/ws`, `/api` and `/auth` to the backend Service and
+everything else to the frontend Service. The per-host `kueueViz.backend.ingress` and
+`kueueViz.frontend.ingress` objects are not created while it is enabled, and
+`KUEUEVIZ_ALLOWED_ORIGINS` on the backend is unused because the browser never makes a
+cross-origin request.
+
+The frontend `env.js` ConfigMap carries no backend URL in this mode. The dashboard talks
+to whichever origin served it, so something in front of both Services has to do the path
+routing. The Ingress above does; the frontend container does not, because it only serves
+the static bundle. Pointing a `LoadBalancer` Service or `kubectl port-forward` at the
+frontend alone leaves `/ws`, `/api` and `/auth` unrouted, and the dashboard loads with
+empty panels. Use [Port Forwarding](#port-forwarding-only-for-development) for local
+access instead.
+
+{{% alert title="Note" color="primary" %}}
+Do not add `nginx.ingress.kubernetes.io/rewrite-target` to
+`kueueViz.ingress.annotations`. Rewriting the path sends `/ws/workloads` to the backend
+as `/`, and the dashboard cannot connect.
+{{% /alert %}}
+
+#### Without Helm
+
+`kueueviz-single-host.yaml` is the path-routed counterpart of `kueueviz.yaml`. It ships the
+single Ingress in place of the two per-component ones, and leaves the frontend `env.js`
+without a backend URL so the dashboard falls back to the origin that served it:
+
+```bash
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz-single-host.yaml
+```
+
+The Ingress it creates serves `kueueviz.local`. Point it at your own domain, and add a TLS
+secret if you serve the dashboard over HTTPS:
+
+```bash
+kubectl patch ingress kueue-kueueviz-ingress -n kueue-system --type=json -p '[
+  {"op": "replace", "path": "/spec/rules/0/host", "value": "kueueviz.example.com"},
+  {"op": "add", "path": "/spec/tls", "value": [{"hosts": ["kueueviz.example.com"], "secretName": "kueueviz-tls"}]}
+]'
+```
+
+If you already installed `kueueviz.yaml`, delete the per-component Ingresses it created and
+restart the frontend so it picks up the cleared `env.js`:
+
+```bash
+kubectl delete ingress kueue-kueueviz-backend-ingress kueue-kueueviz-frontend-ingress \
+  -n kueue-system
+kubectl rollout restart deployment kueue-kueueviz-frontend -n kueue-system
+```
+
+{{% alert title="Note" color="primary" %}}
+Do not add `nginx.ingress.kubernetes.io/rewrite-target` to this Ingress either. Rewriting
+the path sends `/ws/workloads` to the backend as `/`, and the dashboard cannot connect.
+{{% /alert %}}
 
 ### LoadBalancer
 
-For cloud environments with LoadBalancer support:
+For cloud environments with LoadBalancer support. This exposes the frontend only, so the
+backend still needs an address of its own, or an Ingress that routes `/ws`, `/api` and
+`/auth` to it:
 
 ```yaml
 apiVersion: v1

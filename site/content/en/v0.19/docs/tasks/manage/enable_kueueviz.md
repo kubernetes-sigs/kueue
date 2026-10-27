@@ -123,7 +123,51 @@ Then access the dashboard at [http://localhost:8080](http://localhost:8080).
 
 ### Ingress
 
-For production deployments, configure an Ingress resource:
+The chart can expose the dashboard and its backend on a **single host** by path, which
+avoids a second DNS record and removes the need for CORS configuration. Enable it with:
+
+```bash
+helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
+  --version={{< param "chart_version" >}} \
+  --namespace kueue-system \
+  --set enableKueueViz=true \
+  --set kueueViz.ingress.enabled=true \
+  --set kueueViz.ingress.host=kueueviz.example.com \
+  --set kueueViz.ingress.tlsSecretName=kueueviz-tls
+```
+
+This renders one Ingress that routes `/ws`, `/api` and `/auth` to the backend Service and
+everything else to the frontend Service. The per-host `kueueViz.backend.ingress` and
+`kueueViz.frontend.ingress` objects are not created while it is enabled, and
+`KUEUEVIZ_ALLOWED_ORIGINS` on the backend is unused because the browser never makes a
+cross-origin request.
+
+The frontend `env.js` ConfigMap carries no backend URL in this mode. The dashboard talks
+to whichever origin served it, so something in front of both Services has to do the path
+routing. The Ingress above does; the frontend container does not, because it only serves
+the static bundle. Pointing a `LoadBalancer` Service or `kubectl port-forward` at the
+frontend alone leaves `/ws`, `/api` and `/auth` unrouted, and the dashboard loads with
+empty panels. Use [Port Forwarding](#port-forwarding-only-for-development) for local
+access instead.
+
+{{% alert title="Note" color="primary" %}}
+Do not add `nginx.ingress.kubernetes.io/rewrite-target` to
+`kueueViz.ingress.annotations`. Rewriting the path sends `/ws/workloads` to the backend
+as `/`, and the dashboard cannot connect.
+{{% /alert %}}
+
+#### Without Helm
+
+The `kueueviz.yaml` install ships a separate Ingress per component, on the hosts
+`backend.kueueviz.local` and `frontend.kueueviz.local`. To serve both from one host
+instead, delete those two:
+
+```bash
+kubectl delete ingress kueue-kueueviz-backend-ingress kueue-kueueviz-frontend-ingress \
+  -n kueue-system
+```
+
+Then apply an Ingress that routes by path. Do not add `rewrite-target` here either:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -132,11 +176,29 @@ metadata:
   name: kueueviz-ingress
   namespace: kueue-system
 spec:
+  tls:
+    - hosts:
+        - kueueviz.example.com # replace with your domain
+      secretName: kueueviz-tls # you need to create a TLS secret at first
   rules:
     - host: kueueviz.example.com
       http:
         paths:
-          - path: /api(/|$)(.*)
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: kueue-kueueviz-backend
+                port:
+                  number: 8080
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: kueue-kueueviz-backend
+                port:
+                  number: 8080
+          - path: /auth
             pathType: Prefix
             backend:
               service:
@@ -150,15 +212,29 @@ spec:
                 name: kueue-kueueviz-frontend
                 port:
                   number: 8080
-  tls:
-    - hosts:
-        - kueueviz.example.com # replace with your domain
-      secretName: kueueviz-tls # you need to create a TLS secret at first
+```
+
+Finally, clear the backend URL from the `kueue-kueueviz-frontend-env` ConfigMap so the
+dashboard falls back to the origin that served it:
+
+```yaml
+data:
+  env.js: |
+    window.env = {
+      VITE_WEBSOCKET_URL: "",
+      REACT_APP_WEBSOCKET_URL: ""
+    };
+```
+
+```bash
+kubectl rollout restart deployment kueue-kueueviz-frontend -n kueue-system
 ```
 
 ### LoadBalancer
 
-For cloud environments with LoadBalancer support:
+For cloud environments with LoadBalancer support. This exposes the frontend only, so the
+backend still needs an address of its own, or an Ingress that routes `/ws`, `/api` and
+`/auth` to it:
 
 ```yaml
 apiVersion: v1

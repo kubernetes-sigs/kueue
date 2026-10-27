@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Box } from '@mui/material';
+import { CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Box, FormControl, InputLabel, Select, MenuItem, Alert } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useWebSocket from './useWebSocket';
@@ -24,7 +24,19 @@ import ViewYamlButton from './ViewYamlButton';
 import { toNumber, formatResourceValue, discoverResourceNames } from './UsageBar';
 
 const LocalQueues = () => {
-  const { data: localQueues, error } = useWebSocket('/ws/local-queues');
+  const [selectedNamespace, setSelectedNamespace] = useState('');
+
+  const { data: namespacesData, error: namespacesError } = useWebSocket('/ws/namespaces');
+  const namespaces = React.useMemo(() => {
+    if (namespacesData?.namespaces) {
+      return [...namespacesData.namespaces].sort();
+    }
+    return [];
+  }, [namespacesData]);
+
+  const queuesUrl = selectedNamespace === '' ? '/ws/local-queues' : `/ws/local-queues?namespace=${selectedNamespace}`;
+  const { data: localQueues, error: queuesError } = useWebSocket(queuesUrl);
+  
   const queues = React.useMemo(() => {
     if (!localQueues || !Array.isArray(localQueues)) return [];
     return [...localQueues].sort((a, b) =>
@@ -32,7 +44,7 @@ const LocalQueues = () => {
     );
   }, [localQueues]);
 
-  if (error) return <ErrorMessage error={error} />;
+  const error = queuesError || namespacesError;
 
   const resourceNames = discoverResourceNames(queues);
 
@@ -49,12 +61,38 @@ const LocalQueues = () => {
   return (
     <Paper className="parentContainer">
       <Typography variant="h4" gutterBottom>Local Queues</Typography>
-      {localQueues === null ? (
+
+      {/* Namespace filter dropdown */}
+      <FormControl variant="outlined" style={{ minWidth: 200, marginBottom: '20px' }}>
+        <InputLabel id="local-queue-namespace-select-label">Filter by Namespace</InputLabel>
+        <Select
+          labelId="local-queue-namespace-select-label"
+          value={selectedNamespace}
+          onChange={(e) => setSelectedNamespace(e.target.value)}
+          label="Filter by Namespace"
+        >
+          <MenuItem value="">All Namespaces</MenuItem>
+          {namespaces.map((namespace) => (
+            <MenuItem key={namespace} value={namespace}>
+              {namespace}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {error ? (
+        <ErrorMessage error={error} />
+      ) : localQueues === null ? (
         <Box display="flex" justifyContent="center" my={4}>
           <CircularProgress />
         </Box>
       ) : queues.length === 0 ? (
-        <Typography>No Local Queues found.</Typography>
+        <Alert severity="info">
+          {selectedNamespace === '' 
+            ? 'No Local Queues found.' 
+            : `No Local Queues found in namespace "${selectedNamespace}".`
+          }
+        </Alert>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>

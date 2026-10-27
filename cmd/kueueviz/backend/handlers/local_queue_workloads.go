@@ -44,7 +44,7 @@ func (h *Handlers) fetchLocalQueueWorkloads(ctx context.Context, namespace, queu
 		return nil, fmt.Errorf("error fetching workloads for local queue %s: %v", queueName, err)
 	}
 
-	var workloads []any
+	workloads := make([]any, 0)
 	for _, item := range wql.Items {
 		if string(item.Spec.QueueName) == queueName {
 			workloads = append(workloads, item)

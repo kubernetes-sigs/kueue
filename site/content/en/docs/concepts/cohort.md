@@ -82,7 +82,7 @@ spec:
 Cohorts may be organized in a tree structure. We refer to the grouping of ClusterQueues and Cohorts that are part of the same tree as a **CohortTree**.
 
 ClusterQueues within a given CohortTree may use resources within it,
-subject to [Borrowing and Lending limits](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceQuota).
+subject to [Borrowing and Lending limits](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ResourceQuota).
 These Borrowing and Lending Limits can be specified for Cohorts, as well as for ClusterQueues.
 
 Here is a simple CohortTree, with three Cohorts:

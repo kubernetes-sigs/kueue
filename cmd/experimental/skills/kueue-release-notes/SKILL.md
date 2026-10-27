@@ -49,7 +49,8 @@ Read the PR description, linked issue, release-note text, and relevant changed f
 
 Identify:
 
-- the affected Kueue area or component;
+- the affected Kueue area or component; if changed files are under `cmd/kueuectl/` or
+  the PR touches `kueuectl` commands, flags, or output, the area is `CLI`;
 - whether this is a bugfix, feature, observability improvement, documentation-only change, cleanup, or breaking change;
 - the scenario users could observe before the change;
 - the behavior users should expect after the change;
@@ -132,6 +133,10 @@ MultiKueue: Fixed a bug where one slow or unresponsive remote cluster could stal
 KueueViz: Fixed the navigation bar to avoid layout breakage on narrow mobile screens.
 ```
 
+```text
+CLI: Fixed a bug where `kueuectl list workloads` could omit workloads when the `--namespace` flag was combined with a label selector.
+```
+
 Avoid starting with implementation details:
 
 ```text
@@ -202,6 +207,10 @@ Start the note with a prefix that narrows the scope.
 
 Prefer the smallest accurate user-facing area, for example:
 
+- `CLI:` — for changes to `kueuectl` commands, flags, output format, or any behavior
+  visible to users of the `kueuectl` CLI. Triggered by changes under `cmd/kueuectl/`,
+  new or removed `kueuectl` subcommands, changed flag semantics, or modified command
+  output.
 - `MultiKueue:`
 - `TAS:`
 - `Helm:`

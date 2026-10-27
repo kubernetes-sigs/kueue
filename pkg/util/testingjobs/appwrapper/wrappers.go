@@ -39,16 +39,14 @@ type AppWrapperWrapper struct {
 // MakeAppWrapper creates a wrapper for a suspended AppWrapper with no components.
 func MakeAppWrapper(name string, ns string) *AppWrapperWrapper {
 	return &AppWrapperWrapper{
-		AppWrapper: awv1beta2.AppWrapper{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        name,
-				Namespace:   ns,
-				Annotations: make(map[string]string, 1),
-			},
-			Spec: awv1beta2.AppWrapperSpec{
-				Suspend:    true,
-				Components: []awv1beta2.AppWrapperComponent{},
-			},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   ns,
+			Annotations: make(map[string]string, 1),
+		},
+		Spec: awv1beta2.AppWrapperSpec{
+			Suspend:    true,
+			Components: []awv1beta2.AppWrapperComponent{},
 		},
 	}
 }

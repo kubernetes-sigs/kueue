@@ -173,6 +173,15 @@ Delete a resource
         </td>
     </tr>
     <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
     </tr>
     <tr>
@@ -226,7 +235,9 @@ Delete a resource
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl delete clusterqueue](kueuectl_delete_clusterqueue/)	 - Pass-through &#34;delete clusterqueue&#34; to kubectl
+* [kueuectl delete cohort](kueuectl_delete_cohort/)	 - Pass-through &#34;delete cohort&#34; to kubectl
 * [kueuectl delete localqueue](kueuectl_delete_localqueue/)	 - Pass-through &#34;delete localqueue&#34; to kubectl
 * [kueuectl delete resourceflavor](kueuectl_delete_resourceflavor/)	 - Pass-through &#34;delete resourceflavor&#34; to kubectl
+* [kueuectl delete topology](kueuectl_delete_topology/)	 - Pass-through &#34;delete topology&#34; to kubectl
 * [kueuectl delete workload](kueuectl_delete_workload/)	 - Delete the given Workload and its corresponding Job
 

@@ -75,4 +75,4 @@ spec:
 ## 接下来是什么？
 
 - 学习如何使用 [拓扑感知调度](/v0.19/docs/concepts/topology_aware_scheduling)
-- 阅读 `Topology` 的 [API 参考](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Topology)
+- 阅读 `Topology` 的 [API 参考](/zh-cn/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Topology)

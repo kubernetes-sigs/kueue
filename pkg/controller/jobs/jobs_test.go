@@ -45,11 +45,11 @@ func TestIntegrationManagersKeepEnabledIntegrationsIsolated(t *testing.T) {
 	first.EnableIntegration(job.FrameworkName)
 
 	controller := true
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{
+	pod := &corev1.Pod{OwnerReferences: []metav1.OwnerReference{{
 		APIVersion: batchv1.SchemeGroupVersion.String(),
 		Kind:       "Job",
 		Controller: &controller,
-	}}}}
+	}}}
 
 	if !first.IsOwnerManagedByKueueForObject(pod) {
 		t.Error("first manager did not manage its enabled Job integration")

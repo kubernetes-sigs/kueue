@@ -38,7 +38,7 @@ func defaultResourceQuantity(name corev1.ResourceName, value int64) resource.Qua
 	return resources.NewResourceFormatter().ResourceQuantity(name, value)
 }
 
-func TestAdjustResources(t *testing.T) {
+func TestEffectiveResourceDefaults(t *testing.T) {
 	cases := map[string]struct {
 		runtimeClasses []nodev1.RuntimeClass
 		limitranges    []corev1.LimitRange
@@ -229,7 +229,10 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Limit(corev1.ResourceCPU, "6").
-						Request(corev1.ResourceCPU, "3").
+						// The limits are copied into the missing requests before
+						// the LimitRange defaultRequest applies, mirroring the
+						// requests the created Pods will carry.
+						Request(corev1.ResourceCPU, "6").
 						InitContainers(corev1.Container{
 							Resources: corev1.ResourceRequirements{
 								Limits: corev1.ResourceList{
@@ -332,7 +335,9 @@ func TestAdjustResources(t *testing.T) {
 						PodLevelLimit(corev1.ResourceCPU, "4").
 						PodLevelLimit(corev1.ResourceMemory, "2Gi").
 						PodLevelRequest(corev1.ResourceCPU, "3").
-						PodLevelRequest(corev1.ResourceMemory, "512Mi").
+						// The user-set memory limit is copied into the missing
+						// request before the LimitRange defaultRequest applies.
+						PodLevelRequest(corev1.ResourceMemory, "2Gi").
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						PodLevelLimit(corev1.ResourceCPU, "6").
@@ -562,9 +567,17 @@ func TestAdjustResources(t *testing.T) {
 			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
-			AdjustResources(ctx, cl, tc.wl)
-			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
-				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
+			original := tc.wl.DeepCopy()
+			info := NewInfoFromClient(ctx, cl, tc.wl)
+			if diff := cmp.Diff(original, tc.wl); diff != "" {
+				t.Errorf("Effective resource calculation mutated the raw Workload: %s", diff)
+			}
+			effective := tc.wl.DeepCopy()
+			for i := range effective.Spec.PodSets {
+				effective.Spec.PodSets[i].Template.Spec = *info.PodSpec(i)
+			}
+			if diff := cmp.Diff(tc.wantWl, effective); diff != "" {
+				t.Errorf("Unexpected effective resources (-want,+got): %s", diff)
 			}
 		})
 	}

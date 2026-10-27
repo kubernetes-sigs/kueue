@@ -21,6 +21,7 @@ import (
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 // Equal reports whether two Requests objects are Equal.
@@ -32,16 +33,16 @@ func Equal(a, b Requests) bool {
 		return false
 	}
 	equal := true
-	a.ForEach(func(name corev1.ResourceName, val int64) {
-		if equal && b.GetValue(name) != val {
+	a.ForEach(func(name corev1.ResourceName, val Amount) {
+		if equal && !b.ResourceValue(name).Equal(val) {
 			equal = false
 		}
 	})
 	return equal
 }
 
-// CreateEmpty creates an empty Requests instance based on feature gates.
-func CreateEmpty() Requests {
+// NewRequests creates an empty Requests instance based on feature gates.
+func NewRequests() Requests {
 	if features.Enabled(features.VectorizedResourceRequests) {
 		return &SliceRequests{}
 	}
@@ -49,22 +50,26 @@ func CreateEmpty() Requests {
 }
 
 // NewRequestsFromMap creates a Requests instance from a map based on feature gates.
+// Each value already fits an int64, so wrapping it is exact. Vectorized requests
+// are built straight from m, with no intermediate map.
 func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 	if len(m) == 0 {
-		return CreateEmpty()
+		return NewRequests()
 	}
 	if features.Enabled(features.VectorizedResourceRequests) {
-		sr := toSliceRequests(MapRequests(m))
-		return &sr
+		return new(int64MapToSliceRequests(m))
 	}
-	return MapRequests(m)
+	am := make(MapRequests, len(m))
+	for name, v := range m {
+		am[name] = NewAmount(v)
+	}
+	return am
 }
 
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
 func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 	if features.Enabled(features.VectorizedResourceRequests) {
-		sr := ResourceListToSliceRequests(rl)
-		return &sr
+		return new(ResourceListToSliceRequests(rl))
 	}
 	return NewMapRequests(rl)
 }
@@ -72,19 +77,33 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 // NewRequestsFromPodSpec creates a Requests instance from a PodSpec based on feature gates.
 func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
-		return CreateEmpty()
+		return NewRequests()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
+}
+
+// PodRequests returns the effective requests for a PodSpec. For malformed specs,
+// it keeps the aggregate container request when a smaller pod-level request would
+// otherwise replace it. Valid PodSpecs are unchanged because Kubernetes requires
+// pod-level requests to cover the aggregate container requests.
+func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	if podSpec == nil {
+		return nil
+	}
+	pod := &corev1.Pod{Spec: *podSpec}
+	requests := resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+	containerRequests := resourcehelpers.AggregateContainerRequests(pod, resourcehelpers.PodResourcesOptions{})
+	requests = utilresource.MergeResourceListKeepMax(requests, containerRequests)
+	return utilresource.MergeResourceListKeepSum(requests, podSpec.Overhead)
 }
 
 // ToMap converts any Requests instance into a MapRequests map.
-func ToMap(r Requests) map[corev1.ResourceName]int64 {
+func ToMap(r Requests) map[corev1.ResourceName]Amount {
 	if isEmpty(r) {
 		return nil
 	}
 	res := make(MapRequests, r.Len())
-	r.ForEach(func(name corev1.ResourceName, val int64) {
+	r.ForEach(func(name corev1.ResourceName, val Amount) {
 		res[name] = val
 	})
 	return res

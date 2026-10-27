@@ -163,7 +163,7 @@ func (o *LocalQueueOptions) Validate(ctx context.Context) error {
 	if len(o.Namespace) == 0 {
 		return errors.New("namespace must be specified")
 	}
-	if !o.IgnoreUnknownCq {
+	if o.DryRunStrategy != dryrun.Client && !o.IgnoreUnknownCq {
 		_, err := o.Client.ClusterQueues().Get(ctx, o.UserSpecifiedClusterQueue, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -193,8 +193,8 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 
 func (o *LocalQueueOptions) createLocalQueue() *kueue.LocalQueue {
 	return &kueue.LocalQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "LocalQueue"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name, Namespace: o.Namespace},
-		Spec:       kueue.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "LocalQueue",
+		Name: o.Name, Namespace: o.Namespace,
+		Spec: kueue.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
 	}
 }

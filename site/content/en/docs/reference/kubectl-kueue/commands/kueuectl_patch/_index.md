@@ -173,6 +173,15 @@ Update fields of a resource
         </td>
     </tr>
     <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
     </tr>
     <tr>
@@ -226,7 +235,9 @@ Update fields of a resource
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl patch clusterqueue](kueuectl_patch_clusterqueue/)	 - Pass-through &#34;patch clusterqueue&#34; to kubectl
+* [kueuectl patch cohort](kueuectl_patch_cohort/)	 - Pass-through &#34;patch cohort&#34; to kubectl
 * [kueuectl patch localqueue](kueuectl_patch_localqueue/)	 - Pass-through &#34;patch localqueue&#34; to kubectl
 * [kueuectl patch resourceflavor](kueuectl_patch_resourceflavor/)	 - Pass-through &#34;patch resourceflavor&#34; to kubectl
+* [kueuectl patch topology](kueuectl_patch_topology/)	 - Pass-through &#34;patch topology&#34; to kubectl
 * [kueuectl patch workload](kueuectl_patch_workload/)	 - Pass-through &#34;patch workload&#34; to kubectl
 

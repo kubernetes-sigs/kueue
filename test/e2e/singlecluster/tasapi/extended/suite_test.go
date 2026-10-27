@@ -1,0 +1,79 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package extended
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
+)
+
+var (
+	k8sClient client.WithWatch
+	ctx       context.Context
+)
+
+func TestAPIs(t *testing.T) {
+	e2e.RunE2ESuite(t, "End To End TAS Extended Suite")
+}
+
+var _ = ginkgo.BeforeSuite(func() {
+	behavioral.SetupLogger()
+
+	var err error
+	k8sClient, _, err = e2e.CreateClientUsingCluster("")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ctx = ginkgo.GinkgoT().Context()
+
+	waitForAvailableStart := time.Now()
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
+	labelFilter := ginkgo.GinkgoLabelFilter()
+	if ginkgo.Label("feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForJobSetAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForAppWrapperAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:pytorchjob").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:trainjob").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
+	}
+	if ginkgo.Label("feature:mpijob").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
+	}
+	ginkgo.GinkgoLogr.Info(
+		"Kueue and all required operators are available in the cluster",
+		"waitingTime", time.Since(waitForAvailableStart),
+	)
+
+	e2e.SetupTASNodes(ctx, k8sClient, tasNodeGroupLabel, extraResource)
+})

@@ -1,0 +1,24 @@
+# permissions for end users to view multikueueclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: multikueuecluster-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/role: "multikueuecluster-viewer"
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - multikueueclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - multikueueclusters/status
+  verbs:
+  - get

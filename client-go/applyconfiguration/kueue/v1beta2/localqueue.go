@@ -29,7 +29,7 @@ import (
 //
 // LocalQueue is the Schema for the localQueues API
 type LocalQueueApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the LocalQueue.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the LocalQueue.

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
@@ -31,14 +32,15 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func makeSchedulingHashInfo(now time.Time, name string, hash workload.EquivalenceHash, cpu string) *workload.Info {
-	info := workload.NewInfo(utiltestingapi.MakeWorkload(name, defaultNamespace).
+func makeSchedulingHashInfo(log logr.Logger, now time.Time, name string, hash workload.EquivalenceHash, cpu string) *workload.Info {
+	info := workload.NewInfo(log, utiltestingapi.MakeWorkload(name, defaultNamespace).
 		Creation(now).
 		Request(corev1.ResourceCPU, cpu).
 		Obj())
@@ -46,10 +48,10 @@ func makeSchedulingHashInfo(now time.Time, name string, hash workload.Equivalenc
 	return info
 }
 
-func totalCPURequest(wInfo *workload.Info) int64 {
-	var result int64
+func totalCPURequest(wInfo *workload.Info) resources.Amount {
+	var result resources.Amount
 	for _, ps := range wInfo.TotalRequests {
-		result += ps.Requests.GetValue(corev1.ResourceCPU)
+		result = result.Add(ps.Requests.ResourceValue(corev1.ResourceCPU))
 	}
 	return result
 }
@@ -112,16 +114,17 @@ func TestSchedulingHashCounts(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			counts := newSchedulingHashCounts()
 			activeInfos := make([]*workload.Info, 0, len(tc.activeHashes))
 			for i, hash := range tc.activeHashes {
-				info := makeSchedulingHashInfo(now, fmt.Sprintf("active-%d", i), hash, "1")
+				info := makeSchedulingHashInfo(log, now, fmt.Sprintf("active-%d", i), hash, "1")
 				activeInfos = append(activeInfos, info)
 				counts.addActive(info)
 			}
 			inadmissibleInfos := make([]*workload.Info, 0, len(tc.inadmissibleHashes))
 			for i, hash := range tc.inadmissibleHashes {
-				info := makeSchedulingHashInfo(now, fmt.Sprintf("inadmissible-%d", i), hash, "1")
+				info := makeSchedulingHashInfo(log, now, fmt.Sprintf("inadmissible-%d", i), hash, "1")
 				inadmissibleInfos = append(inadmissibleInfos, info)
 				counts.addInadmissible(info)
 			}
@@ -129,7 +132,7 @@ func TestSchedulingHashCounts(t *testing.T) {
 			if tc.hasInflight {
 				// Mirror the Pop flow: the inflight workload leaves the
 				// active bucket and its hash is recorded as inflight.
-				inflight := makeSchedulingHashInfo(now, "inflight", tc.inflightHash, "1")
+				inflight := makeSchedulingHashInfo(log, now, "inflight", tc.inflightHash, "1")
 				counts.addActive(inflight)
 				counts.moveActiveToInflight(inflight)
 			}
@@ -161,24 +164,24 @@ func TestSchedulingHashCounts(t *testing.T) {
 func TestPendingSchedulingHashes(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-a", "hash-a", "1"))
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-b", "hash-b", "1"))
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-unknown", workload.SchedulingHashUnknown, "1"))
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-empty", "", "1"))
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-a", "hash-a", "1"))
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-b", "hash-b", "1"))
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-unknown", workload.SchedulingHashUnknown, "1"))
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-empty", "", "1"))
 
 	if popped := cq.Pop(); popped == nil {
 		t.Fatal("expected one workload to be inflight")
 	}
 
-	inadmissibleDuplicate := makeSchedulingHashInfo(now, "inadmissible-b", "hash-b", "1")
+	inadmissibleDuplicate := makeSchedulingHashInfo(log, now, "inadmissible-b", "hash-b", "1")
 	cq.workloads.InsertInadmissible(workloadKey(inadmissibleDuplicate), inadmissibleDuplicate)
-	inadmissibleC := makeSchedulingHashInfo(now, "inadmissible-c", "hash-c", "1")
+	inadmissibleC := makeSchedulingHashInfo(log, now, "inadmissible-c", "hash-c", "1")
 	cq.workloads.InsertInadmissible(workloadKey(inadmissibleC), inadmissibleC)
-	inadmissibleUnknown := makeSchedulingHashInfo(now, "inadmissible-unknown", workload.SchedulingHashUnknown, "1")
+	inadmissibleUnknown := makeSchedulingHashInfo(log, now, "inadmissible-unknown", workload.SchedulingHashUnknown, "1")
 	cq.workloads.InsertInadmissible(workloadKey(inadmissibleUnknown), inadmissibleUnknown)
 
 	active, inadmissible := cq.PendingSchedulingHashes()
@@ -190,13 +193,13 @@ func TestPendingSchedulingHashes(t *testing.T) {
 func TestPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, false)
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	// With the gate disabled, NewInfo computes SchedulingHashUnknown, so the
 	// hash is never recorded and the counts stay empty without any explicit
 	// gate check in the read path.
-	cq.PushOrUpdate(workload.NewInfo(utiltestingapi.MakeWorkload("active", defaultNamespace).
+	cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("active", defaultNamespace).
 		Creation(now).
 		Request(corev1.ResourceCPU, "1").
 		Obj()))
@@ -217,7 +220,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	tests := map[string]struct {
-		mutate                 func(t *testing.T, cq *ClusterQueue)
+		mutate                 func(t *testing.T, log logr.Logger, cq *ClusterQueue)
 		wantActiveCounts       map[workload.EquivalenceHash]int
 		wantInadmissibleCounts map[workload.EquivalenceHash]int
 		wantActive             int
@@ -225,29 +228,29 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 		wantUnion              int
 	}{
 		"updates active hash counts when heap workload hash changes": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active", "old-hash", "1"))
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active", "new-hash", "1"))
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active", "old-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active", "new-hash", "1"))
 			},
 			wantActiveCounts: map[workload.EquivalenceHash]int{"new-hash": 1},
 			wantActive:       1,
 			wantUnion:        1,
 		},
 		"updates inadmissible hash counts when workload hash changes in place": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
-				oldInfo := makeSchedulingHashInfo(now, "inadmissible", "old-hash", "1")
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
+				oldInfo := makeSchedulingHashInfo(log, now, "inadmissible", "old-hash", "1")
 				cq.workloads.InsertInadmissible(workloadKey(oldInfo), oldInfo)
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "inadmissible", "new-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "inadmissible", "new-hash", "1"))
 			},
 			wantInadmissibleCounts: map[workload.EquivalenceHash]int{"new-hash": 1},
 			wantInadmissible:       1,
 			wantUnion:              1,
 		},
 		"deletes hashes after the last workload leaves": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-a", "shared-hash", "1"))
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-b", "shared-hash", "1"))
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-c", "other-hash", "1"))
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-a", "shared-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-b", "shared-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-c", "other-hash", "1"))
 				cq.Delete(log, "default/active-a")
 				if got := cq.workloads.schedulingHashes.active["shared-hash"]; got != 1 {
 					t.Fatalf("shared-hash count after first delete = %d, want 1", got)
@@ -259,11 +262,11 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 			wantUnion:        1,
 		},
 		"moves hash counts when equivalent workloads bulk move to inadmissible": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
 				cq.queueingStrategy = kueue.BestEffortFIFO
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-a", "blocked-hash", "1"))
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-b", "blocked-hash", "1"))
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-c", "other-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-a", "blocked-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-b", "blocked-hash", "1"))
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-c", "other-hash", "1"))
 				if moved := cq.handleInadmissibleHash("blocked-hash", "dummy-reason"); moved != 2 {
 					t.Fatalf("handleInadmissibleHash() moved = %d, want 2", moved)
 				}
@@ -275,12 +278,12 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 			wantUnion:              2,
 		},
 		"counts inflight hash shared with an inadmissible workload once in the union": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "popped", "shared-hash", "1"))
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "popped", "shared-hash", "1"))
 				if popped := cq.Pop(); popped == nil {
 					t.Fatal("expected one workload to be inflight")
 				}
-				inadmissibleWl := makeSchedulingHashInfo(now, "inadmissible", "shared-hash", "1")
+				inadmissibleWl := makeSchedulingHashInfo(log, now, "inadmissible", "shared-hash", "1")
 				cq.workloads.InsertInadmissible(workloadKey(inadmissibleWl), inadmissibleWl)
 			},
 			wantInadmissibleCounts: map[workload.EquivalenceHash]int{"shared-hash": 1},
@@ -289,8 +292,8 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 			wantUnion:              1,
 		},
 		"clears inflight hash when admitted workload is deleted": {
-			mutate: func(t *testing.T, cq *ClusterQueue) {
-				cq.PushOrUpdate(makeSchedulingHashInfo(now, "only", "hash-a", "1"))
+			mutate: func(t *testing.T, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "only", "hash-a", "1"))
 				popped := cq.Pop()
 				if popped == nil {
 					t.Fatal("expected one workload to be inflight")
@@ -302,8 +305,8 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
-			tc.mutate(t, cq)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			tc.mutate(t, log, cq)
 
 			if diff := cmp.Diff(tc.wantActiveCounts, cq.workloads.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("active hash counts (-want,+got):\n%s", diff)
@@ -326,19 +329,19 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	cq.name = "stopped-cq"
 
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-shared", "shared-hash", "1"))
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-shared", "shared-hash", "1"))
 	if popped := cq.Pop(); popped == nil {
 		t.Fatal("expected one workload to be inflight")
 	}
-	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-only", "active-hash", "1"))
-	inadmissibleShared := makeSchedulingHashInfo(now, "inadmissible-shared", "shared-hash", "1")
+	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-only", "active-hash", "1"))
+	inadmissibleShared := makeSchedulingHashInfo(log, now, "inadmissible-shared", "shared-hash", "1")
 	cq.workloads.InsertInadmissible(workloadKey(inadmissibleShared), inadmissibleShared)
-	inadmissibleOnly := makeSchedulingHashInfo(now, "inadmissible-only", "inadmissible-hash", "1")
+	inadmissibleOnly := makeSchedulingHashInfo(log, now, "inadmissible-only", "inadmissible-hash", "1")
 	cq.workloads.InsertInadmissible(workloadKey(inadmissibleOnly), inadmissibleOnly)
 
 	m := NewManagerForUnitTests(nil, &fakeStatusChecker{}, WithCustomLabels(kueuemetrics.NewCustomLabels(nil)))
@@ -407,9 +410,10 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
-			storedInfo := makeSchedulingHashInfo(now, "workload", "stored-hash", "1")
-			resyncInfo := makeSchedulingHashInfo(now, "workload", "resync-hash", "2")
+			_, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			storedInfo := makeSchedulingHashInfo(log, now, "workload", "stored-hash", "1")
+			resyncInfo := makeSchedulingHashInfo(log, now, "workload", "resync-hash", "2")
 			cq.workloads.InsertInadmissible(workloadKey(storedInfo), storedInfo)
 			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
 				workloadKey(resyncInfo): resyncInfo,
@@ -437,13 +441,72 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			if active != tc.wantActive || inadmissible != tc.wantInadmissible {
 				t.Errorf("PendingSchedulingHashes() active=%d inadmissible=%d, want active=%d inadmissible=%d", active, inadmissible, tc.wantActive, tc.wantInadmissible)
 			}
-			wantCPU := int64(0)
+			wantCPU := resources.Amount{}
 			if tc.wantCPU {
 				wantCPU = totalCPURequest(storedInfo)
 			}
-			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; gotCPU != wantCPU {
-				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; !gotCPU.Equal(wantCPU) {
+				t.Errorf("pending CPU = %s, want %s", gotCPU, wantCPU)
 			}
 		})
 	}
+}
+
+// TestSchedulingHashCountsMultiInflight covers a ClusterQueue with several
+// workloads checked out at once, as during fair sharing refill: a shared hash
+// stays pending until its last holder comes back, and is not counted twice when
+// it is also on the heap.
+func TestSchedulingHashCountsMultiInflight(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	popped := func(counts *schedulingHashCounts, name string, hash workload.EquivalenceHash) *workload.Info {
+		info := makeSchedulingHashInfo(log, now, name, hash, "1")
+		counts.addActive(info)
+		counts.moveActiveToInflight(info)
+		return info
+	}
+	assertActive := func(t *testing.T, counts *schedulingHashCounts, step string, want int) {
+		t.Helper()
+		if got, _ := counts.pendingLens(); got != want {
+			t.Errorf("%s: pendingLens() active = %d, want %d", step, got, want)
+		}
+		if got := counts.pendingUnionLen(); got != want {
+			t.Errorf("%s: pendingUnionLen() = %d, want %d", step, got, want)
+		}
+	}
+
+	t.Run("a shared hash is released one holder at a time", func(t *testing.T) {
+		counts := newSchedulingHashCounts()
+		first := popped(counts, "first", "hash-a")
+		second := popped(counts, "second", "hash-a")
+		third := popped(counts, "third", "hash-b")
+
+		assertActive(t, counts, "all inflight", 2)
+
+		// hash-a is still held by the second workload.
+		counts.removeInflight(first)
+		assertActive(t, counts, "one hash-a holder released", 2)
+
+		counts.removeInflight(second)
+		assertActive(t, counts, "hash-a fully released", 1)
+
+		counts.removeInflight(third)
+		assertActive(t, counts, "all released", 0)
+		if len(counts.inflight) != 0 {
+			t.Errorf("inflight counts after all removals = %v, want empty", counts.inflight)
+		}
+	})
+
+	t.Run("the fold dedups against active and ignores invalid hashes", func(t *testing.T) {
+		counts := newSchedulingHashCounts()
+		// hash-a is pending in the heap and held inflight at the same time;
+		// hash-b is inflight only; the unknown hash must not be recorded.
+		counts.addActive(makeSchedulingHashInfo(log, now, "active", "hash-a", "1"))
+		popped(counts, "first", "hash-a")
+		popped(counts, "second", "hash-b")
+		popped(counts, "unknown", workload.SchedulingHashUnknown)
+
+		// hash-a counted once via the active bucket, hash-b folded in.
+		assertActive(t, counts, "mixed buckets", 2)
+	})
 }

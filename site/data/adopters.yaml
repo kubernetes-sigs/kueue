@@ -1,3 +1,12 @@
+- name: Canva, Inc.
+  url: https://canva.com
+  type: End User
+  description: Cloud AI Platform
+  integrations:
+  - JobSet
+  - ...
+  contact: '@groodt'
+  contact_url: https://github.com/groodt
 - name: CyberAgent, Inc.
   url: https://www.cyberagent.co.jp/en/
   type: End User
@@ -187,3 +196,13 @@
   - '...'
   contact: '@amy'
   contact_url: https://github.com/amy
+- name: Etsy, Inc.
+  url: https://www.etsy.com/
+  type: End User
+  description: ML platform running elastic RayClusters via ProvisioningRequest admission
+  integrations:
+  - RayCluster
+  - RayJob
+  - '...'
+  contact: '@neilb-dotcom'
+  contact_url: https://github.com/neilb-dotcom

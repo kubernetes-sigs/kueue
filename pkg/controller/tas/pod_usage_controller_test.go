@@ -22,8 +22,9 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -31,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -324,14 +326,14 @@ func TestDrainPendingNodes(t *testing.T) {
 		},
 		"existing node is drained": {
 			initialNodes:   []string{"node-a"},
-			objects:        []corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}},
+			objects:        []corev1.Node{{Name: "node-a"}},
 			wantPendingLen: 0,
 		},
 		"duplicate nodes are deduplicated": {
 			initialNodes: []string{"node-a", "node-a", "node-b"},
 			objects: []corev1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}},
+				{Name: "node-a"},
+				{Name: "node-b"},
 			},
 			wantPendingLen: 0,
 		},
@@ -369,6 +371,68 @@ func TestDrainPendingNodes(t *testing.T) {
 				t.Errorf("pendingRequeueNodes has %d items, want %d", r.pending.nodes.Len(), tc.wantPendingLen)
 			}
 			if tc.wantPendingKeys != nil && !r.pending.nodes.Equal(tc.wantPendingKeys) {
+				t.Errorf("pendingRequeueNodes = %v, want %v", r.pending.nodes, tc.wantPendingKeys)
+			}
+		})
+	}
+}
+
+type fakeSimulatorFactory struct {
+	simulator.Factory
+	pods map[client.ObjectKey]string
+}
+
+func (f *fakeSimulatorFactory) TrackPod(_ context.Context, pod *corev1.Pod) {
+	f.pods[client.ObjectKeyFromObject(pod)] = pod.Spec.NodeName
+}
+
+func (f *fakeSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) string {
+	node := f.pods[key]
+	delete(f.pods, key)
+	return node
+}
+
+func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
+	ctx := t.Context()
+	podKey := types.NamespacedName{Namespace: "ns", Name: "tas-pod"}
+
+	runningTASPod := testingpod.MakePod("tas-pod", "ns").
+		NodeName("node-a").
+		Annotation(kueue.WorkloadAnnotation, "wl1").
+		Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+		StatusPhase(corev1.PodRunning).
+		Obj()
+
+	terminatedTASPod := runningTASPod.DeepCopy()
+	terminatedTASPod.Status.Phase = corev1.PodSucceeded
+
+	tests := map[string]struct {
+		objects         []client.Object
+		wantPendingKeys sets.Set[string]
+	}{
+		"terminated TAS pod notifies freed node": {
+			objects:         []client.Object{terminatedTASPod},
+			wantPendingKeys: sets.New[string]("node-a"),
+		},
+		"deleted TAS pod notifies freed node": {
+			wantPendingKeys: sets.New[string]("node-a"),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().WithObjects(tc.objects...).Build()
+			simulatorFactory := &fakeSimulatorFactory{pods: make(map[client.ObjectKey]string)}
+			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			r := newPodUsageReconciler(cl, nil, cache, nil)
+
+			// Seed the simulator with the running TAS pod first.
+			cache.TASCache().TrackPod(ctx, runningTASPod)
+
+			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: podKey}); err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if !r.pending.nodes.Equal(tc.wantPendingKeys) {
 				t.Errorf("pendingRequeueNodes = %v, want %v", r.pending.nodes, tc.wantPendingKeys)
 			}
 		})

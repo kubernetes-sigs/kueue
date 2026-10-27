@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, Box } from '@mui/material';
+import { Alert, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, Box } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import 'react-toastify/dist/ReactToastify.css';
@@ -22,6 +22,7 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
+import { getWorkloadStatus } from './utils/workloadStatus';
 
 const Workloads = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('');
@@ -41,8 +42,6 @@ const Workloads = () => {
   }, [workloadsData]);
 
   const error = workloadsError || namespacesError;
-
-  if (error) return <ErrorMessage error={error} />;
 
   // Group workloads by namespace
   const workloadsByNamespace = workloads.reduce((acc, workload) => {
@@ -77,17 +76,19 @@ const Workloads = () => {
         </Select>
       </FormControl>
       
-      {workloadsData === null ? (
+      {error ? (
+        <ErrorMessage error={error} />
+      ) : workloadsData === null ? (
         <Box display="flex" justifyContent="center" my={4}>
           <CircularProgress />
         </Box>
       ) : workloads.length === 0 ? (
-        <Typography>
+        <Alert severity="info">
           {selectedNamespace === '' 
             ? 'No workloads found in any namespace.' 
             : `No workloads found in namespace "${selectedNamespace}". Ready to monitor when workloads are submitted!`
           }
-        </Typography>
+        </Alert>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>
@@ -118,10 +119,10 @@ const Workloads = () => {
                         title={
                           <div>
                             <div><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</div>
-                            <div><strong>Owner Reference: {workload.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
-                            <div>API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
-                            <div>Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</div>
-                            <div>Name: {workload.ownerReferences?.[0]?.name || 'N/A'}</div>
+                            <div><strong>Owner Reference: {workload.metadata?.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
+                            <div>API Version: {workload.metadata?.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
+                            <div>Kind: {workload.metadata?.ownerReferences?.[0]?.kind || 'N/A'}</div>
+                            <div>Name: {workload.metadata?.ownerReferences?.[0]?.name || 'N/A'}</div>
                           </div>
                         }
                         arrow
@@ -134,7 +135,7 @@ const Workloads = () => {
                       </Tooltip>
                     </TableCell>
                     <TableCell><Link to={`/local-queue/${workload.metadata.namespace}/${workload.spec.queueName}`}>{workload.spec.queueName}</Link></TableCell>
-                    <TableCell>{workload.status?.conditions?.[0]?.type || 'Unknown'}</TableCell>
+                    <TableCell>{getWorkloadStatus(workload)}</TableCell>
                     <TableCell>{workload.preemption?.preempted ? "Yes" : "No"}</TableCell>
                     <TableCell>{workload.preemption?.reason || "N/A"}</TableCell>
                     <TableCell>{workload.spec.priority}</TableCell>

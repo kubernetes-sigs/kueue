@@ -24,26 +24,138 @@ import (
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	v1 "k8s.io/api/core/v1"
-
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
+	fwk "k8s.io/kube-scheduler/framework"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler"
 	schedulerapi "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
+	schedFwk "k8s.io/kubernetes/pkg/scheduler/framework"
+	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 )
 
+// Simulator is the set of "what-if" operations that run against a single in-memory view of the
+// cluster. It is implemented by *snapshot.ClusterSnapshot — what SchedulingSimulator.NewClusterSnapshot
+// returns and what state.ClusterState.Snapshot hands out — and exists to make the entry points of a
+// simulation visible from this package; consumers are not expected to implement it.
+type Simulator interface {
+	// MakePlacement turns node names into the *fwk.Placement that the other methods restrict the simulation to.
+	MakePlacement(candidateNodeNames []string) (*fwk.Placement, error)
+
+	// CanSchedulePod reports which of the nodes in the placement fit a single pod, leaving the
+	// snapshot untouched. The returned *schedFwk.Diagnosis explains why the remaining nodes were
+	// rejected.
+	CanSchedulePod(ctx context.Context, pod *v1.Pod, placement *fwk.Placement) ([]string, *schedFwk.Diagnosis, error)
+
+	// SchedulePods schedules the given pods one by one onto the placement and, unless opts.DryRun is
+	// set, keeps the result in the snapshot. The pods passed in are left untouched; the returned
+	// slice holds one result per attempted pod, each carrying a copy of the pod the attempt was made
+	// for, with the selected node set when it was scheduled. On a pod that was not scheduled
+	// Spec.NodeName is left as it came in, so it is empty unless the caller already set one.
+	SchedulePods(ctx context.Context, pods []*v1.Pod, placement *fwk.Placement, opts snapshot.SchedulePodsOptions) ([]snapshot.SchedulingResult, error)
+
+	// SchedulePodsByTemplate schedules as many pods created from the template as fit, up to maxPods.
+	// It stops at the first pod that does not fit, as the next identical one would not fit either;
+	// each SchedulingResult carries the generated pod, which is the only way to learn what was
+	// scheduled.
+	SchedulePodsByTemplate(ctx context.Context, template *v1.PodTemplateSpec, placement *fwk.Placement, maxPods int, opts snapshot.SchedulePodsByTemplateOptions) ([]snapshot.SchedulingResult, error)
+
+	// ScheduleWorkload schedules the given pods belonging to the same hierarchy using the workload-aware scheduling algorithm.
+	// If the pods do not belong to the same hierarchy, it returns an error status.
+	// The order of WorkloadSchedulingResult.PodResults is not guaranteed to match the order of input pods.
+	//
+	// When initial scheduling is skipped (because opts.PreemptionFilter.MayFit() is false) or
+	// fails with Unschedulable, and opts.CommittedVictims or opts.PotentialVictims
+	// is provided, ScheduleWorkload simulates preemption, rolls back all snapshot mutations, and returns
+	// Status: Unschedulable with the proposed PodResults and PreemptionVictims.
+	//
+	// All PodGroup and CompositePodGroup objects in the hierarchy must exist in the snapshot before calling this method.
+	// Callers can register virtual groups (groups not present in the cluster) with AddPodGroup and AddCompositePodGroup.
+	//
+	// Note: Virtual pods (input pods not present in the snapshot beforehand) are assumed on nodes,
+	// but not added to internal pod group sets (allPods/assumedPods). Consequently,
+	// PodGroupState.ScheduledPods() does not include virtual pods from previous ScheduleWorkload calls.
+	// This is safe when evaluating an entire virtual workload in a single call (such as Kueue admission).
+	// However, when scheduling a hierarchy incrementally across multiple ScheduleWorkload calls, plugins
+	// that query ScheduledPods() (such as TAS) do not observe virtual pods from earlier calls.
+	ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts snapshot.ScheduleWorkloadOptions) snapshot.WorkloadSchedulingResult
+
+	// PreemptPods removes the given running pods from the snapshot and returns the handle that puts
+	// them back. The handle is single-use and is invalidated by any later permanent mutation of the
+	// snapshot. If any pod fails to be preempted, the ones already removed by this call are restored
+	// and an error is returned.
+	PreemptPods(ctx context.Context, pods []*v1.Pod) (_ *snapshot.Unpreemption, err error)
+
+	// Transaction groups any of the above and commits or reverts them as a whole: the mutations are
+	// kept if transactionFn returns snapshot.Commit, and undone if it returns snapshot.Revert or an
+	// error. Transactions cannot be nested.
+	Transaction(ctx context.Context, transactionFn func() (snapshot.TransactionResult, error)) error
+
+	// Unpreempt undoes the preemption the handle was returned for and reports the pods that were put
+	// back. It fails if the handle has already been used, or if the snapshot has moved on since the
+	// preemption.
+	Unpreempt(u *snapshot.Unpreemption) ([]*v1.Pod, error)
+
+	// AddPodGroup adds a pod group to the snapshot.
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+
+	// RemovePodGroup removes a pod group from the snapshot.
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+
+	// AddCompositePodGroup adds a composite pod group to the snapshot.
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+
+	// RemoveCompositePodGroup removes a composite pod group from the snapshot.
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+}
+
+type simulatorOptions struct {
+	outOfTreeRegistry frameworkruntime.Registry
+}
+
+// SimulatorOption configures a SchedulingSimulator.
+type SimulatorOption func(*simulatorOptions)
+
+// WithOutOfTreeRegistry configures the simulator to use the provided out-of-tree plugin registry.
+func WithOutOfTreeRegistry(registry frameworkruntime.Registry) SimulatorOption {
+	return func(o *simulatorOptions) {
+		o.outOfTreeRegistry = registry
+	}
+}
+
+// SchedulingSimulator is the entry point of the library: it owns the scheduler configuration and
+// the informers, and creates the objects the simulation is run against (see NewClusterState and
+// NewClusterSnapshot). It is meant to be created once and reused; every state and snapshot it
+// creates gets its own scheduling profiles built from the same configuration.
+// Note that initializing states and snapshots (NewClusterState and NewClusterSnapshot) is not
+// safe for concurrent use on the same SchedulingSimulator instance.
 type SchedulingSimulator struct {
-	cfg             *schedulerapi.KubeSchedulerConfiguration
+	comps           *upstreamsync.FrameworkComponents
 	informerFactory informers.SharedInformerFactory
-	client          kubernetes.Interface
+
+	// informerCtx is what the informers run under. The factory is shared by every state and
+	// snapshot the simulator creates, so their lifetime is the simulator's, not any one call's.
+	informerCtx context.Context
 }
 
 // NewSchedulingSimulator creates a new SchedulingSimulator.
+// The cfg may be nil, in which case the default kube-scheduler profile is used, and so may the
+// informerFactory, in which case one is created from the client. The informers are started and
+// synced before returning, so the call blocks until the cluster state has been read.
+// The ctx bounds their lifetime, including the informers that NewClusterState and
+// NewClusterSnapshot later register on the same factory.
+//
+// Out-of-tree plugins can be registered by passing WithOutOfTreeRegistry in opts. The read-only
+// rest config from client is automatically exposed to plugins via fwk.Handle.KubeConfig().
 func NewSchedulingSimulator(
 	ctx context.Context,
 	cfg *schedulerapi.KubeSchedulerConfiguration,
 	client ReadonlyClient,
 	informerFactory informers.SharedInformerFactory,
+	opts ...SimulatorOption,
 ) (*SchedulingSimulator, error) {
 	if client.client == nil {
 		return nil, fmt.Errorf("client needs to be provided, got nil")
@@ -52,29 +164,64 @@ func NewSchedulingSimulator(
 	framework.InitMetricsOnce()
 
 	if informerFactory == nil {
-		informerFactory = scheduler.NewInformerFactory(client.client, 0)
+		informerFactory = scheduler.NewInformerFactory(client.client, 0, nil)
 	}
 	_ = informerFactory.Core().V1().Nodes().Informer()
 	_ = informerFactory.Core().V1().Pods().Informer()
+
+	var simOpts simulatorOptions
+	for _, opt := range opts {
+		opt(&simOpts)
+	}
+
+	var frameworkOpts []upstreamsync.Option
+	if cfg != nil {
+		frameworkOpts = append(frameworkOpts, upstreamsync.WithProfiles(cfg.Profiles...))
+	}
+	if len(simOpts.outOfTreeRegistry) > 0 {
+		frameworkOpts = append(frameworkOpts, upstreamsync.WithFrameworkOutOfTreeRegistry(simOpts.outOfTreeRegistry))
+	}
+	if client.config != nil {
+		frameworkOpts = append(frameworkOpts, upstreamsync.WithKubeConfig(client.config))
+	}
+
+	comps, err := upstreamsync.NewFrameworkComponents(ctx, client.client, informerFactory, frameworkOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("schedlib: initializing framework components: %w", err)
+	}
+
 	informerFactory.StartWithContext(ctx)
 	res := informerFactory.WaitForCacheSyncWithContext(ctx)
 	if res.Err != nil {
 		return nil, res.Err
 	}
+	if err := comps.WaitForHandlersSync(ctx); err != nil {
+		return nil, fmt.Errorf("schedlib: waiting for framework component handlers to sync: %w", err)
+	}
 
 	return &SchedulingSimulator{
-		cfg:             cfg,
+		comps:           comps,
 		informerFactory: informerFactory,
-		client:          client.client,
+		informerCtx:     ctx,
 	}, nil
 }
 
-// NewClusterState initializes a new runtime cluster state.
-func (s *SchedulingSimulator) NewClusterState(ctx context.Context) (*state.ClusterState, error) {
-	snap := cache.NewEmptySnapshot()
+// Option configures the scheduling profiles a ClusterState or ClusterSnapshot is built with.
+type Option = upstreamsync.FrameworkMapOption
 
-	internalCache := cache.New(ctx, nil, false)
-	profiles, err := s.buildProfileMap(ctx, snap)
+// WithSharedDRAManager makes the plugins read DRA objects through the given manager. A nil
+// manager keeps the informer-backed one.
+func WithSharedDRAManager(m fwk.SharedDRAManager) Option {
+	return upstreamsync.WithSharedDRAManager(m)
+}
+
+// NewClusterState initializes a new runtime cluster state.
+// The opts are applied when its scheduling profiles are built; see WithSharedDRAManager.
+// It is not safe to call concurrently with other NewClusterState or NewClusterSnapshot calls.
+func (s *SchedulingSimulator) NewClusterState(ctx context.Context, opts ...Option) (*state.ClusterState, error) {
+	snap := cache.NewEmptySnapshot()
+	internalCache := cache.New(ctx, nil, utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload), utilfeature.DefaultFeatureGate.Enabled(features.CompositePodGroup))
+	profiles, err := s.buildProfileMap(ctx, snap, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +229,19 @@ func (s *SchedulingSimulator) NewClusterState(ctx context.Context) (*state.Clust
 	return state.New(internalCache, profiles, snap), nil
 }
 
-// NewClusterSnapshot initializes a new snapshot with the provided pods and nodes.
-func (s *SchedulingSimulator) NewClusterSnapshot(ctx context.Context, pods []*v1.Pod, nodes []*v1.Node) (*snapshot.ClusterSnapshot, error) {
-	snap := cache.NewSnapshot(pods, nodes)
-
-	profiles, err := s.buildProfileMap(ctx, snap)
+// NewClusterSnapshot initializes a new snapshot with the provided pods, nodes, pod groups, and composite pod groups.
+// The opts are applied when its scheduling profiles are built; see WithSharedDRAManager.
+// It is not safe to call concurrently with other NewClusterState or NewClusterSnapshot calls.
+func (s *SchedulingSimulator) NewClusterSnapshot(
+	ctx context.Context,
+	pods []*v1.Pod,
+	nodes []*v1.Node,
+	podGroups []*schedulingv1beta1.PodGroup,
+	compositePodGroups []*schedulingv1alpha3.CompositePodGroup,
+	opts ...Option,
+) (Simulator, error) {
+	snap := cache.NewTestSnapshotWithCompositePodGroups(pods, nodes, podGroups, compositePodGroups)
+	profiles, err := s.buildProfileMap(ctx, snap, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -94,15 +249,29 @@ func (s *SchedulingSimulator) NewClusterSnapshot(ctx context.Context, pods []*v1
 	return snapshot.New(snap, profiles), nil
 }
 
-func (s *SchedulingSimulator) buildProfileMap(ctx context.Context, snap *cache.Snapshot) (*upstreamsync.ProfileMap, error) {
-	profiles, err := framework.NewProfileMap(ctx, s.client, s.informerFactory, snap, s.cfg)
+func (s *SchedulingSimulator) buildProfileMap(ctx context.Context, snap *cache.Snapshot, opts ...Option) (*upstreamsync.ProfileMap, error) {
+	profiles, err := upstreamsync.NewFrameworkMap(ctx, s.comps, framework.DiscardRecorderFactory, snap, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("schedlib: building scheduler: %w", err)
 	}
-	s.informerFactory.StartWithContext(ctx)
-	res := s.informerFactory.WaitForCacheSyncWithContext(ctx)
-	if res.Err != nil {
-		return nil, res.Err
+	framework.ApplySimulationNeutralizers(profiles)
+
+	// The informers the profiles registered belong to the simulator: a shared informer is started
+	// once, and keeps the context of that first start for as long as it runs.
+	s.informerFactory.StartWithContext(s.informerCtx)
+
+	// Waiting for them is this call's business, but a shutting-down simulator leaves them unable
+	// to sync, so the wait watches both contexts rather than only the caller's.
+	waitCtx, stopWaiting := context.WithCancel(ctx)
+	defer stopWaiting()
+	stopWaitingOnShutdown := context.AfterFunc(s.informerCtx, stopWaiting)
+	defer stopWaitingOnShutdown()
+
+	if res := s.informerFactory.WaitForCacheSyncWithContext(waitCtx); res.Err != nil {
+		if simErr := s.informerCtx.Err(); simErr != nil {
+			return nil, fmt.Errorf("schedlib: the simulator's context is done: %w", simErr)
+		}
+		return nil, fmt.Errorf("schedlib: %w", res.AsError())
 	}
 	return profiles, nil
 }

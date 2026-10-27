@@ -1,4 +1,8 @@
-<link href="/pagefind/pagefind-ui.css" rel="stylesheet">
+{{- $bundlePath := "/pagefind/" -}}
+{{- with .Page.Param "docs_minor" -}}
+  {{- $bundlePath = printf "/%s/pagefind/" . -}}
+{{- end -}}
+<link href="{{ $bundlePath }}pagefind-ui.css" rel="stylesheet">
 {{ if .Site.Params.ui.showLightDarkModeMenu -}}
 {{/* Apply the color mode before first paint to avoid a light-theme flash.
      Mirrors Docsy's dark-mode.js (bundled in main.js, loaded at body end),

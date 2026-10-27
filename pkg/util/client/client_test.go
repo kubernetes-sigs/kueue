@@ -25,7 +25,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -55,11 +54,9 @@ var (
 // Used in TestPatch and TestPatchStatus.
 func newObject(resourceVersion string, opts ...func(*batchv1.Job)) *batchv1.Job {
 	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:       "default",
-			Name:            "test",
-			ResourceVersion: resourceVersion,
-		},
+		Namespace:       "default",
+		Name:            "test",
+		ResourceVersion: resourceVersion,
 	}
 	for _, opt := range opts {
 		opt(job)

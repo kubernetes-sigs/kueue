@@ -107,8 +107,7 @@ func schema_pkg_apis_kubefloworg_v1_ElasticPolicy(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.RDZVConf"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.RDZVConf"),
 									},
 								},
 							},
@@ -141,8 +140,7 @@ func schema_pkg_apis_kubefloworg_v1_ElasticPolicy(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("k8s.io/api/autoscaling/v2.MetricSpec"),
+										Ref: ref("k8s.io/api/autoscaling/v2.MetricSpec"),
 									},
 								},
 							},
@@ -240,8 +238,7 @@ func schema_pkg_apis_kubefloworg_v1_JAXJobList(ref common.ReferenceCallback) com
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.JAXJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.JAXJob"),
 									},
 								},
 							},
@@ -365,8 +362,7 @@ func schema_pkg_apis_kubefloworg_v1_JobStatus(ref common.ReferenceCallback) comm
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.JobCondition"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.JobCondition"),
 									},
 								},
 							},
@@ -490,8 +486,7 @@ func schema_pkg_apis_kubefloworg_v1_MPIJobList(ref common.ReferenceCallback) com
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.MPIJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.MPIJob"),
 									},
 								},
 							},
@@ -597,8 +592,7 @@ func schema_pkg_apis_kubefloworg_v1_PaddleElasticPolicy(ref common.ReferenceCall
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("k8s.io/api/autoscaling/v2.MetricSpec"),
+										Ref: ref("k8s.io/api/autoscaling/v2.MetricSpec"),
 									},
 								},
 							},
@@ -696,8 +690,7 @@ func schema_pkg_apis_kubefloworg_v1_PaddleJobList(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.PaddleJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.PaddleJob"),
 									},
 								},
 							},
@@ -839,8 +832,7 @@ func schema_pkg_apis_kubefloworg_v1_PyTorchJobList(ref common.ReferenceCallback)
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.PyTorchJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.PyTorchJob"),
 									},
 								},
 							},
@@ -1212,8 +1204,7 @@ func schema_pkg_apis_kubefloworg_v1_TFJobList(ref common.ReferenceCallback) comm
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.TFJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.TFJob"),
 									},
 								},
 							},
@@ -1359,8 +1350,7 @@ func schema_pkg_apis_kubefloworg_v1_XGBoostJobList(ref common.ReferenceCallback)
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.XGBoostJob"),
+										Ref: ref("github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1.XGBoostJob"),
 									},
 								},
 							},

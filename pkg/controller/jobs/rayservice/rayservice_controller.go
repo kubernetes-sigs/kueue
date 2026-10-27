@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -53,13 +54,16 @@ const (
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:      SetupIndexes,
-		NewJob:            newJob,
-		NewReconciler:     NewReconciler,
-		SetupWebhook:      SetupRayServiceWebhook,
-		JobType:           &rayv1.RayService{},
-		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
+		SetupIndexes:  SetupIndexes,
+		NewJob:        newJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupRayServiceWebhook,
+		JobType:       &rayv1.RayService{},
+		AddToScheme:   rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticRuntimeSync()),
+			ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}),
+		),
 	})
 }
 
@@ -75,8 +79,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
 
 type rayServiceReconciler struct {
-	jr     *jobframework.JobReconciler
-	client client.Client
+	jr *jobframework.JobReconciler
 }
 
 func newJob() jobframework.GenericJob {
@@ -87,8 +90,6 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
 }
 
-var reconciler rayServiceReconciler
-
 func NewReconciler(
 	ctx context.Context,
 	client client.Client,
@@ -96,11 +97,10 @@ func NewReconciler(
 	eventRecorder events.EventRecorder,
 	opts ...jobframework.Option,
 ) (jobframework.JobReconcilerInterface, error) {
-	reconciler = rayServiceReconciler{
-		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
-		client: client,
+	reconciler := &rayServiceReconciler{
+		jr: jobframework.NewReconciler(client, eventRecorder, opts...),
 	}
-	return &reconciler, nil
+	return reconciler, nil
 }
 
 func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -126,13 +126,24 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
 }
 
 func (j *RayService) IsSuspended() bool {
-	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	}
+	return j.Spec.Suspend
 }
 
 func (j *RayService) IsActive() bool {
@@ -140,7 +151,11 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = new(true)
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.RayClusterSpec.Suspend = new(true)
+		return
+	}
+	j.Spec.Suspend = true
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -165,7 +180,7 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
@@ -173,7 +188,7 @@ func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	}
 
 	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +202,11 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = new(false)
+	if features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.Suspend = false
+	} else {
+		j.Spec.RayClusterSpec.Suspend = new(false)
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
@@ -199,7 +218,8 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayService) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo)
+	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
+	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo) || changed
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {

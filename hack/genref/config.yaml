@@ -4,31 +4,19 @@ hiddenMemberFields:
 
 apis:
   - name: kueue
-    title: Kueue v1beta1 API 
-    package: sigs.k8s.io/kueue
-    path: apis/kueue/v1beta1
-
-  - name: kueue
     title: Kueue v1beta2 API
     package: sigs.k8s.io/kueue
     path: apis/kueue/v1beta2
-
-  - name: kueue-config
-    title: Kueue Configuration v1beta1 API
-    package: sigs.k8s.io/kueue
-    path: apis/config/v1beta1
 
   - name: kueue-config
     title: Kueue Configuration v1beta2 API
     package: sigs.k8s.io/kueue
     path: apis/config/v1beta2
 
-  # code fails if there are no types in alpha apis
-  # leave in in case alpha apis are added
-  #- name: kueue-alpha
-  #  title: Kueue Alpha API
-  #  package: sigs.k8s.io/kueue
-  #  path: apis/kueue/v1alpha1
+  - name: kueue
+    title: Kueue v1alpha1 API
+    package: sigs.k8s.io/kueue
+    path: apis/kueue/v1alpha1
 
 externalPackages:
   - match: ^k8s\.io/(api|apimachinery/pkg/apis)/

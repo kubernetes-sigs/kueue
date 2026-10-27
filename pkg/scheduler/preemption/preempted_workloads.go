@@ -17,6 +17,9 @@ limitations under the License.
 package preemption
 
 import (
+	"maps"
+	"slices"
+
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -35,4 +38,20 @@ func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 	for _, target := range newTargets {
 		p[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
 	}
+}
+
+// MergeWithTargets returns the union of workloads already preempted and
+// the new preemption targets, deduplicated by workload key.
+// The receiver is not mutated.
+func (p PreemptedWorkloads) MergeWithTargets(targets []*Target) PreemptedWorkloads {
+	merged := maps.Clone(p)
+	if merged == nil {
+		merged = make(PreemptedWorkloads, len(targets))
+	}
+	merged.Insert(targets)
+	return merged
+}
+
+func (p PreemptedWorkloads) Workloads() []*workload.Info {
+	return slices.Collect(maps.Values(p))
 }

@@ -28,10 +28,12 @@ type RequeueStateApplyConfiguration struct {
 	// count records the number of times a workload has been re-queued
 	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
 	// this count would be reset to null.
+	//
 	Count *int32 `json:"count,omitempty"`
 	// requeueAt records the time when a workload will be re-queued.
 	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
 	// this time would be reset to null.
+	//
 	RequeueAt *v1.Time `json:"requeueAt,omitempty"`
 }
 

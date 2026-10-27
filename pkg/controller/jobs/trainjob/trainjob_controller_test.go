@@ -17,6 +17,9 @@ limitations under the License.
 package trainjob
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -83,11 +87,101 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		}).Obj()
 	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
 
+	// Build a two-replicated-job runtime to exercise name-based matching and
+	// duplicate assignment validation.
+	multiJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{Name: "chief"},
+		testingjobset.ReplicatedJobRequirements{Name: "worker"},
+	).Obj()
+	multiJobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{*toleration1.DeepCopy()}
+	multiJobset.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{*toleration2.DeepCopy()}
+	multiCtr := testingtrainjob.MakeClusterTrainingRuntime("test", multiJobset.Spec)
+	chiefAdmissionToleration := corev1.Toleration{
+		Key:      "admission.example.com/chief",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "reserved",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	workerAdmissionToleration := corev1.Toleration{
+		Key:      "admission.example.com/worker",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "spot",
+		Effect:   corev1.TaintEffectNoExecute,
+	}
+	// withTolerations builds the complete replicated-job patch emitted by
+	// RunWithPodSetsInfo when only tolerations are configured.
+	withTolerations := func(name string, tolerations ...corev1.Toleration) kftrainerapi.ReplicatedJobPatch {
+		return kftrainerapi.ReplicatedJobPatch{
+			Name: name,
+			Template: &kftrainerapi.JobTemplatePatch{
+				Spec: &kftrainerapi.JobSpecPatch{
+					Template: &kftrainerapi.PodTemplatePatch{
+						Metadata: &metav1.ObjectMeta{},
+						Spec:     &kftrainerapi.PodSpecPatch{Tolerations: tolerations},
+					},
+				},
+			},
+		}
+	}
+	multiTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).EmptyMetadata().Obj(),
+	}).Obj()
+	multiWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			EmptyMetadata().
+			ReplicatedJobs(
+				withTolerations("worker", *toleration2.DeepCopy(), workerAdmissionToleration),
+				withTolerations("chief", *toleration1.DeepCopy(), chiefAdmissionToleration),
+			).
+			Obj(),
+	}).Suspend(false).Obj()
+
+	staleBaseToleration := corev1.Toleration{
+		Key:      "user.example.com/dedicated",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "training",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	staleJobset := testJobset.DeepCopy()
+	staleJobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{staleBaseToleration}
+	staleCtr := testingtrainjob.MakeClusterTrainingRuntime("test", staleJobset.Spec)
+	staleKueueToleration := corev1.Toleration{
+		Key:      "old.example.com/pool",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "old",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	staleTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			EmptyMetadata().
+			ReplicatedJobs(
+				withTolerations("node", staleKueueToleration),
+			).
+			Obj(),
+	}).Obj()
+	staleWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			EmptyMetadata().
+			ReplicatedJobs(
+				withTolerations("node", staleBaseToleration, *toleration2.DeepCopy()),
+			).
+			Obj(),
+	}).Suspend(false).Obj()
+	staleClearedWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			EmptyMetadata().
+			ReplicatedJobs(withTolerations("node")).
+			Obj(),
+	}).Suspend(false).Obj()
+
 	cases := map[string]struct {
-		trainJob     *kftrainerapi.TrainJob
-		podsetsInfo  []podset.PodSetInfo
-		wantTrainJob *kftrainerapi.TrainJob
-		wantErr      bool
+		trainJob        *kftrainerapi.TrainJob
+		runtime         *kftrainerapi.ClusterTrainingRuntime
+		podsetsInfo     []podset.PodSetInfo
+		wantTrainJob    *kftrainerapi.TrainJob
+		wantErrIs       error
+		wantErrContains string
+		wantErr         bool
 	}{
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().
@@ -181,6 +275,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								PodLabel(constants.PodSetLabel, "node").
 								PodLabel("test-label", "label").
 								NodeSelector("gpu", "nvidia").
+								Toleration(*toleration1.DeepCopy()).
 								Toleration(*toleration2.DeepCopy()).
 								SchedulingGate("test-scheduling-gate-2").
 								Obj(),
@@ -190,6 +285,46 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			wantErr: false,
+		},
+		"should match PodSet infos to replicated jobs by name": {
+			trainJob: multiTrainJob.DeepCopy(),
+			runtime:  multiCtr,
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "worker", Tolerations: []corev1.Toleration{workerAdmissionToleration}},
+				{Name: "chief", Tolerations: []corev1.Toleration{chiefAdmissionToleration}},
+			},
+			wantTrainJob: multiWantTrainJob,
+			wantErr:      false,
+		},
+		"should reject duplicate PodSet info names": {
+			trainJob:        multiTrainJob.DeepCopy(),
+			runtime:         multiCtr,
+			podsetsInfo:     []podset.PodSetInfo{{Name: "chief"}, {Name: "chief"}},
+			wantTrainJob:    multiTrainJob.DeepCopy(),
+			wantErrIs:       podset.ErrInvalidPodsetInfo,
+			wantErrContains: "appears more than once",
+			wantErr:         true,
+		},
+		"should preserve runtime tolerations and discard stale Kueue tolerations": {
+			trainJob:     staleTrainJob.DeepCopy(),
+			runtime:      staleCtr,
+			podsetsInfo:  []podset.PodSetInfo{{Name: "node", Tolerations: []corev1.Toleration{*toleration2.DeepCopy()}}},
+			wantTrainJob: staleWantTrainJob.DeepCopy(),
+			wantErr:      false,
+		},
+		"should not duplicate runtime tolerations on repeated admission": {
+			trainJob:     staleWantTrainJob.DeepCopy(),
+			runtime:      staleCtr,
+			podsetsInfo:  []podset.PodSetInfo{{Name: "node", Tolerations: []corev1.Toleration{*toleration2.DeepCopy()}}},
+			wantTrainJob: staleWantTrainJob.DeepCopy(),
+			wantErr:      false,
+		},
+		"should clear Kueue tolerations when admission has none": {
+			trainJob:     staleWantTrainJob.DeepCopy(),
+			runtime:      staleCtr,
+			podsetsInfo:  []podset.PodSetInfo{{Name: "node"}},
+			wantTrainJob: staleClearedWantTrainJob,
+			wantErr:      false,
 		},
 		"should not modify the TrainJob if the wrong number of PodSet infos is provided": {
 			trainJob: testTrainJob.DeepCopy(),
@@ -209,6 +344,16 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.DeepCopy(),
 			wantErr:      true,
+		},
+		"should reject a PodSet info with an unknown name": {
+			trainJob: testTrainJob.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "non-existent-job"},
+			},
+			wantTrainJob:    testTrainJob.DeepCopy(),
+			wantErrIs:       podset.ErrInvalidPodsetInfo,
+			wantErrContains: "does not match a replicated job",
+			wantErr:         true,
 		},
 		"should return an error if the trainjob references an unknown training runtime": {
 			trainJob: testTrainJob.DeepCopy(),
@@ -238,6 +383,9 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
+					Name: "user-provided",
+				},
+				{
 					Name: "node",
 					Annotations: map[string]string{
 						"test-annotation": "new-value",
@@ -260,6 +408,17 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
 						EmptyMetadata().
 						ReplicatedJobs(
+							kftrainerapi.ReplicatedJobPatch{
+								Name: "user-provided",
+								Template: &kftrainerapi.JobTemplatePatch{
+									Spec: &kftrainerapi.JobSpecPatch{
+										Template: &kftrainerapi.PodTemplatePatch{
+											Metadata: &metav1.ObjectMeta{},
+											Spec:     &kftrainerapi.PodSpecPatch{},
+										},
+									},
+								},
+							},
 							testingtrainjob.MakeReplicatedJobPatch("node").
 								PodAnnotation("test-annotation", "new-value").
 								PodLabel(constants.PodSetLabel, "node").
@@ -279,7 +438,11 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
 			indexer := utiltesting.AsIndexer(clientBuilder)
-			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr).Build()
+			runtime := tc.runtime
+			if runtime == nil {
+				runtime = testCtr
+			}
+			kClient := clientBuilder.WithObjects(tc.trainJob, runtime).Build()
 			recorder := &utiltesting.EventRecorder{}
 			_, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true))
 			if err != nil {
@@ -292,6 +455,12 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			if err != nil {
 				if !tc.wantErr {
 					t.Errorf("unexpected RunWithPodSetsInfo() error: %v", err)
+				}
+				if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+					t.Errorf("RunWithPodSetsInfo() error = %v, want error wrapping %v", err, tc.wantErrIs)
+				}
+				if tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains) {
+					t.Errorf("RunWithPodSetsInfo() error = %v, want it to contain %q", err, tc.wantErrContains)
 				}
 				// Ensure that neither the podSpecOverrides nor the suspend fields were modified
 				if diff := cmp.Diff(tc.trainJob, originalTrainJob, tjobCmpOpts); diff != "" {
@@ -350,6 +519,44 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantReturn: true,
 		},
+		"should report no change when the kueue RuntimePatch is already cleared": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
+		"should report no change when there is no kueue RuntimePatch": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -357,14 +564,136 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			ret := kTrainJob.RestorePodSetsInfo(t.Context(), []podset.PodSetInfo{})
 			if ret != tc.wantReturn {
-				t.Errorf("RunWithPodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
+				t.Errorf("RestorePodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
 			}
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
-				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
+				t.Errorf("RestorePodSetsInfo() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
+
+func TestStop(t *testing.T) {
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
+	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		EmptyMetadata().
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj())
+	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		EmptyMetadata()
+	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj())
+
+	cases := map[string]struct {
+		trainJob *kftrainerapi.TrainJob
+		// wantTrainJob is the expected in-memory TrainJob after Stop returns.
+		wantTrainJob *kftrainerapi.TrainJob
+		// wantStoppedNow is the value the job framework uses to decide whether to
+		// emit a Stopped event, so it must be true only on the reconcile that
+		// actually suspended the TrainJob.
+		wantStoppedNow bool
+		// wantPatches is the number of PATCH requests Stop is expected to issue.
+		wantPatches int
+		wantErr     error
+	}{
+		"should suspend a running trainjob and report it as stopped now": {
+			trainJob: testTrainJob.Clone().
+				Suspend(false).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantStoppedNow: true,
+			wantPatches:    2,
+		},
+		"should restore without reporting stopped now when the trainjob is already suspended": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantStoppedNow: false,
+			wantPatches:    1,
+		},
+		"should send no patch when the trainjob is already suspended and restored": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantStoppedNow: false,
+			wantPatches:    0,
+		},
+		"should report stopped now when the jobs are still active": {
+			trainJob: testTrainJob.Clone().
+				Suspend(false).
+				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
+				Obj(),
+			wantStoppedNow: true,
+			wantPatches:    1,
+			wantErr:        errJobsStillActive,
+		},
+		"should fail when the kueue runtime patch is missing": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
+				Obj(),
+			wantStoppedNow: false,
+			wantPatches:    0,
+			wantErr:        errKueueRuntimePatchNotFound,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			patches := 0
+			kClient := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).
+				WithObjects(tc.trainJob).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						patches++
+						return clnt.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			kTrainJob := (*TrainJob)(tc.trainJob)
+			stoppedNow, err := kTrainJob.Stop(ctx, kClient, []podset.PodSetInfo{}, jobframework.StopReasonWorkloadEvicted, "by test")
+
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Stop() unexpected error (-want,+got):\n%s", diff)
+			}
+			if stoppedNow != tc.wantStoppedNow {
+				t.Errorf("Stop() unexpected stoppedNow. got: %v. want: %v", stoppedNow, tc.wantStoppedNow)
+			}
+			if patches != tc.wantPatches {
+				t.Errorf("Stop() issued %d patch requests. want: %d", patches, tc.wantPatches)
+			}
+			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
+				t.Errorf("Stop() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	// Create and refererence a fake ClusterTrainingRuntime

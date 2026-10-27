@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -191,11 +192,15 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 		return
 	}
 
+	wlLabelVals := c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wl.Labels, wl.Annotations)
 	for _, ancestor := range ancestors {
 		metrics.ReportCohortSubtreeAdmittedWorkload(
 			ancestor,
 			workloadpatching.PriorityClassName(wl),
-			c.customLabels.CohortGet(ancestor),
+			c.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
+				configapi.SourceKindCohort:   c.customLabels.CohortGet(ancestor),
+				configapi.SourceKindWorkload: wlLabelVals.OrderedList(),
+			}),
 			c.roleTracker,
 		)
 	}
@@ -212,7 +217,7 @@ func (c *Cache) recordCohortInfo(cohort *cohort, rootCohort *cohort) {
 	}
 	newRoot := rootCohort.GetName()
 	metrics.ClearCohortInfo(cohort.Name)
-	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
+	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, cohort.DynamicQuotaOrchestrator, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
 }
 
 // recordCQInfo records CQ info metrics.
@@ -222,7 +227,7 @@ func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReferenc
 	}
 	customLabels := c.customLabels.CQGet(cq.Name)
 	metrics.ClearClusterQueueInfo(cq.Name)
-	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
+	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, cq.DynamicQuotaOrchestrator, customLabels, c.roleTracker)
 }
 
 // updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.
@@ -252,5 +257,40 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
+		reportTreeAdmittedActiveWorkloads(root)
+	}
+}
+
+// Moving a node to another parent takes its admitted Workloads from the old
+// tree to the new one without the workload event that normally reports the
+// subtree gauge.
+func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort) {
+	if oldParent != nil {
+		// An implicit old parent is deleted, or recreated, when its last child detaches.
+		oldParent = c.hm.Cohort(oldParent.Name)
+	}
+	if oldParent == newParent {
+		return
+	}
+	reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
+	reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+}
+
+func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+	if cohort != nil && !hierarchy.HasCycle(cohort) {
+		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+	}
+}
+
+// The gauge carries each ClusterQueue's custom labels, so a Cohort has a
+// series per ClusterQueue below it. Clearing from the root down before
+// reporting drops the series of ClusterQueues that have moved away.
+func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	for _, child := range cohort.ChildCohorts() {
+		reportTreeAdmittedActiveWorkloads(child)
+	}
+	for _, cq := range cohort.ChildCQs() {
+		cq.reportCohortSubtreeAdmittedActiveWorkloads()
 	}
 }

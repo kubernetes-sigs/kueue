@@ -22,9 +22,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	"k8s.io/utils/ptr"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,7 +50,7 @@ var ErrWebhookTLSParse = errors.New("unable to parse TLS options for webhook ser
 
 var (
 	objectKeySecret         = new(corev1.Secret)
-	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
+	objectKeyClusterProfile = new(inventoryv1alpha2.ClusterProfile)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -166,6 +168,35 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	}
 }
 
+// SetLeaderElectionConfig gives the leader election lease client its own copy of
+// kubeConfig with a dedicated client-side rate limiter. Callers invoke it only when
+// leader election is enabled.
+//
+// The manager kubeConfig carries a single RateLimiter shared by every controller
+// client (see cmd/kueue/main.go) and controller-runtime falls back to
+// rest.CopyConfig(kubeConfig) for the lease client, which copies that limiter. The
+// lease renewals then compete for tokens with every reconcile, so a burst of
+// requests under a low clientConnection.qps can delay a renewal past renewDeadline
+// and make the manager exit with "leader election lost".
+//
+// The lease client keeps the configured clientConnection.qps and burst, but in a
+// bucket of its own that no controller can drain. The leader election loop is paced
+// by leaderElection.retryPeriod and issues at most one get and one update per
+// period per replica, so the bucket only matters while the API server is unhealthy.
+// A negative clientConnection.qps disables client-side throttling for the lease
+// client as well, matching the manager client.
+func SetLeaderElectionConfig(o *ctrl.Options, kubeConfig *rest.Config, cfg *configapi.Configuration) {
+	leaderConfig := rest.CopyConfig(kubeConfig)
+	// Drop the shared limiter so that the REST client builds one from QPS and Burst.
+	leaderConfig.RateLimiter = nil
+	leaderConfig.QPS = -1
+	if cfg.ClientConnection != nil && cfg.ClientConnection.QPS != nil && *cfg.ClientConnection.QPS >= 0 {
+		leaderConfig.QPS = *cfg.ClientConnection.QPS
+		leaderConfig.Burst = int(ptr.Deref(cfg.ClientConnection.Burst, 0))
+	}
+	o.LeaderElectionConfig = leaderConfig
+}
+
 // AddWebhookSettingsTo is used to add settings to the webhook
 // This is separated to a exported function as we need to call this function after the feature gates are parsed.
 func AddWebhookSettingsTo(o *ctrl.Options, cfg *configapi.Configuration) error {
@@ -240,25 +271,39 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 // returns Forbidden instead of NotFound and the manager exits.
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterprofiles.multicluster.x-k8s.io,verbs=get
 
-// ConfigureClusterProfileCache creates the CRD client from kubeConfig and delegates
-// to ConfigureClusterProfileCacheWithClient. Keeping this wrapper preserves the
+// ClusterProfileCRDPresent creates the CRD client from kubeConfig and delegates
+// to clusterProfileCRDPresentWithClient. Keeping this wrapper preserves the
 // original API while enabling dependency injection via the WithClient function.
-func ConfigureClusterProfileCache(ctx context.Context, log logr.Logger, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+// It reports whether the ClusterProfile CRD is installed so the caller can avoid
+// registering a ClusterProfile watch with no backing cache entry. The downstream
+// cache configuration is decoupled into ConfigureClusterProfileCache.
+func ClusterProfileCRDPresent(ctx context.Context, kubeConfig *rest.Config) (bool, error) {
 	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return fmt.Errorf("failed creating the CRD client: %w", err)
+		return false, fmt.Errorf("failed creating the CRD client: %w", err)
 	}
-	return configureClusterProfileCacheWithClient(ctx, log, options, crdClient, cfg)
+	return clusterProfileCRDPresentWithClient(ctx, crdClient)
 }
 
-func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger, options *ctrl.Options, crdClient apiextensionsclient.Interface, cfg configapi.Configuration) error {
-	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+func clusterProfileCRDPresentWithClient(ctx context.Context, crdClient apiextensionsclient.Interface) (bool, error) {
+	crd, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{})
+	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
+		return false, fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
 	}
+	if servedVersions := servedCRDVersions(crd); !slices.Contains(servedVersions, inventoryv1alpha2.GroupVersion.Version) {
+		return false, fmt.Errorf("the ClusterProfile CRD does not serve %s, which Kueue requires; served versions: %v", inventoryv1alpha2.GroupVersion, servedVersions)
+	}
+	return true, nil
+}
+
+// ConfigureClusterProfileCache registers the ClusterProfile cache entry on the
+// manager options. It must only be called when the ClusterProfile CRD is present
+// (see ClusterProfileCRDPresent) and runs before NewManager, so it mutates the
+// cache options rather than using the manager's RESTMapper.
+func ConfigureClusterProfileCache(options *ctrl.Options, cfg configapi.Configuration) {
 	if options.Cache.ByObject == nil {
 		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
 	}
@@ -267,5 +312,14 @@ func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger
 			*cfg.Namespace: {},
 		},
 	}
-	return nil
+}
+
+func servedCRDVersions(crd *apiextensionsv1.CustomResourceDefinition) []string {
+	var versions []string
+	for _, v := range crd.Spec.Versions {
+		if v.Served {
+			versions = append(versions, v.Name)
+		}
+	}
+	return versions
 }

@@ -28,6 +28,9 @@
     - [Resolution Algorithm](#resolution-algorithm)
     - [Resolution Examples](#resolution-examples)
   - [Admitted Condition Initialization and Lifecycle](#admitted-condition-initialization-and-lifecycle)
+  - [DRA Condition Reasons](#dra-condition-reasons)
+    - [DRA <code>QuotaReserved</code> reason](#dra-quotareserved-reason)
+    - [DRA <code>Requeued</code> reason](#dra-requeued-reason)
     - [Simplification: Removal of NoReservationUnsatisfiedChecks Reason](#simplification-removal-of-noreservationunsatisfiedchecks-reason)
   - [Prometheus Metrics Schema](#prometheus-metrics-schema)
   - [Troubleshooting &amp; End-User Inspection](#troubleshooting--end-user-inspection)
@@ -318,11 +321,12 @@ is not evaluated or reported.
 | :--- | :--- | :--- | :--- |
 | **1** | `Deactivated` | Workload is explicitly deactivated (`spec.active: false`). | None |
 | **2** | `OnHold` | Workload's quota reservation is intentionally released (e.g. StatefulSet scale-to-zero). | None |
-| **3** | `Misconfigured` | Workload points to a non-existent queue or has invalid DRA configs. | None |
-| **4** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
-| **5** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
-| **6** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
-| **7** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
+| **3** | `DRAResourcesUnresolved` | DRA resources could not be resolved during workload preprocessing. | None |
+| **4** | `Misconfigured` | Workload points to a non-existent or invalid queue, or has invalid workload configuration. | None |
+| **5** | `NoMatchingFlavor` | Workload requests a flavor that does not exist or whose taints it does not tolerate. | `ClusterQueue.inadmissibleWorkloads` |
+| **6** | `Suspended` | Administrative hold (the queue's StopPolicy is active). | None |
+| **7** | `AdmissionGated` | Gated state (AdmissionGatedBy annotation). | None |
+| **8** | `WaitingForPodsReady` | Scheduling hold (waiting for previously admitted workloads to reach PodsReady under `waitForPodsReady` configuration). | blocks and waits |
 
 #### 2. Nominated Flavor Reasons
 These blockers apply to the nominated flavor assignment selected by the
@@ -437,6 +441,33 @@ workload state and queue parameters:
 - `Admitted`: `False` (with the reason dynamically resolved to `NoReservation`
   on the first cycle).
 
+### DRA Condition Reasons
+
+#### DRA `QuotaReserved` reason
+
+DRA-specific preprocessing failures set the `QuotaReserved` condition to `False`
+with reason `DRAResourcesUnresolved`. This identifies that quota reservation failed
+because the workload's DRA resources could not be resolved. Queue configuration
+failures continue to use the generic `Misconfigured` or `Suspended` reasons.
+
+**Metrics impact**: When `UnadmittedWorkloadsObservability` is enabled, DRA
+failures that previously surfaced as `underlying_cause=Misconfigured` in the
+`kueue_unadmitted_workloads` and `kueue_local_queue_unadmitted_workloads`
+metrics now appear as `underlying_cause=DRAResourcesUnresolved`. Operators with
+alerts that match only `Misconfigured` (e.g. Story 1) should update their rules
+to also match `DRAResourcesUnresolved`.
+
+#### DRA `Requeued` reason
+
+DRA-specific preprocessing failures set the `Requeued` condition to `False` with
+reason `DRAResourcesUnresolved`. The DRA reconciliation path consumes this reason
+when deciding whether to transition the workload to `Requeued=True` with reason
+`DRAResourcesResolved` after the DRA resources become available or resolvable.
+
+For backwards compatibility, the controller also recognizes the legacy
+`Requeued=False` reason `Inadmissible` during recovery. Other requeue reasons,
+such as `PodsReadyTimeout`, are not treated as DRA failures.
+
 #### Simplification: Removal of NoReservationUnsatisfiedChecks Reason
 
 To simplify status reasoning and decouple the `QuotaReserved` and `Admitted`
@@ -464,8 +495,8 @@ A set of metrics is introduced to track unadmitted workloads when the
     `PendingDelayedTopologyRequests`).
   - `underlying_cause`: Mapped 1:1 to the proposed priority reasons for the
     `QuotaReserved` condition status being `False` (e.g., `PendingEvaluation`,
-    `Misconfigured`, `Suspended`, `WaitingForPodsReady`, `WaitingForQuota`,
-    `AdmissionGated`).
+    `Misconfigured`, `DRAResourcesUnresolved`, `Suspended`, `WaitingForPodsReady`,
+    `WaitingForQuota`, `AdmissionGated`).
 - `kueue_local_queue_unadmitted_workloads`: Tracks unadmitted workloads at the
   LocalQueue level. It includes the following labels:
   - `name`: The name of the LocalQueue.
@@ -476,8 +507,8 @@ A set of metrics is introduced to track unadmitted workloads when the
     `PendingDelayedTopologyRequests`).
   - `underlying_cause`: Mapped 1:1 to the proposed priority reasons for the
     `QuotaReserved` condition status being `False` (e.g., `PendingEvaluation`,
-    `Misconfigured`, `Suspended`, `WaitingForPodsReady`, `WaitingForQuota`,
-    `AdmissionGated`).
+    `Misconfigured`, `DRAResourcesUnresolved`, `Suspended`, `WaitingForPodsReady`,
+    `WaitingForQuota`, `AdmissionGated`).
 
 If a workload has successfully obtained a quota reservation (`QuotaReserved` is `True`),
 the `underlying_cause` label is left empty (`""`), which indicates that the value in the `reason` label is the root cause for the workload not being admitted.
@@ -504,6 +535,7 @@ of these mapping combinations are detailed below:
 | :--- | :--- | :--- | :--- | :--- |
 | `NoReservation` | `False (WaitingForQuota)` | `NoReservation` | `WaitingForQuota` | Workload is waiting for queue capacity. |
 | `NoReservation` | `False (Misconfigured)` | `NoReservation` | `Misconfigured` | Workload has structural/configuration errors. |
+| `NoReservation` | `False (DRAResourcesUnresolved)` | `NoReservation` | `DRAResourcesUnresolved` | DRA resources could not be resolved during workload preprocessing. |
 | `UnsatisfiedAdmissionChecks` | `True (N/A)` | `UnsatisfiedAdmissionChecks` | `""` | Quota is reserved, but blocked by pending admission checks. |
 | `PendingDelayedTopologyRequests` | `True (N/A)` | `PendingDelayedTopologyRequests` | `""` | Quota is reserved, but blocked by delayed topology paths. |
 

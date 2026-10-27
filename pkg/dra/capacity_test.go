@@ -208,8 +208,7 @@ func TestComputeCapacityCharge(t *testing.T) {
 		}
 	}
 	ptrQty := func(s string) *resource.Quantity {
-		q := resource.MustParse(s)
-		return &q
+		return new(resource.MustParse(s))
 	}
 
 	tests := []struct {

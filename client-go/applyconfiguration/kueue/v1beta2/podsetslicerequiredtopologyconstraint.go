@@ -24,8 +24,10 @@ package v1beta2
 // PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
 type PodsetSliceRequiredTopologyConstraintApplyConfiguration struct {
 	// topology indicates the topology level required for this slice layer.
+	//
 	Topology *string `json:"topology,omitempty"`
 	// size indicates the number of pods in each group at this slice layer.
+	//
 	Size *int32 `json:"size,omitempty"`
 }
 

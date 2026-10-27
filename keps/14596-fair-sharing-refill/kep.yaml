@@ -1,0 +1,36 @@
+title: Scheduling Cycle Refill
+kep-number: 14596
+authors:
+  - "@amy"
+  - "@apullo777"
+status: provisional
+creation-date: 2026-08-17
+reviewers:
+  - "@mimowo"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+see-also:
+  - "/keps/1714-fair-sharing"
+  - "/keps/4136-admission-fair-sharing"
+  - "/keps/8691-concurrent-admission"
+  - "/keps/9694-scheduling-equivalence-hashing"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done.
+latest-milestone: "v0.20"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.20"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: FairSharingRefill
+disable-supported: true

@@ -40,6 +40,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -64,6 +65,9 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	BlockAdmission: new(false),
 	RecoveryTimeout: &metav1.Duration{
 		Duration: 30 * time.Minute,
+	},
+	MaxTimeoutOnWorkload: &metav1.Duration{
+		Duration: configapi.DefaultMaxTimeoutOnWorkload,
 	},
 	RequeuingStrategy: &configapi.RequeuingStrategy{
 		Timestamp:          new(configapi.EvictionTimestamp),
@@ -221,6 +225,7 @@ waitForPodsReady:
   timeout: 50s
   blockAdmission: true
   recoveryTimeout: 3m
+  unscheduledTimeout: 30s
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
@@ -663,9 +668,11 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  new(true),
-					Timeout:         metav1.Duration{Duration: 50 * time.Second},
-					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
+					BlockAdmission:       new(true),
+					Timeout:              metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout:      &metav1.Duration{Duration: 3 * time.Minute},
+					UnscheduledTimeout:   &metav1.Duration{Duration: 30 * time.Second},
+					MaxTimeoutOnWorkload: &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          new(configapi.CreationTimestamp),
 						BackoffLimitCount:  new(int32(10)),
@@ -1258,8 +1265,9 @@ func TestEncode(t *testing.T) {
 					"bindPort": int64(8082),
 				},
 				"waitForPodsReady": map[string]any{
-					"blockAdmission":  false,
-					"recoveryTimeout": "30m0s",
+					"blockAdmission":       false,
+					"recoveryTimeout":      "30m0s",
+					"maxTimeoutOnWorkload": "2h0m0s",
 					"requeuingStrategy": map[string]any{
 						"backoffBaseSeconds": int64(60),
 						"backoffMaxSeconds":  int64(3600),
@@ -1333,54 +1341,54 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 	}
 }
 
-func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
+func TestClusterProfileCRDPresentWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "clusterprofiles.multicluster.x-k8s.io",
+		Name: "clusterprofiles.multicluster.x-k8s.io",
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{Name: "v1alpha1", Served: true, Storage: true},
+				{Name: "v1alpha2", Served: true},
+			},
+		},
+	}
+	multiclusterCRDWithoutV1alpha2 := &apiextensionsv1.CustomResourceDefinition{
+		Name: "clusterprofiles.multicluster.x-k8s.io",
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{Name: "v1alpha1", Served: true, Storage: true},
+			},
 		},
 	}
 
 	testCases := map[string]struct {
-		crdPresent       bool
-		failedGetCRD     bool
-		wantError        bool
-		wantOptionsCache func(string) ctrlcache.Options
+		crd          *apiextensionsv1.CustomResourceDefinition
+		crdPresent   bool
+		failedGetCRD bool
+		wantError    bool
 	}{
-		"clusterProfile CRD not present": {
-			wantOptionsCache: defaultControlCacheOptions,
-		},
-		"clusterProfile cache added to ByObject": {
+		"clusterProfile CRD not present": {},
+		"clusterProfile CRD present": {
+			crd:        multiclusterCRD,
 			crdPresent: true,
-			wantOptionsCache: func(namespace string) ctrlcache.Options {
-				cOpts := defaultControlOptions(namespace)
-				cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
-					Namespaces: map[string]ctrlcache.Config{
-						namespace: {},
-					},
-				}
-				return cOpts.Cache
-			},
 		},
 		"error failed loading the ClusterProfile CRD": {
-			crdPresent:   true,
+			crd:          multiclusterCRD,
 			failedGetCRD: true,
 			wantError:    true,
+		},
+		"error ClusterProfile CRD does not serve v1alpha2": {
+			crd:       multiclusterCRDWithoutV1alpha2,
+			wantError: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			opts := &ctrl.Options{
-				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
-			}
-			cfg := &configapi.Configuration{
-				Namespace: new(configapi.DefaultNamespace),
-			}
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			var objects []runtime.Object
-			if tc.crdPresent {
-				objects = append(objects, multiclusterCRD)
+			if tc.crd != nil {
+				objects = append(objects, tc.crd)
 			}
 
 			fake := apiextensionsfake.NewClientset(objects...)
@@ -1392,7 +1400,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				return false, nil, nil
 			})
 
-			err := configureClusterProfileCacheWithClient(ctx, log, opts, fake, *cfg)
+			gotPresent, err := clusterProfileCRDPresentWithClient(ctx, fake)
 			if tc.wantError {
 				if err == nil {
 					t.Error("Expected error but got none")
@@ -1401,8 +1409,8 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
 				}
-				if diff := cmp.Diff(tc.wantOptionsCache(configapi.DefaultNamespace), opts.Cache); diff != "" {
-					t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+				if gotPresent != tc.crdPresent {
+					t.Errorf("Unexpected CRD presence: got %v, want %v", gotPresent, tc.crdPresent)
 				}
 			}
 		})
@@ -1410,6 +1418,25 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 }
 
 func TestConfigureClusterProfileCache(t *testing.T) {
+	opts := &ctrl.Options{
+		Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
+	}
+	cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
+
+	ConfigureClusterProfileCache(opts, cfg)
+
+	want := defaultControlOptions(configapi.DefaultNamespace)
+	want.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			configapi.DefaultNamespace: {},
+		},
+	}
+	if diff := cmp.Diff(want.Cache, opts.Cache); diff != "" {
+		t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+	}
+}
+
+func TestClusterProfileCRDPresent(t *testing.T) {
 	testCases := map[string]struct {
 		kubeConfig *rest.Config
 	}{
@@ -1423,21 +1450,15 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			kubeConfig: &rest.Config{
 				Host:        "https://127.0.0.1:6443",
 				BearerToken: "fake-token",
-				TLSClientConfig: rest.TLSClientConfig{
-					Insecure: true,
-				},
+				Insecure:    true,
 			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			opts := &ctrl.Options{
-				Cache: ctrlcache.Options{},
-			}
-			cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
-			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, err := ClusterProfileCRDPresent(ctx, tc.kubeConfig)
 
 			if err == nil {
 				t.Error("Expected error but got none")
@@ -1476,22 +1497,20 @@ namespace: kueue-system
 	}{
 		"strips managedFields and preserves object data": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "default",
-					Labels:    map[string]string{"app": "test"},
-					Annotations: map[string]string{
-						"note": "keep-me",
+				Name:      "test-pod",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "test"},
+				Annotations: map[string]string{
+					"note": "keep-me",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{
+					{
+						Manager:   "kubectl",
+						Operation: metav1.ManagedFieldsOperationApply,
 					},
-					ManagedFields: []metav1.ManagedFieldsEntry{
-						{
-							Manager:   "kubectl",
-							Operation: metav1.ManagedFieldsOperationApply,
-						},
-						{
-							Manager:   "kube-controller-manager",
-							Operation: metav1.ManagedFieldsOperationUpdate,
-						},
+					{
+						Manager:   "kube-controller-manager",
+						Operation: metav1.ManagedFieldsOperationUpdate,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1499,12 +1518,10 @@ namespace: kueue-system
 				},
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-pod",
-					Namespace:   "default",
-					Labels:      map[string]string{"app": "test"},
-					Annotations: map[string]string{"note": "keep-me"},
-				},
+				Name:        "test-pod",
+				Namespace:   "default",
+				Labels:      map[string]string{"app": "test"},
+				Annotations: map[string]string{"note": "keep-me"},
 				Spec: corev1.PodSpec{
 					NodeName: "node-1",
 				},
@@ -1512,14 +1529,10 @@ namespace: kueue-system
 		},
 		"no-op when managedFields already nil": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 		},
 	}
@@ -1536,6 +1549,67 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetLeaderElectionConfig(t *testing.T) {
+	testCases := map[string]struct {
+		qps       float32
+		burst     int32
+		wantQPS   float32
+		wantBurst int
+	}{
+		"configured qps and burst are kept in a dedicated bucket": {
+			qps:       20,
+			burst:     30,
+			wantQPS:   20,
+			wantBurst: 30,
+		},
+		"negative qps disables client-side throttling for the lease client too": {
+			qps:     -1,
+			burst:   30,
+			wantQPS: -1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Mirror cmd/kueue/main.go: one explicit RateLimiter shared by every controller client.
+			sharedLimiter := flowcontrol.NewTokenBucketRateLimiter(tc.qps, int(tc.burst))
+			kubeConfig := &rest.Config{
+				Host:        "https://kueue.test",
+				RateLimiter: sharedLimiter,
+			}
+			cfg := &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   new(tc.qps),
+					Burst: new(tc.burst),
+				},
+			}
+			options := ctrl.Options{LeaderElection: true}
+
+			SetLeaderElectionConfig(&options, kubeConfig, cfg)
+
+			got := options.LeaderElectionConfig
+			if got == nil {
+				t.Fatal("LeaderElectionConfig is nil; the lease client would share the manager rest config")
+			}
+			if got == kubeConfig {
+				t.Error("LeaderElectionConfig is the manager rest config, want a copy")
+			}
+			if got.RateLimiter != nil {
+				t.Errorf("LeaderElectionConfig.RateLimiter = %v, want nil so the lease client builds its own limiter", got.RateLimiter)
+			}
+			if got.QPS != tc.wantQPS || got.Burst != tc.wantBurst {
+				t.Errorf("LeaderElectionConfig QPS/Burst = %v/%v, want %v/%v", got.QPS, got.Burst, tc.wantQPS, tc.wantBurst)
+			}
+			if got.Host != kubeConfig.Host {
+				t.Errorf("LeaderElectionConfig.Host = %q, want %q", got.Host, kubeConfig.Host)
+			}
+			if kubeConfig.RateLimiter != sharedLimiter {
+				t.Errorf("manager rest config was modified: %+v", kubeConfig)
 			}
 		})
 	}

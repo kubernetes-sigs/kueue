@@ -18,11 +18,15 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -32,23 +36,29 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
-type defaultSimulator struct{}
+type defaultSimulatorFactory struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator {
+func newDefaultSimulatorFactory() simulator.Factory {
+	return &defaultSimulatorFactory{}
+}
+
+func newDefaultSimulator() simulator.SchedulerSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, _ []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	return &defaultChecker{}, nil
+type defaultSimulator struct{}
+
+func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return &defaultSimulator{}, nil
 }
 
-func (s *defaultSimulator) TrackPod(_ *corev1.Pod) {}
+func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
+func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) string {
+	return ""
+}
 
-type defaultChecker struct{}
-
-func (c *defaultChecker) FindFeasibleNodes(
+func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -112,4 +122,35 @@ func (c *defaultChecker) FindFeasibleNodes(
 		feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 	}
 	return feasibleCandidates, nil
+}
+
+func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
+	// Since default simulator does not hold any state,
+	// we can safely run the function immediately.
+	fn()
+	return nil
+}
+
+func (s *defaultSimulator) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return simulator.SchedulingResult{Error: errors.ErrUnsupported}
+}
+
+func (s *defaultSimulator) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
 }

@@ -24,8 +24,12 @@ clientConnection:
   burst: 500
 #pprofBindAddress: :8083
 #waitForPodsReady:
-#  timeout: 5m
-#  recoveryTimeout: 3m
+#  timeout: 30m
+#  recoveryTimeout: 5m
+#  # Requires the alpha WaitForPodsReadyUnscheduledTimeout feature gate.
+#  # Unset or 0s disables scheduling tracking, condition propagation, scheduling
+#  # resets and the scheduling deadline.
+#  unscheduledTimeout: 5m
 #  blockAdmission: false
 #  requeuingStrategy:
 #    timestamp: Eviction

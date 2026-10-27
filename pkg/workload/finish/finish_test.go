@@ -24,7 +24,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -44,7 +46,10 @@ func TestFinish(t *testing.T) {
 
 	now := time.Now().Truncate(time.Second)
 
-	baseWl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).ResourceVersion("1")
+	baseWl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).ResourceVersion("1").
+		Request(corev1.ResourceCPU, "1").
+		Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue, Reason: kueue.WorkloadAllRequiredPodsScheduled, LastTransitionTime: metav1.NewTime(now.Add(-time.Minute))}).
+		Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue, Reason: kueue.WorkloadStarted, LastTransitionTime: metav1.NewTime(now.Add(-time.Minute))})
 
 	type args struct {
 		wl       *kueue.Workload
@@ -112,11 +117,11 @@ func TestFinish(t *testing.T) {
 				WithObjects(tc.args.wl).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.args.patchErr != nil {
 							return tc.args.patchErr
 						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 					},
 				}).
 				Build()
@@ -133,7 +138,9 @@ func TestFinish(t *testing.T) {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.want.wl, updatedWl, cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+				return a.Type < b.Type
+			})); diff != "" {
 				t.Errorf("Unexpected workload (-want,+got):\n%s", diff)
 			}
 		})

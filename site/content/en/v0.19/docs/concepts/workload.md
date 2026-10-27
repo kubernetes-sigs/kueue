@@ -55,7 +55,7 @@ spec:
 ```
 ## Active
 
-You can stop or resume a running workload by setting the [Active](/v0.19/docs/reference/kueue.v1beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
+You can stop or resume a running workload by setting the [Active](/v0.19/docs/reference/kueue.v1beta2#kueue-x-k8s-io-v1beta2-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
 Changing `.spec.Active` from true to false will cause a running workload to be evicted and not be requeued.
 
 ## Queue name
@@ -165,6 +165,7 @@ the requeueState (`.status.requeueState`) will be reset to null.
 ## Replicate labels from Jobs into Workloads
 You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload.
+Kueue never copies its internal labels `kueue.x-k8s.io/multikueue-origin`, `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid` from the Job or Pod. If `labelKeysToCopy` names one of them, Kueue lists it in its log at startup.
 
 ## Maximum execution time
 
@@ -213,4 +214,4 @@ This effectively prevent External Dispatching mechanism to work properly in mult
 
 - Learn about [workload priority class](/v0.19/docs/concepts/workload_priority_class).
 - Learn how to [run jobs](/v0.19/docs/tasks/run/jobs)
-- Read the [API reference](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload) for `Workload`
+- Read the [API reference](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Workload) for `Workload`

@@ -48,6 +48,13 @@ const (
 	executorPodSetName = "executor"
 )
 
+// The driver and executor PodSets are always present, in this order.
+const (
+	driverPodSetIndex   = 0
+	executorPodSetIndex = 1
+	podSetsCount        = 2
+)
+
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:          SetupIndexes,
@@ -97,8 +104,7 @@ func (j *SparkApplication) PodLabelSelector() string {
 }
 
 func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	// driver and executor
-	podSets := make([]kueue.PodSet, 2)
+	podSets := make([]kueue.PodSet, podSetsCount)
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -117,14 +123,14 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[0] = kueue.PodSet{
+	podSets[driverPodSetIndex] = kueue.PodSet{
 		Name:     driverPodSetName,
 		Template: *driverPodTemplateSpec,
 		Count:    1,
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[0], driverPodTemplateSpec,
+		&podSets[driverPodSetIndex], driverPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -134,14 +140,14 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[1] = kueue.PodSet{
+	podSets[executorPodSetIndex] = kueue.PodSet{
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
 		Count:    j.numInitialExecutors(),
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[1], executorPodTemplateSpec,
+		&podSets[executorPodSetIndex], executorPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -150,9 +156,8 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 }
 
 func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := 2 // driver + executor
-	if len(podSetsInfo) != expectedLen {
-		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
+	if len(podSetsInfo) != podSetsCount {
+		return podset.BadPodSetsInfoLenError(podSetsCount, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = new(false)
@@ -166,7 +171,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			if j.Spec.Driver.Template == nil {
 				j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
 			}
@@ -177,7 +182,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 			}
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			if j.Spec.Executor.Template == nil {
 				j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
@@ -224,11 +229,10 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 }
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	expectedLength := 2 // driver + executor
-	if len(podSetsInfo) != expectedLength {
+	if len(podSetsInfo) != podSetsCount {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
-			"expectedCount", expectedLength,
+			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
 		)
 		return false
@@ -244,11 +248,11 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 			emptyPodTemplate = emptyDriverPodTemplateSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			emptyPodTemplate = emptyExecutorPodTemplateSpec
 		default:
@@ -280,7 +284,14 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		}
 
 		if role == sparkcommon.SparkRoleExecutor {
-			j.Spec.Executor.Instances = new(podSetInfo.Count)
+			// An unset spec.executor.instances is counted as 0 executors, while the
+			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
+			// otherwise the API server rejects the patch that suspends the job.
+			if podSetInfo.Count == 0 {
+				j.Spec.Executor.Instances = nil
+			} else {
+				j.Spec.Executor.Instances = new(podSetInfo.Count)
+			}
 		}
 
 		return changed
@@ -300,11 +311,13 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 }
 
 func (j *SparkApplication) Finished(ctx context.Context) (message string, success, finished bool) {
+	// SUBMISSION_FAILED is not terminal: depending on the restartPolicy, the
+	// operator resubmits the application, and it moves the application to
+	// FAILED once no retries are left.
 	return j.Status.AppState.ErrorMessage,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailedSubmission
+			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
 func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
@@ -317,6 +330,13 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
 	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	// When dynamic allocation is enabled, the actual number of executors can
+	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
+	// expected count since it's the guaranteed minimum. If neither the CRD
+	// field nor sparkConf is set, use Spec.Executor.Instances as default.
+	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
+		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	}
 	if expected == 0 {
 		return true
 	}

@@ -45,7 +45,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -56,14 +57,14 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "TopologyAwareScheduling Suite")
+	behavioral.RunSuite(t, "TopologyAwareScheduling Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		DepCRDPaths: []string{
-			util.AutoscalerCrds,
+			behavioral.AutoscalerCrds,
 		},
 	}
 	cfg = fwk.Init()
@@ -74,11 +75,30 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+// clusterQueueWatchers are passed to the core controllers by the next
+// manager setup. Tests that set it must reset it.
+var clusterQueueWatchers []core.ClusterQueueUpdateWatcher
+
 func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
+	return managerSetupWithClientTransform(controllersCfg, nil, resourceTransformations...)
+}
+
+// managerSetupWithClientTransform is managerSetupWithConfig plus a hook to wrap the scheduler's client.
+func managerSetupWithClientTransform(
+	controllersCfg *config.Configuration,
+	transform func(client.Client) client.Client,
+	resourceTransformations ...config.ResourceTransformation,
+) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
+		schedClient := mgr.GetClient()
+		if transform != nil {
+			schedClient = transform(schedClient)
+		}
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -102,14 +122,17 @@ func managerSetupWithConfig(
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				ClusterQueueWatchers:   clusterQueueWatchers,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
@@ -135,12 +158,12 @@ func managerSetupWithConfig(
 		sched := scheduler.New(
 			queues,
 			cCache,
-			mgr.GetClient(),
+			schedClient,
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -148,5 +171,6 @@ func managerSetupWithConfig(
 func managerSetup(
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
 }

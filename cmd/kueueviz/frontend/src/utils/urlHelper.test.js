@@ -36,8 +36,15 @@ import {
 // clean slate regardless of what a previous test set.
 const ENV_KEYS = ['REACT_APP_WEBSOCKET_URL', 'VITE_WEBSOCKET_URL'];
 
+// urlHelper uses the origin of the page when no backend URL is set. The
+// "node" test environment has no window, so build a fake one with only the
+// fields urlHelper reads. Keep this file on "node": under jsdom this would
+// replace the real window.
+const stubLocation = (protocol, host) => vi.stubGlobal('window', { location: { protocol, host } });
+
 beforeEach(() => {
   ENV_KEYS.forEach((key) => delete env[key]);
+  stubLocation('http:', 'dashboard.example');
 });
 
 // ---------------------------------------------------------------------------
@@ -60,15 +67,26 @@ describe('getBackendWebSocketUrl', () => {
     expect(getBackendWebSocketUrl()).toBe('ws://react-backend:8080');
   });
 
-  it('throws when neither variable is configured', () => {
-    expect(() => getBackendWebSocketUrl()).toThrow(
-      'Backend URL is not configured. Please set REACT_APP_WEBSOCKET_URL or VITE_WEBSOCKET_URL.'
-    );
+  it('falls back to the page origin when neither variable is configured', () => {
+    expect(getBackendWebSocketUrl()).toBe('ws://dashboard.example');
   });
 
-  it('throws when the configured value is an empty string', () => {
+  it('falls back to the page origin when the configured value is an empty string', () => {
     env.REACT_APP_WEBSOCKET_URL = '';
-    expect(() => getBackendWebSocketUrl()).toThrow(/not configured/);
+    expect(getBackendWebSocketUrl()).toBe('ws://dashboard.example');
+  });
+
+  it('falls back to the page origin when the configured value is a bare scheme', () => {
+    // charts/kueue/templates/kueueviz/frontend-configmap.yaml builds
+    // "<scheme>://<host>" with no default for the host, so an empty backend
+    // ingress host leaves just "wss://": not empty, but not usable either.
+    env.REACT_APP_WEBSOCKET_URL = 'wss://';
+    expect(getBackendWebSocketUrl()).toBe('ws://dashboard.example');
+  });
+
+  it('uses wss when the page is served over https', () => {
+    stubLocation('https:', 'dashboard.example');
+    expect(getBackendWebSocketUrl()).toBe('wss://dashboard.example');
   });
 });
 
@@ -111,8 +129,8 @@ describe('getBackendHttpUrl', () => {
     expect(getBackendHttpUrl()).toBe('https://backend:8080');
   });
 
-  it('propagates the "not configured" error when no backend URL is set', () => {
-    expect(() => getBackendHttpUrl()).toThrow(/not configured/);
+  it('derives an http URL from the page origin when no backend URL is set', () => {
+    expect(getBackendHttpUrl()).toBe('http://dashboard.example');
   });
 });
 
@@ -130,8 +148,8 @@ describe('buildWebSocketUrl', () => {
     expect(buildWebSocketUrl('ws/workloads')).toBe('ws://backend:8080ws/workloads');
   });
 
-  it('throws when no backend URL is configured', () => {
-    expect(() => buildWebSocketUrl('/ws/workloads')).toThrow(/not configured/);
+  it('appends the path to the page origin when no backend URL is configured', () => {
+    expect(buildWebSocketUrl('/ws/workloads')).toBe('ws://dashboard.example/ws/workloads');
   });
 });
 

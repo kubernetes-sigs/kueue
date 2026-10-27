@@ -1,0 +1,17 @@
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: a100.example.com
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "gpu.example.com"
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: a100-mig.example.com
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "gpu.example.com"

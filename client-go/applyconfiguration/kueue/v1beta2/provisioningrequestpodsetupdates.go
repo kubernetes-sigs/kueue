@@ -22,6 +22,7 @@ package v1beta2
 // with apply.
 type ProvisioningRequestPodSetUpdatesApplyConfiguration struct {
 	// nodeSelector specifies the list of updates for the NodeSelector.
+	//
 	NodeSelector []ProvisioningRequestPodSetUpdatesNodeSelectorApplyConfiguration `json:"nodeSelector,omitempty"`
 }
 

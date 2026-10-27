@@ -173,6 +173,15 @@ Display a resource
         </td>
     </tr>
     <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
     </tr>
     <tr>
@@ -226,7 +235,9 @@ Display a resource
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl get clusterqueue](kueuectl_get_clusterqueue/)	 - Pass-through &#34;get clusterqueue&#34; to kubectl
+* [kueuectl get cohort](kueuectl_get_cohort/)	 - Pass-through &#34;get cohort&#34; to kubectl
 * [kueuectl get localqueue](kueuectl_get_localqueue/)	 - Pass-through &#34;get localqueue&#34; to kubectl
 * [kueuectl get resourceflavor](kueuectl_get_resourceflavor/)	 - Pass-through &#34;get resourceflavor&#34; to kubectl
+* [kueuectl get topology](kueuectl_get_topology/)	 - Pass-through &#34;get topology&#34; to kubectl
 * [kueuectl get workload](kueuectl_get_workload/)	 - Pass-through &#34;get workload&#34; to kubectl
 

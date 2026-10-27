@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -110,6 +111,9 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 			if err != nil {
 				return err
 			}
+			if len(o.UserSpecifiedForObject) > 0 && o.forObject == nil {
+				return nil
+			}
 			return o.Run(cmd.Context())
 		},
 	}
@@ -126,7 +130,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter, nil)))
 
-	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "admitted" or "finished"`)
+	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "quotareserved", "admitted" or "finished"`)
 
 	return cmd
 }
@@ -152,7 +156,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 		case "finished":
 			statuses.Insert(workloadStatusFinished)
 		default:
-			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "admitted" or "finished"`, status)
+			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "quotareserved", "admitted" or "finished"`, status)
 		}
 	}
 
@@ -254,107 +258,159 @@ func (o *WorkloadOptions) ToPrinter(r *listWorkloadResources, headers bool) (pri
 
 // Run performs the list operation.
 func (o *WorkloadOptions) Run(ctx context.Context) error {
-	var totalCount int
-
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
 	}
 
-	var jobUID types.UID
-	var jobUIDLabelSelector string
-	if o.forObject != nil {
-		jobUID = o.forObject.GetUID()
-
-		if len(o.LabelSelector) != 0 {
-			jobUIDLabelSelector += ","
-		}
-		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
+	if o.forObject == nil {
+		return o.listAndPrint(ctx, namespace, o.LabelSelector, nil, nil)
 	}
 
-	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
-		FieldSelector: o.FieldSelector,
-		Limit:         o.Limit,
-	}
+	// With --for, Workloads are first searched by the job-uid label. Only when
+	// that search finds nothing at all are they listed again with the user's
+	// selector alone and matched by owner reference, because Workloads that
+	// lack the label can only be found that way. Each search is a single call
+	// below, so the fallback runs at most once.
+	jobUID := o.forObject.GetUID()
+	jobUIDLabelSelector := joinSelectors(o.LabelSelector, fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID))
 
+	firstPage, err := o.listWorkloadPage(ctx, namespace, jobUIDLabelSelector, "")
+	if err != nil {
+		return err
+	}
+	if len(firstPage.Items) == 0 && firstPage.Continue == "" {
+		return o.listAndPrint(ctx, namespace, o.LabelSelector, &jobUID, nil)
+	}
+	return o.listAndPrint(ctx, namespace, jobUIDLabelSelector, nil, firstPage)
+}
+
+// listAndPrint lists the Workloads that match labelSelector and prints them.
+// When ownerUID is set, only Workloads owned by that UID are kept. When
+// firstPage is set, it is used as the first page instead of listing it again.
+func (o *WorkloadOptions) listAndPrint(ctx context.Context, namespace, labelSelector string, ownerUID *types.UID, firstPage *kueue.WorkloadList) error {
 	tabWriter := printers.GetNewTabWriter(o.Out)
+	pager := newPagedListPrinter(o.PrintFlags.OutputFlagSpecified())
 
-	var enableOwnerReferenceFilter bool
+	var totalCount int
+	err := o.forEachWorkloadPage(ctx, namespace, labelSelector, firstPage, func(list *kueue.WorkloadList) error {
+		// Apply the filters that do not need LocalQueues first, so LocalQueues
+		// are only fetched for Workloads that can still be listed.
+		o.filterList(list, ownerUID)
+		printed, err := o.printWorkloadPage(ctx, list, totalCount == 0, pager, tabWriter)
+		totalCount += printed
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	if totalCount == 0 {
+		if !o.AllNamespaces {
+			fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
+		} else {
+			fmt.Fprintln(o.ErrOut, "No resources found")
+		}
+		return nil
+	}
+
+	return tabWriter.Flush()
+}
+
+// forEachWorkloadPage lists the Workloads that match labelSelector page by
+// page and calls handle with each page, in order. When firstPage is set, it is
+// used as the first page instead of listing it again.
+func (o *WorkloadOptions) forEachWorkloadPage(ctx context.Context, namespace, labelSelector string, firstPage *kueue.WorkloadList, handle func(*kueue.WorkloadList) error) error {
+	page := firstPage
+	if page == nil {
+		var err error
+		if page, err = o.listWorkloadPage(ctx, namespace, labelSelector, ""); err != nil {
+			return err
+		}
+	}
 	for {
-		headers := totalCount == 0
-
-		list, err := o.ClientSet.KueueV1beta2().Workloads(namespace).List(ctx, opts)
-		if err != nil {
+		// Read the token before handle, which may change the page.
+		continueToken := page.Continue
+		if err := handle(page); err != nil {
 			return err
 		}
-
-		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
-			opts.LabelSelector = o.LabelSelector
-			enableOwnerReferenceFilter = true
-			continue
-		}
-
-		o.filterList(list, enableOwnerReferenceFilter, jobUID)
-
-		totalCount += len(list.Items)
-
-		r := newListWorkloadResources()
-
-		r.localQueues, err = o.localQueues(ctx, list)
-		if err != nil {
-			return err
-		}
-
-		r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
-		if err != nil {
-			return err
-		}
-
-		r.apiResourceLists, err = o.apiResources(list)
-		if err != nil {
-			return err
-		}
-
-		printer, err := o.ToPrinter(r, headers)
-		if err != nil {
-			return err
-		}
-
-		if err := printer.PrintObj(list, tabWriter); err != nil {
-			return err
-		}
-
-		if list.Continue != "" {
-			opts.Continue = list.Continue
-			continue
-		}
-
-		if totalCount == 0 {
-			if !o.AllNamespaces {
-				fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
-			} else {
-				fmt.Fprintln(o.ErrOut, "No resources found")
-			}
+		if continueToken == "" {
 			return nil
 		}
-
-		if err := tabWriter.Flush(); err != nil {
+		var err error
+		if page, err = o.listWorkloadPage(ctx, namespace, labelSelector, continueToken); err != nil {
 			return err
 		}
-
-		return nil
 	}
 }
 
-func (o *WorkloadOptions) filterList(list *kueue.WorkloadList, enableOwnerReferenceFilter bool, uid types.UID) {
+// listWorkloadPage lists one page of Workloads.
+func (o *WorkloadOptions) listWorkloadPage(ctx context.Context, namespace, labelSelector, continueToken string) (*kueue.WorkloadList, error) {
+	return o.ClientSet.KueueV1beta2().Workloads(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+		FieldSelector: o.FieldSelector,
+		Limit:         o.Limit,
+		Continue:      continueToken,
+	})
+}
+
+// printWorkloadPage prints one page of Workloads and returns how many it
+// printed. It first drops the Workloads outside the ClusterQueue filter and
+// fetches what the table needs. headers controls whether the table headers
+// are printed.
+func (o *WorkloadOptions) printWorkloadPage(ctx context.Context, list *kueue.WorkloadList, headers bool, pager *pagedListPrinter, w io.Writer) (int, error) {
+	r := newListWorkloadResources()
+
+	var err error
+	r.localQueues, err = o.localQueues(ctx, list)
+	if err != nil {
+		return 0, err
+	}
+
+	o.filterListByClusterQueue(list, r.localQueues)
+
+	r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
+	if err != nil {
+		return 0, err
+	}
+
+	r.apiResourceLists, err = o.apiResources(list)
+	if err != nil {
+		return 0, err
+	}
+
+	printer, err := o.ToPrinter(r, headers)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := pager.printPage(list, list.Continue == "", printer, w); err != nil {
+		return 0, err
+	}
+	return len(list.Items), nil
+}
+
+func (o *WorkloadOptions) filterList(list *kueue.WorkloadList, ownerUID *types.UID) {
 	if len(list.Items) == 0 {
 		return
 	}
 	filteredItems := make([]kueue.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
-		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
-			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
+		if o.filterByLocalQueue(&wl) && o.filterByStatuses(&wl) &&
+			o.filterByOwnerReference(&wl, ownerUID) {
+			filteredItems = append(filteredItems, wl)
+		}
+	}
+	list.Items = filteredItems
+}
+
+func (o *WorkloadOptions) filterListByClusterQueue(list *kueue.WorkloadList, localQueues map[string]*kueue.LocalQueue) {
+	if len(o.ClusterQueueFilter) == 0 || len(list.Items) == 0 {
+		return
+	}
+	filteredItems := make([]kueue.Workload, 0, len(list.Items))
+	for _, wl := range list.Items {
+		if o.filterByClusterQueue(&wl, localQueues) {
 			filteredItems = append(filteredItems, wl)
 		}
 	}
@@ -365,9 +421,9 @@ func (o *WorkloadOptions) filterByLocalQueue(wl *kueue.Workload) bool {
 	return len(o.LocalQueueFilter) == 0 || string(wl.Spec.QueueName) == o.LocalQueueFilter
 }
 
-func (o *WorkloadOptions) filterByClusterQueue(wl *kueue.Workload) bool {
-	return len(o.ClusterQueueFilter) == 0 || wl.Status.Admission != nil &&
-		wl.Status.Admission.ClusterQueue == kueue.ClusterQueueReference(o.ClusterQueueFilter)
+func (o *WorkloadOptions) filterByClusterQueue(wl *kueue.Workload, localQueues map[string]*kueue.LocalQueue) bool {
+	return len(o.ClusterQueueFilter) == 0 ||
+		clusterQueueNameForWorkload(wl, localQueues) == kueue.ClusterQueueReference(o.ClusterQueueFilter)
 }
 
 func (o *WorkloadOptions) filterByStatuses(wl *kueue.Workload) bool {
@@ -396,13 +452,13 @@ func (o *WorkloadOptions) filterByStatuses(wl *kueue.Workload) bool {
 	return false
 }
 
-func (o *WorkloadOptions) filterByOwnerReference(wl *kueue.Workload, isEnabled bool, uid types.UID) bool {
-	if !isEnabled {
+func (o *WorkloadOptions) filterByOwnerReference(wl *kueue.Workload, ownerUID *types.UID) bool {
+	if ownerUID == nil {
 		return true
 	}
 
 	for _, ow := range wl.OwnerReferences {
-		if ow.UID == uid {
+		if ow.UID == *ownerUID {
 			return true
 		}
 	}
@@ -415,6 +471,10 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 	for _, wl := range list.Items {
 		// It's not necessary to get localqueue if we have clusterqueue name on Admission status.
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
+			continue
+		}
+		// A Workload without a queue name has no LocalQueue, and Get rejects an empty name.
+		if len(wl.Spec.QueueName) == 0 {
 			continue
 		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
@@ -441,12 +501,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 		if !workloadPending(&wl) {
 			continue
 		}
-		var clusterQueueName kueue.ClusterQueueReference
-		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
-			clusterQueueName = wl.Status.Admission.ClusterQueue
-		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
-			clusterQueueName = lq.Spec.ClusterQueue
-		}
+		clusterQueueName := clusterQueueNameForWorkload(&wl, localQueues)
 		if len(clusterQueueName) == 0 {
 			continue
 		}
@@ -500,4 +555,17 @@ func workloadPending(wl *kueue.Workload) bool {
 
 func localQueueKeyForWorkload(wl *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", wl.Namespace, wl.Spec.QueueName)
+}
+
+// clusterQueueNameForWorkload returns the ClusterQueue the workload belongs to.
+// Pending workloads have no admission yet, so the name is resolved through
+// their LocalQueue in that case.
+func clusterQueueNameForWorkload(wl *kueue.Workload, localQueues map[string]*kueue.LocalQueue) kueue.ClusterQueueReference {
+	if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
+		return wl.Status.Admission.ClusterQueue
+	}
+	if lq := localQueues[localQueueKeyForWorkload(wl)]; lq != nil {
+		return lq.Spec.ClusterQueue
+	}
+	return ""
 }

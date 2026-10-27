@@ -189,8 +189,8 @@ func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 
 func (o *ResourceFlavorOptions) createResourceFlavor() *kueue.ResourceFlavor {
 	return &kueue.ResourceFlavor{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
+		Name: o.Name,
 		Spec: kueue.ResourceFlavorSpec{
 			NodeLabels:  o.NodeLabels,
 			NodeTaints:  o.NodeTaints,
