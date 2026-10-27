@@ -340,7 +340,6 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 				parallelism := 3
 				numPods := parallelism
 				jobName := "toleration-job"
-				tolerationSeconds := int64(0)
 				sampleJob := testingjob.MakeJob(jobName, ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Parallelism(int32(parallelism)).
@@ -358,7 +357,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2
 						Operator:          corev1.TolerationOpEqual,
 						Value:             "value1",
 						Effect:            corev1.TaintEffectNoExecute,
-						TolerationSeconds: &tolerationSeconds,
+						TolerationSeconds: new(int64(0)),
 					}).
 					TerminationGracePeriod(1).
 					Obj()

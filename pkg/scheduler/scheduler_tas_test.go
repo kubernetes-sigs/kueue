@@ -5144,8 +5144,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					for _, flavor := range tc.resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 						if flavor.Spec.TopologyName != nil {
-							t := topologyByName[*flavor.Spec.TopologyName]
-							cqCache.AddOrUpdateTopology(log, &t)
+							cqCache.AddOrUpdateTopology(log, new(topologyByName[*flavor.Spec.TopologyName]))
 						}
 					}
 					for _, cohort := range tc.cohorts {

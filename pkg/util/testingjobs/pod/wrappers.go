@@ -434,8 +434,7 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 
 // DeletionTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
-	timestamp := metav1.NewTime(t).Rfc3339Copy()
-	p.Pod.DeletionTimestamp = &timestamp
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return p
 }
 
@@ -447,8 +446,7 @@ func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
 
 // Delete sets a deletion timestamp for the pod object
 func (p *PodWrapper) Delete() *PodWrapper {
-	t := metav1.NewTime(time.Now())
-	p.Pod.DeletionTimestamp = &t
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(time.Now()))
 	return p
 }
 

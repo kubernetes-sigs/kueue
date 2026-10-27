@@ -30,7 +30,6 @@ import (
 )
 
 func TestPodRequests(t *testing.T) {
-	restartAlways := corev1.ContainerRestartPolicyAlways
 	cases := map[string]struct {
 		podSpec corev1.PodSpec
 		want    corev1.ResourceList
@@ -91,7 +90,7 @@ func TestPodRequests(t *testing.T) {
 			podSpec: corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					{
-						RestartPolicy: &restartAlways,
+						RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
 						},
