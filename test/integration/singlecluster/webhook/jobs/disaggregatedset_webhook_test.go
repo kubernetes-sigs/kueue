@@ -272,6 +272,21 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 				gomega.MatchError(gomega.ContainSubstring("spec.roles")),
 			))
 		})
+
+		// A ClusterQueue with only TAS flavors assigns a topology to Pods
+		// without TAS annotations too.
+		ginkgo.It("should reject a projected slice Workload size without TAS annotations only on a managed DisaggregatedSet", func() {
+			behavioral.MustCreate(ctx, k8sClient, testingds.MakeDisaggregatedSet("ds", ns.Name).
+				Roles(testingds.MakeRole("prefill").Replicas(800)).
+				Obj())
+			gomega.Expect(k8sClient.Create(ctx, testingds.MakeDisaggregatedSet("ds-managed", ns.Name).
+				Queue("queue").
+				Roles(testingds.MakeRole("prefill").Replicas(800)).
+				Obj())).To(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("the slice Workload can reach")),
+			))
+		})
 	})
 
 	ginkgo.When("a role uses a TAS PodSet group", func() {
