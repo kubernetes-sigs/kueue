@@ -17,8 +17,10 @@ limitations under the License.
 package disaggregatedset
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -107,6 +109,18 @@ func (r *Reconciler) releasePods(ctx context.Context, namespace, dsName string) 
 	})
 }
 
+// podSlot identifies one PodSet of one slice.
+type podSlot struct {
+	slice      int32
+	podSetName string
+}
+
+// slicePod is a Pod that passed the adoption checks, with its PodSet.
+type slicePod struct {
+	pod  *corev1.Pod
+	slot podSlot
+}
+
 func (r *Reconciler) reconcilePods(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet) error {
 	pods, err := r.listPods(ctx, ds.Namespace, ds.Name)
 	if err != nil {
@@ -116,49 +130,109 @@ func (r *Reconciler) reconcilePods(ctx context.Context, ds *disaggregatedsetv1.D
 	if err != nil {
 		return err
 	}
+	podSetCounts := make(map[string]int32, len(podSets))
 	var totalCount int32
 	for _, ps := range podSets {
+		podSetCounts[string(ps.Name)] = ps.Count
 		totalCount += ps.Count
 	}
-	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.reconcilePod(ctx, ds, &pods[i], totalCount)
+
+	slots := make([]*podSlot, len(pods))
+	if err := parallelize.Until(ctx, len(pods), func(i int) error {
+		var err error
+		slots[i], err = r.checkPod(ctx, ds, &pods[i])
+		return err
+	}); err != nil {
+		return err
+	}
+
+	toPatch := podsToPatch(ctx, pods, slots, podSetCounts)
+	return parallelize.Until(ctx, len(toPatch), func(i int) error {
+		return r.patchPod(ctx, ds, toPatch[i], totalCount)
 	})
 }
 
-func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod, totalCount int32) error {
+// checkPod releases a Pod whose owners are gone, and reports a Pod that fails
+// the adoption checks. It returns the PodSet of a live Pod that passes them.
+func (r *Reconciler) checkPod(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod) (*podSlot, error) {
 	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
-		return nil
+		return nil, nil
 	}
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod))
 
 	owners, err := r.checkOwnership(ctx, ds, pod)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Kueue no longer manages the Pods of a deleted child object, so it
 	// releases them, as the LeaderWorkerSet integration does. A Pod that was
 	// never adopted has no owner to lose, so it stays gated.
 	if _, adopted := pod.Labels[constants.ManagedByKueueLabelKey]; owners.gone || owners.orphaned && adopted {
-		return r.ungatePod(ctx, pod)
+		return nil, r.ungatePod(ctx, pod)
 	}
-	if owners.notAdopted != "" {
-		log.V(3).Info("Not adopting Pod", "reason", owners.notAdopted)
-		r.record.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodNotAdopted, ReasonPodNotAdopted,
-			"Not adopted by DisaggregatedSet %s: %s", ds.Name, owners.notAdopted)
-		return nil
+	reason := owners.notAdopted
+	var slot podSlot
+	if reason == "" {
+		slot, reason = podSlotOf(ds, pod)
 	}
-
-	slice, podSetName, reason := podSlot(ds, pod)
 	if reason != "" {
+		log.V(3).Info("Not adopting Pod", "reason", reason)
 		r.record.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodNotAdopted, ReasonPodNotAdopted,
 			"Not adopted by DisaggregatedSet %s: %s", ds.Name, reason)
-		return nil
+		return nil, nil
 	}
-	err = clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		return setPodDefaults(ds, pod, slice, podSetName, totalCount), nil
+	return &slot, nil
+}
+
+// podsToPatch returns the adopted Pods, and the Pods to adopt now. A Pod is
+// adopted only while its PodSet in the slice has fewer members than its count,
+// oldest Pods first. The pod-group reconciler finishes a prebuilt Workload
+// that has more members than it reserves, and during a rollout a new-revision
+// Pod appears while the Pod it replaces is still terminating.
+func podsToPatch(ctx context.Context, pods []corev1.Pod, slots []*podSlot, podSetCounts map[string]int32) []slicePod {
+	members := make(map[podSlot]int32)
+	var adopted, candidates []slicePod
+	for i := range pods {
+		pod := &pods[i]
+		_, isMember := pod.Labels[constants.ManagedByKueueLabelKey]
+		if isMember && podcontroller.IsPodRunnableOrSucceeded(pod) {
+			if slice, err := strconv.ParseInt(pod.Labels[disaggregatedsetv1.SliceLabelKey], 10, 32); err == nil {
+				members[podSlot{slice: int32(slice), podSetName: pod.Annotations[podconstants.RoleHashAnnotation]}]++
+			}
+		}
+		switch {
+		case slots[i] == nil:
+		case isMember:
+			adopted = append(adopted, slicePod{pod: pod, slot: *slots[i]})
+		default:
+			candidates = append(candidates, slicePod{pod: pod, slot: *slots[i]})
+		}
+	}
+
+	slices.SortFunc(candidates, func(a, b slicePod) int {
+		return cmp.Or(
+			a.pod.CreationTimestamp.Compare(b.pod.CreationTimestamp.Time),
+			cmp.Compare(a.pod.Name, b.pod.Name),
+		)
+	})
+	for _, c := range candidates {
+		if members[c.slot] >= podSetCounts[c.slot.podSetName] {
+			ctrl.LoggerFrom(ctx).V(3).Info("Waiting for a free slot in the slice before adopting the Pod",
+				"pod", klog.KObj(c.pod), "slice", c.slot.slice, "podSet", c.slot.podSetName)
+			continue
+		}
+		members[c.slot]++
+		adopted = append(adopted, c)
+	}
+	return adopted
+}
+
+func (r *Reconciler) patchPod(ctx context.Context, ds *disaggregatedsetv1.DisaggregatedSet, sp slicePod, totalCount int32) error {
+	err := clientutil.Patch(ctx, r.client, sp.pod, func() (bool, error) {
+		return setPodDefaults(ds, sp.pod, sp.slot, totalCount), nil
 	})
 	if client.IgnoreNotFound(err) != nil {
-		log.Error(err, "Failed to set the pod group of the Pod")
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to set the pod group of the Pod", "pod", klog.KObj(sp.pod))
 		return err
 	}
 	return nil
@@ -175,12 +249,12 @@ func (r *Reconciler) ungatePod(ctx context.Context, pod *corev1.Pod) error {
 	return nil
 }
 
-// podSlot returns the slice and the PodSet of a Pod, or the reason why the Pod
-// has none.
-func podSlot(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod) (int32, string, string) {
+// podSlotOf returns the slice and the PodSet of a Pod, or the reason why the
+// Pod has none.
+func podSlotOf(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod) (podSlot, string) {
 	slice, err := strconv.ParseInt(pod.Labels[disaggregatedsetv1.SliceLabelKey], 10, 32)
 	if err != nil || slice < 0 {
-		return 0, "", fmt.Sprintf("invalid %s label", disaggregatedsetv1.SliceLabelKey)
+		return podSlot{}, fmt.Sprintf("invalid %s label", disaggregatedsetv1.SliceLabelKey)
 	}
 	roleName := pod.Labels[disaggregatedsetv1.RoleLabelKey]
 	for i := range ds.Spec.Roles {
@@ -188,22 +262,24 @@ func podSlot(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod) (int32, s
 		if role.Name != roleName {
 			continue
 		}
-		if role.Spec.LeaderWorkerTemplate.LeaderTemplate == nil {
-			return int32(slice), role.Name, ""
+		slot := podSlot{slice: int32(slice), podSetName: role.Name}
+		if role.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+			if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] == "0" {
+				slot.podSetName += leaderPodSetSuffix
+			} else {
+				slot.podSetName += workerPodSetSuffix
+			}
 		}
-		if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] == "0" {
-			return int32(slice), role.Name + leaderPodSetSuffix, ""
-		}
-		return int32(slice), role.Name + workerPodSetSuffix, ""
+		return slot, ""
 	}
-	return 0, "", fmt.Sprintf("role %q is not in the spec", roleName)
+	return podSlot{}, fmt.Sprintf("role %q is not in the spec", roleName)
 }
 
 // setPodDefaults makes the Pod a member of the pod group of its slice. A Pod
 // that is already a member only gets the queue name of the DisaggregatedSet,
 // and only while it is gated, because the pod webhook rejects the change on
 // an ungated Pod.
-func setPodDefaults(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod, slice int32, podSetName string, totalCount int32) bool {
+func setPodDefaults(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod, slot podSlot, totalCount int32) bool {
 	queueName := string(jobframework.QueueNameForObject(ds))
 	setQueue := queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
 		pod.Labels[controllerconstants.QueueLabel] != queueName
@@ -222,11 +298,11 @@ func setPodDefaults(ds *disaggregatedsetv1.DisaggregatedSet, pod *corev1.Pod, sl
 	if setQueue {
 		pod.Labels[controllerconstants.QueueLabel] = queueName
 	}
-	wlName := GetWorkloadName(ds.UID, ds.Name, slice)
+	wlName := GetWorkloadName(ds.UID, ds.Name, slot.slice)
 	podcontroller.SetPodGroupName(pod, wlName)
 	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = strconv.Itoa(int(totalCount))
-	pod.Annotations[podconstants.RoleHashAnnotation] = podSetName
+	pod.Annotations[podconstants.RoleHashAnnotation] = slot.podSetName
 	return true
 }
 
