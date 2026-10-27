@@ -43,13 +43,14 @@ Today Kueue preempts a Workload as a whole: the victim is evicted, `stopJob` sus
 of its Pods are torn down. For elastic workloads that can run at a reduced size (for example a Spark
 application whose executor count can shrink), whole eviction is unnecessarily disruptive.
 
-**Partial Preemption** lets Kueue reclaim quota from an elastic, opted-in Workload by asking it to
-scale one PodSet down to a selected target count at or above its `ReclaimMinCount`, instead of
-evicting it.
+**Partial Preemption** lets Kueue reclaim quota from an elastic, opted-in Workload by shrinking one
+PodSet to a target count, instead of evicting the whole Workload.
+Kueue deletes the Pods above the target without changing the job's spec, and keeps the Pods that the
+job recreates gated until quota is available again.
 The scheduler selects the largest target count that lets the preemptor fit, so it reclaims only the
-replicas needed whenever possible. The victim keeps running at a smaller size and is never
-suspended. The feature is alpha and gated by the `PartialPreemption` feature gate; when the gate is
-off, behavior is identical to today.
+replicas needed. The victim keeps running at a smaller size and is never suspended. The feature is
+alpha and gated by the `PartialPreemption` feature gate; when the gate is off, behavior is identical
+to today.
 
 ## Motivation
 
@@ -65,23 +66,25 @@ job runtime to **act** on it, while the quota accounting stays correct throughou
 
 ### Goals
 
-- Provide an opt-in mechanism where preemption of an elastic Workload reclaims quota by scaling one
-  of its PodSets down towards its `ReclaimMinCount`, rather than evicting the whole Workload.
+- Provide an opt-in mechanism where preemption of an elastic Workload reclaims quota by removing
+  Pods from one of its PodSets, down to no lower than its `ReclaimMinCount`, rather than evicting
+  the whole Workload.
+- Reclaim only as many Pods as the preemptor needs.
 - Guarantee no quota over-subscription at any point during the scale-down.
-- Keep the mechanism framework-agnostic in Kueue: Kueue only expresses intent; any controller/driver
-  that honors the signal can benefit.
+- Work without requiring upstream changes to the Ray and Spark controllers.
+- Let a shrunk Workload grow back with partial scale-up (KEP-12100) when quota is available again without introducing a new scale-up mechanism.
 - Be fully gated so that, with the gate disabled, there is zero behavioral change.
 
 ### Non-Goals
 
-- Kueue does not itself terminate Pods or mutate the parent job's spec; the job runtime is
-  responsible for shedding replicas (see [Alternatives](#alternatives) for why).
-- Kueue does not guarantee the job respects the requested reduced size; a cooperating runtime is
-  assumed (opt-in).
-- Autoscaling / scaling back up after preemption is out of scope; this KEP only covers scale-down
-  for quota reclamation.
+- Kueue does not mutate the parent job's spec (see [Alternatives](#alternatives) for why).
+- Kueue does not use the framework's state, such as idle Ray workers, to choose which Pods to
+  remove.
+- Kueue does not add a graceful shutdown of its own; a removed Pod gets the usual SIGTERM and
+  `terminationGracePeriodSeconds`.
 - Multi-host Ray worker groups (`numOfHosts > 1`) are not supported, as in partial scale-up
   (KEP-12100): Ray can only reach targets that are multiples of `numOfHosts`.
+
 ## Proposal
 
 Introduce a per-PodSet target, `status.admission.podSetAssignments[].reclaimTargetCount`, that Kueue
