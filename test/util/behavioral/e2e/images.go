@@ -53,12 +53,6 @@ func GetRedisTestImage() string {
 	return getCachedDockerImage(&redisTestImageOnce, &redisTestImage, "E2E_TEST_REDIS_IMAGE", "redis")
 }
 
-// GetCraneImage returns the crane debug image used by the ClusterProfile e2e tests to extract
-// the secretreader plugin binary from its official image on clusters without image volumes.
-func GetCraneImage() string {
-	return getCachedDockerImage(&craneImageOnce, &craneImage, "E2E_TEST_CRANE_IMAGE", "crane")
-}
-
 func GetKuberayTestImage() string {
 	ginkgo.GinkgoHelper()
 	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")

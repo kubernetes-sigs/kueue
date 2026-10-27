@@ -71,7 +71,6 @@ updates:
       - "/hack/images/golang"
       - "/hack/releasing/krew-release-bot"
       - "/hack/testing/agnhost"
-      - "/hack/testing/crane"
       - "/hack/testing/cypress"
       - "/hack/testing/depcheck"
       - "/hack/testing/linkchecker"

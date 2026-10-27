@@ -42,9 +42,6 @@ var (
 
 	redisTestImageOnce sync.Once
 	redisTestImage     string
-
-	craneImageOnce sync.Once
-	craneImage     string
 )
 
 const (

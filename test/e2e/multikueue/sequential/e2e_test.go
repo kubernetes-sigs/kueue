@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
@@ -560,33 +559,12 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 		const (
-			volumeName          = "plugins"
-			volumeMountPath     = "/plugins"
-			pluginContainerName = "secretreader-plugin-init"
-			// secretReaderPath is the plugin executable path inside the shared volume. The official
-			// image ships the binary at /bin/secretreader-plugin, so when the image is mounted as an
-			// image volume at /plugins (k8s >= 1.35) the binary is at /plugins/bin/secretreader-plugin;
-			// the init-container fallback extracts it to the same path, keeping the exec command
-			// independent of the k8s version.
+			volumeName      = "plugins"
+			volumeMountPath = "/plugins"
+			// secretReaderPath is the plugin executable path inside the image volume. The official
+			// secretreader image ships the binary at /bin/secretreader-plugin, and the image is
+			// mounted at /plugins.
 			secretReaderPath = "/plugins/bin/secretreader-plugin"
-			// extractPluginScript follows the upstream init-container fallback for clusters without
-			// image volumes: https://github.com/kubernetes-sigs/cluster-inventory-api/blob/main/docs/plugin-images.md#initcontainer-fallback
-			// The official image does not ship a shell or "cp", so crane exports its filesystem and
-			// the binary is extracted into the shared volume. pipefail makes a failed export fail the
-			// init container instead of leaving an empty binary behind.
-			extractPluginScript = `set -euo pipefail
-case "$(uname -m)" in
-  x86_64) arch=amd64 ;;
-  aarch64) arch=arm64 ;;
-  s390x) arch=s390x ;;
-  ppc64le) arch=ppc64le ;;
-  *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-esac
-/busybox/mkdir -p "$(/busybox/dirname "$PLUGIN_DST")"
-crane export --platform "linux/${arch}" "$PLUGIN_IMAGE" - \
-  | /busybox/tar -xO bin/secretreader-plugin > "$PLUGIN_DST"
-/busybox/chmod 0555 "$PLUGIN_DST"
-`
 		)
 		var (
 			defaultManagerKueueCfg  *kueueconfig.Configuration
@@ -601,13 +579,6 @@ crane export --platform "linux/${arch}" "$PLUGIN_IMAGE" - \
 
 		ginkgo.BeforeAll(func() {
 			defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
-
-			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
-			// image can be mounted directly. On older versions an init container extracts the binary
-			// from the official image with crane, because the official image does not ship a "cp" command.
-			serverVersion, err := versionutil.ParseGeneric(e2e.GetKubernetesVersion(managerCfg))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			useImageVolume := serverVersion.AtLeast(versionutil.MustParseGeneric("v1.35.0"))
 
 			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
 				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
@@ -640,46 +611,18 @@ crane export --platform "linux/${arch}" "$PLUGIN_IMAGE" - \
 						}
 					}
 
-					if useImageVolume {
-						updatedDeployment.Spec.Template.Spec.Volumes = append(
-							updatedDeployment.Spec.Template.Spec.Volumes,
-							corev1.Volume{
-								Name: volumeName,
-								Image: &corev1.ImageVolumeSource{
-									Reference:  e2e.GetClusterProfilePluginImage(),
-									PullPolicy: corev1.PullIfNotPresent,
-								},
+					// Image volumes are enabled by default on all tested k8s versions (Beta from 1.35),
+					// so the official secretreader image is mounted directly.
+					updatedDeployment.Spec.Template.Spec.Volumes = append(
+						updatedDeployment.Spec.Template.Spec.Volumes,
+						corev1.Volume{
+							Name: volumeName,
+							Image: &corev1.ImageVolumeSource{
+								Reference:  e2e.GetClusterProfilePluginImage(),
+								PullPolicy: corev1.PullIfNotPresent,
 							},
-						)
-					} else {
-						// The crane image runs as root by default, while the Kueue manager pod enforces
-						// runAsNonRoot, so the init container needs an explicit non-root user.
-						updatedDeployment.Spec.Template.Spec.InitContainers = []corev1.Container{
-							*utiltesting.MakeContainer().
-								Name(pluginContainerName).
-								Image(e2e.GetCraneImage()).
-								ImagePullPolicy(corev1.PullIfNotPresent).
-								Command("/busybox/sh", "-c", extractPluginScript).
-								WithEnvVar(corev1.EnvVar{Name: "PLUGIN_IMAGE", Value: e2e.GetClusterProfilePluginImage()}).
-								WithEnvVar(corev1.EnvVar{Name: "PLUGIN_DST", Value: secretReaderPath}).
-								VolumeMount(volumeName, volumeMountPath).
-								WithSecurityContext(&corev1.SecurityContext{
-									// 65532 is the UID/GID of the "nonroot" user in the distroless base of the crane image.
-									RunAsUser:                new(int64(65532)),
-									RunAsGroup:               new(int64(65532)),
-									AllowPrivilegeEscalation: new(false),
-									Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-								}).
-								Obj(),
-						}
-						updatedDeployment.Spec.Template.Spec.Volumes = append(
-							updatedDeployment.Spec.Template.Spec.Volumes,
-							corev1.Volume{
-								Name:     volumeName,
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						)
-					}
+						},
+					)
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
