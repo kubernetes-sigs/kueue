@@ -157,6 +157,8 @@ func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	}
 }
 
+var _ simulator.PodTracker = (*Cache)(nil)
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
@@ -211,7 +213,7 @@ func New(client client.Client, options ...Option) *Cache {
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
+	cache.tasCache = NewTASCache(client, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -268,6 +270,14 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 			c.podsReadyCond.Wait()
 		}
 	}
+}
+
+func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	c.simulatorFactory.TrackPod(ctx, pod)
+}
+
+func (c *Cache) UntrackPod(ctx context.Context, key client.ObjectKey) string {
+	return c.simulatorFactory.UntrackPod(ctx, key)
 }
 
 // DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
