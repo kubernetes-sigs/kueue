@@ -111,7 +111,7 @@ func TestPodsReady(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			jobSet := (JobSet)(tc.jobSet)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := jobSet.PodsReady(ctx, nil)
+			got := jobSet.PodsReady(ctx, nil, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}

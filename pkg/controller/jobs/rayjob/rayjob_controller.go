@@ -237,7 +237,7 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, finished
 }
 
-func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ *kueue.Workload) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 

@@ -141,7 +141,7 @@ func (j *KubeflowJob) IsActive() bool {
 	return false
 }
 
-func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client, _ *kueue.Workload) bool {
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if c.Type == kftraining.JobRunning && c.Status == corev1.ConditionTrue {
 			return true

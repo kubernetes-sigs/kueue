@@ -182,7 +182,7 @@ func (j *JobSet) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, false
 }
 
-func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ *kueue.Workload) bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += replicatedJob.Replicas
