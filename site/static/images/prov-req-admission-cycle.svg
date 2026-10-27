@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 830" role="img" aria-labelledby="title desc" font-family="Helvetica, Arial, sans-serif">
   <title id="title">ProvisioningRequest admission cycle</title>
-  <desc id="desc">State diagram of the two-phase admission cycle for a Workload that uses a ProvisioningRequest AdmissionCheck. Quota is reserved, a ProvisioningRequest is created for the current attempt, and the nodes are provisioned before the Workload is admitted. An Accepted request can still fail if provisioning is unsuccessful. A Failed or BookingExpired request is retried after the backoff until retries are exhausted, at which point the AdmissionCheck is rejected and the Workload's spec.active is set to false. Workload states are blue, ProvisioningRequest states are green, ProvisioningRequest failures are red, the rejected AdmissionCheck is orange, and retry is gray.</desc>
+  <desc id="desc">State diagram of the two-phase admission cycle for a Workload that uses a ProvisioningRequest AdmissionCheck. Quota is reserved, a ProvisioningRequest is created for the current attempt, and the nodes are provisioned before the Workload is admitted. An Accepted request can still fail if provisioning is unsuccessful. A Failed request, or a BookingExpired request whose Workload is not admitted, is retried after the backoff until retries are exhausted, at which point the AdmissionCheck is rejected and the Workload's spec.active is set to false. Workload states are blue, ProvisioningRequest states are green, ProvisioningRequest failures are red, the rejected AdmissionCheck is orange, and retry is gray.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#000"/>
@@ -88,7 +88,8 @@
   <text x="726" y="281" font-size="11" fill="#000">retries remain</text>
 
   <path d="M680 545 L720 545 L720 445 L756 445" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="726" y="561" font-size="11" fill="#000">retries remain</text>
+  <text x="726" y="557" font-size="11" fill="#000">retries remain</text>
+  <text x="726" y="571" font-size="11" fill="#000">(not admitted)</text>
 
   <path d="M840 395 L840 125 L364 125" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
   <text x="600" y="118" font-size="12" text-anchor="middle" fill="#000">backoff elapses, Workload requeued</text>
