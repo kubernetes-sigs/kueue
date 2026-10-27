@@ -178,3 +178,154 @@ func TestMerge(t *testing.T) {
 		})
 	}
 }
+
+func TestContainsAll(t *testing.T) {
+	first := corev1.Toleration{Key: "first", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	second := corev1.Toleration{Key: "second", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: new(int64(10))}
+
+	cases := map[string]struct {
+		tolerations []corev1.Toleration
+		subset      []corev1.Toleration
+		want        bool
+	}{
+		"empty": {
+			tolerations: nil,
+			subset:      nil,
+			want:        true,
+		},
+		"empty subset": {
+			tolerations: []corev1.Toleration{first},
+			subset:      nil,
+			want:        true,
+		},
+		"equal": {
+			tolerations: []corev1.Toleration{first, second},
+			subset:      []corev1.Toleration{first, second},
+			want:        true,
+		},
+		"added toleration in a different order": {
+			tolerations: []corev1.Toleration{second, first},
+			subset:      []corev1.Toleration{first},
+			want:        true,
+		},
+		"removed toleration": {
+			tolerations: []corev1.Toleration{first},
+			subset:      []corev1.Toleration{first, second},
+			want:        false,
+		},
+		"changed TolerationSeconds": {
+			tolerations: []corev1.Toleration{first, {Key: "second", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: new(int64(20))}},
+			subset:      []corev1.Toleration{first, second},
+			want:        false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ContainsAll(tc.tolerations, tc.subset); got != tc.want {
+				t.Errorf("ContainsAll() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCopyIfOnlyAdded(t *testing.T) {
+	first := corev1.Toleration{Key: "first", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	second := corev1.Toleration{Key: "second", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+
+	cases := map[string]struct {
+		dst         []corev1.Toleration
+		src         []corev1.Toleration
+		wantDst     []corev1.Toleration
+		wantChanged bool
+	}{
+		"equal": {
+			dst:         []corev1.Toleration{first},
+			src:         []corev1.Toleration{first},
+			wantDst:     []corev1.Toleration{first},
+			wantChanged: false,
+		},
+		"added toleration": {
+			dst:         []corev1.Toleration{first},
+			src:         []corev1.Toleration{second, first},
+			wantDst:     []corev1.Toleration{second, first},
+			wantChanged: true,
+		},
+		"added toleration to empty": {
+			dst:         nil,
+			src:         []corev1.Toleration{first},
+			wantDst:     []corev1.Toleration{first},
+			wantChanged: true,
+		},
+		"removed toleration": {
+			dst:         []corev1.Toleration{first, second},
+			src:         []corev1.Toleration{first},
+			wantDst:     []corev1.Toleration{first, second},
+			wantChanged: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotChanged := copyIfOnlyAdded(&tc.dst, tc.src)
+			if gotChanged != tc.wantChanged {
+				t.Errorf("copyIfOnlyAdded() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+			if diff := cmp.Diff(tc.wantDst, tc.dst); diff != "" {
+				t.Errorf("copyIfOnlyAdded() dst mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCopyAddedByName(t *testing.T) {
+	first := corev1.Toleration{Key: "first", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	second := corev1.Toleration{Key: "second", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	template := func(tolerations ...corev1.Toleration) *corev1.PodTemplateSpec {
+		return &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Tolerations: tolerations}}
+	}
+
+	cases := map[string]struct {
+		dst         map[string]*corev1.PodTemplateSpec
+		src         map[string]*corev1.PodTemplateSpec
+		wantDst     map[string]*corev1.PodTemplateSpec
+		wantUpdated bool
+	}{
+		"equal": {
+			dst:         map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			src:         map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			wantDst:     map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			wantUpdated: false,
+		},
+		"added toleration to one template": {
+			dst:         map[string]*corev1.PodTemplateSpec{"a": template(first), "b": template(first)},
+			src:         map[string]*corev1.PodTemplateSpec{"a": template(first, second), "b": template(first)},
+			wantDst:     map[string]*corev1.PodTemplateSpec{"a": template(first, second), "b": template(first)},
+			wantUpdated: true,
+		},
+		"removed toleration": {
+			dst:         map[string]*corev1.PodTemplateSpec{"a": template(first, second)},
+			src:         map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			wantDst:     map[string]*corev1.PodTemplateSpec{"a": template(first, second)},
+			wantUpdated: false,
+		},
+		"no template with the same name": {
+			dst:         map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			src:         map[string]*corev1.PodTemplateSpec{"b": template(first, second)},
+			wantDst:     map[string]*corev1.PodTemplateSpec{"a": template(first)},
+			wantUpdated: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotUpdated := CopyAddedByName(tc.dst, tc.src)
+			if gotUpdated != tc.wantUpdated {
+				t.Errorf("CopyAddedByName() = %v, want %v", gotUpdated, tc.wantUpdated)
+			}
+			if diff := cmp.Diff(tc.wantDst, tc.dst); diff != "" {
+				t.Errorf("CopyAddedByName() dst mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

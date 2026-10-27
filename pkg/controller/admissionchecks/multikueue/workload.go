@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -649,9 +650,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
-	// except for two cases (in which we'll update the remote workload accorddingly):
+	// except for three cases (in which we'll update the remote workload accordingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -673,6 +675,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			if workload.PriorityChanged(log, group.local, remWl) {
 				remWl.Spec.PriorityClassRef = group.local.Spec.PriorityClassRef
 				remWl.Spec.Priority = group.local.Spec.Priority
+				updateRemote = true
+			}
+
+			// Added tolerations keep the remote admission valid, so the remote
+			// Workload is updated instead of being recreated.
+			if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.CopyAddedByName(workload.PodTemplates(remWl), workload.PodTemplates(group.local)) {
 				updateRemote = true
 			}
 

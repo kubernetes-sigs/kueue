@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -459,6 +460,11 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = true
 	}
 
+	if features.Enabled(features.AllowAddingPodTemplateTolerations) && syncTolerations(lws, wl) {
+		log.V(3).Info("LeaderWorkerSet changed tolerations, updating workload")
+		shouldUpdate = true
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
@@ -495,6 +501,33 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	return nil
+}
+
+// syncTolerations copies the pod template tolerations to the Workload PodSets
+// and reports whether any PodSet changed. The webhook only allows adding
+// tolerations, so a Workload that holds a quota reservation gets them as well:
+// TAS checks node taints against them while the new pods run. The Workload on
+// a MultiKueue worker is a copy of the one on the manager cluster, so it is
+// left unchanged.
+func syncTolerations(lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) bool {
+	if _, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+		return false
+	}
+	return utiltolerations.CopyAddedByName(workload.PodTemplates(wl), podTemplates(lws))
+}
+
+// podTemplates returns the pod templates of the LeaderWorkerSet by the name of
+// the PodSet that podSets builds from them.
+func podTemplates(lws *leaderworkersetv1.LeaderWorkerSet) map[kueue.PodSetReference]*corev1.PodTemplateSpec {
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate == nil {
+		return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+			kueue.DefaultPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		}
+	}
+	return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+		leaderPodSetName: lws.Spec.LeaderWorkerTemplate.LeaderTemplate,
+		workerPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+	}
 }
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {

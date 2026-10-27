@@ -834,6 +834,19 @@ func ExpectWorkloadPodSetCount(ctx context.Context, k8sClient client.Client, wlK
 	return ExpectWorkloadPodSet(ctx, k8sClient, wlKey, podSetName, wantCount, nil)
 }
 
+// ExpectWorkloadPodSetTolerations waits until the named PodSet of the Workload has exactly the given tolerations.
+func ExpectWorkloadPodSetTolerations(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, podSetName kueue.PodSetReference, want ...corev1.Toleration) {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		found := utilpodset.FindPodSetByName(wl.Spec.PodSets, podSetName)
+		g.Expect(found).NotTo(gomega.BeNil(), "workload has no %q PodSet", podSetName)
+		g.Expect(found.Template.Spec.Tolerations).To(gomega.ConsistOf(want))
+	}, Timeout, Interval).Should(gomega.Succeed(),
+		AssertMsg(fmt.Sprintf("Workload did not get the expected tolerations for %q", podSetName), wl))
+}
+
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	var wl kueue.Workload

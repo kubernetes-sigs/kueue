@@ -1540,6 +1540,54 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					kueue.PodSetAssignment{Name: "ps1"},
 					kueue.PodSetAssignment{Name: "ps2"}).Obj(), now).Obj(),
 		},
+		"workload.podSets[].template.spec.tolerations can be added with AllowAddingPodTemplateTolerations": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+		},
+		"workload.podSets[].template.spec.tolerations cannot be removed with AllowAddingPodTemplateTolerations": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Toleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets", "0"), nil, ""),
+			}.ToAggregate(),
+		},
+		"workload.podSets[].template.spec.tolerations cannot be added without AllowAddingPodTemplateTolerations": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: false},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("ps1", 3).
+					Toleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Toleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(kueue.PodSetAssignment{Name: "ps1"}).Obj(), now).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "podSets", "0"), nil, ""),
+			}.ToAggregate(),
+		},
 		"ClusterName doesn't have to be one of the nominatedClusterNames with ElasticJobs feature gate": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
