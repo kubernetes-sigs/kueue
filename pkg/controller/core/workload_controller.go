@@ -615,33 +615,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
-		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		if updated, err := r.reconcileOnLocalQueueActiveState(ctx, &wl, lqExists, &lq); updated || err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, cqName); updated || err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		podsReadyRecheckAfter, err := r.reconcileNotReadyTimeout(ctx, req, &wl)
-		if err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, &wl)
-		if err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		// get the minimun non-zero value
-		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
-		if recheckAfter == 0 {
-			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
-		}
-		return ctrl.Result{RequeueAfter: recheckAfter}, nil
+		return r.reconcileQuotaReserved(ctx, req, &wl, lqExists, &lq, cqName)
 	}
 
 	return ctrl.Result{}, nil
@@ -919,6 +893,47 @@ func (r *WorkloadReconciler) reconcileInactive(ctx context.Context, wl *kueue.Wo
 		return true, ctrl.Result{}, nil
 	}
 	return false, ctrl.Result{}, nil
+}
+
+// reconcileQuotaReserved runs the checks for a workload that holds a quota
+// reservation: admission-check based eviction, stopped LocalQueue and ClusterQueue,
+// the PodsReady timeout and the maximum execution time. It returns when to
+// recheck the workload.
+func (r *WorkloadReconciler) reconcileQuotaReserved(
+	ctx context.Context,
+	req ctrl.Request,
+	wl *kueue.Workload,
+	lqExists bool,
+	lq *kueue.LocalQueue,
+	cqName kueue.ClusterQueueReference,
+) (ctrl.Result, error) {
+	if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, wl); evictionTriggered || err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if updated, err := r.reconcileOnLocalQueueActiveState(ctx, wl, lqExists, lq); updated || err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if updated, err := r.reconcileOnClusterQueueActiveState(ctx, wl, cqName); updated || err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	podsReadyRecheckAfter, err := r.reconcileNotReadyTimeout(ctx, req, wl)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, wl)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// get the minimun non-zero value
+	recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
+	if recheckAfter == 0 {
+		recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
+	}
+	return ctrl.Result{RequeueAfter: recheckAfter}, nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.
