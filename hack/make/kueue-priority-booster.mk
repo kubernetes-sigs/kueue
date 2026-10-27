@@ -16,7 +16,8 @@
 
 .PHONY: kueue-priority-booster-test
 kueue-priority-booster-test: ## Run unit tests for kueue-priority-booster.
-	$(MAKE) -C cmd/experimental/kueue-priority-booster helm-verify test
+	$(MAKE) -C cmd/experimental/kueue-priority-booster helm-verify
+	$(MAKE) -C cmd/experimental/kueue-priority-booster test
 
 .PHONY: kueue-priority-booster-test-integration
 kueue-priority-booster-test-integration: ## Run integration tests for kueue-priority-booster.
