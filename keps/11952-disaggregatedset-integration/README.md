@@ -379,7 +379,10 @@ DisaggregatedSet.
 #### Size and topology constraints
 
 - A slice Workload is limited to 18 PodSets, 1,000 Pods of maximum membership and
-  512 KiB of role templates. See [Workload PodSet limit](#workload-podset-limit).
+  512 KiB of role templates. With the `TopologyAwareScheduling` feature gate
+  enabled, which is the default, the size check lowers the Pod limit to about 750
+  with small templates and about 435 with 512 KiB of templates.
+  See [Workload PodSet limit](#workload-podset-limit).
 - TAS is supported on role templates. A role template with TAS annotations cannot
   be combined with a `placementPolicy.type` other than `None`, and
   `kueue.x-k8s.io/podset-group-name` works only for a role with a leader template,
@@ -405,7 +408,7 @@ DisaggregatedSet.
 | `scaling.mode: External` with `DisaggregatedSetRoleScaler` | Rejected | Beta candidate. LWS v1.0.0 reports the scaler target in `status.roleStatuses[].desiredReplicas`. See [Graduation Criteria](#graduation-criteria). |
 | `subRoles` | Rejected | Re-evaluated for beta. Sub-roles relabel live Pods and change counts outside the spec. |
 | LWS native gang scheduling, role `spec.scheduling` | Rejected | Re-evaluated for beta. LWS v1.0.0 already adds its `leaderworkerset.sigs.k8s.io/group-replacement` scheduling gate to every leader, so alpha runs with both gates and the e2e tests cover them together. Native gang scheduling adds PodGroups through the Kubernetes Workload API and `spec.schedulingGroup`, which beta evaluates. |
-| `leaderWorkerTemplate.maxGroupRestarts` and `restartBackoff` | Rejected | Beta candidate. LWS counts any deleted worker Pod as a group failure, including Pods that Kueue deletes on eviction or as excess. A slice preempted `maxGroupRestarts` times would be re-admitted with a group that LWS keeps terminal. Requires LWS to skip Pods that Kueue deletes, for example Pods with the `TerminationTarget` condition. |
+| `leaderWorkerTemplate.maxGroupRestarts` and `restartBackoff` | Rejected | Beta candidate. LWS counts any deleted worker Pod as a group failure, including Pods that Kueue deletes on eviction. A slice preempted `maxGroupRestarts` times would be re-admitted with a group that LWS keeps terminal. Requires LWS to skip Pods that Kueue deletes, for example Pods with the `TerminationTarget` condition. |
 | `podTerminationPolicy` | Supported | No Kueue-specific handling. |
 | `groupIdentity: Hash` | Rejected | Re-evaluated together with Hash support in the LWS integration. |
 | `placementPolicy` without TAS | Supported | Affinity is enforced by kube-scheduler only. |
@@ -498,10 +501,24 @@ problem.
 #### Rollout churn
 
 During a rollout, a new-revision Pod can appear while the old Pod it replaces is
-still terminating. The pod group counts the terminating Pod as active, so it deletes
-the newest Pod as excess, and the StatefulSet recreates it. The LWS integration
-already behaves this way when a group is replaced. The cost is extra Pod churn and
-`ExcessPodDeleted` events, not extra quota. The e2e tests cover a full image rollout.
+still terminating. The new Pod has another name, because it belongs to another
+child LWS, so both Pods exist at the same time. The LWS integration does not see
+this overlap, because a StatefulSet recreates a Pod with the same name only after
+the old Pod is gone.
+
+The pod-group reconciler counts a terminating Pod that runs on a node as a member.
+For a prebuilt Workload, it marks the Workload `Finished` with reason `OutOfSync`
+when a role has more members than its PodSet count. A finished slice Workload is
+never admitted again.
+
+Mitigations:
+- The Kueue DisaggregatedSet reconciler adopts a Pod only while its role in the
+  slice has fewer members than the PodSet count, as described in
+  [Pod reconciliation](#pod-reconciliation). A new-revision Pod stays gated and
+  is not adopted until the Pod it replaces is gone. The cost is a later start of
+  the new Pod, not extra quota or Pod churn.
+- An integration test overlaps a terminating Pod with its replacement, and the
+  e2e tests cover a full image rollout.
 
 #### Interaction with the planner's unschedulable fallback
 
@@ -516,7 +533,7 @@ When the unavailability budget is used, for example by an old group that
 crash-loops, the DisaggregatedSet planner creates one extra new-revision group
 per role, even with `maxSurge: 0`. It then waits for that group to become Ready
 before it drains more old groups. With Kueue, the extra group exceeds the role's
-PodSet count, and Kueue deletes the newest gated Pods as excess. The extra group
+PodSet count, so its Pods are not adopted and stay gated. The extra group
 never becomes Ready, and the rollout stays blocked with `BootstrapSurge` and
 `RevisionDrainBlocked` events.
 
@@ -675,13 +692,13 @@ these checks:
   given in [Handling of child objects](#handling-of-child-objects);
 - the maximum membership of a slice and the size of the role templates are within
   the limits in [Workload PodSet limit](#workload-podset-limit). The membership
-  limit also keeps each PodSet count within int32. A DisaggregatedSet with every
-  role at zero has no slice Workloads, so these checks and the TAS group rules are
-  skipped for it;
+  limit also keeps each PodSet count within int32;
 - TAS annotations on each role template, using the existing TAS validation;
 - the TAS group rules on the PodSets that Kueue builds, with the `role-<role>` group
   names, as in the LWS integration. Both PodSets of a group must use the same
-  required or preferred topology and agree on topology spreading;
+  required or preferred topology and agree on topology spreading.
+  A DisaggregatedSet with every role at zero has no slice Workloads, so the rules
+  that depend on PodSet counts are skipped for it;
 - `kueue.x-k8s.io/podset-group-name` is used only as described in
   [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling);
 - the 18-PodSet limit and the length of the generated PodSet names;
@@ -769,17 +786,20 @@ The Kueue DisaggregatedSet reconciler creates missing Workloads and deletes
 Workloads for slice indexes greater than or equal to `slices`. It deletes all
 Workloads when every role is scaled to zero.
 
-The Kueue DisaggregatedSet reconciler also compares each existing slice Workload
-with the PodSets it would build now: the PodSet names and counts, the Pod shape
-under the rule in [Validation on update](#validation-on-update), and the
-`TopologyRequest`. Permitted template changes, such as a new image or environment
-variable, are ignored, so a rollout never replaces a Workload. Shape and TAS
-annotations are immutable, so in practice only the counts can differ. This happens
+The Kueue DisaggregatedSet reconciler also compares the PodSet names and counts of
+each existing slice Workload with the PodSets it would build now.
+Template changes, such as a new image or environment variable, are ignored, so a
+rollout never replaces a Workload.
+The Pod shape and TAS annotations are immutable, as described in
+[Validation on update](#validation-on-update), so they are not compared.
+Comparing the `TopologyRequest` would also replace every slice Workload when an
+admin turns the TAS feature gate on or off.
+Only the counts can differ. This happens
 on a quick scale-through-zero, for example `replicas` set from N to 0 and then to M
 before the Kueue DisaggregatedSet reconciler observes the zero state. Without a
-replacement, the Workload would keep the counts for N, and the pod-group reconciler
-would delete the Pods above those counts as excess, so the scale-up could never
-complete.
+replacement, the Workload would keep the counts for N, and the Kueue
+DisaggregatedSet reconciler would not adopt the Pods above those counts, so the
+scale-up could never complete.
 
 When the counts differ, the Kueue DisaggregatedSet reconciler annotates the old
 Workload with `kueue.x-k8s.io/podset-replacement: "true"` and sets `spec.active`
@@ -829,11 +849,13 @@ them use two PodSets: eight such roles and two others need exactly 18.
 LWS caps role `replicas` at 1,000,000 but does not cap `size`, so `replicas × size`
 can overflow the int32 PodSet count.
 The limit comes from the size of the slice Workload. The pod-group reconciler adds
-every Pod of the slice as an owner of the Workload, before it deletes excess Pods.
-During a rollout, a slice can therefore have more Pods than its PodSet counts: per
-role, up to `maxUnavailable` groups that are terminating, the groups that replace
-them, and one extra group from the planner, described in
+every adopted Pod of the slice as an owner of the Workload.
+Adoption keeps the members of a role within its PodSet count, as described in
+[Rollout churn](#rollout-churn).
+The bound below still keeps room per role for `maxUnavailable` groups that
+are leaving the slice and one extra group from the planner, described in
 [Rollouts stall when a group is unready](#rollouts-stall-when-a-group-is-unready).
+Lowering the bound to the PodSet counts is a beta candidate.
 The maximum membership of a slice is:
 
 ```
@@ -859,18 +881,24 @@ templateBytes + maxMembership × (ownerBytes + tasBytesPerPod) + headroom
 - `maxMembership` is the maximum membership of the slice, at most 1,000 Pods.
 - `ownerBytes` is one owner reference with its managed-fields entry, about 250 bytes
   for a 63-character Pod name.
-- `tasBytesPerPod` is zero when no role template has a TAS annotation. Otherwise it
-  is the worst-case TAS assignment of one Pod in its own domain at every level of a
-  16-level Topology, the most that the Topology API allows, with 63-character
-  values. This is about 1.4 KB. Kueue cannot know which Topology the slice is
-  admitted to, so it assumes the worst case.
+- `tasBytesPerPod` is zero when the `TopologyAwareScheduling` feature gate is
+  disabled. Otherwise it is the worst-case TAS assignment of one Pod in its own
+  domain at every level of a 16-level Topology, the most that the Topology API
+  allows, with 63-character values. This is about 1.4 KB. Kueue cannot know which
+  Topology the slice is admitted to, so it assumes the worst case.
+  It applies also when no role template has a TAS annotation: a ClusterQueue with
+  only TAS flavors assigns a topology to every Pod, and the webhook cannot know
+  which ClusterQueue the slice is admitted to.
 - `headroom` is fixed room for the rest of the metadata and status.
 - `safeWorkloadBytes` is a size safely below the 1.5 MiB object limit.
 
 The size test calibrates `ownerBytes`, `tasBytesPerPod`, `headroom` and
-`safeWorkloadBytes`. Without TAS, a slice with 512 KiB of templates fits the
-1,000-Pod limit. With TAS, the formula gives a lower Pod limit: a few hundred Pods
-with 512 KiB of templates, and more with smaller templates.
+`safeWorkloadBytes`.
+
+| Role templates | TAS feature gate disabled | TAS feature gate enabled (default) |
+| :--- | :--- | :--- |
+| Small | 1,000 Pods | about 750 Pods |
+| 512 KiB | 1,000 Pods | about 435 Pods |
 
 Raising the limit needs a Workload that does not list every Pod as an owner, which
 is a beta candidate.
@@ -946,7 +974,12 @@ slot, and `podIndexLabel` points to the Kueue label.
 The Kueue DisaggregatedSet reconciler watches Pods labeled
 `disaggregatedset.x-k8s.io/name` that carry the DisaggregatedSet parent annotation.
 For each Pod that passes the ownership check in [Pod adoption](#pod-adoption), it
-applies one patch:
+applies one patch, but only while the Pod's role in its slice has fewer members
+than the PodSet count. A member is an adopted Pod that has not failed, including a
+terminating Pod that runs on a node, which the pod-group reconciler also counts.
+Pods are adopted oldest first. A Pod that does not fit stays gated and is not
+adopted until a member is gone, as described in [Rollout churn](#rollout-churn).
+The patch sets:
 
 - `kueue.x-k8s.io/managed: "true"`;
 - the pod-group name and the prebuilt Workload name, both set to the Workload of the
@@ -960,8 +993,8 @@ applies one patch:
   ungated, so a patch on a running Pod would be rejected, as the LWS integration
   guards against. The Workload, not the Pod label, decides which queue a slice uses.
 
-Ungating, eviction, excess Pod deletion and finalizer handling are done by the
-existing pod-group reconciler. If the DisaggregatedSet, the child LWS or the
+Ungating, eviction and finalizer handling are done by the existing pod-group
+reconciler. If the DisaggregatedSet, the child LWS or the
 StatefulSet is gone, for example after a delete with `--cascade=orphan`, Kueue no
 longer manages the Pods. The Kueue DisaggregatedSet reconciler then removes the Kueue
 scheduling gates, so the Pods do not stay gated forever, as the LWS integration does.
@@ -1092,7 +1125,8 @@ In `test/integration/singlecluster/webhook/jobs`:
   `maxUnavailable`;
 - role templates larger than 512 KiB in total are rejected;
 - a DisaggregatedSet whose projected slice Workload size is over the limit is
-  rejected, with and without TAS annotations;
+  rejected, with and without TAS annotations, using the TAS budget whenever the
+  `TopologyAwareScheduling` feature gate is enabled;
 - roles whose generated PodSet names collide are rejected;
 - `podset-group-name` is rejected unless the role has a leader template,
   `size > 1`, `replicas: 1` and the same group name on both templates;
@@ -1155,6 +1189,9 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
   reserved quota without a priority class does not get one;
 - the queue-name label is patched onto gated Pods only, and a queue change while
   Pods are running but not Ready does not produce a Pod patch error;
+- during a rollout, a new-revision Pod is not adopted while the Pod it replaces
+  is terminating on a node, and joins the slice once that Pod is gone, without
+  finishing the slice Workload;
 - Pods with a forged `disaggregatedset.x-k8s.io/name` label are not adopted;
 - Pods owned by a real StatefulSet but with an unexpected name or labels are not
   adopted, and get a `PodNotAdopted` event;
@@ -1177,7 +1214,8 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
 - Scaling `spec.slices` up and down. On scale-down, quota of the removed slices is
   released and their Pods terminate.
 - Scaling all roles to zero releases quota, and scaling up re-admits.
-- An image rollout completes without exceeding the admitted quota.
+- An image rollout completes without exceeding the admitted quota, and the slice
+  Workload is not finished.
 - An image rollout on two roles with `waitForPodsReady` enabled and `recoveryTimeout`
   above the rollout time completes without evicting the slice. The test records
   whether the slice becomes ready between groups.
