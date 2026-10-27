@@ -18,9 +18,12 @@ package appwrapper
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -42,12 +45,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -950,6 +955,101 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for _, node := range nodes {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+		}
+	})
+
+	ginkgo.It("should place grouped PyTorchJob workers by index across topology domains", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&nodes[0]), &nodes[0])).To(gomega.Succeed())
+		nodes[0].Status.Allocatable[corev1.ResourceCPU] = resource.MustParse("3")
+		gomega.Expect(k8sClient.Status().Update(ctx, &nodes[0])).To(gomega.Succeed())
+		nodes = append(nodes, *testingnode.MakeNode("b2").
+			Label(nodeGroupLabel, "tas").
+			Label(tasBlockLabel, "b2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().Obj())
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes[1:])
+
+		pytorchJob := testingpytorchjob.MakePyTorchJob("pytorch", ns.Name).
+			PyTorchReplicaSpecsDefault().Parallelism(4).
+			Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
+			Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "1").
+			PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodSetGroupName, "training").
+			PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodSetGroupName, "training").
+			PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodSetPreferredTopologyAnnotation, tasBlockLabel).
+			PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodSetPreferredTopologyAnnotation, tasBlockLabel).
+			SetTypeMeta().Obj()
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{Template: pytorchJob}).
+			Queue(localQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, aw)
+		wl := &kueue.Workload{
+			Name:      workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID),
+			Namespace: ns.Name,
+		}
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), aw)).To(gomega.Succeed())
+			g.Expect(aw.Spec.Suspend).To(gomega.BeFalse())
+			g.Expect(aw.Spec.Components[0].PodSetInfos).To(gomega.HaveLen(2))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+		gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
+
+		for psIndex, replicaType := range []kftraining.ReplicaType{kftraining.PyTorchJobReplicaTypeMaster, kftraining.PyTorchJobReplicaTypeWorker} {
+			assignment := wl.Status.Admission.PodSetAssignments[psIndex]
+			gomega.Expect(assignment.TopologyAssignment).NotTo(gomega.BeNil())
+			domains := slices.Collect(tas.InternalSeqFrom(assignment.TopologyAssignment))
+			var expectedBlocks []string
+			for _, domain := range domains {
+				for range domain.Count {
+					expectedBlocks = append(expectedBlocks, domain.Values[0])
+				}
+			}
+			indexes := []int{0}
+			if replicaType == kftraining.PyTorchJobReplicaTypeWorker {
+				gomega.Expect(domains).To(gomega.HaveLen(2))
+				indexes = []int{int(domains[0].Count)}
+				for i := 3; i >= 0; i-- {
+					if i != indexes[0] {
+						indexes = append(indexes, i)
+					}
+				}
+			}
+
+			// Materialize the child Pods using the template and AppWrapper's injected PodSetInfo.
+			template := pytorchJob.Spec.PyTorchReplicaSpecs[replicaType].Template.DeepCopy()
+			info := aw.Spec.Components[0].PodSetInfos[psIndex]
+			gomega.Expect(podset.Merge(ctrl.LoggerFrom(ctx), &template.ObjectMeta, &template.Spec, podset.PodSetInfo{
+				Annotations:     info.Annotations,
+				Labels:          info.Labels,
+				NodeSelector:    info.NodeSelector,
+				Tolerations:     info.Tolerations,
+				SchedulingGates: info.SchedulingGates,
+			})).To(gomega.Succeed())
+			for _, index := range indexes {
+				pod := &corev1.Pod{
+					ObjectMeta: *template.ObjectMeta.DeepCopy(),
+					Spec:       *template.Spec.DeepCopy(),
+				}
+				pod.Name = fmt.Sprintf("replica-%d-%d", psIndex, index)
+				pod.Namespace = ns.Name
+				pod.Labels[kftraining.ReplicaIndexLabel] = strconv.Itoa(index)
+				pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+				behavioral.MustCreate(ctx, k8sClient, pod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).To(gomega.Equal(map[string]string{
+						nodeGroupLabel: "tas",
+						tasBlockLabel:  expectedBlocks[index],
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
 		}
 	})
 
