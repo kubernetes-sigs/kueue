@@ -28,6 +28,10 @@ type FakeKueueV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeKueueV1alpha1) CapacityBufferConfigs() v1alpha1.CapacityBufferConfigInterface {
+	return newFakeCapacityBufferConfigs(c)
+}
+
 func (c *FakeKueueV1alpha1) CapacityProviders() v1alpha1.CapacityProviderInterface {
 	return newFakeCapacityProviders(c)
 }

@@ -36,6 +36,10 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityBufferConfig"):
+		return &kueuev1alpha1.CapacityBufferConfigApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityBufferConfigSpec"):
+		return &kueuev1alpha1.CapacityBufferConfigSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscovery"):
 		return &kueuev1alpha1.CapacityDiscoveryApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscoveryProviderContribution"):
