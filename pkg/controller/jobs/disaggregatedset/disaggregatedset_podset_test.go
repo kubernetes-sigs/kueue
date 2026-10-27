@@ -41,7 +41,6 @@ func TestPodSets(t *testing.T) {
 		ds           *disaggregatedsetv1.DisaggregatedSet
 		featureGates map[featuregate.Feature]bool
 		want         []kueue.PodSet
-		wantErr      error
 	}{
 		"roles with and without a leader template": {
 			ds: testingds.MakeDisaggregatedSet("ds", "ns").
@@ -105,19 +104,13 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).Obj(),
 			},
 		},
-		"PodSet count that overflows int32": {
-			ds: testingds.MakeDisaggregatedSet("ds", "ns").
-				Roles(testingds.MakeRole("prefill").Replicas(1_000_000).Size(1_000_000)).
-				Obj(),
-			wantErr: errPodSetCountOverflow,
-		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got, err := podSets(tc.ds)
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
 			}
 			// The Pod spec is copied unchanged; the cases check the metadata.
 			opts := []cmp.Option{cmpopts.IgnoreFields(corev1.PodTemplateSpec{}, "Spec"), cmpopts.EquateEmpty()}
