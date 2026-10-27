@@ -79,6 +79,7 @@ func makeAdmittedTwoPodSetWorkload(now time.Time) *kueue.Workload {
 						Obj(),
 					utiltestingapi.MakePodSetAssignment(workersPodSet).
 						Assignment(corev1.ResourceCPU, "flavor", "2").
+						Count(2).
 						Obj(),
 				).
 				Obj(), now,
@@ -247,6 +248,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "3").
+								Count(3).
 								Obj()).
 							Obj(), now,
 					).
@@ -407,6 +409,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
 								Obj()).
 							Obj(), now,
 					).
@@ -936,6 +939,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "3").
+								Count(3).
 								Obj()).
 							Obj(), now,
 					).
@@ -1030,6 +1034,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
 								Obj()).
 							Obj(), now,
 					).
