@@ -37,7 +37,6 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
   - [Limit Enforcement](#limit-enforcement)
     - [Greedy Candidate Evaluation](#greedy-candidate-evaluation)
     - [Interaction with Backfilling](#interaction-with-backfilling)
-    - [Comparison with Post-Selection Verification Alternative](#comparison-with-post-selection-verification-alternative)
   - [In-Memory State Management](#in-memory-state-management)
   - [Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap](#re-computation-of-preemption-targets-upon-preemption-limits-consumption-overlap)
   - [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)
@@ -61,6 +60,9 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
   - [Reconstructing Approximate In-Memory State on Restart from Status](#reconstructing-approximate-in-memory-state-on-restart-from-status)
     - [Advantages](#advantages)
     - [Trade-offs](#trade-offs)
+  - [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic)
+    - [Combining Approaches via Two-Attempt Search](#combining-approaches-via-two-attempt-search)
+    - [Advantages and Trade-offs](#advantages-and-trade-offs)
 <!-- /toc -->
 
 ## Summary
@@ -204,7 +206,7 @@ spec:
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
 5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
-6. **Rejection of valid candidate sets due to enforcement algorithm limitations**: Because limits are evaluated greedily during the forward candidate search before the backfilling process runs, some candidate sets that would be under the limits after backfilling can be rejected if earlier candidates greedily exhaust the limit allowance before larger, sufficient candidates are evaluated (see [Interaction with Backfilling](#interaction-with-backfilling)).
+6. **Rejection of valid candidate sets due to enforcement algorithm limitations**: Because limits are evaluated greedily during the forward candidate search before the backfilling process runs, some candidate sets that would be under the limits after backfilling can be rejected if earlier candidates greedily exhaust the limit allowance before larger, sufficient candidates are evaluated (see [Interaction with Backfilling](#interaction-with-backfilling); addressed as a future enhancement in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic)).
 
 ### Risks and Mitigations
 
@@ -370,7 +372,7 @@ To respect active limits during candidate searching, a **greedy algorithm** is u
 
 #### Interaction with Backfilling
 
-Because Kueue utilizes a backfilling algorithm in preemptions (`fillBackWorkloads`) to find a minimal set of preemption targets after the preemptor fits, evaluating limits greedily during candidate selection can lead to situations where a candidate set that would be under the limits after the backfilling process is rejected because limits were "greedily" consumed during the forward search.
+Because Kueue utilizes a backfilling algorithm in preemptions to find a minimal set of preemption targets after the preemptor fits, evaluating limits greedily during candidate selection can lead to situations where a candidate set that would be under the limits after the backfilling process is rejected because limits were "greedily" consumed during the forward search.
 
 For example (where the number in each candidate name denotes its quota):
 - **Needed quota**: 4
@@ -382,24 +384,7 @@ For example (where the number in each candidate name denotes its quota):
   3. The search terminates having only freed 1 quota (needed 4), so candidate searching fails.
 - After the backfilling process, `C4` alone would have provided enough quota, allowing `C1` to be added back and leaving only `C4` (1 preemption, which satisfies the limit of 1). However, because the limit was greedily consumed by `C1`, `C4` was skipped and never reached the backfill stage.
 
-#### Comparison with Post-Selection Verification Alternative
-
-The natural alternative — verification that a found set of candidates is within the limits after candidate selection and backfilling — also fails to find some valid candidate sets.
-
-For example (where the prefix denotes the ClusterQueue and the number denotes candidate quota):
-- **Needed quota**: 4
-- **Limit per preempted CQ**: 1
-- **Candidates**: `A2`, `A2`, `B2`, `B2` (where `A2` candidates have quota 2 in ClusterQueue A, and `B2` candidates have quota 2 in ClusterQueue B)
-- **Execution under post-selection verification**:
-  1. Candidate search greedily accumulates candidates to satisfy quota: after considering the first two `A` candidates (`A2` + `A2`), the needed quota of 4 is reached.
-  2. Because quota is reached, the search stops.
-  3. Backfilling cannot remove either candidate because both are required to meet quota 4.
-  4. Post-selection verification evaluates the candidate set `{A2, A2}`: it contains 2 preemptions from ClusterQueue A, which violates the limit of 1 preemption per preempted CQ. The candidate set is blocked by the limits and preemption fails.
-- In contrast, the **greedy algorithm** successfully finds a correct candidate set in this case:
-  1. First `A2` (quota 2): evaluated and allowed by CQ A's limit (limit capacity becomes 0). Quota freed: 2.
-  2. Second `A2` (quota 2): evaluated, but skipped because CQ A's limit is already exhausted.
-  3. First `B2` (quota 2): evaluated and allowed by CQ B's limit (limit capacity becomes 0). Quota freed: 4.
-  4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preempted CQ.
+An alternative approach—verifying limits post-selection after backfilling—avoids this issue but introduces its own failure modes where valid cross-queue combinations are missed (see [Alternatives](#alternatives)). Combining both approaches is explored in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic).
 
 ### In-Memory State Management
 
@@ -410,6 +395,7 @@ Because preemption event tracking is maintained strictly in-memory rather than p
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 `PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
+Such reset will also re-queue workloads blocked by the limits, allowing for their reevaluation, see [Workload Requeuing](#workload-requeuing-when-no-candidates-are-available).
 
 
 ### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
@@ -431,7 +417,12 @@ To make this possible:
 
 If a workload cannot be admitted due to active preemption limits, the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue invokes `NotifyRetryInadmissible` for the workload's ClusterQueue, moving the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
 
-The returned timestamp corresponds to the **first encountered blocking limit** that halts or restricts candidate searching, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as limits may be consumed by other scheduled workloads.
+The returned timestamp corresponds to the **minimum from encountered limits** until candidate searching halts, rather than the limit whose expiration would fully unblock the workload. For example if there is a Global limit allowing 5 more preemptions, and candidate search scans 7 not yet-evicted candidates before hitting the 5 limits (2 blocked by other limits), it will use minimum from the encountered limit 2 from candidates and Global one, as timestamp for re-queueing.
+
+The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as limits may be consumed by other scheduled workloads.
+
+
+In the edge case when `PreemptionLimit` with `limit` 0 is encountered it will not be treated as a suitable limit for re-queue. If it is a blocking limit and search cannot proceed further - no re-queue will happen at all. If this is just a limit for a subset of candidates, timestamp from other limits will be used for re-queue.
 
 
 ### Observability
@@ -516,6 +507,7 @@ Apart from the new subpackage, the following existing components will receive ad
 - Performance impact of enabling `ConfigurablePreemptionLimits` is evaluated and does not lead to significant degradation in candidate selection latency with up to 10 `PreemptionLimit`s in the cluster.
 - User documentation explains Preemption Limits, how they are configured, and how they can be used to reduce risk during `PreemptionConfig` rollouts.
 - `PreemptionLimit` supports limiting specific rules within a `PreemptionConfig` (rule-level rate limiting).
+- Number of preemptions blocked by the limits can be monitored with metrics.
 - Any bugs discovered during Alpha are resolved.
 
 #### Stable
@@ -559,6 +551,30 @@ TBD
    - **Drawbacks**: Discouraged by KAL (Kubernetes API Review guidelines) because of ambiguous values and lack of support for Go duration formats in client libraries across other programming languages.
 
    Rejected to comply with standard Kubernetes API conventions favoring explicit integer unit fields (such as `*Seconds`).
+
+5. **Post-selection limit verification instead of greedy candidate evaluation**:
+
+   Instead of evaluating preemption limits on-the-fly for each candidate during the forward candidate search, run standard unconstrained candidate accumulation and reverse-order backfilling (`fillBackWorkloads`), and then verify whether the resulting minimal candidate set satisfies active limits (`verify(targets)`).
+
+   - **Advantages**: Naturally handles scenarios where smaller candidates would otherwise greedily consume the limit before a larger sufficient candidate can be evaluated (e.g. given needed quota 4, limit 1, and candidates `C1` and `C4`, backfilling eliminates `C1` and keeps `C4`, successfully satisfying the limit).
+   - **Drawbacks**: Fails when the forward candidate search stops as soon as required quota is satisfied by candidates from an over-limit queue, missing valid mixed-queue combinations.
+
+     **Example** (where the prefix denotes the ClusterQueue and the number denotes candidate quota):
+     - **Needed quota**: 4
+     - **Limit per preempted CQ**: 1
+     - **Candidates**: `A2`, `A2`, `B2`, `B2` (where `A2` candidates have quota 2 in ClusterQueue A, and `B2` candidates have quota 2 in ClusterQueue B)
+     - **Execution under post-selection verification**:
+       1. Candidate search greedily accumulates candidates to satisfy quota: after considering the first two `A` candidates (`A2` + `A2`), the needed quota of 4 is reached.
+       2. Because quota is reached, the search stops.
+       3. Backfilling cannot remove either candidate because both are required to meet quota 4.
+       4. Post-selection verification evaluates the candidate set `{A2, A2}`: it contains 2 preemptions from ClusterQueue A, which violates the limit of 1 preemption per preempted CQ. The candidate set is blocked by the limits and preemption fails.
+     - In contrast, the chosen **greedy algorithm** successfully finds a valid candidate set in this case:
+       1. First `A2`: evaluated and allowed by CQ A's limit (limit capacity becomes 0). Quota freed: 2.
+       2. Second `A2`: evaluated, but skipped because CQ A's limit is already exhausted.
+       3. First `B2`: evaluated and allowed by CQ B's limit (limit capacity becomes 0). Quota freed: 4.
+       4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preempted CQ.
+
+   Rejected in favor of greedy candidate evaluation because it prevents valid cross-queue or cross-limit combinations from being discovered when a single queue's candidates satisfy quota first. A future enhancement combining both heuristics via a two-attempt search is discussed in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic).
 
 ## Future Work Ideas
 
@@ -668,3 +684,22 @@ The reconstruction will work as follows:
 #### Trade-offs
 
 - **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `lastUpdateTime`), all pre-restart events are conservatively treated as having occurred at `lastUpdateTime`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
+
+### Better Candidate Limiting Heuristic
+
+As analyzed in [Limit Enforcement](#limit-enforcement) ([Interaction with Backfilling](#interaction-with-backfilling)) and [Alternatives](#alternatives), both candidate evaluation heuristics have distinct and complementary limitations.
+
+#### Combining Approaches via Two-Attempt Search
+
+To achieve higher completeness without introducing combinatorial search complexity, a future enhancement can combine both heuristics by executing two preemption search attempts in sequence:
+
+1. **First Attempt (Greedy Candidate Evaluation)**:
+   The search first executes the greedy candidate evaluation algorithm, skipping candidates whose preemption would violate active limits. If this attempt successfully finds a target set that frees enough quota and satisfies all limits, preemption proceeds immediately.
+
+2. **Second Attempt (Fallback with Post-Selection Verification)**:
+   If the first attempt fails to find a fitting candidate set, Kueue executes a second attempt using unconstrained candidate accumulation followed by reverse-order backfilling. Once the candidate set is minimized, Kueue verifies whether the resulting target set satisfies all active `PreemptionLimit`s. If the minimized set satisfies the limits, it is accepted.
+
+#### Advantages and Trade-offs
+
+- **Higher scheduling completeness**: Combining both approaches resolves the edge cases of each, allowing Kueue to successfully find preemptions in more scenarios.
+- **Minimal performance impact**: The second attempt is evaluated strictly as a fallback only when the first attempt fails. Workloads that find valid candidates on the first attempt incur no additional evaluation latency.
