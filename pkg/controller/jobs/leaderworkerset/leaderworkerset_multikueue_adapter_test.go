@@ -18,10 +18,13 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
@@ -46,10 +49,25 @@ func TestMultiKueueAdapter(t *testing.T) {
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
 	}
+	errTolerationsRejected := apierrors.NewForbidden(
+		leaderworkersetv1.SchemeGroupVersion.WithResource("leaderworkersets").GroupResource(),
+		"lws1",
+		errors.New("existing tolerations cannot be removed or changed"),
+	)
+	errWorkerUnavailable := apierrors.NewServiceUnavailable("worker unavailable")
+	failTolerationPatches := func(err error) func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+		return func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if lws, ok := obj.(*leaderworkersetv1.LeaderWorkerSet); ok && len(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations) > 1 {
+				return err
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		}
+	}
 
 	cases := map[string]struct {
 		managersLeaderWorkerSets     []leaderworkersetv1.LeaderWorkerSet
 		workerLeaderWorkerSets       []leaderworkersetv1.LeaderWorkerSet
+		workerPatch                  func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 		operation                    func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 		wantError                    error
 		wantManagersLeaderWorkerSets []leaderworkersetv1.LeaderWorkerSet
@@ -130,6 +148,183 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
 					Replicas(1).
 					ReadyReplicas(2).
+					Obj(),
+			},
+		},
+		"sync copies added tolerations to existing remote leaderworkerset": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+		},
+		"sync shrinks existing remote leaderworkerset when the worker rejects the added tolerations": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Replicas(1).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(2).
+					ReadyReplicas(2).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerPatch: failTolerationPatches(errTolerationsRejected),
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Replicas(1).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(1).
+					ReadyReplicas(2).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+		},
+		"sync shrinks existing remote leaderworkerset and returns the error when the worker cannot add the tolerations": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: true},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Replicas(1).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(2).
+					ReadyReplicas(2).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerPatch: failTolerationPatches(errWorkerUnavailable),
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantError: errWorkerUnavailable,
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					Replicas(1).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(1).
+					ReadyReplicas(2).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+		},
+		"sync keeps tolerations of existing remote leaderworkerset when AllowAddingPodTemplateTolerations is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: false},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					UID("manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+					Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					LeaderTemplate(corev1.PodTemplateSpec{}).
+					LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+					WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
 					Obj(),
 			},
 		},
@@ -281,6 +476,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			workerBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				Patch:            tc.workerPatch,
 			})
 			workerBuilder = workerBuilder.WithLists(&leaderworkersetv1.LeaderWorkerSetList{Items: tc.workerLeaderWorkerSets})
 			workerClient := workerBuilder.Build()

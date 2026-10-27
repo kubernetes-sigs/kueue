@@ -22,19 +22,23 @@ import (
 	"fmt"
 	"strconv"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 type multiKueueAdapter struct{}
@@ -63,13 +67,35 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		// The remote LWS is kept while other groups still run on the worker,
 		// so a scale down must shrink it to stop the removed groups there.
 		localReplicas := ptr.Deref(localLWS.Spec.Replicas, defaultLeaderWorkerSetReplicas)
-		if localReplicas >= ptr.Deref(remoteLWS.Spec.Replicas, defaultLeaderWorkerSetReplicas) {
-			return false, nil
-		}
-		return false, clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
+		if err := clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
+			if localReplicas >= ptr.Deref(remoteLWS.Spec.Replicas, defaultLeaderWorkerSetReplicas) {
+				return false, nil
+			}
 			remoteLWS.Spec.Replicas = new(localReplicas)
 			return true, nil
-		})
+		}); err != nil {
+			return false, err
+		}
+
+		if features.Enabled(features.AllowAddingPodTemplateTolerations) {
+			// Added tolerations must reach the pods that the remote LWS creates. They
+			// are patched separately, so that a rejection does not block the scale down.
+			err = clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
+				return utiltolerations.CopyAddedByName(podTemplates(&remoteLWS), podTemplates(&localLWS)), nil
+			})
+			if apierrors.IsForbidden(err) {
+				// A Forbidden error is permanent: the worker rejects the tolerations,
+				// for example when it runs an older Kueue or has the feature gate
+				// disabled, or denies the patch by RBAC or a policy. Retrying cannot
+				// fix it, and returning the error would keep MultiKueue from finishing
+				// or evicting the Workload, so the error is only logged.
+				ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the added tolerations of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(&remoteLWS))
+				return false, nil
+			}
+			return false, err
+		}
+
+		return false, nil
 	}
 
 	remoteLWS = leaderworkersetv1.LeaderWorkerSet{

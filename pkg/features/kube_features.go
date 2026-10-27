@@ -958,6 +958,18 @@ const (
 	// worker ClusterQueues of a manager ClusterQueue and reports them in
 	// CapacityProvider.status for Dynamic Quota Orchestration.
 	DQOMultiKueueCapacityProvider featuregate.Feature = "DQOMultiKueueCapacityProvider"
+
+	// owner: @mbobrovskyi
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15570
+	//
+	// Allows adding tolerations to pod templates:
+	// - to the PodSets of a Workload that holds a quota reservation, because the
+	//   admission stays valid: the pods tolerate at least the taints that they
+	//   tolerated when the Workload was admitted;
+	// - to the pod templates of a LeaderWorkerSet managed by Kueue. Kueue copies
+	//   them to the Workloads of the LeaderWorkerSet and, in MultiKueue, to the
+	//   remote Workloads and LeaderWorkerSet.
+	AllowAddingPodTemplateTolerations featuregate.Feature = "AllowAddingPodTemplateTolerations"
 )
 
 func init() {
@@ -1494,6 +1506,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DQOMultiKueueCapacityProvider: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	AllowAddingPodTemplateTolerations: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
