@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -511,6 +512,7 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 func TestClusterQueueReadinessWithTAS(t *testing.T) {
 	cases := []struct {
 		name         string
+		featureGates map[featuregate.Feature]bool
 		skipTopology bool
 		cq           *kueue.ClusterQueue
 		updatedCq    *kueue.ClusterQueue
@@ -619,10 +621,24 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-2", ` +
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-3".`,
 		},
+		{
+			name:         "Referenced TAS flavor without topology; TAS disabled",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			skipTopology: true,
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("5").Append().
+						Obj(),
+				).Obj(),
+			wantReason:  kueue.ClusterQueueActiveReasonReady,
+			wantMessage: "Can admit new workloads",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder()
