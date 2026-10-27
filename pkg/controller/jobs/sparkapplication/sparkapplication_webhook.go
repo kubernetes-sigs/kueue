@@ -121,7 +121,12 @@ func isAnElasticJob(sparkApp *sparkv1beta2.SparkApplication) bool {
 	return workloadslicing.Enabled(sparkApp)
 }
 
-func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration, oldJob *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
+func (w *SparkApplicationWebhook) validateCreate(
+	ctx context.Context,
+	job *sparkv1beta2.SparkApplication,
+	maxTimeoutOnWorkload *metav1.Duration,
+	oldJob *sparkv1beta2.SparkApplication,
+) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*SparkApplication)(job)
 
