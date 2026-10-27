@@ -596,52 +596,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 			if workload.IsAdmitted(&wl) {
-				queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
-				quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
-				r.recorder.Eventf(
-					&wl,
-					nil,
-					corev1.EventTypeNormal,
-					"Admitted",
-					"Admitted",
-					"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
-					wl.Status.Admission.ClusterQueue,
-					quotaReservedWaitTime.Seconds(),
-				)
-				priorityClassName := workloadpatching.PriorityClassName(&wl)
-				// The workload label values are derived on the fly instead of being stored in
-				// the custom labels storage, since these metrics are not gauges and nothing
-				// would clear the stored entry afterwards.
-				wlLabelVals := r.customLabels.MakeValsSet(config.SourceKindWorkload, wl.Labels, wl.Annotations)
-				cqWlCustomLabels := r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-					config.SourceKindClusterQueue: r.customLabels.CQGet(cqName),
-					config.SourceKindWorkload:     wlLabelVals.OrderedList(),
-				})
-				r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
-				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
-				metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
-					lqRef := metrics.LQRefFromWorkload(&wl)
-					lqKey := qutil.KeyFromWorkload(&wl)
-
-					metrics.LocalQueueAdmittedWorkload(
-						lqRef,
-						priorityClassName,
-						queuedWaitTime,
-						r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-							config.SourceKindLocalQueue: r.customLabels.LQGet(lqKey),
-							config.SourceKindWorkload:   wlLabelVals.OrderedList(),
-						}),
-						r.roleTracker,
-					)
-					metrics.ReportLocalQueueAdmissionChecksWaitTime(
-						lqRef,
-						priorityClassName,
-						quotaReservedWaitTime,
-						r.customLabels.LQGet(lqKey),
-						r.roleTracker,
-					)
-				}
+				r.reportAdmittedWorkload(log, &wl, cqName)
 			}
 		}
 	}
@@ -1711,6 +1666,55 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
+	}
+}
+
+func (r *WorkloadReconciler) reportAdmittedWorkload(log logr.Logger, wl *kueue.Workload, cqName kueue.ClusterQueueReference) {
+	queuedWaitTime := workload.QueuedWaitTime(wl, r.clock)
+	quotaReservedWaitTime := workload.QuotaReservedWaitTime(wl, r.clock)
+	r.recorder.Eventf(
+		wl,
+		nil,
+		corev1.EventTypeNormal,
+		"Admitted",
+		"Admitted",
+		"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
+		wl.Status.Admission.ClusterQueue,
+		quotaReservedWaitTime.Seconds(),
+	)
+	priorityClassName := workloadpatching.PriorityClassName(wl)
+	// The workload label values are derived on the fly instead of being stored in
+	// the custom labels storage, since these metrics are not gauges and nothing
+	// would clear the stored entry afterwards.
+	wlLabelVals := r.customLabels.MakeValsSet(config.SourceKindWorkload, wl.Labels, wl.Annotations)
+	cqWlCustomLabels := r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+		config.SourceKindClusterQueue: r.customLabels.CQGet(cqName),
+		config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+	})
+	r.cache.ReportCohortSubtreeAdmittedWorkload(log, wl)
+	metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
+	metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+	if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+		lqRef := metrics.LQRefFromWorkload(wl)
+		lqKey := qutil.KeyFromWorkload(wl)
+
+		metrics.LocalQueueAdmittedWorkload(
+			lqRef,
+			priorityClassName,
+			queuedWaitTime,
+			r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+				config.SourceKindLocalQueue: r.customLabels.LQGet(lqKey),
+				config.SourceKindWorkload:   wlLabelVals.OrderedList(),
+			}),
+			r.roleTracker,
+		)
+		metrics.ReportLocalQueueAdmissionChecksWaitTime(
+			lqRef,
+			priorityClassName,
+			quotaReservedWaitTime,
+			r.customLabels.LQGet(lqKey),
+			r.roleTracker,
+		)
 	}
 }
 
