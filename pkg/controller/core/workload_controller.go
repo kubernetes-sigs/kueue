@@ -1406,17 +1406,17 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 
 	prevQueue := e.ObjectOld.Spec.QueueName
 	if prevQueue != e.ObjectNew.Spec.QueueName {
-		log = log.WithValues("prevLocalQueue", klog.KRef(e.ObjectOld.Namespace, string(prevQueue)))
+		log = log.WithValues("previousLocalQueue", klog.KRef(e.ObjectOld.Namespace, string(prevQueue)))
 	}
 	prevStatus := workload.Status(e.ObjectOld)
 	if prevStatus != status {
-		log = log.WithValues("prevStatus", prevStatus)
+		log = log.WithValues("previousStatus", prevStatus)
 	}
 	if workload.HasQuotaReservation(e.ObjectNew) {
 		log = log.WithValues("clusterQueue", klog.KRef("", string(e.ObjectNew.Status.Admission.ClusterQueue)))
 	}
 	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
-		log = log.WithValues("prevClusterQueue", klog.KRef("", string(e.ObjectOld.Status.Admission.ClusterQueue)))
+		log = log.WithValues("previousClusterQueue", klog.KRef("", string(e.ObjectOld.Status.Admission.ClusterQueue)))
 	}
 	if logV := log.V(3); logV.Enabled() {
 		if workload.HasUnhealthyNodes(e.ObjectNew) {
