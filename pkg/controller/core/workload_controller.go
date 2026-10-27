@@ -530,89 +530,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.IsActive(&wl) {
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-			// Patch only the field this branch owns to preserve the user's spec.
-			err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
-				wl.Spec.Active = new(false)
-				return true, nil
-			})
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-			if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
-				log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
-				return reconcile.Result{RequeueAfter: *requeueAfter}, nil
-			}
-
-			if workload.Status(&wl) == workload.StatusPending {
-				// Clear RequeueAt since backoff has elapsed
-				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-					if wl.Status.RequeueState != nil {
-						wl.Status.RequeueState.RequeueAt = nil
-					}
-					return true, nil
-				})
-				if err != nil {
-					return ctrl.Result{}, client.IgnoreNotFound(err)
-				}
-
-				if !workload.IsAdmissible(&wl) {
-					log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change")
-					return ctrl.Result{}, nil
-				}
-
-				if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
-					// DRA queue options would be lost on a second reconcile,
-					// so persist Requeued=True now instead of relying on the
-					// two-cycle path that non-DRA workloads use.
-					if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-						return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
-					}); err != nil {
-						return ctrl.Result{}, client.IgnoreNotFound(err)
-					}
-				}
-				if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to requeue workload after backoff: %w", err)
-				}
-
-				log.V(3).Info("Workload requeued after backoff")
-				return ctrl.Result{}, nil
-			}
-		}
-
-		var updated bool
-		var requeueAfter time.Duration
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
-				switch {
-				// Matches both the base "Deactivated" reason and derived "DeactivatedDueTo<Cause>" reasons.
-				case strings.HasPrefix(cond.Reason, kueue.WorkloadDeactivated):
-					workload.SetRequeuedCondition(wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
-					updated = true
-				case cond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout || cond.Reason == kueue.WorkloadEvictedByAdmissionCheck:
-
-					if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-						requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
-					}
-					if requeueAfter > 0 {
-						return updated, nil
-					}
-					if wl.Status.RequeueState != nil {
-						wl.Status.RequeueState.RequeueAt = nil
-					}
-					workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
-					updated = true
-				}
-			}
-			return updated, nil
-		})
-
-		if requeueAfter > 0 {
-			return reconcile.Result{RequeueAfter: requeueAfter}, nil
-		}
-		if updated {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+		if done, result, err := r.reconcileActive(ctx, &wl, draPreprocessed, draQueueOptions); done {
+			return result, err
 		}
 	} else {
 		var updated, evicted bool
@@ -928,6 +847,100 @@ func (r *WorkloadReconciler) rejectDRAWhenDisabled(ctx context.Context, wl *kueu
 		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", message)
 	}
 	return ctrl.Result{}, nil
+}
+
+// reconcileActive handles an active workload: it applies a pending deactivation,
+// requeues the workload once its backoff has elapsed, and sets Requeued=True after
+// a reactivation or a finished backoff.
+// Returns done=true when reconciliation should stop.
+func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Workload, draPreprocessed bool, draQueueOptions []workload.InfoOption) (done bool, result ctrl.Result, err error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
+		// Patch only the field this branch owns to preserve the user's spec.
+		err := clientutil.Patch(ctx, r.client, wl, func() (bool, error) {
+			wl.Spec.Active = new(false)
+			return true, nil
+		})
+		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+		if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
+			log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
+			return true, reconcile.Result{RequeueAfter: *requeueAfter}, nil
+		}
+
+		if workload.Status(wl) == workload.StatusPending {
+			// Clear RequeueAt since backoff has elapsed
+			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				if wl.Status.RequeueState != nil {
+					wl.Status.RequeueState.RequeueAt = nil
+				}
+				return true, nil
+			})
+			if err != nil {
+				return true, ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+
+			if !workload.IsAdmissible(wl) {
+				log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change")
+				return true, ctrl.Result{}, nil
+			}
+
+			if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
+				// DRA queue options would be lost on a second reconcile,
+				// so persist Requeued=True now instead of relying on the
+				// two-cycle path that non-DRA workloads use.
+				if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
+				}); err != nil {
+					return true, ctrl.Result{}, client.IgnoreNotFound(err)
+				}
+			}
+			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
+				return true, ctrl.Result{}, fmt.Errorf("failed to requeue workload after backoff: %w", err)
+			}
+
+			log.V(3).Info("Workload requeued after backoff")
+			return true, ctrl.Result{}, nil
+		}
+	}
+
+	var updated bool
+	var requeueAfter time.Duration
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
+			switch {
+			// Matches both the base "Deactivated" reason and derived "DeactivatedDueTo<Cause>" reasons.
+			case strings.HasPrefix(cond.Reason, kueue.WorkloadDeactivated):
+				workload.SetRequeuedCondition(wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
+				updated = true
+			case cond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout || cond.Reason == kueue.WorkloadEvictedByAdmissionCheck:
+
+				if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+					requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
+				}
+				if requeueAfter > 0 {
+					return updated, nil
+				}
+				if wl.Status.RequeueState != nil {
+					wl.Status.RequeueState.RequeueAt = nil
+				}
+				workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true)
+				updated = true
+			}
+		}
+		return updated, nil
+	})
+
+	if requeueAfter > 0 {
+		return true, reconcile.Result{RequeueAfter: requeueAfter}, nil
+	}
+	if updated {
+		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return false, ctrl.Result{}, nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.
