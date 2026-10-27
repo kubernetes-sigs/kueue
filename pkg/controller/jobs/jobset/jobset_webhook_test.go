@@ -114,6 +114,35 @@ func TestValidateCreate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
+			name: "preferred topology is rejected with scheduler library deep integration",
+			job: testingutil.MakeJobSet("jobset", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata").Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported when the SchedulerLibraryDeepIntegration feature gate is enabled",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "preferred topology is accepted without scheduler library deep integration",
+			job: testingutil.MakeJobSet("jobset", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
 			job: testingutil.MakeJobSet("jobset", "default").
 				ReplicatedJobs(testingutil.ReplicatedJobRequirements{

@@ -158,6 +158,7 @@ func (w *JobSetWebhook) validateTopologyRequest(ctx context.Context, jobSet *Job
 		for i, p := range podSets {
 			rjobsPath := replicatedJobsPath.Index(i).Child("template", "spec", "template", "metadata")
 			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(rjobsPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(rjobsPath, &p.Template.ObjectMeta, nil)...)
 			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(rjobsPath, &p.Template.ObjectMeta, &p)...)
 		}
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, buildPodSetAnnotationsPathByNameMap(jobSet))...)

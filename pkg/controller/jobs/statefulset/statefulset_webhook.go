@@ -149,6 +149,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta, nil)...)
 	}
 
 	return nil, allErrs.ToAggregate()
@@ -208,6 +209,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta, &oldStatefulSet.Spec.Template.ObjectMeta)...)
 	}
 
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
