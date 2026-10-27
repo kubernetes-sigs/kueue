@@ -509,19 +509,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return result, err
 	}
 
-	if requeueAt := workload.NeedsRequeueAtUpdate(&wl, r.clock); requeueAt != nil {
-		var changed bool
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			changed = workload.SetRequeueState(wl, *requeueAt, false)
-			return changed, nil
-		})
-		if err != nil {
-			return reconcile.Result{}, client.IgnoreNotFound(err)
-		}
-		if changed {
-			log.V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
-		}
-		return reconcile.Result{}, nil
+	if done, result, err := r.reconcileRequeueAtUpdate(ctx, &wl); done {
+		return result, err
 	}
 	if workload.Status(&wl) == workload.StatusPending &&
 		!features.Enabled(features.KueueDRAIntegration) &&
@@ -910,6 +899,29 @@ func (r *WorkloadReconciler) reconcileFinished(ctx context.Context, wl *kueue.Wo
 	}
 
 	return true, ctrl.Result{}, nil
+}
+
+// reconcileRequeueAtUpdate persists the admission-check retry time returned by
+// workload.NeedsRequeueAtUpdate.
+// Returns done=true when a retry time was due and reconciliation should stop.
+func (r *WorkloadReconciler) reconcileRequeueAtUpdate(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+	requeueAt := workload.NeedsRequeueAtUpdate(wl, r.clock)
+	if requeueAt == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	var changed bool
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		changed = workload.SetRequeueState(wl, *requeueAt, false)
+		return changed, nil
+	})
+	if err != nil {
+		return true, reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+	if changed {
+		ctrl.LoggerFrom(ctx).V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
+	}
+	return true, reconcile.Result{}, nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.
