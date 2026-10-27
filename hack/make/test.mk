@@ -236,7 +236,7 @@ test-multikueue-e2e-extended-ray-autoscaling: E2E_CONFIG_FOLDER=multikueue/ray-a
 test-multikueue-e2e-extended-ray-autoscaling: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue Ray autoscaling e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
+test-multikueue-e2e-sequential: setup-e2e-env run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential-shard-0
 test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
@@ -714,7 +714,6 @@ run-test-e2e-multikueue-sequential-%:
 		E2E_CONFIG_FOLDER="multikueue/sequential" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
-		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 

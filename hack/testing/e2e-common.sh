@@ -136,12 +136,6 @@ function e2e_timestamp {
     date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
-# Returns success when the kind node Kubernetes version supports image volumes,
-# which are Beta and enabled by default from v1.35.
-function e2e_supports_image_volume {
-    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
-}
-
 # Returns success when a failed `docker pull` is worth another attempt.
 #
 # $1 file holding the failed attempt's combined output
@@ -399,15 +393,9 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
-    # enabled by default, so the official image can be mounted directly; on older versions we
-    # use the self-built image whose binary an init container copies into a shared volume,
-    # because the official image does not ship a "cp" command.
-    if e2e_supports_image_volume; then
-        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
-    else
-        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
-    fi
+    # Image volumes are enabled by default on all tested k8s versions (Beta from 1.35), so the
+    # official secretreader image is mounted directly into the Kueue manager pod.
+    export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
