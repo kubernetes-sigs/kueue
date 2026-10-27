@@ -320,7 +320,7 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	// Driver must be running.
 	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
 		return false

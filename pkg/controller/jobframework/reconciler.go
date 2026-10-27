@@ -2408,7 +2408,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
-	podsReady := job.PodsReady(ctx, c)
+	podsReady := job.PodsReady(ctx, c, WithWorkload(wl))
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)
