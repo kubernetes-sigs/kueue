@@ -37,7 +37,7 @@ func logAdmissionAttemptIfVerbose(log logr.Logger, e *entry) {
 	}
 	if log.V(4).Enabled() {
 		args = append(args, "nominatedAssignment", e.assignment)
-		args = append(args, "preempted", logging.GetObjectReferences(e.preemptionTargets))
+		args = append(args, "preemptionTargets", logging.GetObjectReferences(e.preemptionTargets))
 	}
 	logV.Info("Workload evaluated for admission", args...)
 }

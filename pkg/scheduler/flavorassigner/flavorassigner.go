@@ -436,7 +436,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 					continue
 				}
 				if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
-					log.V(3).Info("Skipping resource not declared in the ClusterQueue", "res", resName)
+					log.V(5).Info("Skipping resource not declared in the ClusterQueue", "resource", resName)
 					continue
 				}
 			}
@@ -981,7 +981,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 
 	flavor, exist := a.resourceFlavors[flavorName]
 	if !exist {
-		log.Error(nil, "Flavor not found", "Flavor", flavorName)
+		log.Error(nil, "Flavor not found", "resourceFlavor", flavorName)
 		status.appendf("flavor %s not found", flavorName)
 		return status
 	}
@@ -995,7 +995,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
-				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
+				log.V(5).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status
 			}
@@ -1200,10 +1200,10 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	for _, psID := range psIDs {
 		psName := a.wl.Obj.Spec.PodSets[psID].Name
 		if fName == a.wl.NominationMapping[psName][resName] {
-			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
+			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "podSet", psName, "resource", resName, "resourceFlavor", fName)
 			return false
 		}
 	}
-	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
+	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resource", resName, "resourceFlavor", fName)
 	return true
 }

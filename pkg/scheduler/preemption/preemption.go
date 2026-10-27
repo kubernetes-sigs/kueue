@@ -593,7 +593,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
 	if valid, reason := verifyFairSharingTargets(preemptionCtx, targets, strategies); !valid {
-		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		if logV := preemptionCtx.log.V(5); logV.Enabled() {
 			logV.Info("Discarding preemption targets: strategy verification failed",
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"targets", logging.GetObjectReferences(targets),
