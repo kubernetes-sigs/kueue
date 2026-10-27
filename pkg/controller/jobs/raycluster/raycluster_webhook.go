@@ -225,8 +225,13 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob,
 				// the raycluster PodSets function places the worker podsets from index 1
 				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
 				var oldWorkerGroupMeta *metav1.ObjectMeta
-				if oldRayJob != nil && i-1 < len(oldRayJob.Spec.WorkerGroupSpecs) {
-					oldWorkerGroupMeta = &oldRayJob.Spec.WorkerGroupSpecs[i-1].Template.ObjectMeta
+				if oldRayJob != nil {
+					for j := range oldRayJob.Spec.WorkerGroupSpecs {
+						if oldRayJob.Spec.WorkerGroupSpecs[j].GroupName == string(p.Name) {
+							oldWorkerGroupMeta = &oldRayJob.Spec.WorkerGroupSpecs[j].Template.ObjectMeta
+							break
+						}
+					}
 				}
 				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
 				allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerGroupMetaPath, &p.Template.ObjectMeta, oldWorkerGroupMeta)...)

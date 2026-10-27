@@ -818,6 +818,29 @@ func TestValidateUpdate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
+		"reordered worker groups keep unchanged preferred topology requests accepted": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("workers-a", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+					*testingrayutil.MakeWorkerGroup("workers-b", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").Obj(),
+				).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("workers-b", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").Obj(),
+					*testingrayutil.MakeWorkerGroup("workers-a", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+				).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			wantErr: nil,
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
