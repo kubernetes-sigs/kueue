@@ -27,6 +27,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -90,14 +91,18 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
 			)
 			gomega.Eventually(func(g gomega.Gomega) {
+				workerJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).To(gomega.Succeed())
+				workerJob.Status.Active = 1
+				workerJob.Status.Ready = new(int32(1))
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
 				managerJob := &batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), managerJob)).To(gomega.Succeed())
-				g.Expect(managerJob.Spec.Suspend).NotTo(gomega.BeNil())
-				g.Expect(*managerJob.Spec.Suspend).To(gomega.BeFalse())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			// Wait for the 2s syncDeferredRequeueAfter timer to fire and settle so that
-			// the state sync after reconnect is driven exclusively by the watch reconnect resync.
-			time.Sleep(3 * time.Second)
+				g.Expect(ptr.Deref(managerJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
@@ -125,6 +130,8 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 						Message:            finishJobReason,
 					},
 				)
+				workerJob.Status.Active = 0
+				workerJob.Status.Ready = new(int32(0))
 				workerJob.Status.Succeeded = 1
 				workerJob.Status.StartTime = new(now)
 				workerJob.Status.CompletionTime = new(now)
@@ -197,14 +204,18 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
 			)
 			gomega.Eventually(func(g gomega.Gomega) {
+				workerJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).To(gomega.Succeed())
+				workerJob.Status.Active = 1
+				workerJob.Status.Ready = new(int32(1))
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
 				managerJob := &batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), managerJob)).To(gomega.Succeed())
-				g.Expect(managerJob.Spec.Suspend).NotTo(gomega.BeNil())
-				g.Expect(*managerJob.Spec.Suspend).To(gomega.BeFalse())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			// Wait for the 2s syncDeferredRequeueAfter timer to fire and settle so that
-			// the eviction after reconnect is driven exclusively by the watch reconnect resync.
-			time.Sleep(3 * time.Second)
+				g.Expect(ptr.Deref(managerJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
