@@ -608,21 +608,16 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInRequestedResources checks whether the preemptor CQ's
-// usage is at or below nominal quota (usage <= nominal) for all positive
-// flavor-resource requests assigned to the incoming workload.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is that
-// this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
+// requestedFlavorResources returns the flavor-resources with a positive
+// request assigned to the incoming workload.
+func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
+	frs := sets.New[resources.FlavorResource]()
 	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if request.CmpInt64(0) <= 0 {
-			continue
-		}
-		if preemptionCtx.preemptorCQ.Borrowing(fr) {
-			return false
+		if request.CmpInt64(0) > 0 {
+			frs.Insert(fr)
 		}
 	}
-	return true
+	return frs
 }
 
 // buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.
