@@ -276,15 +276,21 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 
 	// EndpointSlice readiness does not guarantee that the apiserver has dropped
 	// stale webhook connections, so verify the webhook path itself.
-	ginkgo.By(fmt.Sprintf("Probing the webhook data path: %q", key))
+	WaitForWebhookDataPath(ctx, k8sClient)
+
+	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
+}
+
+// WaitForWebhookDataPath verifies that the apiserver is able to call Kueue webhooks.
+func WaitForWebhookDataPath(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By("Probing the webhook data path")
 	gomega.Eventually(func(g gomega.Gomega) {
 		probeRF := &kueue.ResourceFlavor{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"},
 		}
 		g.Expect(k8sClient.Create(ctx, probeRF, client.DryRunAll)).To(gomega.Succeed())
 	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
-
-	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
 
 func isPodReady(pod *corev1.Pod) bool {
