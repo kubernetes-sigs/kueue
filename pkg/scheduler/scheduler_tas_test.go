@@ -4228,7 +4228,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						cqCache.TASCache().SyncNode(&tc.nodes[i])
 					}
 					for i := range tc.pods {
-						cqCache.TASCache().TrackPod(ctx, &tc.pods[i])
+						cqCache.TrackPod(ctx, &tc.pods[i])
 					}
 					for i := range tc.admissionChecks {
 						cqCache.AddOrUpdateAdmissionCheck(log, &tc.admissionChecks[i])

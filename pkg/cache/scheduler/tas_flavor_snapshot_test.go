@@ -2287,7 +2287,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	dev := corev1.ResourceName("example.com/device")
 	ctx, log := utiltesting.ContextWithLog(t)
 
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	rackNode := node.MakeNode("").
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
