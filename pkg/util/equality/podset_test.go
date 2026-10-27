@@ -45,6 +45,7 @@ func TestComparePodTemplate(t *testing.T) {
 		}},
 		NodeSelector: map[string]string{"f1l1": "v1"},
 	}
+	basePodSet := utiltestingapi.MakePodSet(kueue.NewPodSetReference("pod"), 1).PodSpec(base)
 
 	cases := map[string]struct {
 		a    corev1.PodSpec
@@ -96,38 +97,18 @@ func TestComparePodTemplate(t *testing.T) {
 			want: false,
 		},
 		"different runtime classes": {
-			a: func() corev1.PodSpec {
-				ps := *base.DeepCopy()
-				ps.RuntimeClassName = new("kata")
-				return ps
-			}(),
-			b: func() corev1.PodSpec {
-				ps := *base.DeepCopy()
-				ps.RuntimeClassName = new("runc")
-				return ps
-			}(),
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:    basePodSet.Clone().RuntimeClass("runc").Obj().Template.Spec,
 			want: false,
 		},
 		"runtime class on one side": {
-			a: func() corev1.PodSpec {
-				ps := *base.DeepCopy()
-				ps.RuntimeClassName = new("kata")
-				return ps
-			}(),
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
 			b:    *base.DeepCopy(),
 			want: false,
 		},
 		"same runtime class": {
-			a: func() corev1.PodSpec {
-				ps := *base.DeepCopy()
-				ps.RuntimeClassName = new("kata")
-				return ps
-			}(),
-			b: func() corev1.PodSpec {
-				ps := *base.DeepCopy()
-				ps.RuntimeClassName = new("kata")
-				return ps
-			}(),
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
 			want: true,
 		},
 	}

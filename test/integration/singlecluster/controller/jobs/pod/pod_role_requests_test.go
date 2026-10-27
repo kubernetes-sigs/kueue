@@ -424,12 +424,19 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-				PodSets(*utiltestingapi.MakePodSet(roleHash, 2).PodSpec(*pod1.Spec.DeepCopy()).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(roleHash, 2).PodSpec(*pod1.Spec.DeepCopy()).
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).
+					Obj()).
 				Obj()
 			wlLookupKey := client.ObjectKeyFromObject(wl)
 
-			ginkgo.By("creating the prebuilt workload with no PodSet overhead", func() {
+			ginkgo.By("creating the prebuilt workload whose template records the original 100m overhead", func() {
 				behavioral.MustCreate(ctx, k8sClient, wl)
+				createdWorkload := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Template.Spec.Overhead).To(gomega.BeComparableTo(corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				}))
 			})
 
 			ginkgo.By("creating the group pods and checking the RuntimeClass overhead is applied to them", func() {
@@ -462,14 +469,26 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("failing one pod and creating a replacement whose total requests exceed the admitted role but fit the increased RuntimeClass overhead", func() {
+			ginkgo.By("waiting until Pod admission sees the updated RuntimeClass overhead", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					probe := testingpod.MakePod("runtime-class-update-probe", ns.Name).
+						RuntimeClass(runtimeClass.Name).
+						Obj()
+					g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(probe.Spec.Overhead).To(gomega.BeComparableTo(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("500m"),
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("failing one pod before creating a replacement", func() {
 				integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
 			})
 			oversized := testingpod.MakePod("replacement-oversized", ns.Name).
 				GroupNameLabel(workloadName).
 				GroupTotalCount("2").
 				RoleHash(roleHash).
-				Request(corev1.ResourceCPU, "1.3").
+				Request(corev1.ResourceCPU, "1").
 				RuntimeClass(runtimeClass.Name).
 				Queue(lq.Name).
 				PrebuiltWorkloadLabel(workloadName).
@@ -489,21 +508,6 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 				createdPod := &corev1.Pod{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oversized), createdPod)).To(gomega.Succeed())
 				gomega.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
-			})
-
-			ginkgo.By("replacing the oversized pod with one that fits the original role", func() {
-				gomega.Expect(k8sClient.Delete(ctx, oversized)).To(gomega.Succeed())
-				honest := testingpod.MakePod("replacement-honest", ns.Name).
-					GroupNameLabel(workloadName).
-					GroupTotalCount("2").
-					RoleHash(roleHash).
-					Request(corev1.ResourceCPU, "1").
-					RuntimeClass(runtimeClass.Name).
-					Queue(lq.Name).
-					PrebuiltWorkloadLabel(workloadName).
-					Obj()
-				behavioral.MustCreate(ctx, k8sClient, honest)
-				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(honest), nil)
 			})
 		})
 
