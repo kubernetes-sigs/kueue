@@ -127,7 +127,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func isAnElasticJob(sparkApp metav1.Object) bool {
 	return workloadslicing.Enabled(sparkApp)
 }
 
-func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration, oldJob *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*SparkApplication)(job)
 
@@ -178,7 +178,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob, oldJob)
 		if err != nil {
 			return nil, err
 		}
@@ -224,20 +224,32 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 	return allErrors
 }
 
-func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication) (field.ErrorList, error) {
+func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication, oldSparkApp *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := sparkApp.PodSets(ctx, nil)
+	var oldPodSets []kueue.PodSet
+	if oldSparkApp != nil {
+		oldPodSets, _ = (*SparkApplication)(oldSparkApp).PodSets(ctx, nil)
+	}
 
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)
+		var oldDriverMeta *metav1.ObjectMeta
+		if oldDriverPodSet := podset.FindPodSetByName(oldPodSets, driverPodSetName); oldDriverPodSet != nil {
+			oldDriverMeta = &oldDriverPodSet.Template.ObjectMeta
+		}
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta, nil)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta, oldDriverMeta)...)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
 
 		executorPodSet := podset.FindPodSetByName(podSets, executorPodSetName)
+		var oldExecutorMeta *metav1.ObjectMeta
+		if oldExecutorPodSet := podset.FindPodSetByName(oldPodSets, executorPodSetName); oldExecutorPodSet != nil {
+			oldExecutorMeta = &oldExecutorPodSet.Template.ObjectMeta
+		}
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta, nil)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta, oldExecutorMeta)...)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
 	}
 
@@ -256,7 +268,7 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newSparkApp, nil)
+	validationErrs, err := w.validateCreate(ctx, newSparkApp, nil, oldSparkApp)
 	if err != nil {
 		return nil, err
 	}
