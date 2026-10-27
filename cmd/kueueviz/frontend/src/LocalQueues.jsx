@@ -73,9 +73,9 @@ const LocalQueues = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {Object.entries(queuesByNamespace).map(([namespace, queues]) => (
+              {Object.entries(queuesByNamespace).flatMap(([namespace, queues]) => (
                 queues.map((queue, index) => (
-                  <TableRow key={queue.name}>
+                  <TableRow key={`${namespace}/${queue.name}`}>
                     {index === 0 && (
                       <TableCell rowSpan={queues.length}>
                         {namespace}
