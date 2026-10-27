@@ -403,6 +403,74 @@ func TestValidateUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
+			name: "unchanged preferred topology request is accepted with scheduler library deep integration",
+			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+				Labels: map[string]string{"updated": "true"},
+			}).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "new preferred topology request is rejected with scheduler library deep integration",
+			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name:           "worker",
+				PodAnnotations: map[string]string{},
+			}).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata").Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported when the SchedulerLibraryDeepIntegration feature gate is enabled",
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "changed preferred topology request is rejected with scheduler library deep integration",
+			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+				Name: "worker",
+				PodAnnotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+				},
+			}).Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec.replicatedJobs[0].template.spec.template.metadata").Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported when the SchedulerLibraryDeepIntegration feature gate is enabled",
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
 			name: "unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update",
 			oldJob: testingutil.MakeJobSet("job", "default").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),

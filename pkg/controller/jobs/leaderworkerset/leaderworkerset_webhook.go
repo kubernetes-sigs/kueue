@@ -176,7 +176,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating create")
 
-	validationErrs, err := validateCreate(lws)
+	validationErrs, err := validateCreate(lws, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs, err := validateCreate(newLeaderWorkerSet)
+	allErrs, err := validateCreate(newLeaderWorkerSet, oldLeaderWorkerSet)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +278,7 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
 }
 
-func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
+func validateCreate(lws, oldLws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
@@ -289,7 +289,7 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := validateTopologyRequest(lws)
+		validationErrs, err := validateTopologyRequest(lws, oldLws)
 		if err != nil {
 			return nil, err
 		}
@@ -306,7 +306,7 @@ func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 	return nil
 }
 
-func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
+func validateTopologyRequest(lws, oldLws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
 	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
@@ -317,8 +317,13 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName
 
+		var oldLeaderMeta *metav1.ObjectMeta
+		if oldLws != nil && oldLws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+			oldLeaderMeta = &oldLws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta
+		}
+
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
-		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, nil)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, oldLeaderMeta)...)
 
 		if podSetsErr == nil {
 			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
@@ -327,8 +332,13 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		}
 	}
 
+	var oldWorkerMeta *metav1.ObjectMeta
+	if oldLws != nil {
+		oldWorkerMeta = &oldLws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta
+	}
+
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
-	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, nil)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, oldWorkerMeta)...)
 
 	if podSetsErr == nil {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)
