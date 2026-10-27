@@ -67,6 +67,13 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/tas/sample-queues.yaml
 In `sample-queues.yaml`, the `nominalQuota` is intentionally set high (100 CPUs) so that ClusterQueue quota is not a limiting factor. This guarantees that scheduling rejections during topology experiments are driven strictly by Kueue's Topology-Aware Scheduling (TAS) placement constraints rather than quota exhaustion.
 {{% /alert %}}
 
+In production clusters, create the `Topology` object before setting
+`spec.topologyName` on a `ResourceFlavor` (otherwise referencing `ClusterQueue`s
+become inactive with `TopologyNotFound` until the `Topology` exists). For
+details on `ResourceFlavor` mutability constraints and disabling TAS on an
+existing flavor, see
+[Referencing a Topology from a ResourceFlavor](/docs/concepts/topology/#referencing-a-topology-from-a-resourceflavor).
+
 ## Step 3: Run a workload with a topology constraint
 
 Submit a Job that requests all its Pods to run within a single rack, using
