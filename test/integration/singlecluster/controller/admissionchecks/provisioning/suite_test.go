@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -74,8 +75,9 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 type managerSetupOpts struct {
-	runScheduler     bool
-	runJobController bool
+	runScheduler             bool
+	runJobController         bool
+	runStatefulSetController bool
 }
 
 type managerSetupOption func(*managerSetupOpts)
@@ -86,6 +88,10 @@ func runScheduler(opts *managerSetupOpts) {
 
 func runJobController(opts *managerSetupOpts) {
 	opts.runJobController = true
+}
+
+func runStatefulSetController(opts *managerSetupOpts) {
+	opts.runStatefulSetController = true
 }
 
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
@@ -131,6 +137,22 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			err = job.SetupWebhook(mgr, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			integrationManager.EnableIntegration(job.FrameworkName)
+		}
+
+		if opts.runStatefulSetController {
+			stsReconciler, err := statefulset.NewReconciler(
+				ctx,
+				mgr.GetClient(),
+				mgr.GetFieldIndexer(),
+				mgr.GetEventRecorder(constants.JobControllerName), jobframework.WithIntegrationManager(integrationManager))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = statefulset.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = stsReconciler.SetupWithManager(mgr)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = statefulset.SetupWebhook(mgr, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			integrationManager.EnableIntegration(statefulset.FrameworkName)
 		}
 
 		failedCtrl, err := core.SetupControllers(
