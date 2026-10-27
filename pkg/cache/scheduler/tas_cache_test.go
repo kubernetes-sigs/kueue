@@ -12290,7 +12290,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					coreindexer.DeviceClassExtendedResourceNameIndex, coreindexer.IndexDeviceClassExtendedResourceName)
 				client := clientBuilder.Build()
 
-				tasCache := NewTASCache(client, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(client, resources.NewResourceFormatter())
 				for i := range tc.nodes {
 					tasCache.SyncNode(&tc.nodes[i])
 				}

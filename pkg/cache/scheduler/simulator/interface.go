@@ -50,6 +50,14 @@ func AssumedWorkloads(options ...Option) []*kueue.Workload {
 	return opts.assumedWorkloads
 }
 
+type PodTracker interface {
+	// TrackPod notifies the simulator that a pod is running on a node.
+	TrackPod(ctx context.Context, pod *corev1.Pod)
+	// UntrackPod notifies the simulator that a pod has been removed.
+	// Returns the node name when a tracked pod is removed.
+	UntrackPod(ctx context.Context, key client.ObjectKey) string
+}
+
 // Factory allows building instances of SchedulerSimulator
 // based on a snapshot of its internal state.
 // It also tracks all existing Pods (even those not managed by Kueue),
@@ -57,12 +65,8 @@ func AssumedWorkloads(options ...Option) []*kueue.Workload {
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type Factory interface {
+	PodTracker
 	NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (SchedulerSimulator, error)
-	// TrackPod notifies the simulator that a pod is running on a node.
-	TrackPod(ctx context.Context, pod *corev1.Pod)
-	// UntrackPod notifies the simulator that a pod has been removed.
-	// Returns the node name when a tracked pod is removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey) string
 }
 
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.
