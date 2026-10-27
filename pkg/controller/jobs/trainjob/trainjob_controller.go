@@ -393,7 +393,7 @@ func (t *TrainJob) Finished(ctx context.Context) (message string, success, finis
 	return message, success, false
 }
 
-func (t *TrainJob) PodsReady(ctx context.Context, c client.Client, _ *kueue.Workload) bool {
+func (t *TrainJob) PodsReady(ctx context.Context, c client.Client, _ ...jobframework.PodsReadyOption) bool {
 	jobset, err := getChildJobSet(ctx, c, t)
 	if err != nil {
 		return false

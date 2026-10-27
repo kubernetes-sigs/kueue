@@ -407,7 +407,7 @@ func TestPodsReady(t *testing.T) {
 				pod.isGroup = true
 				pod.list = corev1.PodList{Items: tc.groupPods}
 			}
-			got := pod.PodsReady(ctx, nil, nil)
+			got := pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}

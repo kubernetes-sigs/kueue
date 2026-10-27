@@ -170,7 +170,8 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.job.PodsReady(ctx, nil, nil)
+			var genericJob jobframework.GenericJob = &tc.job
+			got := genericJob.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -301,7 +302,7 @@ func TestPodsReadyWithElasticWorkloadSlice(t *testing.T) {
 			jj := (*Job)(j.Obj())
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if got := jj.PodsReady(ctx, nil, tc.workload); got != tc.wantPodsReady {
+			if got := jj.PodsReady(ctx, nil, jobframework.WithWorkload(tc.workload)); got != tc.wantPodsReady {
 				t.Errorf("Unexpected PodsReady (want: %v, got: %v)", tc.wantPodsReady, got)
 			}
 		})

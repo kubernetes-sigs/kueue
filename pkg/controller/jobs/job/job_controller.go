@@ -426,13 +426,14 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(_ context.Context, _ client.Client, wl *kueue.Workload) bool {
+func (j *Job) PodsReady(_ context.Context, _ client.Client, options ...jobframework.PodsReadyOption) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
 		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
 	}
 	target := j.podsCount()
+	wl := jobframework.PodsReadyWorkload(options...)
 	if jobframework.WorkloadSliceEnabled(j) && wl != nil && workload.IsAdmitted(wl) {
 		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]; ok && granted < target {
 			target = granted

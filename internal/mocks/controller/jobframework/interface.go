@@ -150,17 +150,22 @@ func (mr *MockGenericJobMockRecorder) PodSets(ctx, c any) *gomock.Call {
 }
 
 // PodsReady mocks base method.
-func (m *MockGenericJob) PodsReady(ctx context.Context, c client.Client, wl *v1beta2.Workload) bool {
+func (m *MockGenericJob) PodsReady(ctx context.Context, c client.Client, options ...jobframework.PodsReadyOption) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodsReady", ctx, c, wl)
+	varargs := []any{ctx, c}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PodsReady", varargs...)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // PodsReady indicates an expected call of PodsReady.
-func (mr *MockGenericJobMockRecorder) PodsReady(ctx, c, wl any) *gomock.Call {
+func (mr *MockGenericJobMockRecorder) PodsReady(ctx, c any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsReady", reflect.TypeOf((*MockGenericJob)(nil).PodsReady), ctx, c, wl)
+	varargs := append([]any{ctx, c}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsReady", reflect.TypeOf((*MockGenericJob)(nil).PodsReady), varargs...)
 }
 
 // RestorePodSetsInfo mocks base method.
