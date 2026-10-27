@@ -643,9 +643,6 @@ func TestValidateTASPreferredTopologyRequest(t *testing.T) {
 			annotations:  map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
 			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: preferredPath.String()}},
 		},
-		"preferred is accepted when the deep integration gate is enabled without TAS": {
-			annotations: map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
-		},
 		"no topology annotation is accepted when the deep integration gate is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
 		},

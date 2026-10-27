@@ -140,7 +140,7 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 // cleaned up; pass nil on create, and on update when the old template is not
 // available.
 func ValidateTASPreferredTopologyRequest(replicaPath *field.Path, replicaMetadata, oldReplicaMetadata *metav1.ObjectMeta) field.ErrorList {
-	if !features.Enabled(features.TopologyAwareScheduling) || !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return nil
 	}
 	preferredValue, preferredFound := replicaMetadata.Annotations[kueue.PodSetPreferredTopologyAnnotation]
