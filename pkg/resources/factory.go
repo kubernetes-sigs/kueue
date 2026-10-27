@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
@@ -83,24 +85,34 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	return NewRequestsFromResourceList(PodRequests(podSpec))
 }
 
-// PodRequests returns the effective requests for a PodSpec, overhead included.
+// PodRequests returns the effective requests of a PodSpec, including
+// PodSpec.Overhead.
 func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
 	return podRequests(podSpec, true)
 }
 
-// ContainerRequests returns the effective requests for a PodSpec without the
-// overhead.
-func ContainerRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+// PodRequestsWithoutOverhead returns the effective requests of a PodSpec with
+// PodSpec.Overhead left out.
+//
+// Pod-level requests (PodSpec.Resources.Requests) are still included; only the
+// overhead is excluded. Use it where the caller accounts for what the
+// containers asked for rather than what the Pod costs, for example to take a
+// DRA charge out of the extended resources it replaces. Use PodRequests for
+// quota accounting, which charges the overhead as well.
+func PodRequestsWithoutOverhead(podSpec *corev1.PodSpec) corev1.ResourceList {
 	return podRequests(podSpec, false)
 }
 
-// podRequests keeps the aggregate container request when a smaller pod-level
-// request would otherwise replace it, and reads a negative request as zero so
-// that one cannot spend what another container, the overhead or a
-// transformation charges under the same name. Valid PodSpecs are unchanged:
-// Kubernetes requires pod-level requests to cover the aggregate container
-// requests and refuses negative quantities, and the Workload webhook refuses
-// them too while WorkloadValidateResourcesAreNonNegative is enabled.
+// podRequests computes the effective requests of a PodSpec.
+//
+// The aggregate container request is kept when a smaller pod-level request
+// would otherwise replace it, and a negative request is read as zero so that
+// one cannot spend what another container, the overhead or a transformation
+// charges under the same name. Overhead is added only when withOverhead is set.
+// Valid PodSpecs are unchanged: Kubernetes requires pod-level requests to cover
+// the aggregate container requests and refuses negative quantities, and the
+// Workload webhook refuses them too while
+// WorkloadValidateResourcesAreNonNegative is enabled.
 func podRequests(podSpec *corev1.PodSpec, withOverhead bool) corev1.ResourceList {
 	if podSpec == nil {
 		return nil
@@ -119,13 +131,13 @@ func podRequests(podSpec *corev1.PodSpec, withOverhead bool) corev1.ResourceList
 	return requests
 }
 
+// hasNegativeRequest reports whether any request in spec is negative.
 func hasNegativeRequest(spec *corev1.PodSpec) bool {
-	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
-		for _, c := range containers {
-			if hasNegativeQuantity(c.Resources.Requests) {
-				return true
-			}
-		}
+	hasNegative := func(c corev1.Container) bool {
+		return hasNegativeQuantity(c.Resources.Requests)
+	}
+	if slices.ContainsFunc(spec.InitContainers, hasNegative) || slices.ContainsFunc(spec.Containers, hasNegative) {
+		return true
 	}
 	if spec.Resources != nil && hasNegativeQuantity(spec.Resources.Requests) {
 		return true
@@ -133,6 +145,7 @@ func hasNegativeRequest(spec *corev1.PodSpec) bool {
 	return hasNegativeQuantity(spec.Overhead)
 }
 
+// hasNegativeQuantity reports whether any quantity in rl is negative.
 func hasNegativeQuantity(rl corev1.ResourceList) bool {
 	for _, q := range rl {
 		if q.Sign() < 0 {

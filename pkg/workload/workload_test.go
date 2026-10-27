@@ -1449,9 +1449,32 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// The resolver drops the sidecar's negative before charging, so it charges 8
-		// where the accounting view of the same spec reads 5. Both leave nothing under
-		// the replaced name: what the containers asked for is taken back in full.
+		// A negative sidecar must not reduce the Pod request used for accounting.
+		"aNegativeSidecarDoesNotReduceThePodRequest": {
+			workload: *utiltestingapi.MakeWorkload("plain", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 8,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The charge stands in for what the containers asked for, and it is
+		// subtracted from the same clamped view, so the negative sidecar cannot
+		// leave an extended-resource request beside the charge.
 		"aNegativeSidecarLeavesNothingUnderTheReplacedName": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
