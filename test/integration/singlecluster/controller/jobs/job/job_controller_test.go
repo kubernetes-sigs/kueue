@@ -3738,6 +3738,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		backoffLimitCount               *int32
 		waitForPodsReadyTimeout         metav1.Duration
 		waitForPodsReadyRecoveryTimeout *metav1.Duration
+		startManager                    func()
 		ns                              *corev1.Namespace
 		fl                              *kueue.ResourceFlavor
 		cq                              *kueue.ClusterQueue
@@ -3745,22 +3746,25 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		waitForPodsReady := &configapi.WaitForPodsReady{
-			BlockAdmission: new(true),
-			Timeout:        waitForPodsReadyTimeout,
-			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          new(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: new(backoffBaseSeconds),
-				BackoffLimitCount:  backoffLimitCount,
-			},
-			RecoveryTimeout: waitForPodsReadyRecoveryTimeout,
+		startManager = func() {
+			waitForPodsReady := &configapi.WaitForPodsReady{
+				BlockAdmission: new(true),
+				Timeout:        waitForPodsReadyTimeout,
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					Timestamp:          new(configapi.EvictionTimestamp),
+					BackoffBaseSeconds: new(backoffBaseSeconds),
+					BackoffLimitCount:  backoffLimitCount,
+				},
+				RecoveryTimeout: waitForPodsReadyRecoveryTimeout,
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
+				false,
+				false,
+				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+				jobframework.WithWaitForPodsReady(waitForPodsReady),
+			))
 		}
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(
-			false,
-			false,
-			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
-			jobframework.WithWaitForPodsReady(waitForPodsReady),
-		))
+		startManager()
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
@@ -3842,7 +3846,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
-			waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 10 * time.Minute}
 		})
 
 		ginkgo.It("should keep PodsReady based on the admitted replica count", func() {
@@ -3892,6 +3896,11 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(apimeta.IsStatusConditionTrue(admittedWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeTrue())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("restarting Kueue with a short PodsReady timeout")
+			fwk.StopManager(ctx)
+			waitForPodsReadyTimeout = metav1.Duration{Duration: 100 * time.Millisecond}
+			startManager()
+
 			ginkgo.By("scaling the Job while the replacement waits for admission")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, jobKey, testJob)).Should(gomega.Succeed())
@@ -3899,24 +3908,22 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name),
-					client.MatchingLabels{constants.JobUIDLabel: string(testJob.UID)})).Should(gomega.Succeed())
-				g.Expect(workloads.Items).Should(gomega.HaveLen(2))
-				for i := range workloads.Items {
-					wl := &workloads.Items[i]
-					if workload.HasQuotaReservation(wl) {
-						g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
-						g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeTrue())
-						g.Expect(workloadevict.IsEvicted(wl)).Should(gomega.BeFalse())
-					} else {
-						g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(10)))
-						g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeFalse())
-						g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeNil())
-					}
-				}
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			pendingWorkload := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, &admittedWorkload)
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, testJob)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, workloadKey, &admittedWorkload)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWorkload), pendingWorkload)).Should(gomega.Succeed())
+
+				g.Expect(testJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+				g.Expect(admittedWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
+				g.Expect(workload.IsAdmitted(&admittedWorkload)).Should(gomega.BeTrue())
+				g.Expect(apimeta.IsStatusConditionTrue(admittedWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeTrue())
+				g.Expect(workloadevict.IsEvicted(&admittedWorkload)).Should(gomega.BeFalse())
+
+				g.Expect(pendingWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(int32(10)))
+				g.Expect(workload.IsAdmitted(pendingWorkload)).Should(gomega.BeFalse())
+				g.Expect(apimeta.FindStatusCondition(pendingWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeNil())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
