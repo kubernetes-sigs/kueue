@@ -101,8 +101,8 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 **Optional.** Filters candidate workloads by their priority class (`Workload.spec.priorityClassRef`, populated by Kueue for both `WorkloadPriorityClass` and Pod `PriorityClass`). When both `sourceRef` and `nameExpressions` are specified, a candidate must satisfy both:
 
 - **`sourceRef`** (Optional): Filters workloads by the API `group` and `kind` of their priority class:
-  - `group: kueue.x-k8s.io` and `kind: WorkloadPriorityClass` for Kueue `WorkloadPriorityClass`.
-  - `group: scheduling.k8s.io` and `kind: PriorityClass` for Kubernetes Pod `PriorityClass`.
+  - `group: kueue.x-k8s.io` and `kind: WorkloadPriorityClass`: Matches workloads using a Kueue `WorkloadPriorityClass`.
+  - `group: scheduling.k8s.io` and `kind: PriorityClass`: Matches workloads using a Kubernetes Pod `PriorityClass`.
   - Workloads without a `priorityClassRef` do not match when `sourceRef` is set. If omitted, priority classes of either source match.
 - **`nameExpressions`** (Optional): A non-empty list of selector requirements (up to 16 items) matched against `Workload.spec.priorityClassRef.name` (all requirements must be satisfied):
   - **`operator`** (Required):
@@ -136,7 +136,7 @@ Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not autom
 **Optional.** A rule can also restrict which incoming (preempting) workloads are allowed to activate it. When both selectors are specified, an incoming workload must satisfy both. If omitted, any incoming workload in the queue can trigger the rule:
 
 - **`preemptorSelector`**: A standard Kubernetes label selector filtering incoming `Workload` metadata.
-- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef` using `sourceRef` and `nameExpressions` (with the same semantics as `priorityClassSelector` in candidate selectors).
+- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef` using `sourceRef` and `nameExpressions` (with the same semantics as [`priorityClassSelector`](#3-priority-class-selector-priorityclassselector) in candidate selectors).
 
 ---
 
