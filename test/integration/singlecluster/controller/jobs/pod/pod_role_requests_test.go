@@ -388,6 +388,125 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 			})
 		})
 
+		ginkgo.It("Should preserve the PodSet overhead bound for a replacement pod when the RuntimeClass overhead increases", func() {
+			const workloadName = "runtime-class-overhead-update"
+			runtimeClass := utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, runtimeClass)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, runtimeClass, true)
+			})
+			// The ungate check reads RuntimeClasses from the manager's cache, which
+			// may lag the create.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &nodev1.RuntimeClass{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			pod1 := testingpod.MakePod("test-pod1", ns.Name).
+				GroupNameLabel(workloadName).
+				GroupTotalCount("2").
+				RoleHash(roleHash).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClass.Name).
+				Queue(lq.Name).
+				PrebuiltWorkloadLabel(workloadName).
+				Obj()
+			pod2 := testingpod.MakePod("test-pod2", ns.Name).
+				GroupNameLabel(workloadName).
+				GroupTotalCount("2").
+				RoleHash(roleHash).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClass.Name).
+				Queue(lq.Name).
+				PrebuiltWorkloadLabel(workloadName).
+				Obj()
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(roleHash, 2).PodSpec(*pod1.Spec.DeepCopy()).Obj()).
+				Obj()
+			wlLookupKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("creating the prebuilt workload with no PodSet overhead", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("creating the group pods and checking the RuntimeClass overhead is applied to them", func() {
+				behavioral.MustCreate(ctx, k8sClient, pod1)
+				behavioral.MustCreate(ctx, k8sClient, pod2)
+				gomega.Expect(pod1.Spec.Overhead).To(gomega.BeComparableTo(corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				}))
+			})
+
+			ginkgo.By("checking the group pods are ungated once admitted", func() {
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pod1), nil)
+				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pod2), nil)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+			})
+
+			ginkgo.By("increasing the RuntimeClass overhead before creating the replacement", func() {
+				createdRuntimeClass := &nodev1.RuntimeClass{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), createdRuntimeClass)).To(gomega.Succeed())
+				createdRuntimeClass.Overhead = &nodev1.Overhead{
+					PodFixed: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+				}
+				gomega.Expect(k8sClient.Update(ctx, createdRuntimeClass)).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), createdRuntimeClass)).To(gomega.Succeed())
+					g.Expect(createdRuntimeClass.Overhead.PodFixed).To(gomega.BeComparableTo(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("500m"),
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("failing one pod and creating a replacement whose total requests exceed the admitted role but fit the increased RuntimeClass overhead", func() {
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
+			})
+			oversized := testingpod.MakePod("replacement-oversized", ns.Name).
+				GroupNameLabel(workloadName).
+				GroupTotalCount("2").
+				RoleHash(roleHash).
+				Request(corev1.ResourceCPU, "1.3").
+				RuntimeClass(runtimeClass.Name).
+				Queue(lq.Name).
+				PrebuiltWorkloadLabel(workloadName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, oversized)
+
+			ginkgo.By("checking that the replacement stays gated because the original PodSet overhead is preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Reason == podcontroller.ReasonPodExceedsRoleRequests &&
+							e.Regarding.Namespace == ns.Name &&
+							e.Regarding.Name == oversized.Name
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue(), "expected a PodExceedsRoleRequests warning event")
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				createdPod := &corev1.Pod{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oversized), createdPod)).To(gomega.Succeed())
+				gomega.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+			})
+
+			ginkgo.By("replacing the oversized pod with one that fits the original role", func() {
+				gomega.Expect(k8sClient.Delete(ctx, oversized)).To(gomega.Succeed())
+				honest := testingpod.MakePod("replacement-honest", ns.Name).
+					GroupNameLabel(workloadName).
+					GroupTotalCount("2").
+					RoleHash(roleHash).
+					Request(corev1.ResourceCPU, "1").
+					RuntimeClass(runtimeClass.Name).
+					Queue(lq.Name).
+					PrebuiltWorkloadLabel(workloadName).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, honest)
+				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(honest), nil)
+			})
+		})
+
 		ginkgo.It("Should admit a recreated group with larger requests after the Workload of a group with an oversized replacement is deleted", func() {
 			const groupName = "test-group"
 			pod1 := testingpod.MakePod("test-pod1", ns.Name).
