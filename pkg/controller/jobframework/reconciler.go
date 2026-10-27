@@ -849,7 +849,7 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 		}
 		ctrl.LoggerFrom(ctx).V(3).Info("Updated Workload queue name",
 			"workload", klog.KObj(wl),
-			"prevLocalQueue", klog.KRef(wl.Namespace, string(prevQueueName)),
+			"previousLocalQueue", klog.KRef(wl.Namespace, string(prevQueueName)),
 			"localQueue", klog.KRef(wl.Namespace, string(queueName)))
 	}
 	return nil
@@ -862,6 +862,8 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
 		if ancestorNotFinishedWorkload, err := r.getLatestNotFinishedWorkloadForObject(ctx, ancestorJob); err != nil {
+			// Logged before returning to keep ancestorJob as a structured key.
+			ctrl.LoggerFrom(ctx).Error(err, "Couldn't get an ancestor job not-finished workload", "ancestorJob", klog.KObj(ancestorJob))
 			return false, fmt.Errorf("getting unfinished Workload for ancestor job %s: %w", klog.KObj(ancestorJob), err)
 		} else {
 			if ancestorNotFinishedWorkload == nil {
@@ -2377,7 +2379,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 	podsReady := job.PodsReady(ctx, c, WithWorkload(wl))
 	if logV := log.V(5); logV.Enabled() {
 		if podsReadyCond != nil {
-			logV = logV.WithValues("prevPodsReadyStatus", podsReadyCond.Status, "prevPodsReadyReason", podsReadyCond.Reason)
+			logV = logV.WithValues("previousPodsReadyStatus", podsReadyCond.Status, "previousPodsReadyReason", podsReadyCond.Reason)
 		}
 		logV.Info("Generating PodsReady condition", "podsReady", podsReady)
 	}
