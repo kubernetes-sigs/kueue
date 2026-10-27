@@ -83,6 +83,7 @@ type preemptionCtx struct {
 	snapshot          *schdcache.Snapshot
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
+	assignment        flavorassigner.Assignment
 	frsNeedPreemption sets.Set[resources.FlavorResource]
 }
 
@@ -143,6 +144,7 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
+		assignment:        assignment,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: assignment.TotalRequestsFor(log, &wl),
@@ -774,8 +776,9 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 			return false
 		}
 	}
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
+	tasResult := preemptionCtx.assignment.FindTopologyAssignments(
 		preemptionCtx.ctx,
+		preemptionCtx.preemptorCQ,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkload(preemptionCtx.preemptor.Obj),
 	)
