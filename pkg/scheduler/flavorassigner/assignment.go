@@ -337,7 +337,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 				return
 			}
 			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && psAssignment.Flavors[res] == nil {
-				log.V(3).Info("Skipping usage count for resource with undefined flavor", "res", res)
+				log.V(5).Info("Skipping usage count for resource with undefined flavor", "resource", res)
 				return
 			}
 			flv := psAssignment.Flavors[res].Name

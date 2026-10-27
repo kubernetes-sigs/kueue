@@ -70,7 +70,7 @@ func (f *fairSharingIterator) pop() *entry {
 	// CQ has no Cohort. We simply return its workload.
 	if !cq.HasParent() {
 		entry := f.cqToEntry[cq]
-		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
+		f.log.V(5).Info("Returning workload from ClusterQueue without Cohort",
 			"clusterQueue", klog.KRef("", string(cq.GetName())),
 			"workload", klog.KObj(entry.Obj))
 		delete(f.cqToEntry, cq)
@@ -85,7 +85,7 @@ func (f *fairSharingIterator) pop() *entry {
 	log.V(5).Info("Computing DominantResourceShare for tournament")
 	f.entryComparer.computeDRS(root, f.cqToEntry)
 
-	log.V(3).Info("Running tournament to decide next workload to consider in scheduling cycle")
+	log.V(5).Info("Running tournament to decide next workload to consider in scheduling cycle")
 	entry := runTournament(root, f.entryComparer, f.cqToEntry)
 
 	log = log.WithValues(

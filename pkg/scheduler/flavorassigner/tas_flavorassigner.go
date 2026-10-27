@@ -43,7 +43,7 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 				continue
 			}
 			if psAssignment.Count == 0 {
-				log.V(3).Info("Skipping TAS for count=0 podSet", "podSet", podSet.Name)
+				log.V(5).Info("Skipping TAS for count=0 podSet", "podSet", podSet.Name)
 				continue
 			}
 			if psAssignment.TopologyAssignment != nil && !psAssignment.HasUnhealthyNode(wl) {
