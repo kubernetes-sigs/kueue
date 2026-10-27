@@ -38,7 +38,7 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 	tasRequests := make(schdcache.WorkloadTASRequests)
 	for i, podSet := range wl.Obj.Spec.PodSets {
 		if isTASRequested(&podSet, cq) {
-			psAssignment := a.podSetAssignmentByName(podSet.Name)
+			psAssignment := a.PodSetAssignmentByName(podSet.Name)
 			if psAssignment.Status.IsError() {
 				// There is no resource quota assignment for the PodSet - no need to check TAS.
 				continue

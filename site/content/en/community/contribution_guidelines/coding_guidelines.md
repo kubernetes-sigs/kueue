@@ -230,6 +230,9 @@ Controllers follow the controller-runtime reconciler pattern:
 
 ## Test Code Guidelines
 
+Follow [Writing tests](/community/contribution_guidelines/writing_tests/) for
+coverage and test design. This section covers test syntax and conventions.
+
 ### Test Organization
 
 - **Unit tests**: co-located with source code in `*_test.go` files in the same
@@ -353,8 +356,8 @@ This ensures log output is captured by the test framework and visible on failure
 Use `go-cmp/cmp` for comparing complex objects:
 
 ```go
-if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
-    t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
+if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+    t.Errorf("unexpected error (-want,+got):\n%s", diff)
 }
 ```
 

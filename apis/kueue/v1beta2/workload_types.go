@@ -957,6 +957,14 @@ const (
 	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
 	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
 
+	// WorkloadQuotaReservedReasonUnrecordableResourceUsage indicates that an admitted
+	// PodSet total cannot be stored in PodSetAssignment.resourceUsage. A Quantity holds
+	// at most MaxInt64 in the unit it reports, so a non-CPU total past that, or a CPU
+	// total past MaxInt64 cores, would be written back capped. The workload is not
+	// admitted: the cache must not rebuild usage from the cap, and the admission is
+	// not retried when the capped value is not divisible by the Pod count.
+	WorkloadQuotaReservedReasonUnrecordableResourceUsage = "UnrecordableResourceUsage"
+
 	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
 	// requirements that cannot be satisfied with the current cluster topology usage.
 	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
@@ -968,6 +976,10 @@ const (
 	// WorkloadQuotaReservedReasonMisconfigured indicates that the workload is inadmissible due to
 	// misconfiguration, such as missing LocalQueue or ClusterQueue.
 	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
+
+	// WorkloadQuotaReservedReasonAssignmentError indicates kueue failed to create an assignment
+	// due to an unexpected error propagated from downstream.
+	WorkloadQuotaReservedReasonAssignmentError = "AssignmentError"
 
 	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
 	// the LocalQueue or ClusterQueue StopPolicy is active.
@@ -983,6 +995,10 @@ const (
 	// WorkloadQuotaReservedReasonDRAResourcesUnresolved indicates that quota reservation
 	// failed because the workload's DRA resources could not be resolved.
 	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
+
+	// WorkloadQuotaReservedReasonSimulationFailed indicates that quota reservation
+	// failed when running the scheduling simulation.
+	WorkloadQuotaReservedReasonSimulationFailed = "SchedulingSimulationFailed"
 
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"

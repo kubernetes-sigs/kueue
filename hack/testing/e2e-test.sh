@@ -26,6 +26,7 @@ source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
     local exit_code=$?
+    e2e_timed_log_unfinished "${exit_code}"
 
     # Deleting the cluster under an in-flight "kind create" SIGKILLs "kubeadm join",
     # which surfaces as "exit status 137" and hides the real failure (#14673).
@@ -59,20 +60,29 @@ function startup {
 }
 
 trap cleanup EXIT
-build_kind_node_image
-startup &
+e2e_timed build_kind_node_image build_kind_node_image
+# Cluster creation and image pulls run in parallel; "wait_for_cluster" shows how
+# long the pulls left the run waiting for the cluster.
+e2e_timed create_cluster startup &
 STARTUP_PID=$!
-prepare_docker_images
+e2e_timed prepare_docker_images prepare_docker_images
 # A bare "wait" reports success no matter how the background job exited, which
 # would let the run continue without a cluster.
-wait "$STARTUP_PID"
+e2e_timed wait_for_cluster wait "$STARTUP_PID"
 STARTUP_PID=""
 kind_load "$KIND_CLUSTER_NAME" ""
-kueue_deploy
+e2e_timed kueue_deploy kueue_deploy
 
 if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     deploy_kueue_prometheus_config ""
 fi
 
-run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
+e2e_timed ginkgo run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "${E2E_BIN_DIR}/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+
+# Runs after the main suite so the two cannot interfere, and only with the policies
+# installed, which is what it asserts. Label filters select main-suite specs, so drop them.
+if [[ -n ${E2E_EXTRA_TARGET_FOLDER:-} ]] && e2e_is_truthy "${E2E_NETWORK_POLICIES:-}"; then
+    GINKGO_ARGS="" run_e2e_ginkgo --json-report="${E2E_EXTRA_TARGET_FOLDER}.json" \
+        --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_EXTRA_TARGET_FOLDER}"/...
+fi

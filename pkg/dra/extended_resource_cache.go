@@ -46,8 +46,19 @@ func (c *ExtendedResourceCache) Has(name corev1.ResourceName) bool {
 	return len(c.resources[name]) > 0
 }
 
+// IsEmpty returns true if no extended resource is backed by a DRA DeviceClass.
+func (c *ExtendedResourceCache) IsEmpty() bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return len(c.resources) == 0
+}
+
 // Add registers that a DeviceClass backs the given extended resource name.
+// It does nothing on a nil cache, which means DRA extended resources are not configured.
 func (c *ExtendedResourceCache) Add(resourceName corev1.ResourceName, deviceClassName string) {
+	if c == nil {
+		return
+	}
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.resources[resourceName] == nil {
@@ -58,7 +69,11 @@ func (c *ExtendedResourceCache) Add(resourceName corev1.ResourceName, deviceClas
 
 // Remove unregisters a DeviceClass from the given extended resource name.
 // The resource name is removed from the cache only when no DeviceClasses back it.
+// It does nothing on a nil cache, which means DRA extended resources are not configured.
 func (c *ExtendedResourceCache) Remove(resourceName corev1.ResourceName, deviceClassName string) {
+	if c == nil {
+		return
+	}
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if s, ok := c.resources[resourceName]; ok {

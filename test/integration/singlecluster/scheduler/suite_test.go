@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 type subResourcePatchFn func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error
@@ -104,6 +105,7 @@ var _ = ginkgo.BeforeEach(func() {
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -116,7 +118,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
 		qcache.WithResourceTransformations(transformations),
 		qcache.WithPreemptionExpectations(preemptionExpectations),
 		qcache.WithResourceMetrics(true),
@@ -147,11 +149,12 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 	)
-	err = sched.Start(ctx)
+	err = mgr.Add(sched)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func setupInterceptedClient() (context.Context, client.Client) {
+	ginkgo.GinkgoHelper()
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),

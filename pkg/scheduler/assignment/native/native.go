@@ -51,6 +51,8 @@ type nativePlanner struct {
 	assigner  *flavorassigner.FlavorAssigner
 }
 
+// Plan builds an assignment plan using kueue-native algorithms.
+// As of right now, this implementation is expected to never return an Error-Plan.
 func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignment, _ ...assignment.PlannerOption) assignment.Plan {
 	log := log.FromContext(ctx)
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
@@ -66,13 +68,11 @@ func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignmen
 		faPreemptionTargets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			p.updateAssignmentForTAS(ctx, cq, asgn, faPreemptionTargets)
-			resolveNoFit(asgn, cq)
 			return assignment.Plan{Assignment: asgn, PreemptionTargets: faPreemptionTargets}
 		}
 	}
 
 	p.updateAssignmentForTAS(ctx, cq, asgn, nil)
-	resolveNoFit(asgn, cq)
 	return assignment.Plan{Assignment: asgn, PreemptionTargets: nil}
 }
 
@@ -99,8 +99,9 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := p.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
+			tasResult = asgn.FindTopologyAssignments(
 				ctx,
+				cq,
 				tasRequests,
 				schdcache.WithWorkloadInfo(p.wl),
 			)
@@ -113,19 +114,14 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
+			tasResult = asgn.FindTopologyAssignments(
 				ctx,
+				cq,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkloadInfo(p.wl),
 			)
 		}
 		asgn.UpdateForTASResult(log, cq, p.wl, tasResult)
-	}
-}
-
-func resolveNoFit(asgn *flavorassigner.Assignment, cq *schdcache.ClusterQueueSnapshot) {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		asgn.ResolveNoFitReason(cq)
 	}
 }

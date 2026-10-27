@@ -79,7 +79,9 @@ Kueue offers two built-in preemption algorithms, alongside a declarative configu
 An incoming Workload, which does not fit within the unused quota, is eligible
 to issue preemptions when one of the following is true:
 - the requests of the Workload are below the flavor's nominal quota, or
-- `borrowWithinCohort` is enabled.
+- `borrowWithinCohort` is enabled, or
+- `withinClusterQueue` preemption is enabled and there are preemption candidates in the same
+  ClusterQueue as the preempting Workload.
 
 ### Candidates
 

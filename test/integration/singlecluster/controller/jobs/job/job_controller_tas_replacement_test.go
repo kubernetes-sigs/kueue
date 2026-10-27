@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() {
@@ -63,7 +64,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				}).
 				Ready().Obj())
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes[:2])
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes[:2])
 		topology = utiltestingapi.MakeTopology("job-replacement").Levels(corev1.LabelHostname).Obj()
 		behavioral.MustCreate(ctx, k8sClient, topology)
 		flavor = utiltestingapi.MakeResourceFlavor("job-replacement").
@@ -125,7 +126,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 		})
 		ginkgo.By("replacing both nodes without creating a new Workload", func() {
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes[2:])
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes[2:])
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 				g.Expect(wl.UID).To(gomega.Equal(originalUID))

@@ -18,6 +18,7 @@ package dynamicquotaorchestrator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -151,6 +152,69 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				g.Expect(cmp.Diff(wantUpdatedCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+	})
+
+	ginkgo.It("Should wait for the current CapacityProvider spec generation before discovering capacity", func() {
+		cp := utiltestingalpha.MakeCapacityProvider("generation-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource(corev1.ResourceCPU, "16").Obj()).Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).Obj()
+		cps = append(cps, cp)
+		createCapacityProvider(ctx, k8sClient, cp)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("generation-dqo").
+			DiscoveryProvider(cp.Name, nil).Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		key := types.NamespacedName{Name: dqo.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonComputed))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Changing the provider spec without updating its reported capacity")
+		var latestCP kueuealpha.CapacityProvider
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCP)).To(gomega.Succeed())
+		previousGeneration := latestCP.Generation
+		latestCP.Spec.OrchestratedFlavors = append(latestCP.Spec.OrchestratedFlavors,
+			kueuealpha.CapacityProviderOrchestratedFlavor{Name: "f2"})
+		gomega.Expect(k8sClient.Update(ctx, &latestCP)).To(gomega.Succeed())
+		gomega.Expect(latestCP.Generation).To(gomega.BeNumerically(">", previousGeneration))
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady))
+			g.Expect(got.Status.EffectiveCapacity).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Publishing capacity synchronized for the updated generation")
+		setCapacityProviderCapacity(ctx, k8sClient, cp,
+			utiltestingalpha.MakeNormalizedCapacity().Flavors(
+				utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "16").Obj(),
+				utiltestingalpha.MakeNormalizedCapacityFlavor("f2").Resource(corev1.ResourceCPU, "8").Obj(),
+			).Obj())
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonComputed))
+			g.Expect(got.Status.EffectiveCapacity).ToNot(gomega.BeNil())
+			g.Expect(got.Status.EffectiveCapacity.Flavors).To(gomega.HaveLen(2))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should transition condition between Computed and ProviderNotReady when CapacityProvider synchronization changes", func() {
@@ -335,6 +399,81 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantUpdatedCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should fail aggregation when a flavor exceeds the resource limit across providers", func() {
+		cp1Flavor := utiltestingalpha.MakeNormalizedCapacityFlavor("f1")
+		for i := range 64 {
+			cp1Flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/r-%02d", i)), "1")
+		}
+		cp1 := utiltestingalpha.MakeCapacityProvider("res-limit-cp-1").
+			ControllerName("example.com/p1").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(cp1Flavor.Obj()).Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).
+			Obj()
+		cps = append(cps, cp1)
+		createCapacityProvider(ctx, k8sClient, cp1)
+
+		cp2 := utiltestingalpha.MakeCapacityProvider("res-limit-cp-2").
+			ControllerName("example.com/p2").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource("example.com/r-00", "1").
+					Obj()).
+				Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).
+			Obj()
+		cps = append(cps, cp2)
+		createCapacityProvider(ctx, k8sClient, cp2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("res-limit-dqo").
+			DiscoveryProvider("res-limit-cp-1", nil).
+			DiscoveryProvider("res-limit-cp-2", nil).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		dqoKey := types.NamespacedName{Name: dqo.Name}
+		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
+
+		ginkgo.By("Verifying 64 distinct resources in one flavor are aggregated", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, dqoKey, latestDQO)).Should(gomega.Succeed())
+				g.Expect(latestDQO.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+				))
+				g.Expect(latestDQO.Status.EffectiveCapacity).ShouldNot(gomega.BeNil())
+				g.Expect(latestDQO.Status.EffectiveCapacity.Flavors).Should(gomega.HaveLen(1))
+				g.Expect(latestDQO.Status.EffectiveCapacity.Flavors[0].Resources).Should(gomega.HaveLen(64))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Reporting a 65th distinct resource for the same flavor from the second provider", func() {
+			setCapacityProviderCapacity(ctx, k8sClient, cp2, utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource("example.com/extra", "1").
+					Obj()).
+				Obj())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, dqoKey, latestDQO)).Should(gomega.Succeed())
+				g.Expect(latestDQO.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+					kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+				))
+				g.Expect(latestDQO.Status.EffectiveCapacity).Should(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -1359,6 +1498,11 @@ func createCapacityProvider(
 			if status.Conditions[i].LastTransitionTime.IsZero() {
 				status.Conditions[i].LastTransitionTime = metav1.Now()
 			}
+			// The initial condition was constructed before the API server
+			// assigned the first generation to the provider.
+			if status.Conditions[i].ObservedGeneration == 0 {
+				status.Conditions[i].ObservedGeneration = cp.Generation
+			}
 		}
 		cp.Status = *status
 		gomega.Expect(k8sClient.Status().Update(ctx, cp)).Should(gomega.Succeed())
@@ -1371,8 +1515,9 @@ func setCapacityProviderCapacity(
 	cp *kueuealpha.CapacityProvider,
 	capacity *kueuealpha.CapacityProviderNormalizedCapacity,
 ) {
+	ginkgo.GinkgoHelper()
 	var latestCp kueuealpha.CapacityProvider
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCp)).Should(gomega.Succeed())
 		latestCp.Status.Capacity = capacity
 		apimeta.SetStatusCondition(&latestCp.Status.Conditions, metav1.Condition{
@@ -1393,8 +1538,9 @@ func setCapacityProviderSyncCondition(
 	status metav1.ConditionStatus,
 	reason, message string,
 ) {
+	ginkgo.GinkgoHelper()
 	var latestCp kueuealpha.CapacityProvider
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCp)).Should(gomega.Succeed())
 		apimeta.SetStatusCondition(&latestCp.Status.Conditions, metav1.Condition{
 			Type:               kueuealpha.CapacityProviderCapacitySynchronized,

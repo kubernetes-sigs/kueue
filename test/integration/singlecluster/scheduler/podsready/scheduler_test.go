@@ -39,6 +39,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -184,13 +185,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			podsReadyTimeout = behavioral.MediumTimeout
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout; set reason=PodsReady", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, devWl)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			behavioral.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload with PodsReady=True, reason=PodsReady condition and verify the second workload is admitted")
@@ -206,13 +207,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
-		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", framework.SlowSpec, func() {
+		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout; set reason=Started", framework.SlowSpec, func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, devWl)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			behavioral.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload with PodsReady=True, reason=Started condition and verify the second workload is admitted")
@@ -360,7 +361,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			behavioral.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 1)
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 
 			ginkgo.By("finish the eviction, and the workload is pending by backoff")
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
@@ -374,7 +375,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			behavioral.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			behavioral.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: new(int32(2)),
@@ -410,7 +411,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			behavioral.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 4)
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 4)
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			behavioral.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: new(int32(1)),
@@ -556,13 +557,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.By("finishing the second workload, the third one should be admitted", func() {
 			time.Sleep(podsReadyTimeout)
-			behavioral.FinishWorkloads(ctx, k8sClient, wl2)
+			integration.FinishWorkloads(ctx, k8sClient, wl2)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl3)
 		})
 
 		ginkgo.By("finishing the third workload, the first one should be admitted", func() {
 			time.Sleep(podsReadyTimeout)
-			behavioral.FinishWorkloads(ctx, k8sClient, wl3)
+			integration.FinishWorkloads(ctx, k8sClient, wl3)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
 		})
 
@@ -776,7 +777,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			behavioral.ExpectQuotaReservedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			behavioral.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: new(int32(2)),
 			}, false)

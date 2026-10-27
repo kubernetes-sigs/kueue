@@ -41,13 +41,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
 	cfg       *rest.Config
 	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	// managerClient reads the manager's cache, which is what the provisioning
+	// controller reads.
+	managerClient client.Client
+	ctx           context.Context
+	fwk           *framework.Framework
 )
 
 func TestProvisioning(t *testing.T) {
@@ -85,7 +89,9 @@ func runJobController(opts *managerSetupOpts) {
 }
 
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
+		managerClient = mgr.GetClient()
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		var opts managerSetupOpts
 		for _, opt := range options {
@@ -108,7 +114,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		if opts.runJobController {
 			var err error
@@ -155,7 +161,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 			)
-			err = sched.Start(ctx)
+			err = mgr.Add(sched)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}

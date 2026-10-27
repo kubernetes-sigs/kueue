@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
@@ -4190,6 +4190,7 @@ spec:
                                         Domain names *.k8s.io and *.kubernetes.io are reserved.
                                         This field must be unique for each responder.
                                         This field is required.
+                                      minLength: 1
                                       type: string
                                     priority:
                                       description: |-
@@ -4206,12 +4207,15 @@ spec:
                                         The interval 0-999 is reserved for responders with *.k8s.io suffix.
                                         This field is required.
                                       format: int32
+                                      maximum: 100000
+                                      minimum: 0
                                       type: integer
                                   required:
                                     - name
                                     - priority
                                   type: object
                                   x-kubernetes-map-type: atomic
+                                maxItems: 10
                                 type: array
                                 x-kubernetes-list-map-keys:
                                   - name
@@ -8921,7 +8925,7 @@ spec:
                                       type: object
                                       x-kubernetes-validations:
                                         - message: exactly one of the fields in [universal individual] must be set
-                                          rule: '[has(self.universal),has(self.individual)].filter(x,x==true).size() == 1'
+                                          rule: (has(self.universal)?1:0)+(has(self.individual)?1:0) == 1
                                     valuesPerLevel:
                                       description: |-
                                         valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.

@@ -32,15 +32,12 @@ import (
 )
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	return deleteAllPodsInNamespace(ctx, c, ns, 2)
-}
-
-func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
+	ginkgo.GinkgoHelper()
 	if err := client.IgnoreNotFound(c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))); err != nil {
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
 	pods := corev1.PodList{}
-	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.IgnoreNotFound(c.List(ctx, &pods, client.InNamespace(ns.Name)))).
 			Should(gomega.Succeed(), "listing Pods with a finalizer in namespace %q", ns.Name)
 		for _, p := range pods.Items {
@@ -61,26 +58,10 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func SetPodsPhaseByKeys(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, keys ...client.ObjectKey) {
-	ginkgo.GinkgoHelper()
-	for _, key := range keys {
-		updatedPod := corev1.Pod{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, key, &updatedPod)).To(gomega.Succeed())
-			updatedPod.Status.Phase = phase
-			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
-	}
-}
-
-func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
-	ginkgo.GinkgoHelper()
-	SetPodsPhaseByKeys(ctx, k8sClient, phase, podKeys(pods)...)
-}
-
 func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client.Client, key types.NamespacedName, ns map[string]string) {
+	ginkgo.GinkgoHelper()
 	createdPod := &corev1.Pod{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 		g.Expect(createdPod.Spec.NodeSelector).To(gomega.BeComparableTo(ns))
@@ -88,9 +69,10 @@ func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client
 }
 
 func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	for _, key := range keys {
 		createdPod := &corev1.Pod{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
@@ -98,9 +80,10 @@ func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys 
 }
 
 func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	for _, key := range keys {
 		createdPod := &corev1.Pod{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			err := k8sClient.Get(ctx, key, createdPod)
 			// Skip further checks to avoid verifying finalizers on the old Pod object.
 			if apierrors.IsNotFound(err) {
@@ -109,27 +92,5 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
-	}
-}
-
-func podKeys(pods []*corev1.Pod) []client.ObjectKey {
-	keys := make([]client.ObjectKey, 0, len(pods))
-	for _, p := range pods {
-		keys = append(keys, client.ObjectKeyFromObject(p))
-	}
-	return keys
-}
-
-func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
-	for _, p := range pods {
-		updatedPod := corev1.Pod{}
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
-		binding := corev1.Binding{
-			Target: corev1.ObjectReference{
-				Kind: "Node",
-				Name: nodeName,
-			},
-		}
-		gomega.ExpectWithOffset(1, k8sClient.SubResource("binding").Create(ctx, &updatedPod, &binding)).To(gomega.Succeed())
 	}
 }

@@ -171,8 +171,32 @@ type ControllerWebhook struct {
 	CertDir string `json:"certDir,omitempty"`
 }
 
+// MetricsAccessControlMode specifies how access to the metrics listener is controlled.
+// +enum
+type MetricsAccessControlMode string
+
+const (
+	// MetricsAccessControlModeDelegated delegates authentication and authorization
+	// to Kubernetes through controller-runtime.
+	MetricsAccessControlModeDelegated MetricsAccessControlMode = "Delegated"
+
+	// MetricsAccessControlModeNone disables authentication and authorization
+	// for the metrics listener.
+	MetricsAccessControlModeNone MetricsAccessControlMode = "None"
+)
+
 // ControllerMetrics defines the metrics configs.
 type ControllerMetrics struct {
+	// AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+	// Requires the MetricsAccessControl feature gate.
+	// Possible values are:
+	// - Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.
+	// - None: no authentication or authorization. For enabled metrics, requires the
+	//   loopback IP and port in bindAddress.
+	// Defaults to Delegated when the feature gate is enabled.
+	// +optional
+	AccessControlMode *MetricsAccessControlMode `json:"accessControlMode,omitempty"`
+
 	// BindAddress is the TCP address that the controller should bind to
 	// for serving prometheus metrics.
 	// It can be set to "0" to disable the metrics serving.
@@ -592,6 +616,9 @@ type Integrations struct {
 	// match or otherwise the workload creation would fail. The labels are copied only
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
+	// Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
+	// kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
+	// the job.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 

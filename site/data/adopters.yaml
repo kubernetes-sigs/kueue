@@ -196,3 +196,13 @@
   - '...'
   contact: '@amy'
   contact_url: https://github.com/amy
+- name: Etsy, Inc.
+  url: https://www.etsy.com/
+  type: End User
+  description: ML platform running elastic RayClusters via ProvisioningRequest admission
+  integrations:
+  - RayCluster
+  - RayJob
+  - '...'
+  contact: '@neilb-dotcom'
+  contact_url: https://github.com/neilb-dotcom

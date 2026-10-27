@@ -21,6 +21,8 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -61,7 +63,8 @@ type Factory interface {
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+	// Returns the node name when a tracked pod is removed.
+	UntrackPod(ctx context.Context, key client.ObjectKey) string
 }
 
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.
@@ -81,6 +84,21 @@ type SchedulerSimulator interface {
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.
 	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
+	// ScheduleWorkload simulates how the given workload,
+	// represented by the list of its pods, would be scheduled.
+	// Returns:
+	// - the mapping of input pods to their placements
+	//   (including failed placements), OR
+	// - an error and an empty placements mapping, if the call fails completely.
+	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
+	// AddPodGroup adds a PodGroup to the snapshot
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// RemovePodGroup removes a PodGroup from the snapshot
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// AddCompositePodGroup adds a CompositePodGroup to the snapshot
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+	// RemoveCompositePodGroup removes a CompositePodGroup from the snapshot
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

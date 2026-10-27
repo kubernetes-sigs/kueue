@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -74,10 +75,15 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+// clusterQueueWatchers are passed to the core controllers by the next
+// manager setup. Tests that set it must reset it.
+var clusterQueueWatchers []core.ClusterQueueUpdateWatcher
+
 func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithClientTransform(controllersCfg, nil, resourceTransformations...)
 }
 
@@ -87,6 +93,7 @@ func managerSetupWithClientTransform(
 	transform func(client.Client) client.Client,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		schedClient := mgr.GetClient()
 		if transform != nil {
@@ -115,14 +122,17 @@ func managerSetupWithClientTransform(
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				ClusterQueueWatchers:   clusterQueueWatchers,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
@@ -153,7 +163,7 @@ func managerSetupWithClientTransform(
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -161,5 +171,6 @@ func managerSetupWithClientTransform(
 func managerSetup(
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
 }

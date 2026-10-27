@@ -145,11 +145,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 			})
 
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-					localQueue.Spec.StopPolicy = new(kueue.Hold)
-					g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicyWithTimeout(ctx, k8sClient, localQueue, kueue.Hold, behavioral.MediumTimeout)
 			})
 
 			ginkgo.By("verify the LocalQueue status is updated", func() {
@@ -360,6 +356,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 // cloneControllerRBAC dynamically copies all RoleBindings and ClusterRoleBindings
 // from the default Kueue SA to our custom SA, explicitly omitting system:auth-delegator.
 func cloneControllerRBAC(ctx context.Context) {
+	ginkgo.GinkgoHelper()
 	// Clone ClusterRoleBindings
 	var crbs rbacv1.ClusterRoleBindingList
 	gomega.Expect(k8sClient.List(ctx, &crbs)).To(gomega.Succeed())

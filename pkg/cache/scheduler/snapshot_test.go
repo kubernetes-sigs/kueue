@@ -57,7 +57,8 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "released"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "candidateOrderCache"),
+	cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "released"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -1411,6 +1412,139 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	}
 }
 
+func TestSnapshotUsesTASNodesOf(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	// Flavors are named after the leaf level of their topology, if any, and the
+	// node label they select, and nodes after their zone and pool labels.
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeDefaultOneLevelTopology("hostname"),
+		utiltestingapi.MakeTopology("rack").Levels("rack").Obj(),
+	}
+	rfs := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-a").TopologyName("hostname").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-hostname-pool-p").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-rack-zone-a").TopologyName("rack").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("non-tas-zone-a").NodeLabel("zone", "a").Obj(),
+	}
+	makeNode := func(name string, labels map[string]string) *corev1.Node {
+		n := node.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("2"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready()
+		for k, v := range labels {
+			n = n.Label(k, v)
+		}
+		return n.Obj()
+	}
+	nodes := []*corev1.Node{
+		makeNode("node-zone-a-pool-p", map[string]string{"zone": "a", "pool": "p", "rack": "r1"}),
+		makeNode("node-zone-a", map[string]string{"zone": "a", "rack": "r1"}),
+	}
+	// admittedWorkload returns a Workload admitted with the flavor and, unless
+	// the level is empty, assigned to the domain of that topology level.
+	admittedWorkload := func(flavor kueue.ResourceFlavorReference, level, domain string) *kueue.Workload {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1")
+		psa := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, flavor, "1")
+		if level != "" {
+			ps = ps.RequiredTopologyRequest(level)
+			psa = psa.TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{level}).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{domain}, 1).Obj()).
+				Obj())
+		}
+		return utiltestingapi.MakeWorkload("wl", "").
+			PodSets(*ps.Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(psa.Obj()).Obj(), now).
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		disableOverlappingFlavors bool
+		workload                  *kueue.Workload
+		flavors                   []kueue.ResourceFlavorReference
+		want                      bool
+	}{
+		"workload on the same flavor as the checked flavor": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     true,
+		},
+		"workload on another flavor, on a node shared with the checked flavor": {
+			workload: admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     true,
+		},
+		"workload on another flavor, on a node not shared with the checked flavor": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p"},
+			want:     false,
+		},
+		"workload on a node of only one of the checked flavors": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p", "tas-hostname-zone-a"},
+			want:     true,
+		},
+		// With TASHandleOverlappingFlavors, only flavors with a hostname leaf
+		// level account for the usage of each other on the nodes they share.
+		"workload on a node shared with a checked flavor without a hostname leaf level": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-rack-zone-a"},
+			want:     false,
+		},
+		"workload on a flavor without a hostname leaf level, on a rack named like a node of the checked flavor": {
+			workload: admittedWorkload("tas-rack-zone-a", "rack", "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     false,
+		},
+		// Workloads without TAS run pods on nodes too, but Kueue tracks those pods
+		// only as non-TAS usage of the nodes, not as TAS usage of the workload, so
+		// such workloads never count as using the nodes of the checked flavor.
+		"workload on a flavor without TAS, on nodes shared with the checked flavor": {
+			workload: admittedWorkload("non-tas-zone-a", "", ""),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     false,
+		},
+		"workload on another flavor, on a node shared with the checked flavor, when TASHandleOverlappingFlavors is disabled": {
+			disableOverlappingFlavors: true,
+			workload:                  admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
+			flavors:                   []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:                      false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: !tc.disableOverlappingFlavors,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			for _, rf := range rfs {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			for _, n := range nodes {
+				cache.TASCache().SyncNode(n)
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			got := snapshot.UsesTASNodesOf(workload.NewInfo(log, tc.workload), sets.New(tc.flavors...))
+			if got != tc.want {
+				t.Errorf("UsesTASNodesOf() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSnapshotLog is a sanity check for logging the snapshot, which the
 // scheduler does on every scheduling cycle when running with high verbosity.
 func TestSnapshotLog(t *testing.T) {
@@ -2430,7 +2564,21 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			cq := snap.ClusterQueue("c1")
 			kept, released := cq.Workloads["/kept"], cq.Workloads["/released"]
+			if !cq.WorkloadUsageIsAccounted(kept) || !cq.WorkloadUsageIsAccounted(released) {
+				t.Fatal("new snapshot should account for both workloads")
+			}
+			if cq.WorkloadUsageIsAccounted(nil) || cq.WorkloadUsageIsAccounted(&workload.Info{}) {
+				t.Fatal("nil workloads should not have accounted usage")
+			}
+			recreated := kept.Obj.DeepCopy()
+			recreated.UID = "recreated-uid"
+			if cq.WorkloadUsageIsAccounted(workload.NewInfo(log, recreated)) {
+				t.Fatal("same-name workload with a different UID should not have accounted usage")
+			}
 			snap.ReleaseWorkloadUsage(released)
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Fatal("released workload should no longer have accounted usage")
+			}
 
 			revert := tc.operate(snap, kept, released)
 			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(tc.wantUsage) != 0 {
@@ -2438,6 +2586,9 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			if _, got := cq.Workloads["/released"]; got != tc.wantReleasedHeld {
 				t.Errorf("Unexpected presence of the released workload after the operation: got %t, want %t", got, tc.wantReleasedHeld)
+			}
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Error("operation made released workload usage accounted again")
 			}
 			if revert == nil {
 				return
@@ -2448,6 +2599,12 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			if _, found := cq.Workloads["/released"]; !found {
 				t.Error("The released workload is missing from its ClusterQueue after the revert")
+			}
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Error("revert made released workload usage accounted again")
+			}
+			if !cq.WorkloadUsageIsAccounted(kept) {
+				t.Error("revert lost the kept workload's accounted usage")
 			}
 		})
 	}

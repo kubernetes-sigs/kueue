@@ -1158,6 +1158,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1189,6 +1190,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
@@ -1307,6 +1309,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2692,6 +2695,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				NodeSelector("node-selector-key1", "common-value").
 				NodeSelector("node-selector-key2", "only-in-check2").
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2804,6 +2808,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2908,6 +2913,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "a").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
@@ -4651,6 +4657,109 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"when the prebuilt workload is already finished, it is not adopted and the job is suspended": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("new-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("new-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"when the prebuilt workload is already finished and controlled by the job, its finalizer is removed": {
+			job: baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+			},
 		},
 		"when the prebuilt workload is not equivalent to the job": {
 			featureGates: map[featuregate.Feature]bool{

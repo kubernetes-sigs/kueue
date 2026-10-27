@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
@@ -306,7 +307,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("finishing the empty workload", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, emptyWl)
+				integration.FinishWorkloads(ctx, k8sClient, emptyWl)
 			})
 
 			ginkgo.By("checking a dev workload gets admitted")
@@ -322,7 +323,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(devClusterQ, "", 1)
 
 			ginkgo.By("checking the second workload gets admitted when the first workload finishes")
-			behavioral.FinishWorkloads(ctx, k8sClient, prodWl1)
+			integration.FinishWorkloads(ctx, k8sClient, prodWl1)
 			prodWl2Admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(prodClusterQ.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "5").Obj()).
 				Obj()
@@ -391,7 +392,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("finishing the first workload", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+				integration.FinishWorkloads(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("checking the second workload is also admitted", func() {
@@ -453,7 +454,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("finishing the first workload", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+				integration.FinishWorkloads(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("checking the second workload is also admitted", func() {
@@ -482,7 +483,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				behavioral.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
 			})
@@ -506,7 +507,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Reclaim two pods from the second workload so that the first workload is resumed", func() {
 				reclaimablePods := []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}}
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, secondWl, reclaimablePods)
+				integration.UpdateReclaimablePods(ctx, k8sClient, secondWl, reclaimablePods)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl, secondWl)
 				behavioral.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				behavioral.ExpectReservingActiveWorkloadsMetric(preemptionClusterQ, 2)
@@ -542,7 +543,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				behavioral.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 2)
 			})
@@ -578,7 +579,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload and admitting the second one", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "third", Count: 1}})
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				behavioral.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(preemptionClusterQ, "", 1)
@@ -630,7 +631,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 5)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.UnholdClusterQueue(ctx, k8sClient, prodClusterQ)
+				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, prodClusterQ, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
@@ -642,7 +643,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 
 				ginkgo.By("after the high priority workloads finish, only the mid priority workloads should be admitted")
-				behavioral.FinishWorkloads(ctx, k8sClient, wlHigh1, wlHigh2)
+				integration.FinishWorkloads(ctx, k8sClient, wlHigh1, wlHigh2)
 
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlMid1, wlMid2)
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
@@ -728,7 +729,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.UnholdLocalQueue(ctx, k8sClient, prodQueue)
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, prodQueue, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
@@ -740,7 +741,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
 
 				ginkgo.By("after the high priority workloads finish, only the mid priority workloads should be admitted")
-				behavioral.FinishWorkloads(ctx, k8sClient, wlHigh1, wlHigh2)
+				integration.FinishWorkloads(ctx, k8sClient, wlHigh1, wlHigh2)
 
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlMid1, wlMid2)
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
@@ -771,7 +772,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
 
 			ginkgo.By("Marking the big workload as finished")
-			behavioral.FinishWorkloads(ctx, k8sClient, bigWl)
+			integration.FinishWorkloads(ctx, k8sClient, bigWl)
 
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, smallWl1, smallWl2)
 			behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
@@ -792,7 +793,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}})
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
@@ -1505,14 +1506,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl2)
 
 			ginkgo.By("Finishing the first workload for the prod ClusterQueue")
-			behavioral.FinishWorkloads(ctx, k8sClient, pWl1)
+			integration.FinishWorkloads(ctx, k8sClient, pWl1)
 
 			// The pWl2 workload gets accepted, even though it was created after dWl1.
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, pWl2)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1)
 
 			ginkgo.By("Finishing second workload for prod ClusterQueue")
-			behavioral.FinishWorkloads(ctx, k8sClient, pWl2)
+			integration.FinishWorkloads(ctx, k8sClient, pWl2)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
 
@@ -2646,12 +2647,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.MustCreate(ctx, k8sClient, admittedWl2)
 
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl1, admittedWl2)
-			gomega.Eventually(func(g gomega.Gomega) {
-				var cq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cqTeamA, kueue.Hold)
 
 			// pendingWl exceed nominal+borrowing quota and cannot preempt as priority based
 			// premption within CQ is disabled.
@@ -2671,12 +2667,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Queue(kueue.LocalQueueName(lqTeamA.Name)).Request(corev1.ResourceCPU, "1").Priority(10).Obj()
 			behavioral.MustCreate(ctx, k8sClient, blockedWl)
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				var cq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cqTeamA, kueue.None)
 
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl, blockedWl)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, borrowingWl)
@@ -3031,16 +3022,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
 
 			ginkgo.By("Stopping the ClusterQueue")
-			var clusterQueue kueue.ClusterQueue
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
-				g.Expect(k8sClient.Update(ctx, &clusterQueue)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 
 			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
 			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
-			behavioral.ExpectEvictedWorkloadsTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
+			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 			behavioral.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
 
 			ginkgo.By("Checking the condition of workload is evicted", func() {
@@ -3067,18 +3053,65 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 2)
 
 			ginkgo.By("Restart the ClusterQueue by removing its stopPolicy")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = nil
-				g.Expect(k8sClient.Update(ctx, &clusterQueue)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.UnsetClusterQueueStopPolicy(ctx, k8sClient, cq)
 
 			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq, 2)
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1, wl2)
+			integration.FinishWorkloads(ctx, k8sClient, wl1, wl2)
+		})
+
+		drainClusterQueue := func() {
+			ginkgo.By("Stopping the ClusterQueue")
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
+		}
+
+		expectEvictedByClusterQueueStopped := func(wl *kueue.Workload) {
+			ginkgo.By("Checking the condition of workload is evicted")
+			createdWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
+				g.Expect(meta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)).Should(
+					gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+						Message: "The ClusterQueue is stopped",
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration),
+				)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
+		}
+
+		ginkgo.It("Should evict workloads when stop policy is drain and the LocalQueue is held", func() {
+			ginkgo.By("Creating a workload")
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Holding the LocalQueue")
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, queue, kueue.Hold)
+			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
+
+			drainClusterQueue()
+			expectEvictedByClusterQueueStopped(wl)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.It("Should evict workloads when stop policy is drain and the LocalQueue is deleted", func() {
+			ginkgo.By("Creating a workload")
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Deleting the LocalQueue")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, queue, true)
+
+			drainClusterQueue()
+			expectEvictedByClusterQueueStopped(wl)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 		})
 	})
 
@@ -3134,11 +3167,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Stopping the LocalQueue")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLq)).To(gomega.Succeed())
-				createdLq.Spec.StopPolicy = new(kueue.HoldAndDrain)
-				g.Expect(k8sClient.Update(ctx, createdLq)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
 
 			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
 			behavioral.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
@@ -3182,11 +3211,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 
 			ginkgo.By("Restart the LocalQueue by removing its stopPolicy")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLq)).To(gomega.Succeed())
-				createdLq.Spec.StopPolicy = nil
-				g.Expect(k8sClient.Update(ctx, createdLq)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.UnsetLocalQueueStopPolicy(ctx, k8sClient, lq)
 
 			ginkgo.By("Checking the condition of LocalQueue is active")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3207,7 +3232,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq, 2)
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1, wl2)
+			integration.FinishWorkloads(ctx, k8sClient, wl1, wl2)
 		})
 	})
 
@@ -3264,7 +3289,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Mark wl1 as finished which allows wl2 to be admitted", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+				integration.FinishWorkloads(ctx, k8sClient, wl1)
 
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
@@ -3275,7 +3300,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Mark remaining workloads as finished", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl2, wl3)
+				integration.FinishWorkloads(ctx, k8sClient, wl2, wl3)
 
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 				behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
@@ -3364,7 +3389,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Mark all workloads as finished", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl1, wl2, wl3, wl4)
+				integration.FinishWorkloads(ctx, k8sClient, wl1, wl2, wl3, wl4)
 			})
 		})
 	})
@@ -3535,7 +3560,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq2, 0, 1)
 
 			ginkgo.By("finish first foundation workload")
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq1, 0)
 			behavioral.ExpectPendingWorkloadsMetric(cq1, 1, 0)
 
@@ -3544,7 +3569,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq2, 1, 0)
 
 			ginkgo.By("second foundation workload reclaims capacity from a best-effort workload")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 1)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 1)
 
 			ginkgo.By("second foundation workload admitted")
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq1, 1)
@@ -3591,7 +3616,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq2, 2, 0)
 
 			ginkgo.By("finish first foundation workload")
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
 
 			ginkgo.By("best-effort workloads not admitted as foundation workload has priority")
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq2, 0)
@@ -4080,7 +4105,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("finishing production workloads to free tree capacity")
-			behavioral.FinishWorkloads(ctx, k8sClient, prodWls...)
+			integration.FinishWorkloads(ctx, k8sClient, prodWls...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(productionCq), productionCq)).Should(gomega.Succeed())
 				g.Expect(productionCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
@@ -4337,6 +4362,78 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlNew)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wlNew)
+		})
+		ginkgo.It("Should requeue inadmissible workloads across the whole tree after swapping cohort parents through a cycle", func() {
+			// cohort-a starts as the root with cohort-b under it. Setting cohort-a's parent
+			// to cohort-b creates a cycle, and clearing cohort-b's parent resolves it with
+			// cohort-a under cohort-b. swap-cq-a has no quota and must borrow from swap-cq-b.
+			ginkgo.By("Creating cohort-a as root and cohort-b under it")
+			cohortA := utiltestingapi.MakeCohort("").GeneratedName("swap-cohort-a-").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortA)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+			})
+			cohortB := utiltestingapi.MakeCohort("").GeneratedName("swap-cohort-b-").
+				Parent(kueue.CohortReference(cohortA.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortB)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+			})
+
+			cqA := createQueue(utiltestingapi.MakeClusterQueue("swap-cq-a").
+				Cohort(kueue.CohortReference(cohortA.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+			cqB := createQueue(utiltestingapi.MakeClusterQueue("swap-cq-b").
+				Cohort(kueue.CohortReference(cohortB.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).
+				Obj())
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cqA, cqB)
+
+			ginkgo.By("Using all of swap-cq-b's quota")
+			wlB := utiltestingapi.MakeWorkload("swap-wl-b", ns.Name).
+				Queue(kueue.LocalQueueName(cqB.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
+
+			ginkgo.By("Setting cohort-a parent to cohort-b, which creates a cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updated := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), updated)).To(gomega.Succeed())
+				updated.Spec.ParentName = kueue.CohortReference(cohortB.Name)
+				g.Expect(k8sClient.Update(ctx, updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, cq := range []*kueue.ClusterQueue{cqA, cqB} {
+					readCq := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
+					g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonCohortCycleDetected))
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Clearing cohort-b parent, which resolves the cycle with cohort-a under cohort-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updated := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortB), updated)).To(gomega.Succeed())
+				updated.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cqA, cqB)
+
+			ginkgo.By("Submitting a workload to swap-cq-a that cannot borrow yet")
+			wlA := utiltestingapi.MakeWorkload("swap-wl-a", ns.Name).
+				Queue(kueue.LocalQueueName(cqA.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlA)
+			behavioral.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+
+			ginkgo.By("Finishing the workload in swap-cq-b frees quota that swap-cq-a can borrow")
+			integration.FinishWorkloads(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
 		})
 	})
 	ginkgo.When("Workload slicing with multiple podSets", func() {
@@ -4606,7 +4703,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("freeing 4 CPU in a single step", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, blocker)
+				integration.FinishWorkloads(ctx, k8sClient, blocker)
 			})
 
 			ginkgo.By("admitting the replacement, which takes 2 of the 4 CPU", func() {

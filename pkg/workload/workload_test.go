@@ -43,6 +43,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -735,6 +736,49 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceMemory: 0,
 						}),
 						Count: 0,
+					},
+				},
+			},
+		},
+		"admitted with reclaim and no assignment count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "10m").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(kueue.PodSetAssignment{
+							Name: kueue.DefaultPodSetName,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "f1",
+							},
+							// Without a count, this usage is for all 5 Pods of the PodSet.
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50m"),
+							},
+						}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "f1",
+						},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 3 * 10,
+						}),
+						Count: 3,
 					},
 				},
 			},
@@ -2183,67 +2227,6 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 			got := LimitReclaimablePodsToPodSetSizes(wl, tc.reclaimablePods)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected reclaimable pods (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestAssignmentClusterQueueState(t *testing.T) {
-	cases := map[string]struct {
-		state              *FlavorScanState
-		wantPendingFlavors bool
-	}{
-		"no info": {
-			wantPendingFlavors: false,
-		},
-		"all done": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    -1,
-						corev1.ResourceMemory: -1,
-					},
-					{
-						corev1.ResourceMemory: -1,
-					},
-				},
-			},
-			wantPendingFlavors: false,
-		},
-		"some pending": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    0,
-						corev1.ResourceMemory: -1,
-					},
-					{
-						corev1.ResourceMemory: 1,
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-		"all pending": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    1,
-						corev1.ResourceMemory: 0,
-					},
-					{
-						corev1.ResourceMemory: 1,
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := tc.state.PendingFlavors()
-			if got != tc.wantPendingFlavors {
-				t.Errorf("state.PendingFlavors() = %t, want %t", got, tc.wantPendingFlavors)
 			}
 		})
 	}
@@ -4108,6 +4091,32 @@ func TestSchedulingHash(t *testing.T) {
 				features.ConcurrentAdmission:          true,
 			},
 		},
+		"same spec, replacing different workload slices produces different hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+		},
 		"same spec, different topology spreading annotation produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4188,9 +4197,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1, tc.infoOptions1...)
-			info1.updateDerivedFields(log)
+			info1.updateDerivedFields(log, false)
 			info2 := NewInfo(log, tc.wl2, tc.infoOptions2...)
-			info2.updateDerivedFields(log)
+			info2.updateDerivedFields(log, false)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -4211,7 +4220,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateDerivedFields(log)
+		before.updateDerivedFields(log, false)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -4223,7 +4232,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateDerivedFields(log)
+		after.updateDerivedFields(log, false)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -4345,6 +4354,38 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
+		}
+	})
+
+	t.Run("WithSkipSchedulingHash leaves the hash empty and keeps topology spreading", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+			features.TASTopologySpreading:         true,
+		})
+		wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`}).
+				Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		hashed := NewInfo(log, wl)
+		if hashed.SchedulingHash == "" || len(hashed.TopologySpreading) == 0 {
+			t.Fatalf("precondition failed: hash %q, topology spreading %v", hashed.SchedulingHash, hashed.TopologySpreading)
+		}
+
+		skipped := NewInfo(log, wl, WithSkipSchedulingHash())
+		if skipped.SchedulingHash != "" {
+			t.Errorf("SchedulingHash = %q, want empty", skipped.SchedulingHash)
+		}
+		if len(skipped.TopologySpreading) != len(hashed.TopologySpreading) {
+			t.Errorf("TopologySpreading has %d groups, want %d", len(skipped.TopologySpreading), len(hashed.TopologySpreading))
+		}
+
+		// An Info that already holds a hash must not keep it once the inputs change.
+		hashed.Update(log, utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("2").
+			Request(corev1.ResourceCPU, "2").Obj(), WithSkipSchedulingHash())
+		if hashed.SchedulingHash != "" {
+			t.Errorf("SchedulingHash after Update = %q, want empty", hashed.SchedulingHash)
 		}
 	})
 }

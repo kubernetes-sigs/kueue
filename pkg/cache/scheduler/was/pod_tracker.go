@@ -114,13 +114,15 @@ func (t *podTracker) track(pod *corev1.Pod) {
 	t.savePod(key, pod)
 }
 
-func (t *podTracker) untrack(key client.ObjectKey) {
+func (t *podTracker) untrack(key client.ObjectKey) string {
 	t.Lock()
 	defer t.Unlock()
 
 	if pod, ok := t.pods[key]; ok {
 		t.clearPod(key, pod)
+		return pod.Spec.NodeName
 	}
+	return ""
 }
 
 func (t *podTracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {

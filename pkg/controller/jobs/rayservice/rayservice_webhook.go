@@ -41,9 +41,9 @@ import (
 )
 
 var (
-	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupSpecsPath   = field.NewPath("spec", "rayClusterConfig", "headGroupSpec")
 	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
-	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	workerGroupSpecsPath = field.NewPath("spec", "rayClusterConfig", "workerGroupSpecs")
 	upgradeStrategyPath  = field.NewPath("spec", "upgradeStrategy", "type")
 )
 
@@ -155,7 +155,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		specPath := field.NewPath("spec")
 
 		clusterSpec := &spec.RayClusterSpec
-		clusterSpecPath := specPath.Child("rayClusterSpec")
+		clusterSpecPath := specPath.Child("rayClusterConfig")
 		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
 		if len(rayClusterSpecErrors) > 0 {

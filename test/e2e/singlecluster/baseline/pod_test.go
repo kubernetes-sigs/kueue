@@ -259,7 +259,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					behavioral.MustCreate(ctx, k8sClient, excess)
 				})
 				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
-					behavioral.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *eventsv1.Event) bool {
+					e2e.ExpectEventsForObjectsWithTimeout(eventWatcher, excessPods, func(e *eventsv1.Event) bool {
 						return e.Regarding.Namespace == ns.Name && e.Reason == pod.ReasonExcessPodDeleted
 					}, behavioral.MediumTimeout)
 				})
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			ginkgo.By("Use events to observe the default-priority pods are getting preempted", func() {
-				behavioral.ExpectEventsForObjectsWithTimeout(eventWatcher, defaultGroupPods, func(e *eventsv1.Event) bool {
+				e2e.ExpectEventsForObjectsWithTimeout(eventWatcher, defaultGroupPods, func(e *eventsv1.Event) bool {
 					return e.Regarding.Namespace == ns.Name && e.Reason == jobframework.ReasonStopped && strings.Contains(e.Note, "Preempted")
 				}, behavioral.MediumTimeout)
 			})

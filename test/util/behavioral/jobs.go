@@ -18,9 +18,7 @@ package behavioral
 
 import (
 	"context"
-	"time"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -106,33 +104,4 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job does not have expected node selectors", job))
-}
-
-func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job) {
-	ginkgo.GinkgoHelper()
-	createdJob := &batchv1.Job{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-		g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
-		g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job is not running", createdJob))
-}
-
-func ExpectJobToBeCompletedWithTimeout(ctx context.Context, c client.Client, job *batchv1.Job, timeout time.Duration) {
-	ginkgo.GinkgoHelper()
-	createdJob := &batchv1.Job{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-		g.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-			batchv1.JobCondition{
-				Type:   batchv1.JobComplete,
-				Status: corev1.ConditionTrue,
-			},
-			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Job did not complete", createdJob))
-}
-
-func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
-	ginkgo.GinkgoHelper()
-	ExpectJobToBeCompletedWithTimeout(ctx, c, job, MediumTimeout)
 }

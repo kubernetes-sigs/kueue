@@ -43,6 +43,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingsparkapplication "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -402,7 +403,7 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)

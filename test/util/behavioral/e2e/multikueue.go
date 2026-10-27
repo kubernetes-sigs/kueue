@@ -128,6 +128,7 @@ var frameworkRules = map[string][]rbacv1.PolicyRule{
 // MultiKueueRulesForManager returns RBAC rules matching the integrations
 // enabled in the Kueue manager configuration. Workload rules are always included.
 func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []rbacv1.PolicyRule {
+	ginkgo.GinkgoHelper()
 	cfg := GetKueueConfiguration(ctx, k8sClient)
 
 	rules := []rbacv1.PolicyRule{
@@ -291,7 +292,9 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
+		ginkgo.GinkgoHelper()
 		return strings.Join([]string{
+			msg,
 			behavioral.AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
 			behavioral.AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
 			behavioral.AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
@@ -300,6 +303,7 @@ func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8s
 }
 
 func getWorkload(ctx context.Context, c client.Client, wlKey client.ObjectKey) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	wl := &kueue.Workload{}
 	err := c.Get(ctx, wlKey, wl)
 	if err != nil {

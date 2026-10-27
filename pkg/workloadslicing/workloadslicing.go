@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	slicesutil "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -89,7 +90,7 @@ func IsEnabledForProvisioningRequests(wl *kueue.Workload) bool {
 const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
-	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
+	WorkloadSliceReplacementFor = constants.WorkloadSliceReplacementForAnnotation
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
@@ -163,23 +164,35 @@ func WithFinishedWorkloads() FindLatestAdmittedWorkloadSliceOption {
 	}
 }
 
+func listMatchingWorkloadSlices(
+	ctx context.Context,
+	c client.Client,
+	namespace, sliceName string,
+	keep func(*kueue.Workload) bool,
+) ([]kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := c.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+	return slicesutil.Pick(list.Items, keep), nil
+}
+
 func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, options ...FindLatestAdmittedWorkloadSliceOption) (*kueue.Workload, error) {
 	opts := findLatestAdmittedWorkloadSliceOptions{}
 	for _, option := range options {
 		option(&opts)
 	}
-	wls := &kueue.WorkloadList{}
-	if err := c.List(ctx, wls, client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+	wls, err := listMatchingWorkloadSlices(ctx, c, namespace, sliceName, func(wl *kueue.Workload) bool {
+		return workload.IsAdmitted(wl) && (opts.includeFinished || !workloadfinish.IsFinished(wl)) && !workloadevict.IsEvicted(wl) &&
+			(!opts.excludeVariants || !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsVariant(wl))
+	})
+	if err != nil {
 		return nil, err
 	}
 	var latestAdmittedWl *kueue.Workload
-	for i := range wls.Items {
-		wl := &wls.Items[i]
-		if !workload.IsAdmitted(wl) || (!opts.includeFinished && workloadfinish.IsFinished(wl)) || workloadevict.IsEvicted(wl) ||
-			(opts.excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
-			continue
-		}
+	for i := range wls {
+		wl := &wls[i]
 		if latestAdmittedWl == nil || wl.CreationTimestamp.After(latestAdmittedWl.CreationTimestamp.Time) ||
 			(wl.CreationTimestamp.Equal(&latestAdmittedWl.CreationTimestamp) && cmp.Compare(wl.UID, latestAdmittedWl.UID) > 0) {
 			latestAdmittedWl = wl
@@ -288,136 +301,25 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
-// EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
-//
-// Returns:
-// - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
-// - nil, false, nil: when an incompatible workload exists and no update is performed.
-// - error: on failure to fetch, update, or deactivate a workload slice.
-func EnsureWorkloadSlices(
-	ctx context.Context,
-	clnt client.Client,
-	clk clock.Clock,
-	jobPodSets []kueue.PodSet,
-	jobObject client.Object,
-	jobObjectGVK schema.GroupVersionKind,
-) (*kueue.Workload, bool, error) {
-	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
-
-	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
-	if err != nil {
-		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
-	}
-
-	// An evicted slice can still own running Pods. Return it to the job
-	// reconciler until its reservation is released, unless an admitted
-	// replacement has already taken ownership of those Pods.
-	for i := range workloads {
-		wl := &workloads[i]
-		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
-			continue
-		}
-		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
-			key := ReplacementForKey(&candidate)
-			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
-		})
-		if !replaced {
-			return wl, true, nil
-		}
-	}
-
-	switch len(workloads) {
-	case 0:
-		// No existing slices found — new slice should be created.
-		return nil, true, nil
-
-	case 1:
-		// A single active workload was found.
-		wl := &workloads[0]
-		wlPodSetsCounts := workload.ExtractPodSetCountsFromWorkload(wl)
-
-		// Check if pod sets are structurally compatible (same number and names).
-		if !jobPodSetsCounts.HasSamePodSetKeys(wlPodSetsCounts) {
-			return nil, false, nil
-		}
-
-		// If counts match, return the existing workload slice or nil if the workload was partially admitted.
-		if jobPodSetsCounts.EqualTo(wlPodSetsCounts) {
-			if workload.IsAdmitted(wl) {
-				for _, psa := range wl.Status.Admission.PodSetAssignments {
-					if wlPodSetsCounts[psa.Name] > *psa.Count {
-						// The workload was partially admitted, create the full scale up probe
-						return nil, true, nil
-					}
-				}
-			}
-			return wl, true, nil
-		}
-
-		// Allow updating the existing slice if:
-		// a. It hasn't been admitted (no quota reserved), or
-		// b. It's a scale-down event.
-		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
-			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
-			if err := clnt.Update(ctx, wl); err != nil {
-				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
-			}
-			return wl, true, nil
-		}
-
-		// Scale-up on admitted workload → create a new slice.
-		return nil, true, nil
-
-	default:
-		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
-		if err != nil {
-			return nil, true, err
-		}
-		if selectedWorkload == nil {
-			return nil, true, nil
-		}
-
-		selectedCounts := workload.ExtractPodSetCountsFromWorkload(selectedWorkload)
-
-		if !jobPodSetsCounts.HasSamePodSetKeys(selectedCounts) {
-			return nil, false, nil
-		}
-
-		if jobPodSetsCounts.EqualTo(selectedCounts) {
-			return selectedWorkload, true, nil
-		}
-
-		if !workload.HasQuotaReservation(selectedWorkload) || ScaledDown(selectedCounts, jobPodSetsCounts) {
-			workload.ApplyPodSetCounts(selectedWorkload, jobPodSetsCounts)
-			if err := clnt.Update(ctx, selectedWorkload); err != nil {
-				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
-			}
-			return selectedWorkload, true, nil
-		}
-
-		// Scale-up on admitted selected workload — create a new slice.
-		return nil, true, nil
-	}
-}
-
 // FinishReplacedWorkloadSlices finds the workload slices that should have been
 // replaced and finishes them.
 func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
-	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
+	wls, err := listMatchingWorkloadSlices(ctx, clnt, wl.Namespace, SliceName(wl), func(candidate *kueue.Workload) bool {
+		return !workloadfinish.IsFinished(candidate)
+	})
+	if err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
 	log := ctrl.LoggerFrom(ctx)
 	replaced := sets.New[workload.Reference]()
-	for i := range list.Items {
-		if key := replacementTarget(&list.Items[i]); key != nil {
+	for i := range wls {
+		if key := replacementTarget(&wls[i]); key != nil {
 			replaced.Insert(*key)
 		}
 	}
-	for i := range list.Items {
-		predecessor := &list.Items[i]
-		if !replaced.Has(workload.Key(predecessor)) || workloadfinish.IsFinished(predecessor) {
+	for i := range wls {
+		predecessor := &wls[i]
+		if !replaced.Has(workload.Key(predecessor)) {
 			continue
 		}
 		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))

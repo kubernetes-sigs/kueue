@@ -67,6 +67,367 @@ func TestValidate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"unset metrics mode without gate": {
+			cfg:          &configapi.Configuration{Integrations: defaultIntegrations, Metrics: configapi.ControllerMetrics{BindAddress: "not-an-address"}},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+		},
+		"unsafe metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"}},
+		},
+		"delegated metrics without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"delegated metrics with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled delegated metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled metrics with unknown mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("Unknown")),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"empty metrics access control mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("")),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeNotSupported, Field: "metrics.accessControlMode"},
+			},
+		},
+		"unknown metrics access control mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("Unknown")),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeNotSupported, Field: "metrics.accessControlMode"},
+			},
+		},
+		"IPv4 loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"IPv4 loopback range": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.12.3.4:1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"IPv6 loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::1]:65535",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"mapped loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::ffff:127.0.0.1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"disabled metrics opt out with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"wildcard metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"unspecified IPv4 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0.0.0.0:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"unspecified IPv6 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"non loopback IPv4 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "10.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"non loopback IPv6 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[2001:db8::1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"mapped non loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::ffff:10.0.0.1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"hostname metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "localhost:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"missing metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"named metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:https",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"zero metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"overflow metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:65536",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"negative metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:-1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"URL metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "https://127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"malformed metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"empty metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
 		"empty": {
 			cfg: &configapi.Configuration{},
 			wantErr: field.ErrorList{
@@ -1644,8 +2005,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.deviceClassMappings[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.deviceClassMappings[0].name",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1684,8 +2046,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1704,8 +2067,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1724,8 +2088,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].input",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].input",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1745,8 +2110,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1793,12 +2159,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1824,12 +2192,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[1].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[1].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -2335,7 +2705,12 @@ func TestValidate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			// Most cases leave Detail empty; compare it only when the first error sets one.
+			ignoreFields := []string{"BadValue"}
+			if len(tc.wantErr) > 0 && tc.wantErr[0].Detail == "" {
+				ignoreFields = append(ignoreFields, "Detail")
+			}
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, ignoreFields...)); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
@@ -2349,6 +2724,64 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
+		"CLI rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=false",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"CLI accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=true",
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is unset": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         true,
+			},
+		},
+		"child suspension bypass is not required when MultiKueue Ray autoscaling is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): false,
+				string(features.SkipChildJobSuspension):         false,
+			},
+		},
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},

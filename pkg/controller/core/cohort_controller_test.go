@@ -19,10 +19,13 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -155,8 +158,8 @@ func TestCohortReconcileCycleReturnsSuccess(t *testing.T) {
 func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 	// This test verifies the cache Snapshot state during and after a cohort cycle.
 	// When AddOrUpdateCohort errors (cycle detected), the reconciler returns early
-	// without calling qManager.AddOrUpdateCohort. The observable effect is that
-	// cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
+	// after recording the new parent in the queue manager. The observable effect is
+	// that cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
 	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
@@ -174,7 +177,7 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 	}
 
 	// Reconcile cohort-b: B -> A closes the cycle. The reconciler handles the
-	// scheduler-cache cycle error without retrying or updating the queue manager.
+	// scheduler-cache cycle error without retrying, but still updates the queue manager.
 	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
 		t.Fatalf("unexpected error when adding cycle: %v", err)
 	}
@@ -375,6 +378,136 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 	}
 }
 
+// TestCohortEventHandlersUpdateCacheWithoutReconcile checks that the event
+// handlers alone keep the Cohort and its quota in the cache. On a follower,
+// WithLeadingManager does not call Reconcile, so this is what a warm
+// follower holds when it takes the lease.
+func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
+	red := resources.FlavorResource{Flavor: "red", Resource: "cpu"}
+	quota := func(cpu string) kueue.FlavorQuotas {
+		return *utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", cpu).Obj()
+	}
+	root10 := utiltestingapi.MakeCohort("root").ResourceGroup(quota("10")).Obj()
+	root5 := utiltestingapi.MakeCohort("root").ResourceGroup(quota("5")).Obj()
+	rootToA := utiltestingapi.MakeCohort("root").Parent("cohort-a").Obj()
+	aToRoot := utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj()
+	aNoParent := utiltestingapi.MakeCohort("cohort-a").Obj()
+
+	type cohortEvent struct {
+		create *kueue.Cohort
+		old    *kueue.Cohort
+		update *kueue.Cohort
+		delete *kueue.Cohort
+	}
+	tests := []struct {
+		name   string
+		events []cohortEvent
+		// reconcile runs the leader's Reconcile for root after the events.
+		reconcile bool
+		// wantSubtreeQuota is the red cpu quota of root in the snapshot, nil
+		// when root is not in the snapshot.
+		wantSubtreeQuota *resources.Amount
+		wantCQActive     bool
+	}{
+		{
+			name:             "create adds the quota of an explicit Cohort",
+			events:           []cohortEvent{{create: root10}},
+			wantSubtreeQuota: new(resources.NewAmount(10_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "update replaces the quota",
+			events:           []cohortEvent{{create: root10}, {old: root10, update: root5}},
+			wantSubtreeQuota: new(resources.NewAmount(5_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "delete keeps an implicit Cohort without quota",
+			events:           []cohortEvent{{create: root10}, {delete: root10}},
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "delete followed by the leader's Reconcile",
+			events:           []cohortEvent{{create: root10}, {delete: root10}},
+			reconcile:        true,
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
+		{
+			name:         "a cycle deactivates the ClusterQueue",
+			events:       []cohortEvent{{create: rootToA}, {create: aToRoot}},
+			wantCQActive: false,
+		},
+		{
+			name: "breaking the cycle reactivates the ClusterQueue",
+			events: []cohortEvent{
+				{create: rootToA},
+				{create: aToRoot},
+				{old: aToRoot, update: aNoParent},
+			},
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			reconciler := NewCohortReconciler(cl, cache, qManager)
+
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("red").Obj())
+			borrower := utiltestingapi.MakeClusterQueue("borrower").
+				Cohort("root").
+				ResourceGroup(quota("0")).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, borrower); err != nil {
+				t.Fatalf("AddClusterQueue() = %v", err)
+			}
+
+			for _, e := range tc.events {
+				switch {
+				case e.create != nil:
+					reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: e.create.DeepCopy()})
+				case e.update != nil:
+					reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: e.old.DeepCopy(), ObjectNew: e.update.DeepCopy()})
+				case e.delete != nil:
+					reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: e.delete.DeepCopy()})
+				}
+			}
+			if tc.reconcile {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(root10)}); err != nil {
+					t.Fatalf("Reconcile() = %v", err)
+				}
+			}
+
+			if got := cache.ClusterQueueActive("borrower"); got != tc.wantCQActive {
+				t.Errorf("ClusterQueueActive() = %v, want %v", got, tc.wantCQActive)
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() = %v", err)
+			}
+			cohortSnap := snapshot.Cohort("root")
+			if tc.wantSubtreeQuota == nil {
+				if cohortSnap != nil {
+					t.Errorf("Cohort root in snapshot, want it excluded")
+				}
+				return
+			}
+			if cohortSnap == nil {
+				t.Fatal("Cohort root missing from snapshot")
+			}
+			if got := cohortSnap.ResourceNode.SubtreeQuota[red]; !got.Equal(*tc.wantSubtreeQuota) {
+				t.Errorf("subtree quota = %v, want %v", got, *tc.wantSubtreeQuota)
+			}
+		})
+	}
+}
+
 func checkMetricDataPoints(t *testing.T, got, want []testingmetrics.MetricDataPoint) {
 	if diff := cmp.Diff(want, got, cmpopts.SortSlices(func(a, b testingmetrics.MetricDataPoint) bool { return a.Less(&b) })); diff != "" {
 		t.Fatalf("unexpected metrics (-want +got) %s", diff)
@@ -517,10 +650,13 @@ func TestCohortReconcilerFilters(t *testing.T) {
 // written to the API server only when it changes.
 func TestUpdateCohortStatusIfChanged(t *testing.T) {
 	cases := map[string]struct {
-		fairSharingEnabled bool
-		cohortStatus       kueue.CohortStatus
-		wantCohortStatus   kueue.CohortStatus
-		wantStatusUpdates  int
+		fairSharingEnabled      bool
+		cohort                  *kueue.Cohort
+		setupCache              func(ctx context.Context, t *testing.T, cache *schdcache.Cache)
+		cohortStatus            kueue.CohortStatus
+		wantCohortStatus        kueue.CohortStatus
+		wantStatusUpdates       int
+		wantWeightedShareMetric *float64
 	}{
 		"fair sharing disabled and status unchanged": {},
 		"fair sharing disabled clears stale weighted share": {
@@ -528,23 +664,73 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 			wantStatusUpdates: 1,
 		},
 		"fair sharing enabled and weighted share unchanged": {
-			fairSharingEnabled: true,
-			cohortStatus:       kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
-			wantCohortStatus:   kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
+			fairSharingEnabled:      true,
+			cohortStatus:            kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
+			wantCohortStatus:        kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
+			wantWeightedShareMetric: new(0.0),
 		},
 		"fair sharing enabled populates weighted share": {
+			fairSharingEnabled:      true,
+			wantCohortStatus:        kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
+			wantStatusUpdates:       1,
+			wantWeightedShareMetric: new(0.0),
+		},
+		"fair sharing enabled with zero weight borrowing cohort reports NaN metric and MaxInt64 status": {
 			fairSharingEnabled: true,
-			wantCohortStatus:   kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{}},
-			wantStatusUpdates:  1,
+			cohort: utiltestingapi.MakeCohort("cohort").
+				Parent("root").
+				FairWeight(resource.MustParse("0")).
+				Obj(),
+			setupCache: func(ctx context.Context, t *testing.T, cache *schdcache.Cache) {
+				_, log := utiltesting.ContextWithLog(t)
+				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("red").Obj())
+				root := utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj()
+				if err := cache.AddOrUpdateCohort(root); err != nil {
+					t.Fatalf("Inserting root cohort in cache: %v", err)
+				}
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cohort").
+					FairWeight(resource.MustParse("0")).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("red").Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue in cache: %v", err)
+				}
+				now := time.Now()
+				wl := utiltestingapi.MakeWorkload("wl", "ns").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "red", "2").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj()
+				if !cache.AddOrUpdateWorkload(ctx, log, wl) {
+					t.Fatal("Failed adding workload to cache")
+				}
+			},
+			wantCohortStatus:        kueue.CohortStatus{FairSharing: &kueue.FairSharingStatus{WeightedShare: math.MaxInt64}},
+			wantStatusUpdates:       1,
+			wantWeightedShareMetric: new(math.NaN()),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cohort := utiltestingapi.MakeCohort("cohort").ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-			).Obj()
+			cohort := tc.cohort
+			if cohort == nil {
+				cohort = utiltestingapi.MakeCohort("cohort").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+				).Obj()
+			}
 			cohort.Status = tc.cohortStatus
+			metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name))
+			t.Cleanup(func() {
+				metrics.ClearCohortMetrics(kueue.CohortReference(cohort.Name))
+			})
 			var statusUpdates int
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(cohort).
@@ -554,6 +740,9 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 			cache := schdcache.New(cl, schdcache.WithFairSharing(tc.fairSharingEnabled))
 			if err := cache.AddOrUpdateCohort(cohort); err != nil {
 				t.Fatalf("Inserting cohort in cache: %v", err)
+			}
+			if tc.setupCache != nil {
+				tc.setupCache(ctx, t, cache)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cache)
 			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithFairSharing(tc.fairSharingEnabled))
@@ -566,6 +755,18 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 			}
 			if statusUpdates != tc.wantStatusUpdates {
 				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
+			}
+			if tc.wantWeightedShareMetric != nil {
+				dps := testingmetrics.CollectFilteredGaugeVec(metrics.CohortWeightedShare, map[string]string{
+					"cohort":       cohort.Name,
+					"replica_role": "standalone",
+				})
+				if len(dps) != 1 {
+					t.Fatalf("expected 1 CohortWeightedShare metric data point, got %d", len(dps))
+				}
+				if diff := cmp.Diff(*tc.wantWeightedShareMetric, dps[0].Value, cmpopts.EquateNaNs()); diff != "" {
+					t.Errorf("unexpected CohortWeightedShare metric value (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

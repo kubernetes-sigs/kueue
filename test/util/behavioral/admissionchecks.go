@@ -44,8 +44,9 @@ func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissi
 }
 
 func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admissionCheck *kueue.AdmissionCheck, status metav1.ConditionStatus) {
+	ginkgo.GinkgoHelper()
 	var updatedAc kueue.AdmissionCheck
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &updatedAc)).Should(gomega.Succeed())
 		apimeta.SetStatusCondition(&updatedAc.Status.Conditions, metav1.Condition{
 			Type:    kueue.AdmissionCheckActive,
@@ -58,8 +59,9 @@ func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admis
 }
 
 func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
+	ginkgo.GinkgoHelper()
 	readAc := &kueue.AdmissionCheck{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		for _, ac := range acs {
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(ac), readAc)).To(gomega.Succeed())
 			g.Expect(readAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))

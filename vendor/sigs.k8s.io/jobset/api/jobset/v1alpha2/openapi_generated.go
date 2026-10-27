@@ -27,21 +27,24 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.Coordinator":           schema_jobset_api_jobset_v1alpha2_Coordinator(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn":             schema_jobset_api_jobset_v1alpha2_DependsOn(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicy":         schema_jobset_api_jobset_v1alpha2_FailurePolicy(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicyRule":     schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet":                schema_jobset_api_jobset_v1alpha2_JobSet(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetList":            schema_jobset_api_jobset_v1alpha2_JobSetList(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetSpec":            schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetStatus":          schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.Network":               schema_jobset_api_jobset_v1alpha2_Network(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob":         schema_jobset_api_jobset_v1alpha2_ReplicatedJob(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus":   schema_jobset_api_jobset_v1alpha2_ReplicatedJobStatus(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.StartupPolicy":         schema_jobset_api_jobset_v1alpha2_StartupPolicy(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.SuccessPolicy":         schema_jobset_api_jobset_v1alpha2_SuccessPolicy(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy":     schema_jobset_api_jobset_v1alpha2_VolumeClaimPolicy(ref),
-		"sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeRetentionPolicy": schema_jobset_api_jobset_v1alpha2_VolumeRetentionPolicy(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.Coordinator":             schema_jobset_api_jobset_v1alpha2_Coordinator(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn":               schema_jobset_api_jobset_v1alpha2_DependsOn(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicy":           schema_jobset_api_jobset_v1alpha2_FailurePolicy(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicyRule":       schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobScheduling":           schema_jobset_api_jobset_v1alpha2_JobScheduling(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet":                  schema_jobset_api_jobset_v1alpha2_JobSet(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetList":              schema_jobset_api_jobset_v1alpha2_JobSetList(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetScheduling":        schema_jobset_api_jobset_v1alpha2_JobSetScheduling(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetSpec":              schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetStatus":            schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.Network":                 schema_jobset_api_jobset_v1alpha2_Network(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob":           schema_jobset_api_jobset_v1alpha2_ReplicatedJob(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobScheduling": schema_jobset_api_jobset_v1alpha2_ReplicatedJobScheduling(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus":     schema_jobset_api_jobset_v1alpha2_ReplicatedJobStatus(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.StartupPolicy":           schema_jobset_api_jobset_v1alpha2_StartupPolicy(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.SuccessPolicy":           schema_jobset_api_jobset_v1alpha2_SuccessPolicy(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy":       schema_jobset_api_jobset_v1alpha2_VolumeClaimPolicy(ref),
+		"sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeRetentionPolicy":   schema_jobset_api_jobset_v1alpha2_VolumeRetentionPolicy(ref),
 	}
 }
 
@@ -138,8 +141,7 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicy(ref common.ReferenceCallbac
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicyRule"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicyRule"),
 									},
 								},
 							},
@@ -183,9 +185,8 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
+										Type:   []string{"string"},
+										Format: "",
 									},
 								},
 							},
@@ -198,9 +199,8 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
+										Type:   []string{"string"},
+										Format: "",
 									},
 								},
 							},
@@ -218,9 +218,8 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
+										Type:   []string{"string"},
+										Format: "",
 									},
 								},
 							},
@@ -230,6 +229,57 @@ func schema_jobset_api_jobset_v1alpha2_FailurePolicyRule(ref common.ReferenceCal
 				Required: []string{"name", "action"},
 			},
 		},
+	}
+}
+
+func schema_jobset_api_jobset_v1alpha2_JobScheduling(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "JobScheduling defines scheduling configuration applied at the individual Job (ReplicatedJob replica) level, enabling each replica to be scheduled as its own independent gang. This is part of the Gang-of-Gangs model: the JobSet controller compiles one PodGroupTemplate/PodGroup per Job (replica) of the targeted ReplicatedJob, sized to that Job's own parallelism, rather than one PodGroup shared across all of the ReplicatedJob's replicas.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the scheduling policy (basic or gang) applied to each replica of the targeted ReplicatedJobs.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupSchedulingPolicy"),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines topology constraints applied to each replica of the targeted ReplicatedJobs.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupSchedulingConstraints"),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines how pods within a single replica can be disrupted.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupDisruptionMode"),
+						},
+					},
+					"resourceClaims": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-type": "atomic",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "resourceClaims defines claims shared by all pods in each Job's PodGroup.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref("k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupResourceClaim"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupDisruptionMode", "k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupResourceClaim", "k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupSchedulingConstraints", "k8s.io/api/scheduling/v1alpha3.WorkloadPodGroupSchedulingPolicy"},
 	}
 }
 
@@ -316,8 +366,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetList(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet"),
 									},
 								},
 							},
@@ -329,6 +378,57 @@ func schema_jobset_api_jobset_v1alpha2_JobSetList(ref common.ReferenceCallback) 
 		},
 		Dependencies: []string{
 			"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta", "sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSet"},
+	}
+}
+
+func schema_jobset_api_jobset_v1alpha2_JobSetScheduling(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "JobSetScheduling defines the Workload-Aware Scheduling configuration for a JobSet. A JobSet must configure scheduling using exactly one of two mutually exclusive models, since composite Gang-of-Gangs PodGroup hierarchies linking a parent PodGroup to leaf PodGroups are not implemented in alpha:\n  - the top-level (composite) model: set schedulingPolicy,\n    schedulingConstraints, and/or disruptionMode to configure a single PodGroup\n    covering the whole JobSet, and leave replicatedJobs unset.\n  - the per-ReplicatedJob (composite) model: set replicatedJobs and leave\n    schedulingPolicy, schedulingConstraints, and disruptionMode unset at the top\n    level. Every ReplicatedJob must then be targeted by exactly one\n    replicatedJobs entry, since there is no top-level policy for an\n    untargeted ReplicatedJob to fall back to.\n\nSequenced startup (DependsOn or an InOrder StartupPolicy) creates Jobs sequentially, so a single top-level PodGroup could never reach its minCount. A JobSet using sequenced startup must therefore use the per-ReplicatedJob model; top-level scheduling (including the defaulted top-level gang) is rejected with sequenced startup.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the composite-level scheduling policy for the entire JobSet. Defaults to Gang when spec.scheduling is set but schedulingPolicy is nil and replicatedJobs is not set. Top-level scheduling, including this defaulted top-level gang, is forbidden with sequenced startup (DependsOn or an InOrder StartupPolicy), since a single PodGroup spanning the whole JobSet could never reach its minCount while Jobs are created sequentially. Configure Gang policies under replicatedJobs instead in that case. Mutually exclusive with replicatedJobs: see the type-level comment.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingPolicy"),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines composite-level topology constraints for the entire JobSet. Mutually exclusive with replicatedJobs: see the type-level comment.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingConstraints"),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines how the entire composite group can be disrupted. Mutually exclusive with replicatedJobs: see the type-level comment.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupDisruptionMode"),
+						},
+					},
+					"replicatedJobs": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-type": "atomic",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "replicatedJobs specifies per-ReplicatedJob composite-level scheduling overrides. Each entry targets one or more named ReplicatedJobs. Mutually exclusive with the top-level schedulingPolicy, schedulingConstraints, and disruptionMode fields: see the type-level comment. When set, every ReplicatedJob in the JobSet must be targeted by exactly one entry.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobScheduling"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupDisruptionMode", "k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingConstraints", "k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobScheduling"},
 	}
 }
 
@@ -356,8 +456,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob"),
 									},
 								},
 							},
@@ -402,16 +501,23 @@ func schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref common.ReferenceCallback) 
 					},
 					"managedBy": {
 						SchemaProps: spec.SchemaProps{
-							Description: "managedBy is used to indicate the controller or entity that manages a JobSet. The built-in JobSet controller reconciles JobSets which don't have this field at all or the field value is the reserved string `jobset.sigs.k8s.io/jobset-controller`, but skips reconciling JobSets with a custom value for this field.\n\nThe value must be a valid domain-prefixed path (e.g. acme.io/foo) - all characters before the first \"/\" must be a valid subdomain as defined by RFC 1123. All characters trailing the first \"/\" must be valid HTTP Path characters as defined by RFC 3986. The value cannot exceed 63 characters. The field is immutable.",
+							Description: "managedBy is used to indicate the controller or entity that manages a JobSet. The built-in JobSet controller reconciles JobSets which don't have this field at all or the field value is the reserved string `jobset.sigs.k8s.io/jobset-controller`, but skips reconciling JobSets with a custom value for this field. Note that ttlSecondsAfterFinished cleanup still applies to externally managed JobSets once the managing controller has recorded a terminal condition.\n\nThe value must be a valid domain-prefixed path (e.g. acme.io/foo) - all characters before the first \"/\" must be a valid subdomain as defined by RFC 1123. All characters trailing the first \"/\" must be valid HTTP Path characters as defined by RFC 3986. The value cannot exceed 63 characters. The field is immutable.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 					"ttlSecondsAfterFinished": {
 						SchemaProps: spec.SchemaProps{
-							Description: "ttlSecondsAfterFinished limits the lifetime of a JobSet that has finished execution (either Complete or Failed). If this field is set, TTLSecondsAfterFinished after the JobSet finishes, it is eligible to be automatically deleted. When the JobSet is being deleted, its lifecycle guarantees (e.g. finalizers) will be honored. If this field is unset, the JobSet won't be automatically deleted. If this field is set to zero, the JobSet becomes eligible to be deleted immediately after it finishes.",
+							Description: "ttlSecondsAfterFinished limits the lifetime of a JobSet that has finished execution (either Complete or Failed). If this field is set, TTLSecondsAfterFinished after the JobSet finishes, it is eligible to be automatically deleted. When the JobSet is being deleted, its lifecycle guarantees (e.g. finalizers) will be honored. If this field is unset, the JobSet won't be automatically deleted. If this field is set to zero, the JobSet becomes eligible to be deleted immediately after it finishes. For JobSets that set managedBy to an external controller, TTL cleanup becomes eligible only after that controller records a terminal (Completed or Failed) condition.",
 							Type:        []string{"integer"},
 							Format:      "int32",
+						},
+					},
+					"activeDeadlineSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Description: "activeDeadlineSeconds is the maximum duration in seconds, relative to status.startTime, that the JobSet may be continuously active before the JobSet controller marks it Failed and deletes its active Jobs.\n\nThe timer does not accrue while the JobSet is suspended: startTime is cleared on suspend and reset when the JobSet resumes. The value must be a positive integer. The field is mutable: operators may raise or lower the deadline on a running JobSet, matching batch/v1.Job. The controller recomputes the remaining time from status.startTime on the next reconcile, so no timer state is reset on update.",
+							Type:        []string{"integer"},
+							Format:      "int64",
 						},
 					},
 					"volumeClaimPolicies": {
@@ -426,18 +532,23 @@ func schema_jobset_api_jobset_v1alpha2_JobSetSpec(ref common.ReferenceCallback) 
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy"),
 									},
 								},
 							},
+						},
+					},
+					"scheduling": {
+						SchemaProps: spec.SchemaProps{
+							Description: "scheduling defines the Workload-Aware Scheduling configuration for this JobSet. When nil, no scheduling objects are created and behavior is unchanged. When set (even to {}), the controller compiles a Workload resource (containing PodGroupTemplates) and materializes the corresponding PodGroup objects for the scheduler. Requires the JobSetWorkloadAwareSchedulingAPI feature gate.",
+							Ref:         ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetScheduling"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"sigs.k8s.io/jobset/api/jobset/v1alpha2.Coordinator", "sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.Network", "sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob", "sigs.k8s.io/jobset/api/jobset/v1alpha2.StartupPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.SuccessPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy"},
+			"sigs.k8s.io/jobset/api/jobset/v1alpha2.Coordinator", "sigs.k8s.io/jobset/api/jobset/v1alpha2.FailurePolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.JobSetScheduling", "sigs.k8s.io/jobset/api/jobset/v1alpha2.Network", "sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJob", "sigs.k8s.io/jobset/api/jobset/v1alpha2.StartupPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.SuccessPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.VolumeClaimPolicy"},
 	}
 }
 
@@ -465,11 +576,16 @@ func schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref common.ReferenceCallback
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.Condition"),
+										Ref: ref("k8s.io/apimachinery/pkg/apis/meta/v1.Condition"),
 									},
 								},
 							},
+						},
+					},
+					"startTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "startTime is the timestamp from which activeDeadlineSeconds is measured, and also serves as the JobSet's active-start time. It is set when the JobSet first becomes active (unsuspended), cleared when the JobSet is suspended, and reset to the current time when the JobSet resumes, matching batch/v1.Job.status.startTime. It is maintained only while the JobSetActiveDeadlineSeconds feature gate is enabled (and cleared while the gate is off), independent of whether activeDeadlineSeconds is set.",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
 						},
 					},
 					"restarts": {
@@ -483,6 +599,13 @@ func schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref common.ReferenceCallback
 					"restartsCountTowardsMax": {
 						SchemaProps: spec.SchemaProps{
 							Description: "restartsCountTowardsMax tracks the number of times the JobSet has been globally restarted that counts towards the maximum allowed number of restarts. That is, restartsCountTowardsMax is the number of times the restart action RestartJobSet has been executed and led to the recreation of all Jobs.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"executionAttempts": {
+						SchemaProps: spec.SchemaProps{
+							Description: "executionAttempts tracks the number of execution lifecycles of the JobSet. A value of nil indicates the JobSet has not yet executed (e.g. created suspended). A value of 0 indicates the initial execution attempt, and values > 0 indicate subsequent execution attempts triggered by failure policy restarts or suspend/resume cycles.",
 							Type:        []string{"integer"},
 							Format:      "int32",
 						},
@@ -511,8 +634,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref common.ReferenceCallback
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus"),
 									},
 								},
 							},
@@ -536,7 +658,7 @@ func schema_jobset_api_jobset_v1alpha2_JobSetStatus(ref common.ReferenceCallback
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.Condition", "sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus"},
+			"k8s.io/apimachinery/pkg/apis/meta/v1.Condition", "k8s.io/apimachinery/pkg/apis/meta/v1.Time", "sigs.k8s.io/jobset/api/jobset/v1alpha2.ReplicatedJobStatus"},
 	}
 }
 
@@ -625,8 +747,7 @@ func schema_jobset_api_jobset_v1alpha2_ReplicatedJob(ref common.ReferenceCallbac
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn"),
+										Ref: ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn"),
 									},
 								},
 							},
@@ -638,6 +759,65 @@ func schema_jobset_api_jobset_v1alpha2_ReplicatedJob(ref common.ReferenceCallbac
 		},
 		Dependencies: []string{
 			"k8s.io/api/batch/v1.JobTemplateSpec", "sigs.k8s.io/jobset/api/jobset/v1alpha2.DependsOn"},
+	}
+}
+
+func schema_jobset_api_jobset_v1alpha2_ReplicatedJobScheduling(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ReplicatedJobScheduling targets one or more named ReplicatedJobs with composite-level scheduling configuration.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"targetReplicatedJobs": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-type": "set",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "targetReplicatedJobs is the list of ReplicatedJob names this policy applies to. When more than one name is listed, the targeted ReplicatedJobs share a single PodGroup. Every name must be unique across all replicatedJobs entries. The list is limited to a maximum of 50 jobs and the length of each replicatedJobName can not exceed 256 characters.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Type:   []string{"string"},
+										Format: "",
+									},
+								},
+							},
+						},
+					},
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the composite-level scheduling policy (basic or gang) for jobs created by the targeted ReplicatedJobs. Defaults to Gang when not specified.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingPolicy"),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines composite-level topology constraints for the targeted ReplicatedJobs' pods.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingConstraints"),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines how pods within the targeted ReplicatedJobs can be disrupted.",
+							Ref:         ref("k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupDisruptionMode"),
+						},
+					},
+					"job": {
+						SchemaProps: spec.SchemaProps{
+							Description: "job defines job-level (replica-level) scheduling configuration, where each replica of the targeted ReplicatedJobs forms its own independent gang (i.e. one PodGroup per Job) instead of sharing a single PodGroup across every replica of the targeted ReplicatedJobs. This is part of the Gang-of-Gangs model. When set, targetReplicatedJobs must contain exactly one ReplicatedJob name, and the composite-level schedulingPolicy, schedulingConstraints, and disruptionMode fields on this ReplicatedJobScheduling must not be set, since they configure a shared PodGroup that job replaces with one PodGroup per Job.",
+							Ref:         ref("sigs.k8s.io/jobset/api/jobset/v1alpha2.JobScheduling"),
+						},
+					},
+				},
+				Required: []string{"targetReplicatedJobs"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupDisruptionMode", "k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingConstraints", "k8s.io/api/scheduling/v1alpha3.WorkloadCompositePodGroupSchedulingPolicy", "sigs.k8s.io/jobset/api/jobset/v1alpha2.JobScheduling"},
 	}
 }
 
@@ -708,9 +888,8 @@ func schema_jobset_api_jobset_v1alpha2_ReplicatedJobStatus(ref common.ReferenceC
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: 0,
-										Type:    []string{"integer"},
-										Format:  "int32",
+										Type:   []string{"integer"},
+										Format: "int32",
 									},
 								},
 							},
@@ -728,9 +907,8 @@ func schema_jobset_api_jobset_v1alpha2_ReplicatedJobStatus(ref common.ReferenceC
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: 0,
-										Type:    []string{"integer"},
-										Format:  "int32",
+										Type:   []string{"integer"},
+										Format: "int32",
 									},
 								},
 							},
@@ -790,9 +968,8 @@ func schema_jobset_api_jobset_v1alpha2_SuccessPolicy(ref common.ReferenceCallbac
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
+										Type:   []string{"string"},
+										Format: "",
 									},
 								},
 							},
@@ -824,8 +1001,7 @@ func schema_jobset_api_jobset_v1alpha2_VolumeClaimPolicy(ref common.ReferenceCal
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("k8s.io/api/core/v1.PersistentVolumeClaim"),
+										Ref: ref("k8s.io/api/core/v1.PersistentVolumeClaim"),
 									},
 								},
 							},

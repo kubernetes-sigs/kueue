@@ -22,6 +22,7 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
+import { getWorkloadStatus } from './utils/workloadStatus';
 
 const Workloads = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('');
@@ -118,10 +119,10 @@ const Workloads = () => {
                         title={
                           <div>
                             <div><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</div>
-                            <div><strong>Owner Reference: {workload.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
-                            <div>API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
-                            <div>Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</div>
-                            <div>Name: {workload.ownerReferences?.[0]?.name || 'N/A'}</div>
+                            <div><strong>Owner Reference: {workload.metadata?.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
+                            <div>API Version: {workload.metadata?.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
+                            <div>Kind: {workload.metadata?.ownerReferences?.[0]?.kind || 'N/A'}</div>
+                            <div>Name: {workload.metadata?.ownerReferences?.[0]?.name || 'N/A'}</div>
                           </div>
                         }
                         arrow
@@ -134,7 +135,7 @@ const Workloads = () => {
                       </Tooltip>
                     </TableCell>
                     <TableCell><Link to={`/local-queue/${workload.metadata.namespace}/${workload.spec.queueName}`}>{workload.spec.queueName}</Link></TableCell>
-                    <TableCell>{workload.status?.conditions?.[0]?.type || 'Unknown'}</TableCell>
+                    <TableCell>{getWorkloadStatus(workload)}</TableCell>
                     <TableCell>{workload.preemption?.preempted ? "Yes" : "No"}</TableCell>
                     <TableCell>{workload.preemption?.reason || "N/A"}</TableCell>
                     <TableCell>{workload.spec.priority}</TableCell>

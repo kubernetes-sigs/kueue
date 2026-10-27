@@ -99,6 +99,9 @@ kubectl rollout restart deployment/kueue-controller-manager -n kueue-system
 
 See [Prometheus Metrics](/docs/reference/metrics#optional-metrics) for the full list of optional metrics.
 
+For trusted pod-local scraping without a bearer token, see
+[Scrape metrics from a sidecar](/docs/tasks/manage/observability/metrics_access_control).
+
 ## What's next
 
 - See [Common Grafana Queries](/docs/tasks/manage/observability/common_grafana_queries) for PromQL queries to monitor Kueue in Grafana.

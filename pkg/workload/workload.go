@@ -112,29 +112,6 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 	return (prevStatus == StatusQuotaReserved || prevStatus == StatusAdmitted) && newStatus == StatusPending
 }
 
-type FlavorScanState struct {
-	// LastTriedFlavorIndexes records the last examined flavor index for each PodSet
-	// and resource, within the corresponding resource group's flavor list.
-	// A value of -1 means that pair's scan reached the end; its next attempt starts
-	// at index zero. Missing entries also start at zero.
-	LastTriedFlavorIndexes []map[corev1.ResourceName]int
-
-	// AllocatableResourceGeneration records the ClusterQueue's allocatable resource
-	// generation at the time of the scan, used to check whether the scan progress is stale.
-	AllocatableResourceGeneration int64
-
-	// SchedulingCycle is the scheduling cycle that computed this assignment. It lets the
-	// assignment from the immediately preceding cycle be treated as current even when the
-	// ClusterQueue generation has moved on.
-	SchedulingCycle int64
-
-	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
-	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
-	// for a particular set of requests, so it only carries meaning while the Workload keeps
-	// the shape it had then.
-	SchedulingHash EquivalenceHash
-}
-
 type dra struct {
 	preprocessedDRAResources  map[kueue.PodSetReference]corev1.ResourceList
 	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
@@ -146,6 +123,7 @@ type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
+	skipSchedulingHash       bool
 	dra
 }
 
@@ -176,6 +154,16 @@ func WithPreserveTotalRequests() InfoOption {
 	}
 }
 
+// WithSkipSchedulingHash skips computing the scheduling hash.
+// Use it only for Infos kept in the scheduler cache or for checks that do not
+// need the hash. Before adding an Info to the queue manager, create or update
+// it without this option.
+func WithSkipSchedulingHash() InfoOption {
+	return func(o *InfoOptions) {
+		o.skipSchedulingHash = true
+	}
+}
+
 // WithPreprocessedDRAResources provides DRA resources to add and extended resources whose container contribution the charge replaces.
 func WithPreprocessedDRAResources(
 	draResources map[kueue.PodSetReference]corev1.ResourceList,
@@ -187,65 +175,6 @@ func WithPreprocessedDRAResources(
 			replacedExtendedResources: replacedExtendedResources,
 		}
 	}
-}
-
-func (s *FlavorScanState) Clone() *FlavorScanState {
-	c := FlavorScanState{
-		LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIndexes)),
-		AllocatableResourceGeneration: s.AllocatableResourceGeneration,
-		SchedulingCycle:               s.SchedulingCycle,
-		SchedulingHash:                s.SchedulingHash,
-	}
-	for ps, flavorIdx := range s.LastTriedFlavorIndexes {
-		c.LastTriedFlavorIndexes[ps] = maps.Clone(flavorIdx)
-	}
-	return &c
-}
-
-// MatchesSchedulingShape reports whether this assignment was computed for the scheduling
-// shape the Workload has now. A change to the PodSets or their requests makes the recorded
-// flavor indices describe a search that no longer applies: resuming from them could skip a
-// flavor the changed Workload would now fit.
-//
-// An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
-// nothing to compare, so the shape is taken to be unchanged. That keeps the two features
-// independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
-func (s *FlavorScanState) MatchesSchedulingShape(current EquivalenceHash) bool {
-	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
-		return true
-	}
-	return s.SchedulingHash == current
-}
-
-// PendingFlavors returns whether there are pending flavors to try
-// after the last attempt.
-func (s *FlavorScanState) PendingFlavors() bool {
-	if s == nil {
-		// This is only reached in unit tests.
-		return false
-	}
-	for _, podSetIdxs := range s.LastTriedFlavorIndexes {
-		for _, idx := range podSetIdxs {
-			if idx != -1 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (s *FlavorScanState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
-	if !features.Enabled(features.FlavorFungibility) {
-		return 0
-	}
-	if s == nil || ps >= len(s.LastTriedFlavorIndexes) {
-		return 0
-	}
-	idx, ok := s.LastTriedFlavorIndexes[ps][res]
-	if !ok {
-		return 0
-	}
-	return idx + 1
 }
 
 type ResourceToFlavor map[corev1.ResourceName]kueue.ResourceFlavorReference
@@ -383,11 +312,16 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// updateDerivedFields recomputes the scheduling hash and the parsed
-// topology-spreading annotation from i.Obj and i.TotalRequests, using the
-// provided contextual logger. Called internally by Update.
-func (i *Info) updateDerivedFields(log logr.Logger) {
-	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+// updateDerivedFields recomputes the scheduling hash, unless
+// skipSchedulingHash is set, and the parsed topology-spreading annotation from
+// i.Obj and i.TotalRequests, using the provided contextual logger. Called
+// internally by Update.
+func (i *Info) updateDerivedFields(log logr.Logger, skipSchedulingHash bool) {
+	if skipSchedulingHash {
+		i.SchedulingHash = ""
+	} else {
+		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+	}
 	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
 }
 
@@ -395,11 +329,15 @@ func (i *Info) updateDerivedFields(log logr.Logger) {
 // recomputes the derived fields. Pass WithPreserveTotalRequests to skip
 // the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
-	i.rebuildTotalRequests(opts...)
+	i.rebuildTotalRequests(&options)
 	if i.shouldUpdateDerivedFields(prev) {
-		i.updateDerivedFields(log)
+		i.updateDerivedFields(log, options.skipSchedulingHash)
 	}
 }
 
@@ -457,11 +395,7 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
 // from the current workload state. When WithPreserveTotalRequests is set,
 // only TotalRequests recomputation is skipped.
-func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func (i *Info) rebuildTotalRequests(options *InfoOptions) {
 	if options.effectivePodSpecs != nil {
 		i.EffectivePodSpecs = *options.effectivePodSpecs
 	} else {
@@ -477,7 +411,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 		if admitted {
 			i.TotalRequests = totalRequestsFromAdmission(i)
 		} else {
-			i.TotalRequests = totalRequestsFromPodSets(i, &options)
+			i.TotalRequests = totalRequestsFromPodSets(i, options)
 		}
 	}
 }
@@ -528,6 +462,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if features.Enabled(features.ConcurrentAdmission) {
 		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
 			shape["allowedFlavors"] = val
+		}
+	}
+	// The replaced slice key is unique per job, so each replacement gets its own class.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
+			shape["replacementFor"] = val
 		}
 	}
 	shapeJSON, err := json.Marshal(shape)
@@ -804,20 +744,14 @@ func Key(w *kueue.Workload) Reference {
 }
 
 // ReclaimableCounts returns the reported reclaimable count for each PodSet.
-func ReclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+func ReclaimableCounts(wl *kueue.Workload) PodSetsCounts {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
-		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
-	})
-}
-
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	totalCounts := podSetsCounts(wl)
+func podSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
 	}
@@ -907,7 +841,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
-	totalCounts := podSetsCounts(wl)
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
 			Name:     psa.Name,

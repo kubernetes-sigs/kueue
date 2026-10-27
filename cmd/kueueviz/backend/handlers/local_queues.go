@@ -65,7 +65,7 @@ func (h *Handlers) fetchLocalQueues(ctx context.Context, namespace string, ident
 
 	items := lql.Items
 
-	var queues []map[string]any
+	queues := make([]map[string]any, 0)
 	for _, item := range items {
 		queues = append(queues, map[string]any{
 			"namespace": item.GetNamespace(),
