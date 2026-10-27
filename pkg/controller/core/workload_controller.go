@@ -854,8 +854,6 @@ func (r *WorkloadReconciler) rejectDRAWhenDisabled(ctx context.Context, wl *kueu
 // a reactivation or a finished backoff.
 // Returns done=true when reconciliation should stop.
 func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Workload, draPreprocessed bool, draQueueOptions []workload.InfoOption) (done bool, result ctrl.Result, err error) {
-	log := ctrl.LoggerFrom(ctx)
-
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
 		// Patch only the field this branch owns to preserve the user's spec.
 		err := clientutil.Patch(ctx, r.client, wl, func() (bool, error) {
@@ -865,46 +863,8 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 		return true, ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
-		if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
-			log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
-			return true, reconcile.Result{RequeueAfter: *requeueAfter}, nil
-		}
-
-		if workload.Status(wl) == workload.StatusPending {
-			// Clear RequeueAt since backoff has elapsed
-			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				if wl.Status.RequeueState != nil {
-					wl.Status.RequeueState.RequeueAt = nil
-				}
-				return true, nil
-			})
-			if err != nil {
-				return true, ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-
-			if !workload.IsAdmissible(wl) {
-				log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change")
-				return true, ctrl.Result{}, nil
-			}
-
-			if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
-				// DRA queue options would be lost on a second reconcile,
-				// so persist Requeued=True now instead of relying on the
-				// two-cycle path that non-DRA workloads use.
-				if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-					return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
-				}); err != nil {
-					return true, ctrl.Result{}, client.IgnoreNotFound(err)
-				}
-			}
-			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
-				return true, ctrl.Result{}, fmt.Errorf("failed to requeue workload after backoff: %w", err)
-			}
-
-			log.V(3).Info("Workload requeued after backoff")
-			return true, ctrl.Result{}, nil
-		}
+	if done, result, err := r.reconcileBackoff(ctx, wl, draPreprocessed, draQueueOptions); done {
+		return true, result, err
 	}
 
 	var updated bool
@@ -939,6 +899,59 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 	}
 	if updated {
 		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return false, ctrl.Result{}, nil
+}
+
+// reconcileBackoff handles a workload whose requeue backoff was set. It waits for
+// the backoff to elapse and then, for a pending workload, clears RequeueAt and
+// requeues it with the DRA queue options from handleDRA.
+// Returns done=true when reconciliation should stop.
+func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Workload, draPreprocessed bool, draQueueOptions []workload.InfoOption) (done bool, result ctrl.Result, err error) {
+	if wl.Status.RequeueState == nil || wl.Status.RequeueState.RequeueAt == nil {
+		return false, ctrl.Result{}, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+
+	if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
+		log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
+		return true, reconcile.Result{RequeueAfter: *requeueAfter}, nil
+	}
+
+	if workload.Status(wl) == workload.StatusPending {
+		// Clear RequeueAt since backoff has elapsed
+		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			if wl.Status.RequeueState != nil {
+				wl.Status.RequeueState.RequeueAt = nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			return true, ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
+		if !workload.IsAdmissible(wl) {
+			log.V(3).Info("Workload is inadmissible after backoff, waiting for condition change")
+			return true, ctrl.Result{}, nil
+		}
+
+		if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
+			// DRA queue options would be lost on a second reconcile,
+			// so persist Requeued=True now instead of relying on the
+			// two-cycle path that non-DRA workloads use.
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
+			}); err != nil {
+				return true, ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
+		if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
+			return true, ctrl.Result{}, fmt.Errorf("failed to requeue workload after backoff: %w", err)
+		}
+
+		log.V(3).Info("Workload requeued after backoff")
+		return true, ctrl.Result{}, nil
 	}
 	return false, ctrl.Result{}, nil
 }
