@@ -269,18 +269,12 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job, oldJob *J
 		}
 	}
 
-	// The scheduler library does not place Pods for a preferred topology
-	// request, so reject new or changed requests during admission rather than
-	// accepting the Job and failing its Workload creation afterwards.
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
-			unchanged := oldJob != nil &&
-				oldJob.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation] == job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]
-			if !unchanged {
-				return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
-					fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration))}, nil
-			}
-		}
+	var oldTemplateMeta *metav1.ObjectMeta
+	if oldJob != nil {
+		oldTemplateMeta = &oldJob.Spec.Template.ObjectMeta
+	}
+	if preferredErrs := jobframework.ValidateTASPreferredTopologyRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta, oldTemplateMeta); len(preferredErrs) > 0 {
+		return preferredErrs, nil
 	}
 
 	podSets, err := jobframework.JobPodSets(ctx, job, nil)

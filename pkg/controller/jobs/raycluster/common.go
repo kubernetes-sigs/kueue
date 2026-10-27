@@ -481,6 +481,7 @@ func ValidateTopologyRequest(
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, c)
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, nil)...)
 
 	if podSetsErr == nil {
 		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
@@ -491,6 +492,7 @@ func ValidateTopologyRequest(
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, nil)...)
 
 		if podSetsErr != nil {
 			continue

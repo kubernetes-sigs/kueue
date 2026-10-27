@@ -207,6 +207,11 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
 		)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			nil,
+		)...)
 
 		if podSetsErr != nil {
 			continue

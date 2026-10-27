@@ -161,10 +161,12 @@ func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, s
 	if podSetsErr == nil {
 		driverPodSet := podset.FindPodSetByName(podSets, driverPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(driverSpecPath, &driverPodSet.Template.ObjectMeta, nil)...)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(driverSpecPath, &driverPodSet.Template.ObjectMeta, driverPodSet)...)
 
 		executorPodSet := podset.FindPodSetByName(podSets, executorPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(executorSpecPath, &executorPodSet.Template.ObjectMeta, nil)...)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(executorSpecPath, &executorPodSet.Template.ObjectMeta, executorPodSet)...)
 	}
 

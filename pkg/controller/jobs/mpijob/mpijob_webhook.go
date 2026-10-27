@@ -222,6 +222,7 @@ func (w *MpiJobWebhook) validateTopologyRequest(ctx context.Context, mpiJob *MPI
 		for _, p := range podSets {
 			replicaMetaPath := podSetMetadataPathByName[p.Name]
 			allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(replicaMetaPath, &p.Template.ObjectMeta)...)
+			allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(replicaMetaPath, &p.Template.ObjectMeta, nil)...)
 			allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(replicaMetaPath, &p.Template.ObjectMeta, &p)...)
 		}
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, podSetAnnotationsPathByName)...)

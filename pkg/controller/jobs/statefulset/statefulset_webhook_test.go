@@ -427,6 +427,29 @@ func TestValidateCreate(t *testing.T) {
 				features.TASRejectFalseUnconstrainedTopology: true,
 			},
 		},
+		"preferred topology is rejected with scheduler library deep integration": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "spec.template.metadata.annotations." + kueue.PodSetPreferredTopologyAnnotation,
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		"preferred topology is accepted without scheduler library deep integration": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1188,6 +1211,40 @@ func TestValidateUpdate(t *testing.T) {
 				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"unchanged preferred topology is accepted on update with scheduler library deep integration": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		"changed preferred topology is rejected on update with scheduler library deep integration": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				PodTemplateAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "spec.template.metadata.annotations." + kueue.PodSetPreferredTopologyAnnotation,
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
 		},
 	}
 

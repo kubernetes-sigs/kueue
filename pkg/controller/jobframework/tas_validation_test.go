@@ -624,3 +624,71 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTASPreferredTopologyRequest(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+	preferredPath := replicaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation)
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		annotations  map[string]string
+		oldAnnots    map[string]string
+		wantErr      field.ErrorList
+	}{
+		"preferred is accepted when the deep integration gate is disabled": {
+			annotations: map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+		},
+		"preferred is rejected on create when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: preferredPath.String()}},
+		},
+		"preferred is accepted when the deep integration gate is enabled without TAS": {
+			annotations: map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+		},
+		"no topology annotation is accepted when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+		},
+		"required topology is accepted when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"},
+		},
+		"unconstrained topology is accepted when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+		},
+		"unchanged preferred is accepted on update when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+			oldAnnots:    map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+		},
+		"changed preferred is rejected on update when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+			oldAnnots:    map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack"},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: preferredPath.String()}},
+		},
+		"preferred added on update is rejected when the deep integration gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.SchedulerLibraryDeepIntegration: true},
+			annotations:  map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"},
+			oldAnnots:    map[string]string{},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: preferredPath.String()}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			newMeta := &metav1.ObjectMeta{Annotations: tc.annotations}
+			var oldMeta *metav1.ObjectMeta
+			if tc.oldAnnots != nil {
+				oldMeta = &metav1.ObjectMeta{Annotations: tc.oldAnnots}
+			}
+			gotErr := ValidateTASPreferredTopologyRequest(replicaPath, newMeta, oldMeta)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

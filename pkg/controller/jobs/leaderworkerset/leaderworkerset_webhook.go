@@ -318,6 +318,7 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		defaultPodSetName = workerPodSetName
 
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(leaderTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta, nil)...)
 
 		if podSetsErr == nil {
 			leaderPodSet := podset.FindPodSetByName(podSets, leaderPodSetName)
@@ -327,6 +328,7 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	}
 
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerTemplateMetaPath, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta, nil)...)
 
 	if podSetsErr == nil {
 		workerPodSet := podset.FindPodSetByName(podSets, defaultPodSetName)

@@ -127,6 +127,37 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	return allErrs
 }
 
+// ValidateTASPreferredTopologyRequest rejects a preferred topology request when
+// the SchedulerLibraryDeepIntegration feature gate is enabled, because the
+// scheduler library does not place Pods for such a request: the object would be
+// accepted and its Workload creation would fail afterwards.
+//
+// Integrations call this next to ValidateTASPodSetRequest so that the request is
+// rejected during admission instead of failing the Workload creation. Pass the
+// pod template metadata from before the update as oldReplicaMetadata when the
+// integration can resolve it, so that an unchanged request stays accepted and an
+// object created while the gate was disabled can still be suspended, resumed and
+// cleaned up; pass nil on create, and on update when the old template is not
+// available.
+func ValidateTASPreferredTopologyRequest(replicaPath *field.Path, replicaMetadata, oldReplicaMetadata *metav1.ObjectMeta) field.ErrorList {
+	if !features.Enabled(features.TopologyAwareScheduling) || !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return nil
+	}
+	preferredValue, preferredFound := replicaMetadata.Annotations[kueue.PodSetPreferredTopologyAnnotation]
+	if !preferredFound {
+		return nil
+	}
+	if oldReplicaMetadata != nil {
+		if oldValue, oldFound := oldReplicaMetadata.Annotations[kueue.PodSetPreferredTopologyAnnotation]; oldFound && oldValue == preferredValue {
+			return nil
+		}
+	}
+	return field.ErrorList{
+		field.Forbidden(replicaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+			fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration)),
+	}
+}
+
 func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	if val, ok := replicaMetadata.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
 		unconstrained, err := strconv.ParseBool(val)

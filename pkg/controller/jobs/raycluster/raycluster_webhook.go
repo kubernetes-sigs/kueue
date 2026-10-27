@@ -204,6 +204,7 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob, nil)
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, nil)...)
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
 		for i, p := range podSets {
@@ -214,6 +215,7 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 				// the raycluster PodSets function places the worker podsets from index 1
 				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
 				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
+				allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerGroupMetaPath, &p.Template.ObjectMeta, nil)...)
 				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
 			}
 		}

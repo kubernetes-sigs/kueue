@@ -171,6 +171,7 @@ func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob 
 	for _, p := range podSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(jobPath, &p.Template.ObjectMeta, nil)...)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
 	}
 
