@@ -126,6 +126,105 @@ func TestSanitizeProvisioningRequestPodTemplate(t *testing.T) {
 	}
 }
 
+func TestFindDanglingVolumeMounts(t *testing.T) {
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	cases := map[string]struct {
+		spec corev1.PodSpec
+		want []string
+	}{
+		"no volume mounts": {
+			spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}},
+		},
+		"mount with existing volume": {
+			spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{pvc},
+				Containers: []corev1.Container{{
+					Name:         "c",
+					VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
+				}},
+			},
+		},
+		"mount used only by an init container": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Name:         "init",
+					VolumeMounts: []corev1.VolumeMount{{Name: "scratch", MountPath: "/scratch"}},
+				}},
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+			want: []string{"scratch"},
+		},
+		"mounts without volume in init and regular containers are reported once each": {
+			spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{pvc},
+				InitContainers: []corev1.Container{{
+					Name:         "init",
+					VolumeMounts: []corev1.VolumeMount{{Name: "state", MountPath: "/state"}},
+				}},
+				Containers: []corev1.Container{
+					{
+						Name: "c1",
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: "data", MountPath: "/data"},
+							{Name: "state", MountPath: "/state"},
+							{Name: "cache", MountPath: "/cache"},
+						},
+					},
+					{
+						Name:         "c2",
+						VolumeMounts: []corev1.VolumeMount{{Name: "cache", MountPath: "/cache", SubPath: "c2"}},
+					},
+				},
+			},
+			want: []string{"state", "cache"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := findDanglingVolumeMounts(&tc.spec)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected dangling volume mounts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAddPlaceholderVolumes(t *testing.T) {
+	emptyDir := func(name string) corev1.Volume {
+		return corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}}
+	}
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	cases := map[string]struct {
+		names       []string
+		wantVolumes []corev1.Volume
+	}{
+		"no names": {
+			wantVolumes: []corev1.Volume{pvc},
+		},
+		"names are appended as emptyDir volumes": {
+			names:       []string{"state", "cache"},
+			wantVolumes: []corev1.Volume{pvc, emptyDir("state"), emptyDir("cache")},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := corev1.PodSpec{Volumes: []corev1.Volume{pvc}}
+			addPlaceholderVolumes(&spec, tc.names)
+			if diff := cmp.Diff(tc.wantVolumes, spec.Volumes); diff != "" {
+				t.Errorf("Unexpected volumes (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClearStaleAdmissionAnnotations(t *testing.T) {
 	template := corev1.PodTemplateSpec{
 		Annotations: map[string]string{
