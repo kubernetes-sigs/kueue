@@ -128,7 +128,7 @@ func managerAndSchedulerSetupInternal(configuration *config.Configuration, setup
 			mgr,
 			queues,
 			cCache,
-			&config.Configuration{},
+			configuration,
 			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
