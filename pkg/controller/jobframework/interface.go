@@ -70,7 +70,7 @@ type GenericJob interface {
 	// admitted Workload slice, and ignore the Pods of a pending scale-up, such as
 	// scheduling-gated Pods. While a replacement slice is pending, Kueue records
 	// PodsReady on the admitted slice and evaluates the PodsReady timeout there.
-	PodsReady(ctx context.Context, c client.Client) bool
+	PodsReady(ctx context.Context, c client.Client, wl *kueue.Workload) bool
 
 	// GVK returns the GroupVersionKind for the job.
 	GVK() schema.GroupVersionKind

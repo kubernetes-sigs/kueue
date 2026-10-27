@@ -687,7 +687,7 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.rayService.PodsReady(ctx, nil)
+			got := tc.rayService.PodsReady(ctx, nil, nil)
 			if got != tc.want {
 				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}

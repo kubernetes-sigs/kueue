@@ -198,7 +198,7 @@ func (j *AppWrapper) Finished(ctx context.Context) (message string, success, fin
 	return "", false, false
 }
 
-func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client, _ *kueue.Workload) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 
