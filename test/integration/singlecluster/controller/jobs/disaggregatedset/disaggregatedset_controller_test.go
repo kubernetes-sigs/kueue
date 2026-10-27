@@ -45,6 +45,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingsts "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -509,6 +510,76 @@ var _ = ginkgo.Describe("DisaggregatedSet controller", ginkgo.Label("job:disaggr
 			for _, pod := range pods {
 				expectGated(pod, false)
 			}
+		})
+
+		ginkgo.It("should adopt a new-revision Pod only after the Pod it replaces is gone", func() {
+			oldPod := basePod.Clone().Obj()
+			behavioral.MustCreate(ctx, k8sClient, oldPod)
+			runningPod := basePod.Clone().Name(lwsName + "-1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, runningPod)
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, sliceKey(ds, 0))
+			expectGated(oldPod, false)
+			expectGated(runningPod, false)
+
+			ginkgo.By("terminating the old Pod on its node", func() {
+				gomega.Expect(k8sClient.SubResource("binding").Create(ctx, oldPod, &corev1.Binding{
+					Name: oldPod.Name, Namespace: ns.Name,
+					Target: corev1.ObjectReference{Kind: "Node", Name: "node"},
+				})).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, oldPod)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("creating the new revision of the role", func() {
+				lws2 := testinglws.MakeLeaderWorkerSet(lwsName+"2", ns.Name).
+					OwnerReferenceWithUID(ds.Name, dsGVK, string(ds.UID)).
+					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+					Label(disaggregatedsetv1.SliceLabelKey, "0").
+					Label(disaggregatedsetv1.RoleLabelKey, role).
+					Label(disaggregatedsetv1.RevisionLabelKey, "rev2").
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, lws2)
+				sts2 := testingsts.MakeStatefulSet(lws2.Name, ns.Name).
+					OwnerReferenceWithUID(lws2.Name, lwsGVK, string(lws2.UID)).
+					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+					Replicas(2).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts2)
+				newPod := testingpod.MakePod(lws2.Name+"-0", ns.Name).
+					OwnerReferenceWithUID(sts2.Name, stsGVK, string(sts2.UID)).
+					Label(disaggregatedsetv1.SetNameLabelKey, ds.Name).
+					Label(disaggregatedsetv1.SliceLabelKey, "0").
+					Label(disaggregatedsetv1.RoleLabelKey, role).
+					Label(disaggregatedsetv1.RevisionLabelKey, "rev2").
+					SuspendedByParent(disaggregatedset.FrameworkName).
+					KueueSchedulingGate().
+					KueueFinalizer().
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, newPod)
+
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newPod), newPod)).To(gomega.Succeed())
+					g.Expect(newPod.Labels).NotTo(gomega.HaveKey(constants.ManagedByKueueLabelKey))
+					wl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, sliceKey(ds, 0), wl)).To(gomega.Succeed())
+					g.Expect(workloadfinish.IsFinished(wl)).To(gomega.BeFalse())
+				}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("removing the old Pod, as the kubelet does once it stopped", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oldPod), oldPod)).To(gomega.Succeed())
+						oldPod.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, oldPod)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, oldPod, client.GracePeriodSeconds(0)))).To(gomega.Succeed())
+				})
+
+				expectGated(newPod, false)
+				gomega.Expect(newPod.Labels).To(gomega.HaveKey(constants.ManagedByKueueLabelKey))
+				wl := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, sliceKey(ds, 0), wl)).To(gomega.Succeed())
+				gomega.Expect(workloadfinish.IsFinished(wl)).To(gomega.BeFalse())
+			})
 		})
 
 		ginkgo.It("should keep a Pod gated that requests more than its role template", func() {

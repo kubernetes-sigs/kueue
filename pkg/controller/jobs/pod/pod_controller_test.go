@@ -10968,8 +10968,8 @@ func TestIsPodRunnableOrSucceeded(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := isPodRunnableOrSucceeded(&tc.pod); got != tc.want {
-				t.Errorf("isPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
+			if got := IsPodRunnableOrSucceeded(&tc.pod); got != tc.want {
+				t.Errorf("IsPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
 			}
 		})
 	}

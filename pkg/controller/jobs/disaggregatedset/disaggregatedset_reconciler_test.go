@@ -123,6 +123,37 @@ func TestReconciler(t *testing.T) {
 		GroupTotalCount("5").
 		RoleHash("prefill")
 	adoptedPrefillPod := ungatedAdoptedPrefillPod.Clone().Gate(podconstants.SchedulingGateName)
+	// The new revision of the prefill role, during a rollout.
+	const prefillRev2LWS = "test-ds-0-rev2-prefill"
+	prefillRev2LWSObj := testinglws.MakeLeaderWorkerSet(prefillRev2LWS, testNS).
+		UID(prefillRev2LWS).
+		OwnerReferenceWithUID(testDS, gvk, testDS).
+		Label(disaggregatedsetv1.SetNameLabelKey, testDS).
+		Label(disaggregatedsetv1.SliceLabelKey, "0").
+		Label(disaggregatedsetv1.RoleLabelKey, "prefill").
+		Label(disaggregatedsetv1.RevisionLabelKey, "rev2")
+	prefillRev2STS := testingsts.MakeStatefulSet(prefillRev2LWS, testNS).
+		UID(prefillRev2LWS).
+		OwnerReferenceWithUID(prefillRev2LWS, leaderWorkerSetGVK, prefillRev2LWS).
+		Replicas(2)
+	prefillRev2Pod := testingpod.MakePod(prefillRev2LWS+"-0", testNS).
+		UID(prefillRev2LWS+"-0").
+		OwnerReferenceWithUID(prefillRev2LWS, statefulSetGVK, prefillRev2LWS).
+		Label(disaggregatedsetv1.SetNameLabelKey, testDS).
+		Label(disaggregatedsetv1.SliceLabelKey, "0").
+		Label(disaggregatedsetv1.RoleLabelKey, "prefill").
+		Label(disaggregatedsetv1.RevisionLabelKey, "rev2").
+		SuspendedByParent(FrameworkName).
+		Gate(podconstants.SchedulingGateName)
+	terminatingPrefillPod := ungatedAdoptedPrefillPod.Clone().
+		NodeName("node").
+		KueueFinalizer().
+		DeletionTimestamp(now)
+	runningPrefillPod := ungatedAdoptedPrefillPod.Clone().
+		Name(prefillLWS + "-1").
+		UID(prefillLWS + "-1").
+		NodeName("node").
+		StatusPhase(corev1.PodRunning)
 	decodeLWSObj := testinglws.MakeLeaderWorkerSet(decodeLWS, testNS).
 		UID(decodeLWS).
 		OwnerReferenceWithUID(testDS, gvk, testDS).
@@ -489,6 +520,63 @@ func TestReconciler(t *testing.T) {
 			pods:          []corev1.Pod{*adoptedPrefillPod.Clone().Obj()},
 			wantWorkloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
 			wantPods:      []corev1.Pod{*ungatedAdoptedPrefillPod.Clone().Obj()},
+		},
+		"does not adopt a new-revision Pod while the Pod it replaces is terminating on a node": {
+			ds:        baseDS.Clone().Obj(),
+			owners:    []client.Object{prefillLWSObj.Obj(), prefillSTS.Obj(), prefillRev2LWSObj.Obj(), prefillRev2STS.Obj()},
+			workloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
+			pods: []corev1.Pod{
+				*terminatingPrefillPod.Clone().Obj(),
+				*runningPrefillPod.Clone().Obj(),
+				*prefillRev2Pod.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
+			wantPods: []corev1.Pod{
+				*terminatingPrefillPod.Clone().Obj(),
+				*runningPrefillPod.Clone().Obj(),
+				*prefillRev2Pod.Clone().Obj(),
+			},
+		},
+		"adopts a new-revision Pod once the Pod it replaces is gone": {
+			ds:            baseDS.Clone().Obj(),
+			owners:        []client.Object{prefillLWSObj.Obj(), prefillSTS.Obj(), prefillRev2LWSObj.Obj(), prefillRev2STS.Obj()},
+			workloads:     []kueue.Workload{*baseWorkload.Clone().Obj()},
+			pods:          []corev1.Pod{*runningPrefillPod.Clone().Obj(), *prefillRev2Pod.Clone().Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
+			wantPods: []corev1.Pod{
+				*runningPrefillPod.Clone().Obj(),
+				*prefillRev2Pod.Clone().
+					ManagedByKueueLabel().
+					Queue("lq").
+					GroupNameAnnotation(wl0Name).
+					PrebuiltWorkloadAnnotation(wl0Name).
+					GroupTotalCount("5").
+					RoleHash("prefill").
+					Obj(),
+			},
+		},
+		"adopts the oldest Pods first when the slice has fewer free slots": {
+			ds:        baseDS.Clone().Obj(),
+			owners:    []client.Object{prefillLWSObj.Obj(), prefillSTS.Obj(), prefillRev2LWSObj.Obj(), prefillRev2STS.Obj()},
+			workloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
+			pods: []corev1.Pod{
+				*prefillRev2Pod.Clone().CreationTimestamp(now).Obj(),
+				*prefillPod.Clone().Name(prefillLWS + "-1").UID(prefillLWS + "-1").CreationTimestamp(now.Add(time.Second)).Obj(),
+				*prefillPod.Clone().CreationTimestamp(now.Add(2 * time.Second)).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{*baseWorkload.Clone().Obj()},
+			wantPods: []corev1.Pod{
+				*prefillRev2Pod.Clone().CreationTimestamp(now).
+					ManagedByKueueLabel().
+					Queue("lq").
+					GroupNameAnnotation(wl0Name).
+					PrebuiltWorkloadAnnotation(wl0Name).
+					GroupTotalCount("5").
+					RoleHash("prefill").
+					Obj(),
+				*adoptedPrefillPod.Clone().Name(prefillLWS + "-1").UID(prefillLWS + "-1").CreationTimestamp(now.Add(time.Second)).Obj(),
+				*prefillPod.Clone().CreationTimestamp(now.Add(2 * time.Second)).Obj(),
+			},
 		},
 		"ungates the Pods of a deleted DisaggregatedSet": {
 			pods:     []corev1.Pod{*adoptedPrefillPod.Clone().Obj()},
