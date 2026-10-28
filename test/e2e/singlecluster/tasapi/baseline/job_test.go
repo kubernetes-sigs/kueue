@@ -175,11 +175,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				ta := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-				gomega.Expect(ta.Levels).Should(gomega.Equal([]string{corev1.LabelHostname}))
-				gomega.Expect(ta.Domains).Should(gomega.HaveLen(3))
-				assignedNodes := make([]string, 0, len(ta.Domains))
-				for _, domain := range ta.Domains {
+				topologyAssignment := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(topologyAssignment.Levels).Should(gomega.Equal([]string{corev1.LabelHostname}))
+				gomega.Expect(topologyAssignment.Domains).Should(gomega.HaveLen(3), "expected 3 assigned topology domains (1 per pod)")
+				assignedNodes := make([]string, 0, len(topologyAssignment.Domains))
+				for _, domain := range topologyAssignment.Domains {
 					gomega.Expect(domain.Count).Should(gomega.Equal(int32(1)))
 					gomega.Expect(domain.Values).Should(gomega.HaveLen(1))
 					assignedNodes = append(assignedNodes, domain.Values[0])
