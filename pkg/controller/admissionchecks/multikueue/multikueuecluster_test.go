@@ -1719,7 +1719,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+	if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
 
@@ -1733,7 +1733,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 		defer writerDone.Store(true)
 		for i := range iterations {
 			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
-			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+			if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
 				writerErr = err
 				return
 			}
