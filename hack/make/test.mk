@@ -40,12 +40,13 @@ INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGR
 ifeq ($(INTEGRATION_TARGET),)
 $(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
 endif
+# Shards list packages explicitly, so only the shard with the kueuectl suite
+# needs the kubectl-kueue binary.
+INTEGRATION_KUEUECTL_DEP := $(if $(findstring /kueuectl,$(INTEGRATION_TARGET)),kueuectl)
 else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_KUEUECTL_DEP := kueuectl
 endif
-# Only the kueuectl suite runs the kubectl-kueue binary, so skip building it
-# when INTEGRATION_TARGET neither names that suite nor uses a "..." pattern.
-INTEGRATION_KUEUECTL_DEP := $(if $(or $(findstring kueuectl,$(INTEGRATION_TARGET)),$(findstring ...,$(INTEGRATION_TARGET))),kueuectl)
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
