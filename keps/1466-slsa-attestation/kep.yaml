@@ -1,0 +1,29 @@
+title: SLSA build provenance for Kueue release artifacts
+kep-number: 1466
+authors:
+  - "@lmilbaum"
+owning-sig: sig-scheduling
+participating-sigs:
+  - sig-scheduling
+  - sig-security
+  - sig-release
+status: provisional
+creation-date: "2026-10-26"
+reviewers:
+  - "@kannon92"
+  - "@mbobrovskyi"
+  - "@saschagrunert"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+see-also: []
+replaces: []
+stage: alpha
+latest-milestone: "v0.21"
+milestone:
+  alpha: "v0.21"
+  beta: "v0.22"
+  stable: "v0.23"
+feature-gates: []
+disable-supported: false
+metrics: []
