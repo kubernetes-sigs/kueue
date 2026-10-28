@@ -1258,8 +1258,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
 
 	deletingCluster := baseCluster.DeepCopy()
-	now := metav1.Now()
-	deletingCluster.DeletionTimestamp = &now
+	deletingCluster.DeletionTimestamp = new(metav1.Now())
 
 	cases := map[string]struct {
 		invoke        func(p predicate.Predicate) bool
@@ -2048,10 +2047,9 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				KubeConfig(kueue.SecretLocationType, "worker1").
 				Generation(1).
 				Obj()
-			secret := makeTestSecret("worker1", testKubeconfig("worker1"))
 
 			c := getClientBuilder(ctx).
-				WithObjects(cluster, &secret).
+				WithObjects(cluster, new(makeTestSecret("worker1", testKubeconfig("worker1")))).
 				WithStatusSubresource(&kueue.MultiKueueCluster{}).
 				Build()
 

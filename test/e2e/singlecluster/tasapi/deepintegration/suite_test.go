@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -37,6 +38,7 @@ const (
 
 var (
 	k8sClient client.WithWatch
+	cfg       *rest.Config
 	ctx       context.Context
 )
 
@@ -48,7 +50,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = e2e.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
@@ -59,7 +61,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		e2e.WaitForJobSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:leaderworkerset", "feature:was-deepintegration").MatchesLabelFilter(labelFilter) {
-		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient, cfg)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
