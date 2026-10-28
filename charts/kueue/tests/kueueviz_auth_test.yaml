@@ -1,0 +1,63 @@
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: test KueueViz authentication mode
+templates:
+  - kueueviz/backend-deployment.yaml
+set:
+  enableKueueViz: true
+tests:
+  - it: should leave authentication disabled by default
+    asserts: &disabledAuth
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "KUEUEVIZ_AUTH_MODE")]
+
+  - it: should accept explicitly disabled authentication
+    set:
+      kueueViz.backend.auth.mode: Disabled
+    asserts: *disabledAuth
+
+  - it: should pass TokenReview to the backend
+    set:
+      kueueViz.backend.auth.mode: TokenReview
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name == "KUEUEVIZ_AUTH_MODE")].value
+          value: TokenReview
+
+  - it: should reject a misspelled authentication mode
+    set:
+      kueueViz.backend.auth.mode: TokenReveiw
+    asserts: &invalidAuthMode
+      - failedTemplate:
+          errorPattern: "(?s)kueueViz.backend.auth.*mode.*must be one of"
+
+  - it: should reject an empty authentication mode
+    set:
+      kueueViz.backend.auth.mode: ""
+    asserts: *invalidAuthMode
+
+  - it: should reject a non-string authentication mode
+    set:
+      kueueViz.backend.auth.mode: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)kueueViz.backend.auth.*mode.*string"
+
+  - it: should reject a null authentication mode
+    set:
+      kueueViz.backend.auth.mode: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)kueueViz.*backend.*auth.*(mode is required|missing property 'mode')"
