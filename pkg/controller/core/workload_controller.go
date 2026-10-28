@@ -2222,6 +2222,42 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			}, time.Second)
 		}
 	}
+
+	// LimitRange defaults are absent from the raw Workload resource index.
+	// Refresh pending workloads in namespaces whose defaults use an affected resource.
+	namespaces, err := h.namespacesWithDefaultedResources(ctx, resourceNames...)
+	if err != nil {
+		log.Error(err, "Could not list LimitRanges for extended resources", "resources", resourceNames)
+		return
+	}
+	resourceHandler := &resourceUpdatesHandler{r: h.r}
+	for namespace := range namespaces {
+		resourceHandler.queueReconcileForPending(ctx, q, client.InNamespace(namespace))
+	}
+}
+
+func (h *deviceClassHandler) namespacesWithDefaultedResources(ctx context.Context, resourceNames ...string) (sets.Set[string], error) {
+	limitRanges := corev1.LimitRangeList{}
+	if err := h.r.client.List(ctx, &limitRanges,
+		client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+		return nil, err
+	}
+	namespaces := sets.New[string]()
+	for _, lr := range limitRanges.Items {
+		for _, limit := range lr.Spec.Limits {
+			if limit.Type != corev1.LimitTypeContainer {
+				continue
+			}
+			for _, name := range resourceNames {
+				defaultRequest := limit.DefaultRequest[corev1.ResourceName(name)]
+				defaultLimit := limit.Default[corev1.ResourceName(name)]
+				if !defaultRequest.IsZero() || !defaultLimit.IsZero() {
+					namespaces.Insert(lr.Namespace)
+				}
+			}
+		}
+	}
+	return namespaces, nil
 }
 
 func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
