@@ -17,15 +17,24 @@ limitations under the License.
 package workloadslicing
 
 import (
+	"cmp"
 	"context"
+	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // nameForPod returns the annotated Workload name, preferring a present slice-chain annotation.
@@ -64,4 +73,68 @@ func ListPodsForWorkloadSlice(ctx context.Context, c client.Client, namespace, w
 		result[i] = &podList.Items[i]
 	}
 	return result, nil
+}
+
+// runningPodsPerPodSet returns the Pods of the workload slice that hold their
+// resources, by PodSet: the ungated Pods that are not terminated, including the
+// terminating ones.
+func runningPodsPerPodSet(ctx context.Context, c client.Client, wl *kueue.Workload) (map[kueue.PodSetReference][]*corev1.Pod, error) {
+	pods, err := ListPodsForWorkloadSlice(ctx, c, wl.Namespace, SliceName(wl))
+	if err != nil {
+		return nil, err
+	}
+	running := make(map[kueue.PodSetReference][]*corev1.Pod)
+	for _, p := range pods {
+		if utilpod.IsTerminated(p) || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
+		running[ps] = append(running[ps], p)
+	}
+	return running, nil
+}
+
+// DeletePodsAboveCounts deletes the newest running Pods of the workload slice
+// above counts, by PodSet. Terminating Pods count toward counts and are not
+// deleted again. It returns whether any Pod was deleted.
+func DeletePodsAboveCounts(ctx context.Context, c client.Client, wl *kueue.Workload, counts workload.PodSetsCounts) (bool, error) {
+	running, err := runningPodsPerPodSet(ctx, c, wl)
+	if err != nil {
+		return false, err
+	}
+	var toDelete []*corev1.Pod
+	for ps, count := range counts {
+		pods := running[ps]
+		if int32(len(pods)) <= count {
+			continue
+		}
+		pods = slices.DeleteFunc(pods, func(p *corev1.Pod) bool { return p.DeletionTimestamp != nil })
+		if extra := int32(len(pods)) - count; extra > 0 {
+			slices.SortFunc(pods, func(a, b *corev1.Pod) int {
+				return cmp.Or(b.CreationTimestamp.Compare(a.CreationTimestamp.Time), strings.Compare(b.Name, a.Name))
+			})
+			toDelete = append(toDelete, pods[:extra]...)
+		}
+	}
+	log := ctrl.LoggerFrom(ctx)
+	err = parallelize.Until(ctx, len(toDelete), func(i int) error {
+		log.V(3).Info("Deleting elastic pod above the reclaim target count", "pod", klog.KObj(toDelete[i]))
+		return client.IgnoreNotFound(c.Delete(ctx, toDelete[i]))
+	})
+	return len(toDelete) > 0, err
+}
+
+// PodsAboveCounts reports whether any PodSet of the workload slice still has
+// more running Pods than counts.
+func PodsAboveCounts(ctx context.Context, c client.Client, wl *kueue.Workload, counts workload.PodSetsCounts) (bool, error) {
+	running, err := runningPodsPerPodSet(ctx, c, wl)
+	if err != nil {
+		return false, err
+	}
+	for ps, count := range counts {
+		if int32(len(running[ps])) > count {
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -126,6 +126,9 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	if !shouldUngate(active) || workloadevict.IsEvicted(active) {
 		return reconcile.Result{}, nil
 	}
+	if targets := workload.PendingReclaimTargetCounts(active); len(targets) > 0 {
+		return reconcile.Result{}, r.releaseReclaimedQuota(ctx, active, targets)
+	}
 
 	// Expectations are keyed by the stable chain key (the origin slice name shared
 	// by every slice and pod in the chain), not by the rolling active-slice name,
@@ -182,6 +185,18 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return nil
 	})
 	return reconcile.Result{}, err
+}
+
+// releaseReclaimedQuota marks the Pods above the reclaim targets of partial preemption
+// reclaimable, which releases their quota, once the job reconciler stopped them and
+// they are gone. Their deletion triggers another reconcile until then.
+func (r *elasticJobUngater) releaseReclaimedQuota(ctx context.Context, wl *kueue.Workload, targets workload.PodSetsCounts) error {
+	above, err := workloadslicing.PodsAboveCounts(ctx, r.client, wl, targets)
+	if err != nil || above {
+		return err
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Releasing the quota reclaimed by partial preemption", "reclaimTargetCounts", targets)
+	return workload.UpdateReclaimablePods(ctx, r.client, wl, workload.ReclaimablePodsForTargets(wl, targets))
 }
 
 type podAdmissionUpdate struct {
@@ -272,6 +287,10 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	}
 
 	granted := workload.ExtractGrantedPodSetCounts(wl)
+	// Partial preemption stops the pods above the reclaim targets, and the job recreates them.
+	for ps, target := range workload.ReclaimTargetCounts(wl) {
+		granted[ps] = min(granted[ps], target)
+	}
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)

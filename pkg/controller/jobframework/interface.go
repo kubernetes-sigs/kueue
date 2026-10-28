@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // GenericJob is a required interface that must be implemented by all jobs
@@ -101,6 +102,18 @@ type JobWithCustomStop interface {
 	// The function should be idempotent and must not perform any API calls if the job is already stopped.
 	// Returns whether the Job was stopped by this call or an error.
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
+}
+
+// JobWithPartialStop is an optional interface that should be implemented by elastic generic
+// jobs that partial preemption can shrink. Once the Pods above the reclaim targets are gone,
+// the ElasticJobUngater marks them reclaimable, which releases their quota.
+type JobWithPartialStop interface {
+	// StopPartially brings each PodSet in targets down to its target count, without
+	// changing the job's desired count, so that the recreated Pods stay gated.
+	// The function should be idempotent and must not perform any API calls if the
+	// PodSets are already at their targets.
+	// Returns whether any Pod was stopped by this call or an error.
+	StopPartially(ctx context.Context, c client.Client, wl *kueue.Workload, targets workload.PodSetsCounts) (bool, error)
 }
 
 // JobWithFinalize is an optional interface that should be implemented by generic jobs

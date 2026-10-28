@@ -124,6 +124,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial)
 
 	partiallyAdmittedWorkload := baseWl.Clone().Name("job-test-job-prev").
+		UID("prev-uid").
 		PodSets(elasticPodSets...).
 		Annotation(kueue.WorkloadSliceNameAnnotation, "job-test-job-prev").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
@@ -223,7 +224,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			objs:          []client.Object{partiallyAdmittedWorkload.DeepCopy()},
 			wantWorkloadNames: []string{
 				"job-test-job-prev",
-				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7-scale-up-probe-3"),
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7-scale-up-probe-prev-uid"),
 			},
 		},
 		"elastic non-provider composes probe name": {
@@ -237,7 +238,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			objs:    []client.Object{partiallyAdmittedWorkload.DeepCopy()},
 			wantWorkloadNames: []string{
 				"job-test-job-prev",
-				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-prev-uid"),
 			},
 		},
 		"update workload to match job (one existing workload)": {
@@ -2979,6 +2980,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		Obj()
 
 	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
+		UID("prev-uid").
 		PodSets(
 			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
 			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
@@ -3008,7 +3010,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		wantCounts      map[kueue.PodSetReference]int32
 		wantMinCounts   map[kueue.PodSetReference]*int32
 		// wantExtra, when non-nil, is the full extra string the constructed workload's name
-		// should be generated from (job generation, plus a "-scale-up-probe-<admitted>" suffix
+		// should be generated from (job generation, plus a "-scale-up-probe-<previous slice UID>" suffix
 		// for a continued chain).
 		wantExtra *string
 	}{
@@ -3114,8 +3116,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 				kueue.PodSetReference("workers-new"):         nil,
 			},
-			// prevWl's own granted counts: head=1, workers-reservation=1, workers-spot=4.
-			wantExtra: new("0-scale-up-probe-6"),
+			wantExtra: new("0-scale-up-probe-prev-uid"),
 		},
 		"a genuine count mismatch on a matched podset still breaks the naming chain, even alongside an added podset": {
 			job: job,
