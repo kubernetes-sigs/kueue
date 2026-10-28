@@ -182,43 +182,51 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 		templateOffset  string
 		infoAnnotations map[string]string
 		wantAnnotations map[string]string
-		disableTAS      bool
+		featureGates    map[featuregate.Feature]bool
 	}{
 		"grouped PyTorchJob": {
 			grouped:         true,
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value", kueue.PodIndexOffsetAnnotation: "0"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped PyTorchJob with nil admission annotations": {
 			grouped:         true,
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "0"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"explicit template offset is preserved": {
 			grouped:         true,
 			templateOffset:  "2",
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"explicit admission offset is preserved": {
 			grouped:         true,
 			infoAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
-		"ungrouped PyTorchJob": {},
+		"ungrouped PyTorchJob": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
 		"TAS disabled": {
-			grouped:    true,
-			disableTAS: true,
+			grouped:      true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"grouped JobSet": {
 			jobSet:          true,
 			grouped:         true,
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value", kueue.PodIndexOffsetAnnotation: "0"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"grouped JobSet with nil admission annotations": {
 			jobSet:          true,
 			grouped:         true,
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "0"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"JobSet explicit template offset is preserved": {
 			jobSet:          true,
@@ -226,26 +234,29 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			templateOffset:  "2",
 			infoAnnotations: map[string]string{"admission": "value"},
 			wantAnnotations: map[string]string{"admission": "value"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"JobSet explicit admission offset is preserved": {
 			jobSet:          true,
 			grouped:         true,
 			infoAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
 			wantAnnotations: map[string]string{kueue.PodIndexOffsetAnnotation: "2"},
+			featureGates:    map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"ungrouped JobSet": {
-			jobSet: true,
+			jobSet:       true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"JobSet TAS disabled": {
-			jobSet:     true,
-			grouped:    true,
-			disableTAS: true,
+			jobSet:       true,
+			grouped:      true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, !tc.disableTAS)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			annotations := make(map[string]string)
 			if tc.grouped {
@@ -344,8 +355,6 @@ func TestRunWithPodSetsInfoInvalidCount(t *testing.T) {
 }
 
 func TestRunWithPodSetsInfoDeclaredComponents(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
 	mpiJob := testingmpijob.MakeMPIJob("mpi", "ns").GenericLauncherAndWorker().RunLauncherAsWorker(true).Obj()
 	mpiJob.TypeMeta = metav1.TypeMeta{APIVersion: kfmpi.SchemeGroupVersion.String(), Kind: "MPIJob"}
 	mpiJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Replicas = new(int32(4))
@@ -377,40 +386,55 @@ func TestRunWithPodSetsInfoDeclaredComponents(t *testing.T) {
 		PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/rack").
 		PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodIndexOffsetAnnotation, "0").
 		SetTypeMeta().Obj()
-	aw := testingappwrapper.MakeAppWrapper("aw", "ns").
-		Component(mpiComponent).
-		Component(testingappwrapper.Component{
-			Template: pytorchJob,
-			DeclaredPodSets: []awv1beta2.AppWrapperPodSet{
-				{
-					Path:        "template.spec.pytorchReplicaSpecs.Worker.template",
-					Replicas:    new(int32(4)),
-					Annotations: map[string]string{awutils.PodSetAnnotationTASPodIndexLabel: kftraining.ReplicaIndexLabel},
-				},
-				{
-					Path:        "template.spec.pytorchReplicaSpecs.Master.template",
-					Replicas:    new(int32(1)),
-					Annotations: map[string]string{awutils.PodSetAnnotationTASPodIndexLabel: kftraining.ReplicaIndexLabel},
-				},
+	testCases := map[string]struct {
+		job             *awv1beta2.AppWrapper
+		podSetsInfo     []podset.PodSetInfo
+		wantAnnotations [][]map[string]string
+	}{
+		"declared pod sets preserve component boundaries and order": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(mpiComponent).
+				Component(testingappwrapper.Component{
+					Template: pytorchJob,
+					DeclaredPodSets: []awv1beta2.AppWrapperPodSet{
+						{
+							Path:        "template.spec.pytorchReplicaSpecs.Worker.template",
+							Replicas:    new(int32(4)),
+							Annotations: map[string]string{awutils.PodSetAnnotationTASPodIndexLabel: kftraining.ReplicaIndexLabel},
+						},
+						{
+							Path:        "template.spec.pytorchReplicaSpecs.Master.template",
+							Replicas:    new(int32(1)),
+							Annotations: map[string]string{awutils.PodSetAnnotationTASPodIndexLabel: kftraining.ReplicaIndexLabel},
+						},
+					},
+				}).
+				Component(mpiComponent).
+				Obj(),
+			podSetsInfo: make([]podset.PodSetInfo, 6),
+			wantAnnotations: [][]map[string]string{
+				{nil, nil},
+				{{kueue.PodIndexOffsetAnnotation: "0"}, nil},
+				{nil, nil},
 			},
-		}).
-		Component(mpiComponent).
-		Obj()
-	wantAnnotations := [][]map[string]string{
-		{nil, nil},
-		{{kueue.PodIndexOffsetAnnotation: "0"}, nil},
-		{nil, nil},
+		},
 	}
 
-	if err := fromObject(aw).RunWithPodSetsInfo(ctx, nil, make([]podset.PodSetInfo, 6)); err != nil {
-		t.Fatalf("RunWithPodSetsInfo() failed: %v", err)
-	}
-	for i, component := range aw.Spec.Components {
-		for p, info := range component.PodSetInfos {
-			if diff := cmp.Diff(wantAnnotations[i][p], info.Annotations); diff != "" {
-				t.Errorf("component %d pod set %d annotations mismatch (-want +got):\n%s", i, p, diff)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if err := fromObject(tc.job).RunWithPodSetsInfo(ctx, nil, tc.podSetsInfo); err != nil {
+				t.Fatalf("RunWithPodSetsInfo() failed: %v", err)
 			}
-		}
+			for i, component := range tc.job.Spec.Components {
+				for p, info := range component.PodSetInfos {
+					if diff := cmp.Diff(tc.wantAnnotations[i][p], info.Annotations); diff != "" {
+						t.Errorf("component %d pod set %d annotations mismatch (-want +got):\n%s", i, p, diff)
+					}
+				}
+			}
+		})
 	}
 }
 
