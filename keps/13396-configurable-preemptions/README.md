@@ -26,6 +26,7 @@
 - [Design Details](#design-details)
   - [Proposed API PreemptionConfig](#proposed-api-preemptionconfig)
     - [Default Candidate Ordering](#default-candidate-ordering)
+    - [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)
   - [Integration](#integration)
   - [Observability](#observability)
     - [Eviction Statistics](#eviction-statistics)
@@ -474,21 +475,38 @@ Requested functionalities from the community can be satisfied with the following
    ```
 
 5. **SLA protection based on workload creation time:**
-   Model SLA requirements by only preempting recently created workloads (e.g., created at most 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
-   ```yaml
-   spec:
-     rules:
-       - name: preempt-recent-workloads-only
-         activationPolicy:
-           trigger: "InsufficientQuota"
-         candidateSelectors:
-           - scope: "WithinClusterQueue"
-             priority:
-               mode: "Boosted"
-               comparison: "LessThan"
-             timeSinceCreation:
-               maxSeconds: 3600
-   ```
+
+    * Model SLA requirements by only preempting recently created workloads (e.g., created at most 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
+      ```yaml
+      spec:
+        rules:
+          - name: preempt-recent-workloads-only
+            activationPolicy:
+              trigger: "InsufficientQuota"
+            candidateSelectors:
+              - scope: "WithinClusterQueue"
+                priority:
+                  mode: "Boosted"
+                  comparison: "LessThan"
+                timeSinceCreation:
+                  maxSeconds: 3600
+      ```
+    * Prioritize finishing workloads that were created before preemptor to make sure that older workloads are able to finish. This enables SLA requirements when workload should be able to finish in N days. Available since v0.21:
+      ```yaml
+      spec:
+        rules:
+          - name: preempt-workloads-created-after-preemptor
+            activationPolicy:
+              trigger: "InsufficientQuota"
+            candidateSelectors:
+              - scope: "WithinClusterQueue"
+                priority:
+                  mode: "Boosted"
+                  comparison: "LessThan"
+                timeSinceCreation:
+                  comparison: "LessThan"
+      ```
+
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
    Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Base` mode.
 
@@ -796,7 +814,7 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   ExecutionTime *PreemptionConfigTimeConstraint `json:"executionTime,omitempty"`
 
   // timeSinceCreation defines the requirements for candidates based on workload age since creation.
-  // A workload's time from creation is the elapsed duration measured from metadata.creationTimestamp
+  // A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
   // until the time of preemption evaluation.
   // Workloads not matching these requirements will not be considered as preemption candidates.
   // If nil, no creation time requirements are enforced.
@@ -811,6 +829,7 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 // setting minSeconds on executionTime, or to protect older workloads near completion by setting
 // maxSeconds on timeSinceCreation.
 // Multiple fields are joined using AND-rule (all specified bounds and comparisons have to be satisfied).
+// At least one property must be specified.
 //
 // +kubebuilder:validation:AtLeastOneOf=minSeconds;maxSeconds;comparison
 // +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
@@ -1055,6 +1074,11 @@ const (
 In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules for classical preemption and fair sharing (reusing the logic from [`pkg/scheduler/preemption/common/ordering.go`](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)):
 
 Configurable candidate ordering via an `Ordering` field is deferred to [Future Work](FUTURE_WORK.md#configurable-candidate-ordering).
+
+#### Workload Requeuing When No Candidates Are Available
+If a workload cannot be admitted due to current preemption config (for example `executionTime.minSeconds`), the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue moves the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
+
+The returned timestamp corresponds to the earliest blocking limit that halts or restricts candidate searching, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as the state of the system can change in the meantime.
 
 ### Integration
 
