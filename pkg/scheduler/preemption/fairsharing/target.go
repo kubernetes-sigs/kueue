@@ -104,3 +104,14 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 func (t *TargetClusterQueue) GetTargetCq() *schdcache.ClusterQueueSnapshot {
 	return t.targetCq
 }
+
+// IsReclaim reports whether preempting from targetCq on behalf of
+// preemptorCq is a pure reclaim of nominal quota (rule S1 in KEP-1714),
+// evaluated at the AlmostLCAs of the two ClusterQueues: the preemptor's
+// AlmostLCA must be within nominal quota for every flavor-resource in
+// preemptorFrs, and the target's AlmostLCA must be borrowing at least one
+// flavor-resource in targetFrs.
+func IsReclaim(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot, preemptorFrs, targetFrs sets.Set[resources.FlavorResource]) bool {
+	preemptorNode, targetNode := AlmostLCAs(preemptorCq, targetCq)
+	return !borrowsAny(preemptorNode, preemptorFrs) && borrowsAny(targetNode, targetFrs)
+}

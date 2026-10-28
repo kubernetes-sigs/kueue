@@ -69,6 +69,9 @@ type Preemptor struct {
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
+	// fsReclaimOnly is set when the only configured FairSharing
+	// preemption strategy is ReclaimOnly (rule S1).
+	fsReclaimOnly bool
 
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
@@ -150,6 +153,7 @@ func New(
 		workloadOrdering:       workloadOrdering,
 		enableFairSharing:      fairsharing.Enabled(fs),
 		fsStrategies:           parseStrategies(fs),
+		fsReclaimOnly:          reclaimOnly(fs),
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		customLabels:           customLabels,
@@ -446,6 +450,10 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 	if fs == nil || len(fs.PreemptionStrategies) == 0 {
 		return []fairsharing.Strategy{fairsharing.LessThanOrEqualToFinalShare, fairsharing.LessThanInitialShare}
 	}
+	if reclaimOnly(fs) {
+		// ReclaimOnly doesn't compare DominantResourceShares; see iterateReclaimOnly.
+		return nil
+	}
 	fsStrategies := make([]fairsharing.Strategy, len(fs.PreemptionStrategies))
 	for i, strategy := range fs.PreemptionStrategies {
 		switch strategy {
@@ -456,6 +464,13 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 		}
 	}
 	return fsStrategies
+}
+
+// reclaimOnly reports whether the FairSharing preemption is restricted to
+// reclaiming nominal quota. Configuration validation only allows ReclaimOnly
+// as the single strategy.
+func reclaimOnly(fs *config.FairSharing) bool {
+	return fs != nil && slices.Equal(fs.PreemptionStrategies, []config.PreemptionStrategy{config.ReclaimOnly})
 }
 
 // fsStrategyUnsatisfiable reports whether, given the preemptor's and the

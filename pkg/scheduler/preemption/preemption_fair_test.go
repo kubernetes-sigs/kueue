@@ -1726,6 +1726,142 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New[string](),
 		},
+		"ReclaimOnly: reclaim nominal quota from a borrowing ClusterQueue": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
+		"ReclaimOnly: no preemption when the preemptor would borrow, even if it has a lower share": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
+		},
+		"ReclaimOnly: preempt lower priority workloads in the preemptor ClusterQueue": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/a1", kueue.InClusterQueueReason)),
+		},
+		// root
+		// ├── cohort-c   (no quota)
+		// │   ├── a      10 CPU   P: 10 (pending)
+		// │   └── s       0 CPU   S: 4  (admitted)
+		// └── t           0 CPU   T: 6  (admitted)
+		//
+		// Reclaiming from t is only possible once s, which is closer to a,
+		// has been reclaimed and cohort-c is back within its nominal quota.
+		"ReclaimOnly: nested cohorts reclaim starting from the closest ClusterQueue": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("s1", "").Request(corev1.ResourceCPU, "4").SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "10").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/s1", kueue.InCohortReclamationReason),
+				targetKeyReason("/t1", kueue.InCohortReclamationReason),
+			),
+		},
+		"ReclaimOnly: nested cohorts don't reclaim when the preemptor's cohort would borrow": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "8").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("s1", "").Request(corev1.ResourceCPU, "4").Priority(10).SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "8").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

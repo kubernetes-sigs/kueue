@@ -195,12 +195,22 @@ The values you can put in the `preemptionStrategies` list are:
   Note that this strategy doesn't depend on the share usage of the Workload being preempted.
   As a result, the strategy chooses to first preempt workloads with the lowest priority and
   newest start time within the target ClusterQueue.
+- `ReclaimOnly`: Only preempt a Workload to reclaim nominal quota (rule S1 in
+  [KEP-1714](https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption)).
+  A Workload in another ClusterQueue is only preempted if AlmostLCA(preemptor, target), with the
+  preemptor Workload admitted, stays within its nominal quota, and AlmostLCA(target, preemptor) is
+  borrowing. Shares are still used to order admission, but they never trigger a preemption on
+  their own. Candidates are considered starting from the ClusterQueues closest to the preemptor in
+  the cohort hierarchy, so reclaiming quota from a nearby subtree can make a reclaim from a further
+  one possible. Workloads in the preemptor's own ClusterQueue can still be preempted according to
+  `withinClusterQueue`.
 
 Kueue only supports the following `preemptionStrategies` lists:
 
 - `[LessThanOrEqualToFinalShare]`
 - `[LessThanInitialShare]`
 - `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
+- `[ReclaimOnly]`
 
 Any other combination or ordering, such as
 `[LessThanInitialShare, LessThanOrEqualToFinalShare]`, fails configuration

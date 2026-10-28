@@ -1396,6 +1396,28 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid ReclaimOnly preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.ReclaimOnly},
+				},
+			},
+		},
+		"ReclaimOnly combined with another preemption strategy": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				FairSharing: &configapi.FairSharing{
+					PreemptionStrategies: []configapi.PreemptionStrategy{configapi.LessThanOrEqualToFinalShare, configapi.ReclaimOnly},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "fairSharing.preemptionStrategies",
+				},
+			},
+		},
 		"valid admissionFairSharing configuration": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

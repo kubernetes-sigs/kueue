@@ -914,12 +914,22 @@ workload to be preempted.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
 newest start time first.</li>
+<li>ReclaimOnly: Only preempt a workload to reclaim nominal quota (rule S1
+in KEP-1714). A workload is preempted only if
+AlmostLCA(preemptor, preemptee), with the preemptor workload admitted,
+stays within its nominal quota and AlmostLCA(preemptee, preemptor) is
+borrowing. Fair sharing is still used to order admission, but it never
+triggers a preemption on its own. Candidates are considered starting
+from the ClusterQueues closest to the preemptor in the cohort
+hierarchy, so reclaiming from a close subtree can make a reclaim from
+a further one possible.</li>
 </ul>
 <p>Only the following lists are supported:</p>
 <ul>
 <li>[&quot;LessThanOrEqualToFinalShare&quot;]</li>
 <li>[&quot;LessThanInitialShare&quot;]</li>
 <li>[&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;]</li>
+<li>[&quot;ReclaimOnly&quot;]</li>
 </ul>
 <p>Any other combination or ordering fails configuration validation.</p>
 </td>

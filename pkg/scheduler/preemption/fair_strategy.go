@@ -83,7 +83,6 @@ func fairPreemptionStrategy(
 
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
 		var cont bool
-		targetsInPreemptorCQ := false
 
 		yieldedCandidates := make([]*Target, 0)
 		yieldAndRecord := func(t *Target) bool {
@@ -102,31 +101,10 @@ func fairPreemptionStrategy(
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
-		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
-			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
-				targetsInPreemptorCQ = true
-			}
-			return yieldWithoutSimulatedUsage(t)
-		})
-
-		if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
-			// If "targets" contains workload from the same CQ as the preemptor, it means
-			// that DRS of the preemptor was decreased during the first run, and we can run
-			// the same strategy again with remaining candidates as they have chance to
-			// succeed now.
-			// No need to run the strategy a third time as first run already iterated
-			// though whole tree and removed all the preemptor's workloads.
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
-		}
-
-		if cont && len(fsStrategies) > 1 {
-			if logV := log.V(6); logV.Enabled() {
-				logV.Info("First fair sharing strategy failed, trying second strategy",
-					"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-					"targets", logging.GetObjectReferences(yieldedCandidates),
-					"retryCandidates", workload.References(candidateWls))
-			}
-			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+		if preemptor.fsReclaimOnly {
+			cont = iterateReclaimOnly(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+		} else {
+			cont = iterateFsStrategies(log, preemptionCtx, candidateWls, fsStrategies, yieldWithoutSimulatedUsage, func() []*Target { return yieldedCandidates })
 		}
 
 		revertSimulation()
@@ -154,7 +132,7 @@ func fairPreemptionStrategy(
 			allowBorrowing,
 			preemptionCtx,
 			withVerify(func(targets []*Target) (bool, string) {
-				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
+				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies, preemptor.fsReclaimOnly)
 			}),
 		))
 	}
@@ -171,7 +149,7 @@ func fairPreemptionStrategy(
 // (or if it is immediately re-admitted in the next scheduling cycle), the
 // preemptor's actual post-preemption share is higher than the share used to
 // justify the cross-CQ preemption, causing a preemption loop between queues (#14543).
-func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy) (bool, string) {
+func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy, reclaimOnly bool) (bool, string) {
 	if !features.Enabled(features.FairSharingVerifyFinalTargets) {
 		return true, ""
 	}
@@ -180,7 +158,7 @@ func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, f
 	defer revertSimulation()
 
 	var requestedFrs sets.Set[resources.FlavorResource]
-	if features.Enabled(features.FairSharingPreemptWithinNominal) {
+	if reclaimOnly || features.Enabled(features.FairSharingPreemptWithinNominal) {
 		requestedFrs = requestedFlavorResources(preemptionCtx)
 	}
 
@@ -230,6 +208,138 @@ func verifyFairSharingTarget(
 		schdcache.DRS(oldShare).PreciseWeightedShareSerialized(),
 		schdcache.DRS(newShare).PreciseWeightedShareSerialized())
 	return false, reason
+}
+
+// iterateFsStrategies yields candidates using the configured DominantResourceShare
+// based strategies (rules S2-a and S2-b).
+func iterateFsStrategies(
+	log logr.Logger,
+	preemptionCtx *preemptionCtx,
+	candidateWls []*workload.Info,
+	fsStrategies []fairsharing.Strategy,
+	yieldWithoutSimulatedUsage func(*Target) bool,
+	yieldedCandidates func() []*Target,
+) bool {
+	targetsInPreemptorCQ := false
+	candidateWls, cont := iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
+		if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
+			targetsInPreemptorCQ = true
+		}
+		return yieldWithoutSimulatedUsage(t)
+	})
+
+	if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
+		// If "targets" contains workload from the same CQ as the preemptor, it means
+		// that DRS of the preemptor was decreased during the first run, and we can run
+		// the same strategy again with remaining candidates as they have chance to
+		// succeed now.
+		// No need to run the strategy a third time as first run already iterated
+		// though whole tree and removed all the preemptor's workloads.
+		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
+	}
+
+	if cont && len(fsStrategies) > 1 {
+		if logV := log.V(6); logV.Enabled() {
+			logV.Info("First fair sharing strategy failed, trying second strategy",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(yieldedCandidates()),
+				"retryCandidates", workload.References(candidateWls))
+		}
+		cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+	}
+	return cont
+}
+
+// iterateReclaimOnly yields candidates for the ReclaimOnly strategy (rule S1
+// in KEP-1714): a workload from another ClusterQueue is only a target if
+// preempting it reclaims nominal quota, evaluated at the AlmostLCAs of the
+// preemptor and target ClusterQueues.
+//
+// Candidates from other ClusterQueues are considered starting from the
+// ClusterQueues closest to the preemptor in the cohort hierarchy. Removing a
+// target lowers the usage of every Cohort above it, so reclaiming from a
+// close subtree can bring the preemptor's AlmostLCA with a further
+// ClusterQueue back within nominal quota. Candidates at the same distance
+// can't affect each other's check, because the usage they free is never
+// counted in the preemptor's AlmostLCA with the other one.
+//
+// Candidates in the preemptor's own ClusterQueue are considered after the
+// other ClusterQueues, matching the preference of the other strategies for
+// reclaiming borrowed quota first. If any of them is a target, the skipped
+// candidates are evaluated once more, as the preemptor's usage went down.
+func iterateReclaimOnly(
+	log logr.Logger,
+	preemptionCtx *preemptionCtx,
+	candidates []*workload.Info,
+	yield func(*Target) bool,
+) bool {
+	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	preemptorCQ := preemptionCtx.preemptorCQ
+	preemptorFrs := requestedFlavorResources(preemptionCtx)
+	targetFrs := preemptionCtx.frsNeedPreemption
+	if len(targetFrs) == 0 {
+		targetFrs = preemptorFrs
+	}
+
+	type candidate struct {
+		wl       *workload.Info
+		cq       *schdcache.ClusterQueueSnapshot
+		distance int
+	}
+	var others []candidate
+	var own []*workload.Info
+	for _, wl := range candidates {
+		if wl.ClusterQueue == preemptorCQ.Name {
+			own = append(own, wl)
+			continue
+		}
+		cq := preemptionCtx.snapshot.ClusterQueue(wl.ClusterQueue)
+		if cq == nil || !preemptorCQ.HasParent() || !cq.HasParent() {
+			continue
+		}
+		others = append(others, candidate{wl: wl, cq: cq, distance: fairsharing.LCADistance(preemptorCQ, cq)})
+	}
+	// The candidates are already sorted by the preemption ordering, so a
+	// stable sort keeps that ordering within each distance.
+	slices.SortStableFunc(others, func(a, b candidate) int { return a.distance - b.distance })
+
+	reclaim := func() bool {
+		remaining := others[:0]
+		for _, c := range others {
+			passed := fairsharing.IsReclaim(preemptorCQ, c.cq, preemptorFrs, targetFrs)
+			if logV := log.V(4); logV.Enabled() {
+				logV.Info("Evaluating ReclaimOnly FairSharing strategy",
+					"targetClusterQueue", klog.KRef("", string(c.cq.Name)),
+					"targetWorkload", klog.KObj(c.wl.Obj),
+					"lcaDistance", c.distance,
+					"strategyPassed", passed)
+			}
+			if !passed {
+				remaining = append(remaining, c)
+				continue
+			}
+			if !yield(&Target{WorkloadInfo: c.wl, Reason: kueue.InCohortReclamationReason, WorkloadCq: c.cq}) {
+				return false
+			}
+		}
+		others = remaining
+		return true
+	}
+
+	if !reclaim() {
+		return false
+	}
+	ownYielded := false
+	for _, wl := range own {
+		ownYielded = true
+		if !yield(&Target{WorkloadInfo: wl, Reason: kueue.InClusterQueueReason, WorkloadCq: preemptorCQ}) {
+			return false
+		}
+	}
+	if ownYielded && len(others) > 0 {
+		return reclaim()
+	}
+	return true
 }
 
 func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) bool {
