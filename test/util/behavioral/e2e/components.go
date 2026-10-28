@@ -164,10 +164,44 @@ func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
 	waitForDeploymentAvailability(ctx, k8sClient, jcmKey, true)
 }
 
-func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client) {
+func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client, cfg *rest.Config) {
 	ginkgo.GinkgoHelper()
 	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, jcmKey, true)
+	waitForLeaderWorkerSetWebhookOnEachPod(ctx, k8sClient, CreateRestClient(cfg), jcmKey)
+}
+
+// LWS pods turn Ready before their webhook server listens, and before Kubernetes 1.37
+// the apiserver can keep sending webhook calls to one replica, so call every pod directly.
+// TODO: remove once https://github.com/kubernetes-sigs/lws/issues/1253 is fixed.
+func waitForLeaderWorkerSetWebhookOnEachPod(ctx context.Context, k8sClient client.Client, restClient *rest.RESTClient, key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("Waiting for every pod of deployment %q to serve the LeaderWorkerSet webhook", key))
+	gomega.Eventually(func(g gomega.Gomega) {
+		// The apiserver doesn't time out proxy requests, so bound each attempt to let Eventually retry a stalled one.
+		ctx, cancel := context.WithTimeout(ctx, behavioral.Timeout)
+		defer cancel()
+		deployment := &appsv1.Deployment{}
+		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
+		selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(key.Namespace),
+			client.MatchingLabelsSelector{Selector: selector},
+		)).To(gomega.Succeed())
+		g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+		for _, pod := range pods.Items {
+			// A registered handler answers an empty request with HTTP 200 and an admission error.
+			g.Expect(restClient.Get().
+				Namespace(pod.Namespace).
+				Resource("pods").
+				Name("https:"+pod.Name+":9443").
+				SubResource("proxy").
+				Suffix("mutate-leaderworkerset-x-k8s-io-v1-leaderworkerset").
+				Do(ctx).Error()).To(gomega.Succeed(), "pod %q", pod.Name)
+		}
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
