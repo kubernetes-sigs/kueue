@@ -349,6 +349,12 @@ func (p *PodWrapper) ContainerName(name string) *PodWrapper {
 	return p
 }
 
+// EphemeralContainer adds an ephemeral container with the given name and image.
+func (p *PodWrapper) EphemeralContainer(name, image string) *PodWrapper {
+	p.Spec.EphemeralContainers = append(p.Spec.EphemeralContainers, corev1.EphemeralContainer{Name: name, Image: image})
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
