@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -168,6 +169,27 @@ func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Cl
 	ginkgo.GinkgoHelper()
 	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, jcmKey, true)
+	waitForLeaderWorkerSetWebhookDataPath(ctx, k8sClient, jcmKey.Namespace)
+}
+
+// leaderWorkerSetWebhookProbeCalls is the number of consecutive LeaderWorkerSet
+// webhook calls that must succeed. With 2 replicas and one of them not serving
+// yet, all calls succeed with a probability of 2^-20.
+const leaderWorkerSetWebhookProbeCalls = 20
+
+// waitForLeaderWorkerSetWebhookDataPath verifies that the apiserver is able to call
+// the LeaderWorkerSet webhooks. A LeaderWorkerSet replica reports Ready before its
+// webhook server listens, and the apiserver sends each call to a random replica,
+// so one successful call does not prove that every replica serves the webhooks.
+func waitForLeaderWorkerSetWebhookDataPath(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By("Probing the LeaderWorkerSet webhook data path")
+	gomega.Eventually(func(g gomega.Gomega) {
+		for range leaderWorkerSetWebhookProbeCalls {
+			probe := testingleaderworkerset.MakeLeaderWorkerSet("webhook-probe", namespace).Obj()
+			g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+		}
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
