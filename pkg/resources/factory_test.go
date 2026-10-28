@@ -142,17 +142,27 @@ func TestPodRequests(t *testing.T) {
 			},
 			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 		},
-		// Regression test for #14015.
-		"a negative pod-level request leaves the container aggregate standing": {
+		// Regression test for #14015. The clamp only shows on a name that only
+		// the pod level asks for: on main the pod-level -3Gi and the 1Gi
+		// overhead add up to -2Gi, so quota ends up charging no memory.
+		"a negative pod-level request does not spend the overhead": {
 			podSpec: corev1.PodSpec{
 				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				}}},
 				Resources: &corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("-3Gi")},
 				},
+				Overhead: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
 			},
-			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("8"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+			wantWithoutOverhead: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("8"),
+				corev1.ResourceMemory: resource.MustParse("0"),
+			},
 		},
 		// Regression test for #14015.
 		"a negative overhead is read as zero": {
