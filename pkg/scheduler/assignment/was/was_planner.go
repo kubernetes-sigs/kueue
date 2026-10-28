@@ -212,13 +212,15 @@ func (p *wasPlanner) addPodGroups(ctx context.Context, vPgs *wassim.WorkloadVirt
 
 	for _, cpg := range vPgs.CompositePodGroups {
 		if err := p.snapshot.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
-			return nil, errors.Join(fmt.Errorf("unable to add composite pod group %q to simulator: %w", cpg.Name, err), revert())
+			revertErr := revert()
+			return nil, errors.Join(fmt.Errorf("unable to add composite pod group %q to simulator: %w", cpg.Name, err), revertErr)
 		}
 		addedCPGs = append(addedCPGs, cpg)
 	}
 	for _, pg := range vPgs.PodGroups {
 		if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
-			return nil, errors.Join(fmt.Errorf("unable to add pod group %q to simulator: %w", pg.Name, err), revert())
+			revertErr := revert()
+			return nil, errors.Join(fmt.Errorf("unable to add pod group %q to simulator: %w", pg.Name, err), revertErr)
 		}
 		addedPGs = append(addedPGs, pg)
 	}
