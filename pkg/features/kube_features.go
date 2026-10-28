@@ -925,6 +925,12 @@ const (
 	// not all Pods of the group succeeded. When disabled, such a Workload finishes with
 	// reason Succeeded, as before https://github.com/kubernetes-sigs/kueue/pull/16156.
 	DeclareWorkloadFailureOnUnretriablePodGroups featuregate.Feature = "DeclareWorkloadFailureOnUnretriablePodGroups"
+
+	// owner: @kevin85421
+	//
+	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
+	// which MultiKueue worker clusters a Workload may be dispatched to.
+	MultiKueueClusterNames featuregate.Feature = "MultiKueueClusterNames"
 )
 
 func init() {
@@ -1434,6 +1440,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeclareWorkloadFailureOnUnretriablePodGroups: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueClusterNames: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

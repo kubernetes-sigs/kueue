@@ -275,6 +275,14 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 		}
 	}
 
+	if features.Enabled(features.MultiKueueClusterNames) {
+		if v, ok := obj.GetAnnotations()[kueue.MultiKueueClusterNamesAnnotation]; ok {
+			if annotations == nil {
+				annotations = make(map[string]string, 1)
+			}
+			annotations[kueue.MultiKueueClusterNamesAnnotation] = v
+		}
+	}
 	return &kueue.Workload{
 		Name:        name,
 		Namespace:   obj.GetNamespace(),
