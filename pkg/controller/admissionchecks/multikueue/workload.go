@@ -1368,7 +1368,9 @@ func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGr
 	log := ctrl.LoggerFrom(ctx)
 
 	needsTopologyUpdate := needsDelayedTopologyUpdate(group.local, group.remotes[admittingRemote])
-	needsACUpdate := acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected
+	wasReady := acs.State == kueue.CheckStateReady
+	needsACUpdate := acs.State == kueue.CheckStatePending ||
+		(wasReady && ptr.Deref(group.local.Status.ClusterName, "") != admittingRemote)
 
 	if !needsTopologyUpdate && !needsACUpdate {
 		return nil
@@ -1381,9 +1383,7 @@ func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGr
 
 		if needsACUpdate {
 			acs.State = kueue.CheckStateReady
-			// update the message
 			acs.Message = fmt.Sprintf("The workload was admitted on %q", admittingRemote)
-			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
 
 			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock)
@@ -1405,7 +1405,9 @@ func (w *wlReconciler) syncAdmittingRemoteState(ctx context.Context, group *wlGr
 	}
 
 	if needsACUpdate {
-		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
+		if !wasReady {
+			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
+		}
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
