@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -671,13 +673,13 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
-		"with sidecar submission mode accounts for the injected submitter on the head podSet": {
+		"with sidecar submission mode accounts for the injected submitter with the head image on the head podSet": {
 			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
 				WithSubmissionMode(rayv1.SidecarMode).
 				WithHeadGroupSpec(
 					rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c", Image: "ray-image"}}},
 						},
 					},
 				).
@@ -696,9 +698,10 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 						PodSpec(corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "head_c"},
+								{Name: "head_c", Image: "ray-image"},
 								{
-									Name: "ray-job-submitter",
+									Name:  "ray-job-submitter",
+									Image: "ray-image",
 									Resources: corev1.ResourceRequirements{
 										Limits: corev1.ResourceList{
 											corev1.ResourceCPU:    resource.MustParse("1"),
@@ -731,6 +734,72 @@ func TestPodSets(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPodSets(tc.rayJob), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCustomEquivalenceOptionsLegacySubmitterImage(t *testing.T) {
+	// Checks the equivalence decision for a Workload whose head PodSet has the
+	// empty submitter image stored by older Kueue versions. The reconciler keeps
+	// an equivalent Workload and updates or recreates a mismatching one.
+	cases := map[string]struct {
+		reserved, admitted, running bool
+		wantEquivalent              bool
+	}{
+		"admitted legacy workload is equivalent":                          {reserved: true, admitted: true, running: true, wantEquivalent: true},
+		"reserved legacy workload of a running job is equivalent":         {reserved: true, running: true, wantEquivalent: true},
+		"reserved legacy workload of a suspended job is not equivalent":   {reserved: true},
+		"unreserved legacy workload of a suspended job is not equivalent": {},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			toleration := corev1.Toleration{Key: "pool", Operator: corev1.TolerationOpEqual, Value: "a", Effect: corev1.TaintEffectNoSchedule}
+			cl := utiltesting.NewClientBuilder().WithObjects(
+				utiltestingapi.MakeResourceFlavor("rf").NodeLabel("pool", "a").Toleration(toleration).Obj(),
+			).Build()
+			rj := testingrayutil.MakeJob("rayjob", "ns").WithSubmissionMode(rayv1.SidecarMode).Suspend(!tc.running).
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head", Image: "ray-image"}}},
+				}}).Obj()
+			jobPodSets, err := (*RayJob)(rj).PodSets(ctx, cl)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			wlWrapper := utiltestingapi.MakeWorkload("wl", "ns").ControllerReference(gvk, "rayjob", "").PodSets(jobPodSets...)
+			if tc.reserved {
+				assignments := make([]kueue.PodSetAssignment, 0, len(jobPodSets))
+				for _, ps := range jobPodSets {
+					assignments = append(assignments, utiltestingapi.MakePodSetAssignment(ps.Name).Flavor(corev1.ResourceCPU, "rf").Obj())
+				}
+				wlWrapper.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(assignments...).Obj(), time.Now())
+			}
+			if tc.admitted {
+				wlWrapper.AdmittedAt(true, time.Now())
+			}
+			wl := wlWrapper.Obj().DeepCopy()
+			wl.Spec.PodSets[0].Template.Spec.Containers[1].Image = ""
+			if tc.running {
+				// The started job carries the flavor placement injected from the
+				// admission. Its toleration makes an unadmitted Workload match only
+				// through the running PodSets.
+				rcSpec := rj.Spec.RayClusterSpec
+				templates := []*corev1.PodTemplateSpec{&rcSpec.HeadGroupSpec.Template}
+				for i := range rcSpec.WorkerGroupSpecs {
+					templates = append(templates, &rcSpec.WorkerGroupSpecs[i].Template)
+				}
+				for _, tmpl := range templates {
+					tmpl.Spec.NodeSelector = map[string]string{"pool": "a"}
+					tmpl.Spec.Tolerations = []corev1.Toleration{toleration}
+				}
+			}
+			got, err := jobframework.EquivalentToWorkload(ctx, cl, (*RayJob)(rj), wl)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.wantEquivalent {
+				t.Errorf("EquivalentToWorkload() = %v, want %v", got, tc.wantEquivalent)
 			}
 		})
 	}

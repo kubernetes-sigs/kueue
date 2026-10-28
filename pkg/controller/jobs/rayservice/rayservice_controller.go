@@ -93,8 +93,8 @@ var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
 
-func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	return raycluster.EquivalenceOptions()
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	return append(raycluster.LegacySidecarImageOptions(j, wl), raycluster.EquivalenceOptions()...)
 }
 
 func (j *RayService) Object() client.Object {

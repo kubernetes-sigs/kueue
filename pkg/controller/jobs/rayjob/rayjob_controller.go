@@ -95,8 +95,8 @@ var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
 
-func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	return raycluster.EquivalenceOptions()
+func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	return append(raycluster.LegacySidecarImageOptions(j, wl, rayutils.SubmitterContainerName), raycluster.EquivalenceOptions()...)
 }
 
 func (j *RayJob) Object() client.Object {
@@ -284,7 +284,7 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 				{
 					Name: rayutils.SubmitterContainerName,
 					// Use the image of the Ray head to be defensive against version mismatch issues
-					Image:     rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
+					Image:     raycluster.HeadRayContainerImage(rayJob.Spec.RayClusterSpec),
 					Resources: defaultSubmitterResources(),
 				},
 			},
@@ -320,10 +320,11 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 
 // addSidecarSubmitterToHeadPodSet accounts for the submitter container that
 // KubeRay injects into the head Pod when submissionMode=SidecarMode. KubeRay
-// always uses the default submitter resources in this mode and ignores
-// SubmitterPodTemplate (ray-operator/controllers/ray/rayjob_controller.go:
-// getSubmitterContainer), so mirror those defaults on the head PodSet to keep
-// quota accurate.
+// always uses the default submitter resources and the head Ray container image
+// in this mode and ignores SubmitterPodTemplate
+// (ray-operator/controllers/ray/rayjob_controller.go: getSubmitterContainer),
+// so mirror those defaults on the head PodSet to keep quota accurate. The image
+// is required by ProvisioningRequest.
 func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
 	if j.Spec.SubmissionMode != rayv1.SidecarMode {
 		return
@@ -332,6 +333,7 @@ func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
 		if podSets[i].Name == headGroupPodSetName {
 			podSets[i].Template.Spec.Containers = append(podSets[i].Template.Spec.Containers, corev1.Container{
 				Name:      rayutils.SubmitterContainerName,
+				Image:     raycluster.HeadRayContainerImage(j.Spec.RayClusterSpec),
 				Resources: defaultSubmitterResources(),
 			})
 			return

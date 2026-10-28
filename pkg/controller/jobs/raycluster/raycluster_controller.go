@@ -82,8 +82,8 @@ var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
 
-func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	return EquivalenceOptions()
+func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	return append(LegacySidecarImageOptions(j, wl), EquivalenceOptions()...)
 }
 
 func (j *RayCluster) Object() client.Object {
