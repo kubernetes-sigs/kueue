@@ -62,6 +62,10 @@ func TestWorkloadCmd(t *testing.T) {
 			args:    []string{},
 			wantErr: "requires at least 1 arg(s), only received 0",
 		},
+		"names with all flag": {
+			args:    []string{"wl1", "--all"},
+			wantErr: "name(s) cannot be provided together with --all",
+		},
 		"shouldn't delete a workload and its corresponding job without confirmation": {
 			args: []string{"wl1"},
 			workloads: []runtime.Object{
