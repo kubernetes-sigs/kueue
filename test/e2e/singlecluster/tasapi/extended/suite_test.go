@@ -49,10 +49,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
-	if ginkgo.Label("feature:jobset", "feature:trainjob", "feature:was-deepintegration").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label("feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		e2e.WaitForJobSetAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:leaderworkerset", "feature:was-deepintegration").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
 		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
