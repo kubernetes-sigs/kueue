@@ -13,24 +13,26 @@ see [Writing tests](../../../../site/content/en/community/contribution_guideline
 
 Before pushing changes or opening or updating a pull request:
 
-1. Confirm the PR's target branch. Run `make verify-plan VERIFY_BASE_REF=<target-ref>`
-   to inspect the selected generators and checks. For a main-branch PR, use
-   `upstream/main`; use the appropriate release ref for a release-branch PR.
-2. Run `make verify-changed VERIFY_BASE_REF=<target-ref>` against the final changes.
-   It includes committed changes since the merge base, staged and unstaged changes,
-   and non-ignored untracked files. It checks CLI dependencies on all configured
-   platforms, not just changes under `cmd/`. Unknown inputs, dependency manifests,
-   and build-system changes select the full verification checks.
-3. Fix reported issues. If generators update files, inspect and include those
-   outputs, then rerun the selected verification. Existing uncommitted edits are
-   allowed, but generation must not change the output files during the final run.
-4. Run any additional checks required by the change. The selector does not run the
-   application unit, integration, or cluster E2E suites. Use `make verify` when the
-   developer requests full verification; CI continues to run this complete target.
-5. Report the base ref, selected targets, and results, including failures or checks
-   that could not run. Do not describe a scoped run as the full CI suite.
+1. Inspect the complete PR diff against its target branch, including committed,
+   staged, unstaged, and non-ignored untracked changes. Choose the generators and
+   checks using [local verification guidance](../../../../CONTRIBUTING.md#verification-for-local-changes).
+   Targets do not automatically inspect changes or select scopes.
+2. Run the relevant generators first, inspect and include their output, and rerun
+   until the output is stable. Then run the related checks as separate commands
+   so parallel Make execution cannot race generation against readers.
+3. Include `make verify-cli` for production CLI changes or changes to its shared
+   or platform-specific dependencies, module dependencies, license, or build script.
+   Do not infer CLI impact solely from whether `cmd/` changed. Test-only changes
+   do not require CLI compilation.
+4. Use `make verify` for build-system or generator-tooling changes, when the scope
+   is uncertain, or when the developer requests full verification. CI continues
+   to run the complete target.
+5. Run relevant application tests separately and fix reported issues. Report the
+   selected targets and results, including failures or checks that could not run.
+   Do not describe scoped checks as the full CI suite; they omit its final
+   Git-clean assertion.
 
 Useful explicit scopes are `make verify-go`, `make verify-api`, `make verify-cli`,
-`make verify-manifests`, `make verify-helm`, and `make verify-scripts`. API and docs
-scopes can regenerate files, so inspect their diffs. Prefer `verify-changed` when
-multiple scopes apply; it runs generators before checks to avoid codegen races.
+`make verify-manifests`, `make verify-helm`, `make verify-docs`, and
+`make verify-scripts`. Run `make verify-skills-lint` for changes to skills or agent
+instructions. Scopes that generate files require reviewing their resulting diffs.

@@ -117,7 +117,7 @@ verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-changed-test verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -462,8 +462,8 @@ i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n
 	fi
 
 
-# Local scopes use the same leaf recipes as full verification. The change-aware
-# driver runs generators before these checks so Go readers never race codegen.
+# Local scopes use the same leaf recipes as full verification. Complete any
+# required generation before running checks that read the generated files.
 .PHONY: verify-go
 verify-go: ci-lint fmt-verify ## Check Go lint and formatting without regenerating unrelated artifacts.
 
@@ -491,18 +491,3 @@ verify-docs: sync-hugo-version toc-update ## Synchronize Hugo versions and regen
 
 .PHONY: verify-scripts
 verify-scripts: shell-lint e2e-common-test milestone-pull-test ## Check shell scripts and their helper tests.
-
-VERIFY_BASE_REF ?=
-
-.PHONY: verify-plan
-verify-plan: ## Show checks selected from the PR diff, staged, unstaged, and untracked files.
-	python3 $(PROJECT_DIR)/hack/testing/verify_changed.py --base-ref="$(VERIFY_BASE_REF)" --go="$(GO_CMD)" --cli-platforms="$(CLI_PLATFORMS)" --plan
-
-.PHONY: verify-changed
-verify-changed: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
-verify-changed: ## Run related checks; set VERIFY_BASE_REF to the PR's target branch.
-	python3 $(PROJECT_DIR)/hack/testing/verify_changed.py --base-ref="$(VERIFY_BASE_REF)" --go="$(GO_CMD)" --cli-platforms="$(CLI_PLATFORMS)" --make="$(MAKE)" --jobs=$(VERIFY_NPROCS) --paths $(PATHS_TO_VERIFY)
-
-.PHONY: verify-changed-test
-verify-changed-test: ## Test changed-file selection, dependency detection, and failure propagation.
-	python3 -m unittest discover -s $(PROJECT_DIR)/hack/testing -p 'verify_changed_test.py'

@@ -76,21 +76,19 @@ make fmt
 make verify
 ```
 
-For local changes, inspect and run the related checks instead of rebuilding every
-artifact:
+For local iteration, choose the scopes relevant to the changed inputs, for example:
 
 ```shell
-make verify-plan VERIFY_BASE_REF=upstream/main
-make verify-changed VERIFY_BASE_REF=upstream/main
+make verify-go
+# Also build the CLI when production CLI code or its dependencies change.
+make verify-cli
 ```
 
-Use the PR's target ref for release branches. The selector includes committed,
-staged, unstaged and untracked files, and resolves CLI dependencies for all
-configured platforms. Build-system, dependency-manifest, and unclassified changes
-select the full checks. Review any generated diffs and rerun; application tests
-remain separate. See [CONTRIBUTING.md](https://github.com/kubernetes-sigs/kueue/blob/main/CONTRIBUTING.md#verification-for-local-changes)
-for selection rules and explicit targets such as `verify-cli`, `verify-manifests`,
-`verify-go`, and `verify-scripts`.
+These targets do not automatically select work from the Git diff. Run relevant
+generators before checks, review their output, and run application tests separately.
+Use `make verify` for build-system changes or when the required scope is uncertain.
+See [CONTRIBUTING.md](https://github.com/kubernetes-sigs/kueue/blob/main/CONTRIBUTING.md#verification-for-local-changes)
+for the available targets and guidance on choosing checks.
 
 Run individual phases:
 ```shell

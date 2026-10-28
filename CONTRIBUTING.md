@@ -51,50 +51,8 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 
 ### Verification for local changes
 
-Use change-aware verification for local iteration:
-
-```shell
-# Inspect the plan without generating files or running checks.
-make verify-plan VERIFY_BASE_REF=upstream/main
-
-# Run the selected generators, followed by the related checks.
-make verify-changed VERIFY_BASE_REF=upstream/main
-
-# For a PR targeting a release branch, compare against that branch instead.
-make verify-changed VERIFY_BASE_REF=upstream/release-0.19
-```
-
-If `VERIFY_BASE_REF` is omitted, the selector uses `upstream/main`, then
-`origin/main`. It compares the PR diff from the merge base and also includes
-staged, unstaged, deleted, renamed, and non-ignored untracked files. It does not
-use the feature branch's tracking ref, so pushing a branch does not hide its
-committed changes.
-
-| Changed inputs | Selected work |
-| --- | --- |
-| Skills or agent instructions | skillsaw |
-| Markdown or site content | Hugo version synchronization and KEP TOCs |
-| Ordinary Go source or tests | Go lint and formatting |
-| API source | API/code/manifest/doc generation and related checks |
-| CLI source or a production Go dependency | CLI docs and cross-platform CLI build |
-| RBAC/webhook source, Helm charts or deployment configuration | Helm/manifests generation and checks |
-| Shell scripts | ShellCheck, plus helper tests for testing scripts |
-| Release utilities | Release utility tests |
-| Frontend dependency inputs | npm dependency checks |
-| Makefiles, generator tooling, module/toolchain inputs, or unclassified inputs | Full verification checks |
-
-CLI dependency discovery uses every platform in `CLI_PLATFORMS`. If Go cannot
-resolve the dependency graph, the selector includes the CLI build conservatively.
-A test-only change does not by itself trigger a CLI build. `LICENSE` and the CLI
-build script also trigger packaging. This selection is a local optimization; CI's
-`make verify` continues to run every check and build all default CLI platforms.
-
-The scoped driver allows existing uncommitted edits. It compares generated/output
-files before and after execution, and fails if generation updates them. Review
-those changes, include newly generated files in the PR, and rerun. An invalid base
-ref or a failed command fails the run; it is never treated as "nothing changed".
-
-The following scopes can also be run explicitly:
+Choose the targets that cover the inputs changed by your PR. These targets do
+not inspect the Git diff or automatically select other scopes.
 
 | Command | Scope |
 | --- | --- |
@@ -106,8 +64,26 @@ The following scopes can also be run explicitly:
 | `make verify-docs` | Hugo version synchronization and KEP TOCs |
 | `make verify-scripts` | ShellCheck and shell helper tests |
 
-Run relevant application tests separately. Neither `verify-changed` nor the full
-`verify` target replaces the Go unit, integration, or cluster E2E test suites.
+For example, a scheduler change usually needs `make verify-go` and relevant Go
+tests. Run `make verify-cli` when changing CLI production code or its dependencies,
+including shared packages, platform-specific files, module dependencies, the
+license, or the CLI build script. Checking only `cmd/` is insufficient. A test-only
+change does not require CLI compilation. Use `CLI_PLATFORMS` to select platforms
+for a local build; CI continues to build all default platforms.
+
+Run the relevant generators before checks. API changes use `verify-api`;
+RBAC/webhook markers and deployment changes need `verify-manifests`, followed by
+`verify-helm` and the applicable RBAC/Kustomize checks. Changes to mock interfaces,
+CLI documentation, metrics, or feature gates need their corresponding
+`generate-*` targets. Inspect generated diffs, include the outputs, and rerun.
+Run generation and validation as separate commands so parallel Make execution
+does not race writers against readers.
+
+Use `make verify` for build-system or generator-tooling changes, when the scope
+is uncertain, or when full verification is requested. CI continues to run the
+complete `make verify` pipeline. Scoped targets do not perform its final Git-clean
+assertion. Run relevant application tests separately; verification does not replace
+the Go unit, integration, or cluster E2E suites.
 
 ### Adding a new step to `make verify`
 
