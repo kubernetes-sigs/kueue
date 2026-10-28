@@ -82,14 +82,27 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 		}
 	}
 
-	var limitRanges corev1.LimitRangeList
-	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+	summary, err := ResolveLimitRangeSummary(ctx, cl, wl.Namespace)
+	if err != nil {
 		errs = append(errs, err)
-	} else if len(limitRanges.Items) > 0 {
-		in.LimitRangeSummary = limitrange.Summarize(limitRanges.Items...)
+	} else {
+		in.LimitRangeSummary = summary
 	}
 
 	return in, errs
+}
+
+// ResolveLimitRangeSummary reads the LimitRanges of the namespace that have
+// container or pod items, and returns their summary, or nil when there are none.
+func ResolveLimitRangeSummary(ctx context.Context, cl client.Client, namespace string) (limitrange.Summary, error) {
+	var limitRanges corev1.LimitRangeList
+	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+		return nil, err
+	}
+	if len(limitRanges.Items) == 0 {
+		return nil, nil
+	}
+	return limitrange.Summarize(limitRanges.Items...), nil
 }
 
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
@@ -135,10 +148,17 @@ func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 func EffectivePodSpecs(wl *kueue.Workload, in AdjustmentInputs) []corev1.PodSpec {
 	specs := make([]corev1.PodSpec, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
-		specs[i] = *wl.Spec.PodSets[i].Template.Spec.DeepCopy()
-		applyAdjustmentsToPodSpec(&specs[i], in)
+		specs[i] = EffectivePodSpec(&wl.Spec.PodSets[i].Template.Spec, in)
 	}
 	return specs
+}
+
+// EffectivePodSpec returns the effective form of the given PodSpec without
+// touching it.
+func EffectivePodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) corev1.PodSpec {
+	spec := *podSpec.DeepCopy()
+	applyAdjustmentsToPodSpec(&spec, in)
+	return spec
 }
 
 // WithAdjustmentInputs supplies the external defaults used to derive effective resources.
