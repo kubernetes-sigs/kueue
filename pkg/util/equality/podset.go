@@ -17,8 +17,11 @@ limitations under the License.
 package equality
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -30,6 +33,7 @@ type ComparePodSetsOptions struct {
 	ignoreTolerations         bool
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
+	ignoreEmptyImages         map[kueue.PodSetReference]sets.Set[string]
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -49,6 +53,26 @@ func WithIgnoreTopologyRequest() ComparePodSetsOption {
 func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTopologyIndexLabels = true
+	}
+}
+
+// WithIgnoreEmptyContainerImage makes ComparePodSets tolerate an empty image on
+// the named containers of the named PodSet in the second (stored) PodSet, while
+// still detecting a change between two non-empty images. The tolerance is
+// one-directional: an empty image in the first PodSet and a non-empty one in the
+// second is still a difference. Multiple calls are merged, so the option can be
+// used for several PodSets and containers. It applies only through ComparePodSets
+// and ComparePodSetSlices, not direct ComparePodTemplate calls, and only to
+// Containers, not InitContainers.
+func WithIgnoreEmptyContainerImage(podSet kueue.PodSetReference, names ...string) ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		if options.ignoreEmptyImages == nil {
+			options.ignoreEmptyImages = make(map[kueue.PodSetReference]sets.Set[string])
+		}
+		if options.ignoreEmptyImages[podSet] == nil {
+			options.ignoreEmptyImages[podSet] = sets.New[string]()
+		}
+		options.ignoreEmptyImages[podSet].Insert(names...)
 	}
 }
 
@@ -143,7 +167,23 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 		return false
 	}
 
+	if names := opts.ignoreEmptyImages[a.Name]; a.Name == b.Name && names.Len() > 0 {
+		return ComparePodTemplate(clearImagesEmptyIn(&a.Template.Spec, &b.Template.Spec, names), &b.Template.Spec, options...)
+	}
 	return ComparePodTemplate(&a.Template.Spec, &b.Template.Spec, options...)
+}
+
+// clearImagesEmptyIn copies a, clearing the named container images that are empty in b.
+func clearImagesEmptyIn(a, b *corev1.PodSpec, names sets.Set[string]) *corev1.PodSpec {
+	out := *a
+	out.Containers = slices.Clone(a.Containers)
+	for i := range out.Containers {
+		if i < len(b.Containers) && names.Has(b.Containers[i].Name) &&
+			b.Containers[i].Name == out.Containers[i].Name && b.Containers[i].Image == "" {
+			out.Containers[i].Image = ""
+		}
+	}
+	return &out
 }
 
 func ComparePodSetSlices(a, b []kueue.PodSet, options ...ComparePodSetsOption) bool {
