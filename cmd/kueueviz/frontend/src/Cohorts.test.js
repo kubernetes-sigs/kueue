@@ -42,6 +42,18 @@ describe('buildCohortTree', () => {
     expect(names(buildCohortTree([{ name: 'team', parentName: 'missing' }]))).toEqual([['team', []]]);
   });
 
+  it('keeps children of a cycle under their parent', () => {
+    const tree = buildCohortTree([
+      { name: 'alpha-child', parentName: 'cycle-a' },
+      { name: 'cycle-a', parentName: 'cycle-b' },
+      { name: 'cycle-b', parentName: 'cycle-a' },
+      { name: 'zeta-child', parentName: 'cycle-a' },
+    ]);
+    expect(names(tree)).toEqual([
+      ['cycle-a', [['alpha-child', []], ['cycle-b', []], ['zeta-child', []]]],
+    ]);
+  });
+
   it('keeps cohorts that form a parent cycle', () => {
     const tree = buildCohortTree([
       { name: 'a', parentName: 'b' },
