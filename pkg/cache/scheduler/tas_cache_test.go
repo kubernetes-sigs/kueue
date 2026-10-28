@@ -10440,7 +10440,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 				client := clientBuilder.Build()
 
-				tasCache := NewTASCache(client, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(client, resources.NewResourceFormatter())
 				for i := range tc.nodes {
 					tasCache.SyncNode(&tc.nodes[i])
 				}

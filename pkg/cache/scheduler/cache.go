@@ -185,7 +185,7 @@ func New(client client.Client, options ...Option) *Cache {
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
+	cache.tasCache = NewTASCache(client, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
