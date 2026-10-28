@@ -27,12 +27,16 @@
   - [CapacityBuffer status conditions](#capacitybuffer-status-conditions)
   - [CapacityBuffer lifecycle](#capacitybuffer-lifecycle)
   - [CapacityBufferConfig](#capacitybufferconfig)
+    - [API](#api)
+    - [Validation](#validation)
+    - [Handling](#handling)
   - [Worked example: heterogeneous JobSet](#worked-example-heterogeneous-jobset)
     - [Admin setup](#admin-setup-1)
     - [User workload](#user-workload)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Appendix: Sniping prevention](#appendix-sniping-prevention)
 <!-- /toc -->
@@ -298,7 +302,13 @@ The `CapacityBufferConfig` CRD configures how the controller creates `CapacityBu
 
 This leaves `managedResources` and `timeoutSeconds` as the configuration fields. Without `managedResources`, every PodSet would get a CapacityBuffer regardless of whether its resources need pre-provisioning (e.g., a CPU-only dataloader PodSet alongside a GPU trainer). The config lets admins scope the check to expensive or scarce resources. Without `timeoutSeconds`, workloads wait indefinitely for capacity.
 
-The CRD follows the same pattern as ProvisioningRequestConfig: it is referenced by an AdmissionCheck and applies to all workloads admitted through the associated ClusterQueue. It is introduced as part of the alpha release, gated behind the `CapacityBufferACC` feature gate.
+The CRD follows the same pattern as ProvisioningRequestConfig: it is referenced by an AdmissionCheck and applies to all workloads admitted through the associated ClusterQueue.
+
+#### API
+
+This KEP adds `CapacityBufferConfig` to the `kueue.x-k8s.io/v1alpha1` API.
+Its CRD will ship with the opt-in alpha APIs (`crds-alpha.yaml`, or the Helm value `enableAlphaAPIs: true`), so it will not be installed by default.
+To use the admission check, admins will need to install the alpha APIs and enable the `CapacityBufferACC` feature gate.
 
 ```go
 // CapacityBufferConfig is the Schema for the capacitybufferconfig API
@@ -315,8 +325,8 @@ type CapacityBufferConfigSpec struct {
 	//
 	// If empty, all resources are considered managed.
 	//
-	// If not empty, the CapacityBuffer will contain only the podsets that are
-	// requesting at least one of them.
+	// If not empty, CapacityBuffers are created only for the podsets that are
+	// requesting at least one of them, one CapacityBuffer per podset.
 	//
 	// If none of the workload's podsets is requesting at least a managed resource,
 	// the workload is considered ready.
@@ -326,8 +336,11 @@ type CapacityBufferConfigSpec struct {
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
-	// timeoutSeconds is how long Kueue waits for the CapacityBuffer to reach
-	// FitsExistingCapacity before setting the AdmissionCheck to Retry and releasing quota.
+	// timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
+	// FitsExistingCapacity before setting the AdmissionCheck to Retry, which
+	// evicts the workload and releases its quota. The timeout is measured from
+	// the creation of the CapacityBuffers.
+	//
 	// If unset, Kueue waits indefinitely.
 	//
 	// +optional
@@ -336,12 +349,40 @@ type CapacityBufferConfigSpec struct {
 }
 ```
 
+#### Validation
+
+The CRD will reject:
+
+* more than 100 `managedResources`, or duplicate entries;
+* a `timeoutSeconds` below 1.
+
+No validation will depend on the `CapacityBufferACC` feature gate. With the gate off, CapacityBufferConfig objects will be accepted but not used.
+
+Both fields will be mutable. A change will not affect admitted workloads. Workloads waiting on the check will be re-evaluated with the new config: a new `timeoutSeconds` will apply from the creation of their CapacityBuffers, and podsets that start or stop matching `managedResources` will gain or stop waiting for a CapacityBuffer.
+
+#### Handling
+
+The table lists the proposed behavior for each case.
+
+| Case | What Kueue does | What the user sees |
+|------|-----------------|--------------------|
+| The AdmissionCheck references a missing CapacityBufferConfig, or a reference with the wrong group or kind | The AdmissionCheck is inactive, so its ClusterQueues are inactive. It becomes active once the config exists. | AdmissionCheck `Active=False`, reason `BadParametersRef` |
+| A workload's check has no config | The check waits, and no CapacityBuffer is created. | Check `Pending`: "the check is not active" |
+| The CapacityBufferConfig is deleted while workloads use it | Their checks go back to `Pending`, including those of admitted workloads, which lose admission and are stopped, as with ProvisioningRequestConfig. | Check `Pending`: "the check is not active"; the workload's `Admitted=False` |
+| No podset of the workload requests a managed resource | No CapacityBuffer is created. | Check `Ready`: "the workload has no podsets requesting managed resources" |
+| CapacityBuffers are created | Kueue waits for every buffer of the check to reach `Provisioning=True` with reason `FitsExistingCapacity`. | Event `CapacityBufferCreated`; check `Pending`: "waiting for CapacityBuffers to fit existing capacity" |
+| Every buffer fits existing capacity | The check is `Ready`. The buffers are deleted once the workload is admitted. | Check `Ready`: "CapacityBuffers fit existing capacity" |
+| `timeoutSeconds` passes before every buffer fits | The check is `Retry`, so the workload is evicted and requeued. The buffers are deleted. | Check `Retry`: "CapacityBuffers did not fit existing capacity within `<n>`s"; the workload's `Evicted` condition |
+| The `CapacityBufferACC` gate is off, or the CapacityBuffer or CapacityBufferConfig API is not served | The controller is not started. Checks using `kueue.x-k8s.io/capacity-buffer` keep their last state, so waiting workloads stay `Pending`. Existing CapacityBuffers are deleted with their workloads. | A log line at startup: "Skipping capacity buffer controller setup" |
+
+Every change of the check state will also emit an `UpdatedAdmissionCheck` event on the workload.
+
 ### Worked example: heterogeneous JobSet
 
 #### Admin setup
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1alpha1
 kind: CapacityBufferConfig
 metadata:
   name: gpu-buffer-config
@@ -349,7 +390,7 @@ spec:
   managedResources:
   - nvidia.com/gpu
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: AdmissionCheck
 metadata:
   name: capacity-buffer-check
@@ -360,13 +401,14 @@ spec:
     kind: CapacityBufferConfig
     name: gpu-buffer-config
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: gpu-cluster-queue
 spec:
-  admissionChecks:
-  - name: capacity-buffer-check
+  admissionChecksStrategy:
+    admissionChecks:
+    - name: capacity-buffer-check
   resourceGroups:
   - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
     # Flavors represent different pools of the same resource (e.g., on-demand vs spot,
@@ -381,7 +423,7 @@ spec:
       - name: "nvidia.com/gpu"
         nominalQuota: 64
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: LocalQueue
 metadata:
   name: user-queue
@@ -454,6 +496,14 @@ If the admin wanted both PodSets buffered (e.g., in a capacity-constrained clust
 * Workload eviction: buffer cleaned up, re-created on re-admission.
 * Timeout: buffer pending beyond `timeoutSeconds` leads to check Retry and re-queue.
 * ManagedResources: workload with no managed resources passes check immediately.
+* Config created after its AdmissionCheck: the check becomes active, and the waiting workloads get their CapacityBuffers.
+
+#### e2e tests
+
+The e2e tests will run on kind without an autoscaler. They will set the CapacityBuffer status in place of the autoscaler.
+
+* A Job runs once its CapacityBuffer fits existing capacity, and the buffer is deleted.
+* After `timeoutSeconds`, the Job is evicted and requeued, and it runs once a new CapacityBuffer fits.
 
 ### Graduation Criteria
 

@@ -12,10 +12,10 @@ approvers:
 
 stage: alpha
 
-latest-milestone: "v0.20"
+latest-milestone: "v0.21"
 
 milestone:
-  alpha: "v0.20"
+  alpha: "v0.21"
 
 feature-gates:
   - name: CapacityBufferACC
