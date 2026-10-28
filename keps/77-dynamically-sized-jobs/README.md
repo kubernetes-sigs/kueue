@@ -18,7 +18,6 @@
   - [Processing of Workload Slices](#processing-of-workload-slices)
     - [Creation](#creation)
       - [Naming](#naming)
-    - [Job Scale-Up](#job-scale-up)
     - [Scheduling and Preemption](#scheduling-and-preemption)
       - [Preemption Disambiguation.](#preemption-disambiguation)
       - [Resource Flavors](#resource-flavors)
@@ -203,19 +202,6 @@ uid: 78d1e61a-c399-4c09-800f-a0bbfb5fe71e
 will result in a Workload name similar to: `job-demo-slice-75e0c`
 Whereas, changing `generation: 2`: will result in a different name similar to: `job-demo-slice-e7080`
 
-#### Job Scale-Up
-
-Kueue derives a Job's PodSet count from `.spec.parallelism`. When `.spec.completions` is
-set, the PodSet count is capped at that value.
-
-For a `NonIndexed` Job with `.spec.completions` set, increasing `.spec.parallelism` can
-increase the requested Pod count only up to that fixed completion target; the target
-cannot be increased on the existing Job. If `.spec.completions` is omitted, Kubernetes
-uses `.spec.parallelism` as the completion target, so increasing parallelism also
-increases the total target. For an `Indexed` Job, scaling beyond the current index range
-requires changing `.spec.completions` and `.spec.parallelism` together, keeping them
-equal before and after the update.
-
 #### Scheduling and Preemption
 Kueue’s scheduler and preemptor components will be augmented to support workload slice processing, specifically by enforcing 
 preemption of the old workload slice regardless of queue capacity to make room for the new slice. 
@@ -390,11 +376,19 @@ Scaling up and down for `batch/v1.Job` will be the initial phase of the MVP, as 
 
 #### Scale Up
 
+On scale-up, Kueue creates a new Workload slice with the same PodSet name.
+Its `spec.podSets[].count` is `min(.spec.parallelism, .spec.completions)`, or `.spec.parallelism` when `.spec.completions` is unset.
+
+The Job API limits how the count can grow:
+- `NonIndexed` Job: raise `.spec.parallelism`. When `.spec.completions` is set, the count cannot exceed it.
+- `NonIndexed` Job without `.spec.completions` (a work-queue Job): the count follows `.spec.parallelism`, but Kubernetes creates no new Pods once any Pod has succeeded, so a scale-up only adds Pods before the first success.
+- `Indexed` Job: to grow beyond `.spec.completions`, raise `.spec.completions` and `.spec.parallelism` together, to the same new value.
+
 1. Create a `batch/v1.Job` with workload-slice enablement and an initial `parallelism` value greater than 0.
 2. Verify that a corresponding `Workload` is created and admitted, and that the Job’s pods are in the `Running` state, matching the specified parallelism.
-3. Increase the Job's desired Pod count as described in [Job Scale-Up](#job-scale-up).
+3. Increase the Job's `.spec.parallelism` (for an `Indexed` Job growing beyond `.spec.completions`, also `.spec.completions`) to trigger a scale-up event.
 4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is marked as `Finished`.
-5. Observe that the total number of running pods increases to match the updated parallelism, with the original pods continuing to run without disruption.
+5. Observe that the total number of running pods increases to match the new PodSet count, with the original pods continuing to run without disruption.
 
 Partial admission of a replacement slice when quota is insufficient is covered in
 [KEP-12100](../12100-partial-scaleup-for-elasticjob/README.md).
