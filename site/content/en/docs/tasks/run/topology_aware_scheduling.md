@@ -71,10 +71,11 @@ You set exactly one of these annotations on the Pod template's
 `metadata.annotations` (not on the Job's top-level metadata).
 
 {{% alert title="Note" color="primary" %}}
-On a TAS-only `ClusterQueue`, omitting all three annotations uses implicit TAS,
-whereas on a `ClusterQueue` that also references any non-TAS flavor (even in
-another `resourceGroup`), you **must** set one of the three annotations on any
-PodSet that needs a TAS flavor; see
+On a TAS-only `ClusterQueue`, omitting explicit TAS annotations uses implicit
+TAS, whereas on a `ClusterQueue` that also references any non-TAS flavor (even
+in another `resourceGroup`), you **must** set an
+[explicit TAS annotation](/docs/concepts/topology_aware_scheduling/#user-facing-apis)
+on any PodSet that needs a TAS flavor; see
 [Implicit TAS and mixed-flavor ClusterQueues](/docs/concepts/topology_aware_scheduling/#implicit-tas-and-mixed-flavor-clusterqueues).
 {{% /alert %}}
 
@@ -300,10 +301,14 @@ If the Workload stays in `Pending` state:
   `Topology.spec.levels` causes the flavor to be rejected with
   `Flavor "<name>" does not contain the requested level`.
 - If the admission condition reports
+  `Flavor "<name>" does not support TopologyAwareScheduling`, the PodTemplate
+  has an explicit TAS annotation, but `ResourceFlavor` `<name>` does not have
+  `spec.topologyName` set.
+- If the admission condition reports
   `Flavor "<name>" supports only TopologyAwareScheduling`, the target
-  `ClusterQueue` mixes TAS and non-TAS flavors and your PodTemplate is missing a
-  `kueue.x-k8s.io/podset-*-topology` annotation (or the annotation was placed on
-  the Job's top-level `metadata.annotations` instead of
+  `ClusterQueue` mixes TAS and non-TAS flavors and your PodTemplate is missing
+  an explicit TAS annotation (or the annotation was placed on the Job's
+  top-level `metadata.annotations` instead of
   `spec.template.metadata.annotations`).
 - For `required` placement, verify at least one domain at the requested level
   has enough free capacity to fit the entire PodSet.
@@ -316,10 +321,26 @@ kubectl get nodes --show-labels
 
 ### Annotation has no effect
 
-If the topology annotation appears to be ignored entirely (pods are admitted
-as if the annotation were absent), the most common cause is that the
-`ResourceFlavor` selected for the workload does not have `spec.topologyName`
-set. Without it, Kueue does not run TAS for that flavor.
+If the topology annotation appears to be ignored (the Workload is admitted as
+if the annotation were absent), check the following:
+
+- **Annotation placed on the Job instead of the Pod template** - TAS annotations
+  must be set on the Pod template's `metadata.annotations` (for example,
+  `spec.template.metadata.annotations` on a Job), not on the top-level Job's
+  `metadata.annotations`.
+- **Typo in the annotation key** - unrecognized annotation keys are ignored by
+  Kueue rather than rejected by the admission webhook.
+- **`TopologyAwareScheduling` disabled** - with the feature gate off, Kueue
+  ignores TAS annotations when scheduling.
+
+In the first two cases, on a TAS-only `ClusterQueue` the Workload falls back to
+implicit TAS: it still gets a `topologyAssignment`, but with unconstrained
+placement instead of the placement you requested.
+
+A `ResourceFlavor` without `spec.topologyName` does not cause this. When a valid
+TAS annotation is set, Kueue rejects that flavor with
+`Flavor "<name>" does not support TopologyAwareScheduling`, and the Workload
+stays `Pending` if no TAS flavor fits.
 
 For general troubleshooting, see the
 [troubleshooting guide](/docs/tasks/troubleshooting).
