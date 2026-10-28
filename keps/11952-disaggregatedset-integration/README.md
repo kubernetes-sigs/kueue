@@ -130,9 +130,7 @@ primitives.
   (`scaling.mode: External`) in alpha.
 - Supporting `subRoles`, `groupIdentity: Hash`, LWS native gang scheduling,
   `maxGroupRestarts`, `restartBackoff`, or rollouts with `maxSurge > 0` in alpha.
-- Managing the child LWS objects of a managed DisaggregatedSet on their own. Kueue
-  labels in role metadata and templates, and Kueue annotations in role metadata,
-  are rejected, as described in
+- Managing the child LWS objects of a managed DisaggregatedSet on their own. See
   [Handling of child objects](#handling-of-child-objects).
 - Partial admission inside a slice, or resizing one role of an admitted slice.
 - MultiKueue support in alpha.
@@ -353,23 +351,24 @@ No changes are needed in the LWS, StatefulSet or Pod integrations. Each child ki
 already defers to a managed ancestor:
 
 - **LeaderWorkerSet.** Kueue walks the owner chain of the child LWS, finds the
-  managed DisaggregatedSet, and does not manage the child LWS on its own. The LWS
-  mutating webhook stamps nothing, and the LWS reconciler creates no per-replica
-  Workloads. The LWS validating webhook still checks every child LWS, as described
-  below.
+  managed DisaggregatedSet, and does not manage the child LWS on its own. The
+  mutating webhook of the Kueue LWS integration stamps nothing, and the LWS
+  reconciler creates no per-replica Workloads. The validating webhook of the Kueue
+  LWS integration still checks every child LWS, as described below. The webhook
+  shipped by the LWS project is not part of Kueue and is not affected.
 - **StatefulSet.** The StatefulSet integration skips StatefulSets whose template
   carries a parent annotation of another framework.
 - **Pod.** The pod webhook gates every Pod that carries the parent annotation.
 
 This requires the DisaggregatedSet integration to be enabled.
 
-The LWS validating webhook has no ancestor check, so it validates every child LWS
-that the DisaggregatedSet controller creates or updates.
+The Kueue LWS validating webhook has no ancestor check, so it validates every child
+LWS that the DisaggregatedSet controller creates or updates.
 If it rejects a child LWS, the DisaggregatedSet controller cannot create or update
 it, and the DisaggregatedSet gets no Pods or stops rolling out. The error appears
 only in the events and logs of the DisaggregatedSet controller.
 To prevent this, on a managed DisaggregatedSet the Kueue DisaggregatedSet webhook
-rejects everything that the LWS validating webhook rejects on a child LWS:
+rejects everything that the Kueue LWS validating webhook rejects on a child LWS:
 
 - The Kueue labels and annotations that the LWS webhook checks on the LWS object are
   forbidden in role metadata, which becomes the metadata of the child LWS. For
@@ -721,8 +720,8 @@ these checks:
   given in [Handling of child objects](#handling-of-child-objects);
 - the `kueue.x-k8s.io/elastic-job`, `kueue.x-k8s.io/elastic-job-scale-up-strategy`,
   `kueue.x-k8s.io/admission-gated-by` and `kueue.x-k8s.io/wait-for-pods-ready`
-  annotations are forbidden in role metadata, so the LWS validating webhook accepts
-  every child LWS, as described in
+  annotations are forbidden in role metadata, so the Kueue LWS validating webhook
+  accepts every child LWS, as described in
   [Handling of child objects](#handling-of-child-objects). The admission-gate and
   `waitForPodsReady` annotations are set on the DisaggregatedSet metadata instead;
 - the maximum membership of a slice and the size of the role templates are within
@@ -1075,7 +1074,7 @@ keeps its own code until the helpers are reviewed against a second user.
 | Partial admission | Not supported. A slice is admitted as a whole. |
 | Elastic jobs, `kueue.x-k8s.io/elastic-job` | Rejected, as for LWS. |
 | MultiKueue | Not supported in alpha. Required for beta. |
-| LeaderWorkerSet, StatefulSet and Pod integrations | No changes. The LWS validating webhook still checks child LWS objects. See [Handling of child objects](#handling-of-child-objects). |
+| LeaderWorkerSet, StatefulSet and Pod integrations | No changes. The Kueue LWS validating webhook still checks child LWS objects. See [Handling of child objects](#handling-of-child-objects). |
 
 ### Observability
 
@@ -1131,14 +1130,12 @@ to implement this enhancement.
 
 #### Unit tests
 
-- `pkg/controller/jobs/disaggregatedset`: new package. Tests cover PodSet
-  construction, including a leader role with `size: 1` that produces no worker
-  PodSet, per-slice Workload naming, webhook defaulting and validation,
+- PodSet construction, including a leader role with `size: 1` that produces no
+  worker PodSet, per-slice Workload naming, webhook defaulting and validation,
   ownership-checked Pod adoption, and Pod labeling.
-- `pkg/controller/jobframework`: tests for the [shared helpers](#shared-helpers).
-- `pkg/controller/jobs/disaggregatedset`: the integration cannot be set up while
-  the `DisaggregatedSetIntegration` feature gate is disabled, and listing the
-  framework enables the pod integration.
+- The [shared helpers](#shared-helpers).
+- The integration cannot be set up while the `DisaggregatedSetIntegration` feature
+  gate is disabled, and listing the framework enables the pod integration.
 
 #### Integration tests
 
@@ -1147,7 +1144,7 @@ objects, StatefulSets and Pods directly.
 
 ##### Webhook tests
 
-In `test/integration/singlecluster/webhook/jobs`:
+In the webhook suite, which runs only the Kueue webhooks:
 
 - defaulting stamps only the constant annotations;
 - unsupported features are rejected on a managed DisaggregatedSet and accepted on
@@ -1157,8 +1154,6 @@ In `test/integration/singlecluster/webhook/jobs`:
   one;
 - the elastic-job, admission-gate and `waitForPodsReady` annotations in role
   metadata are rejected on a managed DisaggregatedSet;
-- a child LWS built from the role metadata and templates of a managed
-  DisaggregatedSet that uses TAS annotations is accepted by the LWS webhook;
 - a slice whose maximum membership is more than 1,000 Pods, or with a PodSet
   count that overflows int32, is rejected, also when an update raises
   `maxUnavailable`;
@@ -1189,9 +1184,12 @@ In `test/integration/singlecluster/webhook/jobs`:
 
 ##### Controller tests
 
-In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
+In the controller suite, which runs the Kueue reconcilers, scheduler and webhooks:
 
 - one Workload per slice with the expected PodSets;
+- the Kueue LWS webhook, which this suite runs, accepts a child LWS built from the
+  role metadata and templates of a managed DisaggregatedSet that uses TAS
+  annotations, and stamps nothing on its templates;
 - a slice Workload at the projected size limit can still be updated with TAS
   assignments in its status. The test uses 18 PodSets with 512 KiB of templates,
   63-character Pod names, owner Pods including the planner's extra group, and a
@@ -1244,7 +1242,7 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
 
 #### e2e tests
 
-`test/e2e/singlecluster/extended/disaggregatedset_test.go`:
+In the extended suite:
 
 - With quota for one slice, two DisaggregatedSets are created. One is fully running
   and the other is fully gated. No role of the second set runs.
@@ -1265,13 +1263,16 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
 - `startupPolicy: LeaderCreated` and `LeaderReady`.
 - Deleting the DisaggregatedSet removes its Workloads.
 
-`test/e2e/singlecluster/tasapi/extended/disaggregatedset_test.go`:
+In the TAS extended suite:
 
 - A role with `replicas: 2`, `size: 3` and `podset-required-topology` on both
   templates: both leaders are in one domain, and all four workers are in one
   domain.
 - A role with `replicas: 1` and `podset-group-name` on both templates: the leader
   and its workers are in the same domain.
+- In both cases the LWS controller creates the child LWS, so it passes the webhook
+  shipped by the LWS project and the Kueue LWS webhook. This is the only coverage
+  of the LWS project's webhook, which integration tests do not run.
 
 ### Graduation Criteria
 
