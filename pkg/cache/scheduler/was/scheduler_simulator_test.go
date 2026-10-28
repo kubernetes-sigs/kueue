@@ -22,6 +22,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1872,5 +1874,156 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 	wantErr = errors.New("composite pod group compositepodgroup/default/cpg not found in snapshot")
 	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
 		t.Errorf("second RemoveCompositePodGroup() unexpected error (-want,+got):\n%s", diff)
+	}
+}
+
+func TestLoadSchedulerConfig(t *testing.T) {
+	cases := map[string]struct {
+		yaml    string
+		wantErr bool
+	}{
+		"minimal valid KubeSchedulerConfiguration applies defaults": {
+			yaml: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+`,
+		},
+		"custom pluginConfig and disabled plugin": {
+			yaml: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+parallelism: 8
+profiles:
+- plugins:
+    multiPoint:
+      disabled:
+      - name: TaintToleration
+  pluginConfig:
+  - name: NodeResourcesFit
+    args:
+      scoringStrategy:
+        type: MostAllocated
+`,
+		},
+		"unknown field rejected by strict decoder": {
+			yaml: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+nonExistentField: true
+`,
+			wantErr: true,
+		},
+		"wrong kind rejected": {
+			yaml: `
+apiVersion: v1
+kind: ConfigMap
+`,
+			wantErr: true,
+		},
+		"invalid configuration rejected by validation": {
+			yaml: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+percentageOfNodesToScore: 150
+`,
+			wantErr: true,
+		},
+		"missing default-scheduler profile rejected": {
+			yaml: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+profiles:
+- schedulerName: custom-only
+`,
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := loadSchedulerConfig([]byte(tc.yaml))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("loadSchedulerConfig() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if !tc.wantErr && len(cfg.Profiles) == 0 {
+				t.Fatal("expected at least one profile after defaulting")
+			}
+		})
+	}
+}
+
+func TestNewWASSimulatorFactoryWithSchedulerConfigFile(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	if _, err := NewWASSimulatorFactory(ctx, nil, WithSchedulerConfigFile(filepath.Join(t.TempDir(), "missing.yaml"))); err == nil {
+		t.Fatal("expected error for missing scheduler config file, got nil")
+	}
+
+	taintedNode := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("4"),
+			corev1.ResourceMemory: resource.MustParse("8Gi"),
+			corev1.ResourcePods:   resource.MustParse("10"),
+		}).
+		Taints(corev1.Taint{Key: "dedicated", Value: "special", Effect: corev1.TaintEffectNoSchedule}).
+		Ready().
+		Obj()
+	nodes := []*corev1.Node{taintedNode}
+	candidates := slices.Values([]simulator.Candidate{
+		&testCandidate{node: taintedNode, id: utiltas.TopologyDomainID(taintedNode.Name)},
+	})
+
+	cases := map[string]struct {
+		configYAML   string
+		wantFeasible int
+	}{
+		"empty path uses default config and rejects untolerated taint": {
+			wantFeasible: 0,
+		},
+		"custom config disabling TaintToleration allows pod on tainted node": {
+			configYAML: `
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+profiles:
+- plugins:
+    multiPoint:
+      disabled:
+      - name: TaintToleration
+`,
+			wantFeasible: 1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var cfgPath string
+			if tc.configYAML != "" {
+				cfgPath = filepath.Join(t.TempDir(), "scheduler-config.yaml")
+				if err := os.WriteFile(cfgPath, []byte(tc.configYAML), 0o600); err != nil {
+					t.Fatalf("writing scheduler config: %v", err)
+				}
+			}
+
+			factory, err := NewWASSimulatorFactory(ctx, nil, WithSchedulerConfigFile(cfgPath))
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory() error = %v", err)
+			}
+			sim, err := factory.NewSimulator(ctx, nodes, &podtracker.Tracker{})
+			if err != nil {
+				t.Fatalf("NewSimulator() error = %v", err)
+			}
+
+			pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+			got, err := sim.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+				PodTemplate: &corev1.PodTemplateSpec{ObjectMeta: pod.ObjectMeta, Spec: pod.Spec},
+			}, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Fatalf("FindFeasibleNodes() error = %v", err)
+			}
+			if len(got) != tc.wantFeasible {
+				t.Errorf("FindFeasibleNodes() got %d nodes, want %d", len(got), tc.wantFeasible)
+			}
+		})
 	}
 }

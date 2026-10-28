@@ -135,6 +135,15 @@ func main() {
 		"A set of key=value pairs that describe feature gates for alpha/experimental features.",
 	)
 
+	var schedulerConfigFile string
+	flag.StringVar(
+		&schedulerConfigFile,
+		"scheduler-config",
+		"",
+		"The controller will load the kube-scheduler configuration for the scheduling simulator from this file. "+
+			"Omit this flag to use the default simulator configuration.",
+	)
+
 	customLogProcessor := zaplog.WrapCore(utillogging.NewCustomLogProcessor)
 
 	zapOptions := zap.Options{
@@ -366,12 +375,14 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		simulatorFactory, err := was.NewWASSimulatorFactory(ctx, mgr.GetConfig())
+		simulatorFactory, err := was.NewWASSimulatorFactory(ctx, mgr.GetConfig(), was.WithSchedulerConfigFile(schedulerConfigFile))
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)
 		}
 		cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(simulatorFactory))
+	} else if schedulerConfigFile != "" {
+		setupLog.Info("--scheduler-config is set but SchedulerLibraryIntegration feature gate is disabled; scheduler config will have no effect")
 	}
 	if draBackedResources != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))

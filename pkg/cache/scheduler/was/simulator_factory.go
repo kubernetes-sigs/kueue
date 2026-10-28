@@ -20,6 +20,9 @@ package was
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
@@ -29,6 +32,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config/validation"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
@@ -53,14 +58,49 @@ import (
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
+type options struct {
+	schedulerConfigFile string
+}
+
+// Option configures NewWASSimulatorFactory.
+type Option func(*options)
+
+// WithSchedulerConfigFile configures the factory to load KubeSchedulerConfiguration
+// from path. When path is empty, the default configuration is used.
+func WithSchedulerConfigFile(path string) Option {
+	return func(o *options) {
+		o.schedulerConfigFile = path
+	}
+}
+
+func loadSchedulerConfig(data []byte) (*schedulerconfig.KubeSchedulerConfiguration, error) {
+	obj, gvk, err := scheme.Codecs.UniversalDecoder().Decode(data, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	cfg, ok := obj.(*schedulerconfig.KubeSchedulerConfiguration)
+	if !ok {
+		return nil, fmt.Errorf("expected KubeSchedulerConfiguration, got %s", gvk)
+	}
+	cfg.APIVersion = gvk.GroupVersion().String()
+	if err := validation.ValidateKubeSchedulerConfiguration(cfg); err != nil {
+		return nil, err
+	}
+	if !slices.ContainsFunc(cfg.Profiles, func(p schedulerconfig.KubeSchedulerProfile) bool {
+		return p.SchedulerName == corev1.DefaultSchedulerName
+	}) {
+		return nil, fmt.Errorf("scheduler configuration must contain a %q profile", corev1.DefaultSchedulerName)
+	}
+	return cfg, nil
+}
+
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
 
-func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
-	cfg := newWASSchedulerConfig()
+func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface, cfg *schedulerconfig.KubeSchedulerConfiguration) (*wasSimulatorFactory, error) {
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 
 	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
@@ -167,7 +207,24 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
-func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasSimulatorFactory, error) {
+func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config, opts ...Option) (*wasSimulatorFactory, error) {
+	var o options
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
+		}
+	}
+	cfg := newWASSchedulerConfig()
+	if o.schedulerConfigFile != "" {
+		data, err := os.ReadFile(o.schedulerConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading scheduler config: %w", err)
+		}
+		cfg, err = loadSchedulerConfig(data)
+		if err != nil {
+			return nil, fmt.Errorf("loading scheduler config from %q: %w", o.schedulerConfigFile, err)
+		}
+	}
 	if restConfig != nil {
 		// TODO(#13534): when DRA plugins are added, use a real client here
 		// instead of the fake so the informer factory is populated.
@@ -175,7 +232,7 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 			return nil, err
 		}
 	}
-	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset())
+	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset(), cfg)
 }
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
