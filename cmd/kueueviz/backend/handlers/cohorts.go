@@ -156,34 +156,14 @@ func implicitCohortNames(cohorts []kueueapi.Cohort, cohortQueues map[string][]ma
 	return sets.List(implicit)
 }
 
-// isImplicitCohort reports whether a Cohort without an object is referenced by
-// another Cohort as its parent or, when the caller may list ClusterQueues, by a
-// ClusterQueue.
-func (h *Handlers) isImplicitCohort(ctx context.Context, cohortName string, identity middleware.Identity) (bool, error) {
+// isParentCohort reports whether another Cohort names cohortName as its parent.
+func (h *Handlers) isParentCohort(ctx context.Context, cohortName string) (bool, error) {
 	cohortList := &kueueapi.CohortList{}
 	if err := h.client.List(ctx, cohortList); err != nil {
 		return false, fmt.Errorf("error fetching cohorts: %v", err)
 	}
 	for _, cohort := range cohortList.Items {
 		if string(cohort.Spec.ParentName) == cohortName {
-			return true, nil
-		}
-	}
-
-	hasClusterQueuesAccess := true
-	if h.authorizer != nil {
-		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""))
-		hasClusterQueuesAccess = err == nil && allowed
-	}
-	if !hasClusterQueuesAccess {
-		return false, nil
-	}
-	cql := &kueueapi.ClusterQueueList{}
-	if err := h.client.List(ctx, cql); err != nil {
-		return false, fmt.Errorf("error fetching cluster queues: %v", err)
-	}
-	for _, cq := range cql.Items {
-		if string(cq.Spec.CohortName) == cohortName {
 			return true, nil
 		}
 	}
@@ -194,19 +174,9 @@ func (h *Handlers) isImplicitCohort(ctx context.Context, cohortName string, iden
 func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string, identity middleware.Identity) (map[string]any, error) {
 	// Fetch the specific Cohort CRD
 	cohort := &kueueapi.Cohort{}
-	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, err)
-		}
-		// Without a Cohort object, the Cohort exists only implicitly, when a
-		// ClusterQueue or another Cohort references it.
-		implicit, refErr := h.isImplicitCohort(ctx, cohortName, identity)
-		if refErr != nil {
-			return nil, refErr
-		}
-		if !implicit {
-			return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, err)
-		}
+	getErr := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort)
+	if getErr != nil && !apierrors.IsNotFound(getErr) {
+		return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, getErr)
 	}
 
 	var clusterQueues []map[string]any
@@ -246,6 +216,18 @@ func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string, id
 					},
 				})
 			}
+		}
+	}
+
+	// Without a Cohort object, the Cohort exists only implicitly, when one of
+	// the ClusterQueues listed above or another Cohort references it.
+	if getErr != nil && len(clusterQueues) == 0 {
+		isParent, err := h.isParentCohort(ctx, cohortName)
+		if err != nil {
+			return nil, err
+		}
+		if !isParent {
+			return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, getErr)
 		}
 	}
 

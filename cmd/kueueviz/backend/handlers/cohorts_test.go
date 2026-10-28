@@ -307,3 +307,31 @@ func TestFetchCohortDetails(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchCohortDetailsImplicitCohortListsOnce(t *testing.T) {
+	cqLists, cohortLists, authCalls := 0, 0, 0
+	funcs := &interceptor.Funcs{
+		List: func(ctx context.Context, c ctrlclient.WithWatch, list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
+			switch list.(type) {
+			case *kueueapi.ClusterQueueList:
+				cqLists++
+			case *kueueapi.CohortList:
+				cohortLists++
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}
+	authorizer := authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+		authCalls++
+		return true, nil
+	})
+	h := New(newFakeClient(t, funcs, makeClusterQueue("cq-a", "team")), nil, authorizer)
+
+	if _, err := h.fetchCohortDetails(t.Context(), "team", middleware.Identity{Username: "alice"}); err != nil {
+		t.Fatalf("fetchCohortDetails() error = %v", err)
+	}
+	// A ClusterQueue references the Cohort, so no Cohort list is needed.
+	if cqLists != 1 || cohortLists != 0 || authCalls != 1 {
+		t.Errorf("ClusterQueue lists = %d, Cohort lists = %d, authorization checks = %d, want 1, 0, 1", cqLists, cohortLists, authCalls)
+	}
+}
