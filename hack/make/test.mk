@@ -931,8 +931,8 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-# helm is not listed here: only targets that install with Helm (E2E_USE_HELM, Spark operator, DRA example driver) depend on it.
-setup-e2e-env: kustomize yq dep-crds kind ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
+# helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.
+setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
