@@ -645,7 +645,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			if tc.wantPodSets != nil {
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).Times(1)
+			} else {
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			}
+			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
@@ -1735,6 +1740,12 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		Reason:  kueue.WorkloadWaitForStart,
 		Message: "Not all pods are ready or succeeded",
 	}
+	ready := metav1.Condition{
+		Type:    kueue.WorkloadPodsReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  kueue.WorkloadStarted,
+		Message: "All pods reached readiness and the workload is running",
+	}
 
 	// The admitted slice runs 1 Pod while the scale-up slice for 2 Pods waits for quota.
 	elasticWorkload := utiltestingapi.MakeWorkload("job-"+elasticJobName, metav1.NamespaceDefault).
@@ -1769,18 +1780,22 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		Containers(corev1.Container{Name: "c", Resources: corev1.ResourceRequirements{Requests: make(corev1.ResourceList)}})
 
 	testCases := map[string]struct {
-		workload *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		workload     *kueue.Workload
 		// extraWorkloads must never get a PodsReady condition.
 		extraWorkloads   []client.Object
 		job              GenericJob
 		wantError        error
 		wantPodCondition *metav1.Condition
 	}{
-		"pending scale-up slice: PodsReady=False is set on the admitted slice": {
+		"pending scale-up slice: readiness uses the admitted count": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 			workload:         admittedSlice.Clone().Obj(),
 			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
-			job:              (*job.Job)(elasticJob.Clone().Ready(0).Obj()),
-			wantPodCondition: &notReady,
+			job:              (*job.Job)(elasticJob.Clone().Ready(1).Obj()),
+			wantPodCondition: &ready,
 		},
 		"pending slice without an admitted slice: PodsReady=False stays on the pending slice": {
 			workload:         elasticWorkload.Clone().PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).Obj(),
@@ -1869,6 +1884,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			managedNamespace := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).
 				Label("managed-by-kueue", "true").
@@ -1909,6 +1925,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			if !errors.Is(err, tc.wantError) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
 			}
+
 			if tc.wantPodCondition != nil {
 				var gotWl kueue.Workload
 				if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), &gotWl); err != nil {
