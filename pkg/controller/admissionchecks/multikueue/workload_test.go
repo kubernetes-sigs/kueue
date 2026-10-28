@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -2548,6 +2549,164 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			err := w1remoteClient.client.Get(ctx, types.NamespacedName{Name: "wl1", Namespace: TestNamespace}, &kueue.Workload{})
 			if gotWorker1Workload := err == nil; gotWorker1Workload != tc.wantWorker1Workload {
 				t.Errorf("unexpected worker1 workload presence, want %t, got error %v", tc.wantWorker1Workload, err)
+			}
+		})
+	}
+}
+
+func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
+	cases := map[string]struct {
+		configClusters []string
+		// evictedFrom lists the clusters the workload is evicted from, in order.
+		// The workload is reconciled after each eviction.
+		evictedFrom         []string
+		worker1Disconnected bool
+		// deleted delivers the delete event of the manager's workload after the reconciles.
+		deleted bool
+
+		wantWorker1Objects       bool
+		wantPreviousClusterNames sets.Set[string]
+		wantRequeueAfter         time.Duration
+	}{
+		"remote objects on a cluster removed from the config are deleted after the eviction": {
+			configClusters: []string{"worker2"},
+			evictedFrom:    []string{"worker1"},
+		},
+		"remote objects on a cluster in the config are left to the regular flow": {
+			configClusters: []string{"worker1", "worker2"},
+			evictedFrom:    []string{"worker1"},
+		},
+		"remote objects on a disconnected cluster removed from the config are kept for a later retry": {
+			configClusters:           []string{"worker2"},
+			evictedFrom:              []string{"worker1"},
+			worker1Disconnected:      true,
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
+			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"a later eviction from a cluster in the config keeps the pending cleanup on a disconnected cluster": {
+			configClusters:           []string{"worker2"},
+			evictedFrom:              []string{"worker1", "worker2"},
+			worker1Disconnected:      true,
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
+			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"the pending cleanup of a deleted workload is dropped": {
+			configClusters:      []string{"worker2"},
+			evictedFrom:         []string{"worker1"},
+			worker1Disconnected: true,
+			deleted:             true,
+			wantWorker1Objects:  true,
+			wantRequeueAfter:    defaultWorkerLostTimeout,
+		},
+		"a previous cluster without a MultiKueueCluster is forgotten": {
+			configClusters:     []string{"worker2"},
+			evictedFrom:        []string{"worker3"},
+			wantWorker1Objects: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+			managerWl := baseWorkloadBuilder.Clone().
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+				Obj()
+			remoteWl := baseWorkloadBuilder.Clone().
+				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+				Obj()
+			remoteJob := testingjob.MakeJob("job1", TestNamespace).
+				PrebuiltWorkloadLabel("wl1").
+				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+				Obj()
+
+			managerClient := getClientBuilder(ctx).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				WithObjects(
+					managerWl,
+					testingjob.MakeJob("job1", TestNamespace).ManagedBy(kueue.MultiKueueControllerName).Obj(),
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(tc.configClusters...).Obj(),
+					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+						Obj(),
+				).
+				WithStatusSubresource(managerWl).
+				Build()
+
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
+
+			worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
+				WithObjects(remoteWl, remoteJob).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build())
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
+			w1remoteClient.client = worker1Client
+			if !tc.worker1Disconnected {
+				w1remoteClient.connState.markConnected()
+			}
+			cRec.remoteClients["worker1"] = w1remoteClient
+
+			w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker2", adapters)
+			w2remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).WithStatusSubresource(&kueue.Workload{}).Build())
+			w2remoteClient.connState.markConnected()
+			cRec.remoteClients["worker2"] = w2remoteClient
+
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+			reconciler := newWlReconciler(
+				managerClient,
+				helper,
+				cRec,
+				defaultOrigin,
+				&utiltesting.EventRecorder{},
+				defaultWorkerLostTimeout,
+				time.Second,
+				adapters,
+				config.MultiKueueDispatcherModeAllAtOnce,
+				nil,
+			)
+
+			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
+			var gotResult reconcile.Result
+			for _, clusterName := range tc.evictedFrom {
+				// The eviction cleared the cluster name of the manager's workload.
+				reconciler.Update(event.UpdateEvent{
+					ObjectOld: baseWorkloadBuilder.Clone().ClusterName(clusterName).Obj(),
+					ObjectNew: managerWl,
+				})
+				var err error
+				gotResult, err = reconciler.Reconcile(ctx, req)
+				if err != nil {
+					t.Fatalf("unexpected reconcile error after the eviction from %q: %v", clusterName, err)
+				}
+			}
+			if tc.deleted {
+				reconciler.Delete(event.DeleteEvent{Object: managerWl})
+			}
+			if gotResult.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("unexpected RequeueAfter: want %v, got %v", tc.wantRequeueAfter, gotResult.RequeueAfter)
+			}
+
+			gotWlErr := worker1Client.Get(ctx, client.ObjectKeyFromObject(remoteWl), &kueue.Workload{})
+			gotJobErr := worker1Client.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{})
+			if tc.wantWorker1Objects {
+				if gotWlErr != nil || gotJobErr != nil {
+					t.Errorf("expected worker1 objects to remain, got workload error %v, job error %v", gotWlErr, gotJobErr)
+				}
+			} else if !apierrors.IsNotFound(gotWlErr) || !apierrors.IsNotFound(gotJobErr) {
+				t.Errorf("expected worker1 objects to be deleted, got workload error %v, job error %v", gotWlErr, gotJobErr)
+			}
+			gotPreviousClusterNames, _ := reconciler.previousClusterNames.Get(req.String())
+			if diff := cmp.Diff(tc.wantPreviousClusterNames, gotPreviousClusterNames); diff != "" {
+				t.Errorf("unexpected previousClusterNames (-want/+got):\n%s", diff)
 			}
 		})
 	}
