@@ -43,6 +43,9 @@ endif
 else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
 endif
+# Only the kueuectl suite runs the kubectl-kueue binary, so skip building it
+# when INTEGRATION_TARGET neither names that suite nor uses a "..." pattern.
+INTEGRATION_KUEUECTL_DEP := $(if $(or $(findstring kueuectl,$(INTEGRATION_TARGET)),$(findstring ...,$(INTEGRATION_TARGET))),kueuectl)
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
 # The logging is disabled if 0.
@@ -145,7 +148,7 @@ test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
 ##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
-test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
+test-integration: compile-crd-manifests envtest ginkgo dep-crds $(INTEGRATION_KUEUECTL_DEP) ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
 
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
@@ -660,7 +663,7 @@ run-test-e2e-multikueue-sequential-%:
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-main-was
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
