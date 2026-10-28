@@ -180,39 +180,62 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		for idx := range j.Spec.Components {
-			component := &j.Spec.Components[idx]
-			obj := &unstructured.Unstructured{}
-			if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
-				return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
-			}
-			switch obj.GroupVersionKind() {
-			case kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind),
-				jobsetapi.SchemeGroupVersion.WithKind("JobSet"):
-			default:
-				continue
-			}
-			for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
-				template, err := awutils.GetPodTemplateSpec(obj, ps.Path)
-				if err != nil {
-					return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
-				}
-				if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
-					continue
-				}
-				// Child jobs bypass their integrations' job-start paths, so pass the default through PodSetInfos.
-				jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
-				if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
-					annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
-					maps.Copy(annotations, component.PodSetInfos[psIndex].Annotations)
-					component.PodSetInfos[psIndex].Annotations = annotations
-				}
-			}
-		}
+	if err := j.defaultPodIndexOffsets(); err != nil {
+		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
 
 	j.Spec.Suspend = false
+	return nil
+}
+
+// defaultPodIndexOffsets defaults grouped PyTorchJob and JobSet Pod index offsets
+// through PodSetInfos because child jobs bypass their integrations' job-start paths.
+func (j *AppWrapper) defaultPodIndexOffsets() error {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	for idx := range j.Spec.Components {
+		component := &j.Spec.Components[idx]
+		obj := &unstructured.Unstructured{}
+		if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
+			return err
+		}
+		if !supportsDefaultPodIndexOffset(obj.GroupVersionKind()) {
+			continue
+		}
+		for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
+			if err := defaultPodSetIndexOffset(obj, ps.Path, &component.PodSetInfos[psIndex]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func supportsDefaultPodIndexOffset(gvk schema.GroupVersionKind) bool {
+	switch gvk {
+	case kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind),
+		jobsetapi.SchemeGroupVersion.WithKind("JobSet"):
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultPodSetIndexOffset(obj *unstructured.Unstructured, path string, info *awv1beta2.AppWrapperPodSetInfo) error {
+	template, err := awutils.GetPodTemplateSpec(obj, path)
+	if err != nil {
+		return err
+	}
+	if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		return nil
+	}
+	jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+	if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
+		maps.Copy(annotations, info.Annotations)
+		info.Annotations = annotations
+	}
 	return nil
 }
 
