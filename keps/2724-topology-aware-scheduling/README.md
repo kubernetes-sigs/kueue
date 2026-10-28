@@ -613,7 +613,7 @@ On the other hands, `kueue.x-k8s.io/pod-index-offset` annotation is not added an
 when `kueue.x-k8s.io/podset-group-name` is specified: the larger PodSet of the group is offset by the size of the smaller one.
 
 When `kueue.x-k8s.io/pod-index-offset` is set on a PodSet in a PodSet Group, it replaces the PodSet Group offset.
-When Kueue starts an admitted JobSet, Ray job, Kubeflow Job (v1), or MPIJob without `runLauncherAsWorker`,
+When Kueue starts an admitted JobSet, Ray job, Kubeflow Job (v1), TrainJob, or MPIJob without `runLauncherAsWorker`,
 it sets it to `"0"` on the PodSets in a PodSet Group, because their Pod indexes start from 0 in each PodSet.
 
 Additionally, if LeaderWorkerSet doesn't have a separate Leader template, the offset management is not added.

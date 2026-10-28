@@ -174,6 +174,21 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			Obj(),
 	}).Suspend(false).Obj()
 
+	groupJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name:           "launcher",
+			PodAnnotations: map[string]string{kueue.PodSetGroupName: "group"},
+		},
+		testingjobset.ReplicatedJobRequirements{
+			Name:           "node",
+			PodAnnotations: map[string]string{kueue.PodSetGroupName: "group"},
+		},
+	).Obj()
+	groupCtr := testingtrainjob.MakeClusterTrainingRuntime("test", groupJobset.Spec)
+	groupWithOffsetJobset := groupJobset.DeepCopy()
+	groupWithOffsetJobset.Spec.ReplicatedJobs[1].Template.Spec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+	groupWithOffsetCtr := testingtrainjob.MakeClusterTrainingRuntime("test", groupWithOffsetJobset.Spec)
+
 	cases := map[string]struct {
 		trainJob        *kftrainerapi.TrainJob
 		runtime         *kftrainerapi.ClusterTrainingRuntime
@@ -416,6 +431,135 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Suspend(false).
 				Obj(),
 			wantErr: false,
+		},
+		"should set the Pod index offset to 0 on replicated jobs in a PodSet group": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).Obj(),
+			runtime: groupCtr,
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name:            "launcher",
+					Labels:          map[string]string{constants.PodSetLabel: "launcher"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+				{
+					Name: "node",
+					Annotations: map[string]string{
+						"test-annotation": "test",
+					},
+					Labels:          map[string]string{constants.PodSetLabel: "node"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+			},
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("launcher").
+								PodAnnotation(kueue.PodIndexOffsetAnnotation, "0").
+								PodLabel(constants.PodSetLabel, "launcher").
+								SchedulingGate(kueue.TopologySchedulingGate).
+								Obj(),
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodIndexOffsetAnnotation, "0").
+								PodAnnotation("test-annotation", "test").
+								PodLabel(constants.PodSetLabel, "node").
+								SchedulingGate(kueue.TopologySchedulingGate).
+								Obj(),
+						).
+						Obj(),
+				}).
+				Suspend(false).
+				Obj(),
+		},
+		"should set the Pod index offset to 0 when a user RuntimePatch sets the PodSet group": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodSetGroupName, "group").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).Obj(),
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name:            "node",
+					Labels:          map[string]string{constants.PodSetLabel: "node"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+			},
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodSetGroupName, "group").
+								Obj(),
+						).
+						Obj(),
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodAnnotation(kueue.PodIndexOffsetAnnotation, "0").
+								PodLabel(constants.PodSetLabel, "node").
+								SchedulingGate(kueue.TopologySchedulingGate).
+								Obj(),
+						).
+						Obj(),
+				}).
+				Suspend(false).
+				Obj(),
+		},
+		"should keep the Pod index offset set on the runtime": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).Obj(),
+			runtime: groupWithOffsetCtr,
+			podsetsInfo: []podset.PodSetInfo{
+				{
+					Name:            "launcher",
+					Labels:          map[string]string{constants.PodSetLabel: "launcher"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+				{
+					Name:            "node",
+					Labels:          map[string]string{constants.PodSetLabel: "node"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+			},
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("launcher").
+								PodAnnotation(kueue.PodIndexOffsetAnnotation, "0").
+								PodLabel(constants.PodSetLabel, "launcher").
+								SchedulingGate(kueue.TopologySchedulingGate).
+								Obj(),
+							testingtrainjob.MakeReplicatedJobPatch("node").
+								PodLabel(constants.PodSetLabel, "node").
+								SchedulingGate(kueue.TopologySchedulingGate).
+								Obj(),
+						).
+						Obj(),
+				}).
+				Suspend(false).
+				Obj(),
 		},
 	}
 
