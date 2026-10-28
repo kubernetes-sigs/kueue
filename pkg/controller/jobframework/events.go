@@ -24,6 +24,7 @@ const (
 	ReasonDeleted               = "Deleted"
 	ReasonCreatedWorkload       = "CreatedWorkload"
 	ReasonDeletedWorkload       = "DeletedWorkload"
+	ReasonFailedCreateWorkload  = "FailedCreateWorkload"
 	ReasonUpdatedWorkload       = "UpdatedWorkload"
 	ReasonFinishedWorkload      = "FinishedWorkload"
 	ReasonErrWorkloadCompose    = "ErrWorkloadCompose"
