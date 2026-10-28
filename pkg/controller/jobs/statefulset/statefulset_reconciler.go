@@ -25,7 +25,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -247,10 +246,8 @@ func (r *Reconciler) setDefault(sts *appsv1.StatefulSet, wlName string, pod *cor
 	return true
 }
 
-// findWorkload returns the workload name and object for the given StatefulSet,
-// falling back to the legacy name (without UID) if no workload exists under the new name.
-// If no workload exists under either name, it returns the default workload name and a nil workload.
-// TODO(#9497, v0.20): Remove legacy fallback.
+// findWorkload returns the workload name and object for the given StatefulSet.
+// If no workload exists, it returns the default workload name and a nil workload.
 func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, *kueue.Workload, error) {
 	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
 	wl := &kueue.Workload{}
@@ -260,13 +257,6 @@ func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet)
 	}
 	if err == nil {
 		return wlName, wl, nil
-	}
-	legacyName := GetWorkloadName("", sts.Name)
-	if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
-		ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
-		return legacyName, wl, nil
-	} else if !apierrors.IsNotFound(err) {
-		return wlName, nil, err
 	}
 	return wlName, nil, nil
 }
