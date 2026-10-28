@@ -50,7 +50,7 @@ func NewNumericLabelFilter(log logr.Logger, constraint kueuealpha.PreemptionConf
 		if val, ok := tryGetLabelValue(preemptorLog, preemptor, constraint.Key, constraint.FallbackValue); ok {
 			f.preemptorVal = new(val)
 		} else {
-			preemptorLog.V(2).Info("Preemptor missing required numeric label without fallbackValue; the comparison will not match any candidates")
+			preemptorLog.V(4).Info("Preemptor numeric label is missing or invalid and no fallback is configured; the comparison will not match any candidates")
 		}
 	}
 
@@ -106,7 +106,7 @@ func tryGetLabelValue(log logr.Logger, wl *workload.Info, key string, fallback *
 
 	val, err := strconv.ParseInt(valStr, 10, 32)
 	if err != nil {
-		log.V(3).Info("Failed to parse label into integer as expected; falling back to the configured fallbackValue", "value", valStr, "error", err)
+		log.V(5).Info("Numeric label could not be parsed", "value", valStr, "error", err)
 		if fallback != nil {
 			return *fallback, true
 		}

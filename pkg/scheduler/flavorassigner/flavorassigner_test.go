@@ -8959,6 +8959,7 @@ func TestAssignTopology(t *testing.T) {
 			Obj()
 		admission := utiltestingapi.MakeAdmission("cq").PodSets(psAssignment).Obj()
 		old := utiltestingapi.MakeWorkload("old", "default").
+			UID("old-uid").
 			Annotation(constants.ElasticJobAnnotation, "true").
 			PodSets(
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -8969,6 +8970,7 @@ func TestAssignTopology(t *testing.T) {
 			AdmittedAt(true, time.Now()).
 			Obj()
 		oldInfo := workload.NewInfo(log, old)
+		cq.Workloads[workload.Key(old)] = oldInfo
 		cq.AddUsage(oldInfo.Usage())
 		cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(otherUsage)})
 
@@ -8991,7 +8993,7 @@ func TestAssignTopology(t *testing.T) {
 		return fixture{
 			assigner: New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
-			assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+			assignment: &Assignment{PodSets: []PodSetAssignment{ps}, replaceWorkloadSlice: oldInfo},
 			cq:         cq,
 		}
 	}

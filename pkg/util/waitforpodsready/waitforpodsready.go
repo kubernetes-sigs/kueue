@@ -64,8 +64,7 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
-		rt := time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second
-		cfg.RecoveryTimeout = &rt
+		cfg.RecoveryTimeout = new(time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second)
 	}
 	return cfg, nil
 }

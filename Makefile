@@ -49,8 +49,6 @@ IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_TAG)
 
-CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
-
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
@@ -120,6 +118,7 @@ RELEASE_VERSION=v0.20.3
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
+DOCS_VERSION := $(patsubst release-%,v%,$(RELEASE_BRANCH))
 
 .PHONY: all
 all: generate fmt vet build
@@ -429,6 +428,9 @@ prepare-release-branch: yq kustomize helm-docs ## Prepare the release branch wit
 	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
+	@if [ "$(RELEASE_BRANCH)" != "main" ] && echo "$(RELEASE_BRANCH)" | grep -q '^release-[0-9]\+\.[0-9]\+'; then \
+		$(SED) -r 's#https://kueue\.sigs\.k8s\.io/(v[0-9]+\.[0-9]+/)?docs(/|[#)"]|$$)#https://kueue.sigs.k8s.io/$(DOCS_VERSION)/docs\2#g' -i README.md; \
+	fi
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i charts/kueue/README.md
 	$(YQ) e '.appVersion = "$(RELEASE_VERSION)" | .version = "$(APP_VERSION)"' -i charts/kueue/Chart.yaml
@@ -633,20 +635,3 @@ ray-project-mini-image-build-push: ray-project-mini-image-build
 kind-ray-project-mini-image-build: RAY_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
-
-# Build the secretreader-plugin image
-.PHONY: secretreader-plugin-image-build
-secretreader-plugin-image-build: IMAGE_BUILD_CMD := $(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD)
-secretreader-plugin-image-build:
-	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/secretreader-plugin:$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
-		--platform=$(PLATFORMS) \
-		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
-		$(PUSH) \
-		-f hack/testing/secretreader/Dockerfile ./
-
-# The step is required for local e2e test run
-.PHONY: kind-secretreader-plugin-image-build
-kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
-kind-secretreader-plugin-image-build: PUSH=--load
-kind-secretreader-plugin-image-build: secretreader-plugin-image-build

@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -190,6 +191,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
+	podTracker       *podtracker.Tracker
 	simulatorFactory simulator.Factory
 
 	// initialSync tracks the event sources that fill this cache, so the
@@ -206,12 +208,13 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
+		podTracker:             &podtracker.Tracker{},
 		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
+	cache.tasCache = NewTASCache(client, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -268,6 +271,21 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 			c.podsReadyCond.Wait()
 		}
 	}
+}
+
+func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
+		ctrl.LoggerFrom(ctx).V(1).Info(
+			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
+			"pod", client.ObjectKeyFromObject(pod).String(),
+			"missing annotation", kueue.WorkloadAnnotation,
+		)
+	}
+	c.podTracker.Track(pod)
+}
+
+func (c *Cache) UntrackPod(ctx context.Context, key client.ObjectKey) string {
+	return c.podTracker.Untrack(key)
 }
 
 // DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided

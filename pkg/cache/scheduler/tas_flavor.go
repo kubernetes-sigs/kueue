@@ -93,10 +93,6 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// simulatorFactory performs the node feasibility check
-	// based on topology requirements.
-	simulatorFactory simulator.Factory
-
 	resourceFormatter *resources.ResourceFormatter
 
 	// nodesCache provides the nodes matching the flavor, and the generation
@@ -122,7 +118,6 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:  t.nonTasUsageCache,
-		simulatorFactory:  t.simulatorFactory,
 		resourceFormatter: t.resourceFormatter,
 		nodesCache:        t.nodesCache,
 	}

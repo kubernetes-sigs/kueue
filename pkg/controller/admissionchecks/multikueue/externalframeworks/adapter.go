@@ -111,8 +111,7 @@ func cloneUnstructuredForCreation(obj *unstructured.Unstructured) (*unstructured
 		}
 	}
 
-	cleaned := api.CloneObjectMetaForCreation(&meta)
-	cleanedMeta, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cleaned)
+	cleanedMeta, err := runtime.DefaultUnstructuredConverter.ToUnstructured(new(api.CloneObjectMetaForCreation(&meta)))
 	if err != nil {
 		return nil, fmt.Errorf("converting cleaned metadata to unstructured: %w", err)
 	}

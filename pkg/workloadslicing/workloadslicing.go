@@ -211,7 +211,7 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 //
 // This is the baseline an incremental scale-up (e.g. a ProvisioningRequest or
 // a partial atomic scale-up) should subtract from wl's own counts.
-func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	prev, err := FindLatestAdmittedWorkloadForSlice(ctx, c, wl.Namespace, SliceName(wl), WithFinishedWorkloads())
 	if err != nil || prev == nil || prev.Name == wl.Name {
 		return nil, err

@@ -392,8 +392,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	ns := corev1.Namespace{}
 	if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
-			return ctrl.Result{}, nil
+			log.V(2).Info("Namespace not found in cache; requeueing", "namespace", req.Namespace)
+			return ctrl.Result{}, err
 		}
 		log.Error(err, "failed to get namespace for selector check")
 		return ctrl.Result{}, err
@@ -2045,8 +2045,7 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// predecessor's live grant while it's still around (see getInitialAssignments).
 			// Capped at the new Count in case this PodSet shrank while another grew.
 			if prevPodSet != nil && prevPodSet.MinCount != nil {
-				minCount := min(*prevPodSet.MinCount, podSets[i].Count)
-				podSets[i].MinCount = &minCount
+				podSets[i].MinCount = new(min(*prevPodSet.MinCount, podSets[i].Count))
 			}
 		}
 		if extra != "" {
@@ -2408,7 +2407,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
-	podsReady := job.PodsReady(ctx, c)
+	podsReady := job.PodsReady(ctx, c, WithWorkload(wl))
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)
