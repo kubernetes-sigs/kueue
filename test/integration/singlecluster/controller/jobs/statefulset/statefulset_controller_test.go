@@ -120,6 +120,37 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should keep a ready StatefulSet without a queue-name updatable after the default LocalQueue is created", func() {
+		sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		ginkgo.By("Marking the StatefulSet as ready")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Status.Replicas = 1
+			sts.Status.ReadyReplicas = 1
+			g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Creating the default LocalQueue")
+		behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(cq.Name).Obj())
+
+		ginkgo.By("Waiting for the webhook to see the default LocalQueue")
+		gomega.Eventually(func(g gomega.Gomega) {
+			probe := testingstatefulset.MakeStatefulSet("sts-probe", ns.Name).Obj()
+			g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+			g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Updating the StatefulSet without the queue-name label")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(controllerconstants.QueueLabel))
+	})
+
 	ginkgo.Context("When managing jobs without queue names in selected namespaces", func() {
 		ginkgo.BeforeEach(func() {
 			managementOptions = []jobframework.Option{

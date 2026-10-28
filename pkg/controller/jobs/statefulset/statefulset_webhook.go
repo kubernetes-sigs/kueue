@@ -86,14 +86,17 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 
 	log.V(5).Info("Propagating queue-name")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
-		return err
-	}
 	oldSTSObj, err := webhook.OldObjectFromContext[appsv1.StatefulSet](ctx)
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the label to a running StatefulSet that did not have it.
+	// ValidateUpdate rejects adding the queue-name and priority class labels
+	// to a running StatefulSet that did not have them.
+	if oldSTSObj == nil || jobframework.CanSetQueueName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
+		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	}
 	if oldSTSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
 			return err
