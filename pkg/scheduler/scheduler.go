@@ -1334,12 +1334,12 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
 	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
-		if features.Enabled(features.CustomMetricLabels) {
-			s.customLabels.Store(config.SourceKindWorkload, string(workload.Key(newWorkload)), newWorkload.Labels, newWorkload.Annotations)
-		}
-		lqCustomLabelsValues := s.customLabels.GetFor(map[config.SourceKind]string{
-			config.SourceKindLocalQueue: string(utilqueue.KeyFromWorkload(newWorkload)),
-			config.SourceKindWorkload:   string(workload.Key(newWorkload)),
+		// Derive the Workload values from the admitted Workload: the stored ones
+		// belong to the cache, and a later event may have changed or removed them.
+		wlLabelVals := s.customLabels.MakeValsSet(config.SourceKindWorkload, newWorkload.Labels, newWorkload.Annotations)
+		lqCustomLabelsValues := s.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindLocalQueue: s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)),
+			config.SourceKindWorkload:   wlLabelVals.OrderedList(),
 		})
 		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabelsValues, s.roleTracker)
 	}
