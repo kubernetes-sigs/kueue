@@ -102,7 +102,8 @@ func fairPreemptionStrategy(
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
-		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
+		partial := newPartialTargets(preemptionCtx.snapshot)
+		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, partial, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
@@ -116,7 +117,7 @@ func fairPreemptionStrategy(
 			// succeed now.
 			// No need to run the strategy a third time as first run already iterated
 			// though whole tree and removed all the preemptor's workloads.
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
+			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, partial, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
 		}
 
 		if cont && len(fsStrategies) > 1 {
@@ -126,7 +127,7 @@ func fairPreemptionStrategy(
 					"targets", logging.GetObjectReferences(yieldedCandidates),
 					"retryCandidates", workload.References(candidateWls))
 			}
-			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+			cont = iterateWithSecondFsStrategy(log, preemptionCtx, partial, candidateWls, yieldWithoutSimulatedUsage)
 		}
 
 		revertSimulation()
@@ -214,6 +215,11 @@ func verifyFairSharingTarget(
 	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
 
 	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	if t.Remaining != nil {
+		// What remains of a partially preempted workload is still in the snapshot.
+		revertRemaining := t.WorkloadCq.SimulateUsageRemoval(t.Remaining.Usage())
+		defer revertRemaining()
+	}
 	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
 	revert()
 
@@ -248,11 +254,11 @@ func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) boo
 func iterateWithFirstFsStrategy(
 	log logr.Logger,
 	preemptionCtx *preemptionCtx,
+	partial *partialTargets,
 	candidates []*workload.Info,
 	fsStrategy fairsharing.Strategy,
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
-	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 	var requestedFrs sets.Set[resources.FlavorResource]
 	if features.Enabled(features.FairSharingPreemptWithinNominal) {
@@ -261,7 +267,7 @@ func iterateWithFirstFsStrategy(
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InClusterQueueReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			if !partial.yield(candCQ, partial.newTarget(candCQ, candWl, kueue.InClusterQueueReason), yield) {
 				return
 			}
 			continue
@@ -270,7 +276,7 @@ func iterateWithFirstFsStrategy(
 		// A nominal claim at the preemptor's AlmostLCA with the target bypasses DRS.
 		if requestedFrs != nil && candCQ.PreemptorWithinNominal(requestedFrs) {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			if !partial.yield(candCQ, partial.newTarget(candCQ, candWl, kueue.InCohortReclamationReason), yield) {
 				return
 			}
 			continue
@@ -296,11 +302,12 @@ func iterateWithFirstFsStrategy(
 		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
+			target := partial.newTarget(candCQ, candWl, kueue.InCohortFairSharingReason)
+			targetNewShare := partial.shareAfterRemoval(candCQ, target)
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+				if !partial.yield(candCQ, target, yield) {
 					strategyLog.flush()
 					return
 				}
@@ -320,10 +327,10 @@ func iterateWithFirstFsStrategy(
 func iterateWithSecondFsStrategy(
 	log logr.Logger,
 	preemptionCtx *preemptionCtx,
+	partial *partialTargets,
 	retryCandidates []*workload.Info,
 	yield func(*Target) bool,
 ) bool {
-	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
@@ -341,7 +348,7 @@ func iterateWithSecondFsStrategy(
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			if !partial.yield(candCQ, &Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}, yield) {
 				return false
 			}
 		}
@@ -350,4 +357,54 @@ func iterateWithSecondFsStrategy(
 		ordering.DropQueue(candCQ)
 	}
 	return true
+}
+
+// partialTargets tracks the candidates yielded shrunk to their minCount. Each of them
+// is put back in its ClusterQueue, so that it is yielded whole when shrinking it is
+// not enough.
+type partialTargets struct {
+	snapshot *schdcache.Snapshot
+	targets  map[workload.Reference]*Target
+}
+
+func newPartialTargets(snapshot *schdcache.Snapshot) *partialTargets {
+	return &partialTargets{snapshot: snapshot, targets: make(map[workload.Reference]*Target)}
+}
+
+// newTarget returns the target for candWl: shrunk to its minCount the first time
+// it can shrink, and whole otherwise.
+func (p *partialTargets) newTarget(candCQ *fairsharing.TargetClusterQueue, candWl *workload.Info, reason string) *Target {
+	t := &Target{WorkloadInfo: candWl, Reason: reason, WorkloadCq: candCQ.GetTargetCq()}
+	if _, found := p.targets[workload.Key(candWl.Obj)]; !found && features.Enabled(features.PartialPreemption) {
+		t.Remaining = shrunkToMinCount(candWl)
+	}
+	return t
+}
+
+// shareAfterRemoval returns the share of the target ClusterQueue once t is removed.
+func (p *partialTargets) shareAfterRemoval(candCQ *fairsharing.TargetClusterQueue, t *Target) fairsharing.TargetNewShare {
+	if t.Remaining != nil {
+		return candCQ.ComputeTargetShareAfterShrink(t.WorkloadInfo, t.Remaining)
+	}
+	if shrunk, found := p.targets[workload.Key(t.WorkloadInfo.Obj)]; found {
+		return candCQ.ComputeTargetShareAfterRemoval(shrunk.Remaining)
+	}
+	return candCQ.ComputeTargetShareAfterRemoval(t.WorkloadInfo)
+}
+
+// yield removes t from the snapshot and yields it.
+func (p *partialTargets) yield(candCQ *fairsharing.TargetClusterQueue, t *Target, yield func(*Target) bool) bool {
+	key := workload.Key(t.WorkloadInfo.Obj)
+	if shrunk, found := p.targets[key]; found {
+		// Shrinking was not enough, so the whole workload is preempted.
+		p.snapshot.RemoveWorkload(shrunk.Remaining)
+		shrunk.Remaining = nil
+		shrunk.Reason = t.Reason
+		return yield(shrunk)
+	}
+	if t.Remaining != nil {
+		p.targets[key] = t
+		candCQ.PushWorkload(t.WorkloadInfo)
+	}
+	return policy.YieldFromSnapshot(p.snapshot, yield)(t)
 }

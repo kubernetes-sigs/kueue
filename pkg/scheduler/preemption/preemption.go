@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"iter"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -49,6 +50,7 @@ import (
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -303,6 +305,19 @@ func (p *Preemptor) IssuePreemptions(
 			return
 		}
 
+		if target.Remaining != nil {
+			if err := p.reclaim(ctx, target); err != nil {
+				errCh.SendErrorWithCancel(err, cancel)
+				preemptionErrors.Add(1)
+				return
+			}
+			log.V(3).Info("Partially preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "reason", target.Reason)
+			p.recorder.Eventf(target.WorkloadInfo.Obj, nil, corev1.EventTypeNormal, "PartiallyPreempted", "PartiallyPreempted",
+				"Shrinking to accommodate a workload (UID: %s, JobUID: %s) due to %s", preemptor.Obj.UID, preemptor.Obj.Labels[constants.JobUIDLabel], target.Reason)
+			successfullyPreempted.Add(1)
+			return
+		}
+
 		preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
 		preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
 
@@ -343,6 +358,35 @@ func (p *Preemptor) IssuePreemptions(
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+}
+
+// reclaim sets the reclaim target counts of the workload to what remains of it.
+// Its Pods above them are deleted, and their quota is released once they are gone.
+func (p *Preemptor) reclaim(ctx context.Context, target *Target) error {
+	wl := target.WorkloadInfo.Obj.DeepCopy()
+	return utilclient.Patch(ctx, p.client, wl, func() (bool, error) {
+		targets := workload.ReclaimTargetCounts(wl)
+		if targets == nil {
+			targets = make(workload.PodSetsCounts)
+		}
+		granted := workload.ExtractGrantedPodSetCounts(wl)
+		changed := false
+		for _, psr := range target.Remaining.TotalRequests {
+			current := granted[psr.Name]
+			// A pending target is never raised, as another preemptor may be waiting for it.
+			if pending, found := targets[psr.Name]; found {
+				current = min(current, pending)
+			}
+			if psr.Count < current {
+				targets[psr.Name] = psr.Count
+				changed = true
+			}
+		}
+		if changed {
+			workload.SetReclaimTargetCounts(wl, targets)
+		}
+		return changed, nil
+	})
 }
 
 func messageAndUnderlyingCause(
@@ -387,7 +431,10 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 	for strategy := range strategies {
 		var targets []*Target
 		for candidate := range strategy.candidates {
-			targets = append(targets, candidate)
+			// A partial target is yielded again when its whole workload is needed.
+			if !slices.Contains(targets, candidate) {
+				targets = append(targets, candidate)
+			}
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
 				if strategy.verify != nil {
@@ -418,23 +465,69 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 
 func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	for _, t := range targets {
-		snapshot.AddWorkload(t.WorkloadInfo)
+		t.AddTo(snapshot)
 	}
 }
 
 // fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
+// A partial target that is needed gets back as many Pods as still fit, in the same
+// reverse order, so that the targets yielded first are the ones shrunk the most.
 func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
+	if last := targets[len(targets)-1]; last.Remaining != nil {
+		growBackPartialTarget(ctx, preemptionCtx, last, allowBorrowing)
+	}
 	for i := len(targets) - 2; i >= 0; i-- {
-		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
+		targets[i].AddTo(preemptionCtx.snapshot)
 		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
 		} else {
-			preemptionCtx.snapshot.RemoveWorkload(targets[i].WorkloadInfo)
+			targets[i].RemoveFrom(preemptionCtx.snapshot)
+			if targets[i].Remaining != nil {
+				growBackPartialTarget(ctx, preemptionCtx, targets[i], allowBorrowing)
+			}
 		}
 	}
 	return targets
+}
+
+// growBackPartialTarget keeps as many Pods of a partially preempted workload as
+// the incoming workload still fits with, so that it shrinks only as needed. It
+// keeps no more than a pending reclaim target, which another preemptor may be
+// waiting for.
+func growBackPartialTarget(ctx context.Context, preemptionCtx *preemptionCtx, t *Target, allowBorrowing bool) {
+	pending := workload.PendingReclaimTargetCounts(t.WorkloadInfo.Obj)
+	for i := range t.Remaining.TotalRequests {
+		full := &t.WorkloadInfo.TotalRequests[i]
+		low := t.Remaining.TotalRequests[i].Count
+		high := full.Count - 1
+		if target, found := pending[full.Name]; found {
+			high = min(high, target)
+		}
+		withCount := func(count int32) *workload.Info {
+			grown := *t.Remaining
+			grown.TotalRequests = slices.Clone(t.Remaining.TotalRequests)
+			grown.TotalRequests[i] = *full.ScaledTo(count)
+			return &grown
+		}
+		// Search for the largest count up to high that still fits.
+		extra := sort.Search(int(high-low), func(k int) bool {
+			grown := withCount(low + 1 + int32(k))
+			preemptionCtx.snapshot.RemoveWorkload(t.Remaining)
+			preemptionCtx.snapshot.AddWorkload(grown)
+			fits := workloadFits(ctx, preemptionCtx, allowBorrowing)
+			preemptionCtx.snapshot.RemoveWorkload(grown)
+			preemptionCtx.snapshot.AddWorkload(t.Remaining)
+			return !fits
+		})
+		if extra > 0 {
+			grown := withCount(low + int32(extra))
+			preemptionCtx.snapshot.RemoveWorkload(t.Remaining)
+			preemptionCtx.snapshot.AddWorkload(grown)
+			t.Remaining = grown
+		}
+	}
 }
 
 // parseStrategies converts the configured FairSharing preemption strategies into

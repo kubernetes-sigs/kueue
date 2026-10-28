@@ -45,6 +45,13 @@ func (t *TargetClusterQueue) PopWorkload() *workload.Info {
 	return head
 }
 
+// PushWorkload puts wl back as the last candidate of the ClusterQueue.
+func (t *TargetClusterQueue) PushWorkload(wl *workload.Info) {
+	cqt := t.ordering.clusterQueueToTarget
+	cqName := t.targetCq.GetName()
+	cqt[cqName] = append(cqt[cqName], wl)
+}
+
 func (t *TargetClusterQueue) HasWorkload() bool {
 	return t.ordering.hasWorkload(t.targetCq)
 }
@@ -98,6 +105,14 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 
 	_, almostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)
 	return TargetNewShare(almostLCA.DominantResourceShare())
+}
+
+// ComputeTargetShareAfterShrink is ComputeTargetShareAfterRemoval for a
+// workload of which remaining stays admitted.
+func (t *TargetClusterQueue) ComputeTargetShareAfterShrink(wl, remaining *workload.Info) TargetNewShare {
+	revertSimulation := t.targetCq.SimulateUsageAddition(remaining.Usage())
+	defer revertSimulation()
+	return t.ComputeTargetShareAfterRemoval(wl)
 }
 
 // GetTargetCq returns the target ClusterQueue snapshot.

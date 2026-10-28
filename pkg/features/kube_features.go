@@ -39,6 +39,13 @@ const (
 	// Enables partial scale up for elastic jobs.
 	ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp"
 
+	// owner: @reruno
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/14589
+
+	// Enables preemption to shrink elastic workloads down to their minCount
+	// before evicting them.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
+
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
@@ -187,6 +194,12 @@ const (
 	// so an elastic job scaling up from zero is not pinned to the flavor chosen
 	// while it was empty.
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero featuregate.Feature = "ElasticJobsViaWorkloadSlicesFlavorChangeFromZero"
+
+	// owner: @reruno
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// Enables elastic SparkApplications with dynamic allocation via workload slices.
+	ElasticJobsViaWorkloadSlicesForSparkApplication featuregate.Feature = "ElasticJobsViaWorkloadSlicesForSparkApplication"
 
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -950,8 +963,10 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationDeviceTaints:                     {KueueDRADeviceFeasibility},
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
+	ElasticJobsViaWorkloadSlicesForSparkApplication:     {ElasticJobsViaWorkloadSlices, SparkApplicationIntegration},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
+	PartialPreemption:                                   {ElasticJobsViaWorkloadSlices, ReclaimablePods},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -967,6 +982,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
@@ -1038,6 +1056,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ElasticJobsViaWorkloadSlicesForSparkApplication: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},

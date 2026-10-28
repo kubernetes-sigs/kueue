@@ -789,6 +789,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
 		if !workload.HasQuotaReservation(&wl) {
+			// The reclaim target counts of partial preemption apply only to the released admission.
+			if workload.IsPartiallyPreempted(&wl) {
+				return ctrl.Result{}, client.IgnoreNotFound(clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
+					delete(wl.Annotations, constants.ReclaimTargetCountsAnnotation)
+					return true, nil
+				}))
+			}
 			reason, message, err := r.resolveUnadmittedQuotaReservedCondition(ctx, &wl, lqExists, lqActive, cq)
 			if err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)

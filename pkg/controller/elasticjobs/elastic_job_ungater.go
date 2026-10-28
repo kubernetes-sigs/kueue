@@ -272,6 +272,10 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	}
 
 	granted := workload.ExtractGrantedPodSetCounts(wl)
+	// Partial preemption stops the pods above the reclaim targets, and the job recreates them.
+	for ps, target := range workload.ReclaimTargetCounts(wl) {
+		granted[ps] = min(granted[ps], target)
+	}
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)

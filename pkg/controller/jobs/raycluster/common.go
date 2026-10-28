@@ -158,6 +158,10 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
 			annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial {
 			workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
+			// Partial preemption can shrink the worker group down to minReplicas.
+			if features.Enabled(features.PartialPreemption) {
+				workerPodSet.MinCount = new(min(ptr.Deref(wgs.MinReplicas, 0)*max(wgs.NumOfHosts, 1), workerPodSet.Count))
+			}
 		}
 		if collectorOptions != nil {
 			workerPodSet.Template.Spec.Containers = append(

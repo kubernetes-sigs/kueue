@@ -1626,6 +1626,10 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 		return podSets
 	}
 	liveGrants := workload.ExtractGrantedPodSetCounts(replaceableWorkloadSlice.Obj)
+	// Partial preemption releases the quota of the stopped pods by marking them reclaimable.
+	if workload.IsPartiallyPreempted(replaceableWorkloadSlice.Obj) {
+		liveGrants = workload.ExtractGrantedPodSetCountsAfterReclaim(replaceableWorkloadSlice.Obj)
+	}
 	if len(liveGrants) == 0 {
 		return podSets
 	}

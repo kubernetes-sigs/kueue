@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -81,6 +83,7 @@ type RayCluster rayv1.RayCluster
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
+var _ jobframework.JobWithPartialStop = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
@@ -103,6 +106,10 @@ func (j *RayCluster) IsActive() bool {
 
 func (j *RayCluster) Suspend() {
 	j.Spec.Suspend = new(true)
+}
+
+func (j *RayCluster) StopPartially(ctx context.Context, c client.Client, wl *kueue.Workload, targets workload.PodSetsCounts) (bool, error) {
+	return workloadslicing.DeletePodsAboveCounts(ctx, c, wl, targets)
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {

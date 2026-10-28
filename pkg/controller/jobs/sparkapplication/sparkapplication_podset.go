@@ -65,6 +65,7 @@ func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	addSchedulingGates(&pod, j.Spec.Driver.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,
@@ -84,11 +85,20 @@ func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSp
 	if err := mutateSparkPod((*sparkv1beta2.SparkApplication)(j), &pod); err != nil {
 		return nil, err
 	}
+	addSchedulingGates(&pod, j.Spec.Executor.Template)
 
 	return &corev1.PodTemplateSpec{
 		ObjectMeta: pod.ObjectMeta,
 		Spec:       pod.Spec,
 	}, nil
+}
+
+// addSchedulingGates records the template's scheduling gates in the PodSet, because
+// RestorePodSetsInfo restores them from the Workload when the job is stopped.
+func addSchedulingGates(pod *corev1.Pod, template *corev1.PodTemplateSpec) {
+	if template != nil {
+		pod.Spec.SchedulingGates = slices.Clone(template.Spec.SchedulingGates)
+	}
 }
 
 // NOTE: Most of the below code is adapted from kubeflow/spark-operator internal code
