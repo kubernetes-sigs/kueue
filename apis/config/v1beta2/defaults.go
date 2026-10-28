@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
 )
@@ -56,6 +55,9 @@ const (
 	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
 )
 
+// Keep this value local so API documentation generation does not load the Kubernetes clients.
+const defaultLeaderElectionResourceLock = "leases"
+
 func getOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
@@ -81,7 +83,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	// Default to Lease as component-base still defaults to endpoint resources
 	// until core components migrate to using Leases. See k/k #80289 for more details.
-	cfg.LeaderElection.ResourceLock = cmp.Or(cfg.LeaderElection.ResourceLock, resourcelock.LeasesResourceLock)
+	cfg.LeaderElection.ResourceLock = cmp.Or(cfg.LeaderElection.ResourceLock, defaultLeaderElectionResourceLock)
 
 	// Use the default LeaderElectionConfiguration options
 	configv1alpha1.RecommendedDefaultLeaderElectionConfiguration(cfg.LeaderElection)
