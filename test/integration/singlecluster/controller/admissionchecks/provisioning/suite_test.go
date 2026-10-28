@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -63,6 +65,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		DepCRDPaths: []string{
 			behavioral.AutoscalerCrds,
+			behavioral.RayOperatorCrds,
 		},
 		WebhookPath: behavioral.WebhookPath,
 	}
@@ -78,6 +81,7 @@ type managerSetupOpts struct {
 	runScheduler             bool
 	runJobController         bool
 	runStatefulSetController bool
+	runRayControllers        bool
 }
 
 type managerSetupOption func(*managerSetupOpts)
@@ -88,6 +92,10 @@ func runScheduler(opts *managerSetupOpts) {
 
 func runJobController(opts *managerSetupOpts) {
 	opts.runJobController = true
+}
+
+func runRayControllers(opts *managerSetupOpts) {
+	opts.runRayControllers = true
 }
 
 func runStatefulSetController(opts *managerSetupOpts) {
@@ -153,6 +161,26 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 			err = statefulset.SetupWebhook(mgr, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			integrationManager.EnableIntegration(statefulset.FrameworkName)
+		}
+
+		if opts.runRayControllers {
+			rayOpts := []jobframework.Option{jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues)}
+			err := raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			rayClusterReconciler, err := raycluster.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+				mgr.GetEventRecorder(constants.JobControllerName), rayOpts...)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(rayClusterReconciler.SetupWithManager(mgr)).To(gomega.Succeed())
+			gomega.Expect(raycluster.SetupRayClusterWebhook(mgr, rayOpts...)).To(gomega.Succeed())
+			rayJobReconciler, err := rayjob.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+				mgr.GetEventRecorder(constants.JobControllerName), rayOpts...)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(rayJobReconciler.SetupWithManager(mgr)).To(gomega.Succeed())
+			gomega.Expect(rayjob.SetupRayJobWebhook(mgr, rayOpts...)).To(gomega.Succeed())
+			integrationManager.EnableIntegration(raycluster.FrameworkName)
+			integrationManager.EnableIntegration(rayjob.FrameworkName)
 		}
 
 		failedCtrl, err := core.SetupControllers(
