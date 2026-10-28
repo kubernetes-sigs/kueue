@@ -119,7 +119,12 @@ following annotations set at the PodTemplate level:
     on nodes across the cluster.
 - `kueue.x-k8s.io/podset-group-name` - indicates the name of the group of PodSets. PodSet Group
     is a unit of flavor assignment and topology domain fitting. This is useful when you want to
-    ensure that multiple PodSets are scheduled in the same topology domain.
+    ensure that multiple PodSets are scheduled in the same topology domain. This annotation must
+    be used together with `kueue.x-k8s.io/podset-required-topology` or
+    `kueue.x-k8s.io/podset-preferred-topology`.
+- `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size` - split a
+    PodSet into slices of the given size and require each slice to be scheduled within a single
+    topology domain at the level indicated by `podset-slice-required-topology`.
 - `kueue.x-k8s.io/podset-slice-required-topology-constraints` - defines multi-layer slice
     topology constraints as a JSON-encoded array. Each entry specifies a topology level and
     slice size, ordered from the outermost (coarsest) to the innermost (finest) layer. At most
@@ -148,9 +153,8 @@ For detailed instructions and full examples on running TAS workloads as a batch 
 
 #### Implicit TAS and mixed-flavor ClusterQueues
 
-Whether a PodSet without any `kueue.x-k8s.io/podset-*-topology` annotation can
-use a TAS `ResourceFlavor` depends on how the target `ClusterQueue` is
-configured.
+Whether a PodSet without an explicit TAS annotation can use a TAS
+`ResourceFlavor` depends on how the target `ClusterQueue` is configured.
 
 If **every** `ResourceFlavor` referenced across all `spec.resourceGroups` of the
 `ClusterQueue` has `.spec.topologyName` set (a TAS-only `ClusterQueue`),
@@ -162,23 +166,21 @@ lowest topology level (using the `LeastFreeCapacity` strategy when
 If any `ResourceFlavor` listed in the `ClusterQueue` (even one with `0`
 `nominalQuota`) does not set `.spec.topologyName`, implicit TAS is disabled:
 unannotated PodSets can only be assigned non-TAS flavors
-(`Flavor "<name>" supports only TopologyAwareScheduling`), and PodSets with a
-`kueue.x-k8s.io/podset-*-topology` annotation can only be assigned TAS flavors
+(`Flavor "<name>" supports only TopologyAwareScheduling`), and PodSets with an
+explicit TAS annotation can only be assigned TAS flavors
 (`Flavor "<name>" does not support TopologyAwareScheduling`) for the resources
 they request. For example, in a `ClusterQueue` that offers both TAS and non-TAS
 flavors in the same `resourceGroup` (such as `[gpu-tas, gpu-standard]`, or
 `[gpu-tas, cpu-only]` where `cpu-only` has `0` `nvidia.com/gpu` quota),
-workloads that need the TAS flavor **must** set
-`kueue.x-k8s.io/podset-required-topology`,
-`kueue.x-k8s.io/podset-preferred-topology`, or
-`kueue.x-k8s.io/podset-unconstrained-topology` on the PodTemplate:
+workloads that need the TAS flavor **must** set an explicit TAS annotation on
+the PodTemplate (see [User-facing APIs](#user-facing-apis)):
 
 ```yaml
 spec:
   resourceGroups:
   - coveredResources: ["cpu", "nvidia.com/gpu"]
     flavors:
-    - name: gpu-tas      # .spec.topologyName set (requires a podset-*-topology annotation)
+    - name: gpu-tas      # .spec.topologyName set (requires an explicit TAS annotation)
       resources:
       - { name: "cpu", nominalQuota: 64 }
       - { name: "nvidia.com/gpu", nominalQuota: 8 }
