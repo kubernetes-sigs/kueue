@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -46,6 +48,7 @@ type multiKueueAdapter struct{}
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
 var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 var _ jobframework.MultiKueueMultiWorkloadAdapter = (*multiKueueAdapter)(nil)
+var _ jobframework.MultiKueueLocalJobWatcher = (*multiKueueAdapter)(nil)
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	localLWS := leaderworkersetv1.LeaderWorkerSet{}
@@ -77,22 +80,21 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			return false, err
 		}
 
+		// Added tolerations and changed init containers must reach the pods that
+		// the remote LWS creates.
 		if features.Enabled(features.AllowAddingPodTemplateTolerations) {
-			// Added tolerations must reach the pods that the remote LWS creates. They
-			// are patched separately, so that a rejection does not block the scale down.
-			err = clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
-				return copyAddedTolerations(&remoteLWS, &localLWS), nil
-			})
-			if apierrors.IsForbidden(err) {
-				// A Forbidden error is permanent: the worker rejects the tolerations,
-				// for example when it runs an older Kueue or has the feature gate
-				// disabled, or denies the patch by RBAC or a policy. Retrying cannot
-				// fix it, and returning the error would keep MultiKueue from finishing
-				// or evicting the Workload, so the error is only logged.
-				ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the added tolerations of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(&remoteLWS))
-				return false, nil
+			if err := patchRemotePodTemplates(ctx, remoteClient, &remoteLWS, "tolerations", func() bool {
+				return copyAddedTolerations(&remoteLWS, &localLWS)
+			}); err != nil {
+				return false, err
 			}
-			return false, err
+		}
+		if features.Enabled(features.LWSAllowChangingInitContainers) {
+			if err := patchRemotePodTemplates(ctx, remoteClient, &remoteLWS, "initContainers", func() bool {
+				return copyInitContainers(&remoteLWS, &localLWS)
+			}); err != nil {
+				return false, err
+			}
 		}
 
 		return false, nil
@@ -117,18 +119,82 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	return false, client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
 }
 
+// patchRemotePodTemplates patches the remote LeaderWorkerSet with the change
+// that copyFn makes to its pod templates. Each change is patched separately, so
+// that a rejection does not block the scale down or the other changes.
+func patchRemotePodTemplates(ctx context.Context, remoteClient client.Client, remoteLWS *leaderworkersetv1.LeaderWorkerSet, field string, copyFn func() bool) error {
+	beforePatch := remoteLWS.DeepCopy()
+	err := clientutil.Patch(ctx, remoteClient, remoteLWS, func() (bool, error) {
+		return copyFn(), nil
+	})
+	if apierrors.IsForbidden(err) {
+		// A Forbidden error is permanent: the worker rejects the change, for
+		// example when it runs an older Kueue or has the feature gate disabled,
+		// or denies the patch by RBAC or a policy. Retrying cannot fix it, and
+		// returning the error would keep MultiKueue from finishing or evicting
+		// the Workload, so the error is only logged.
+		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the pod template change of the remote LeaderWorkerSet", "leaderworkerset", klog.KObj(remoteLWS), "field", field)
+		// The rejected change stays on remoteLWS. Restore remoteLWS, so that the
+		// next patch is computed against the remote state and still carries the
+		// partition.
+		*remoteLWS = *beforePatch
+		return nil
+	}
+	return err
+}
+
+// copyInitContainers copies the init containers and the partition of the local
+// LeaderWorkerSet to the remote one, and reports whether any of them changed.
+// The manager admits only the changes that keep the effective requests of the
+// pods and the ports of the init containers. The manager admits them with any
+// partition, so the partition is copied to let the worker update the same
+// groups. It is copied also when it changes alone, so that lowering it after a
+// change of the init containers updates the remaining groups on the worker too.
+func copyInitContainers(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
+	var updated bool
+	localTemplates := podTemplates(local)
+	for name, remoteTemplate := range podTemplates(remote) {
+		localTemplate, found := localTemplates[name]
+		if !found || equality.Semantic.DeepEqual(remoteTemplate.Spec.InitContainers, localTemplate.Spec.InitContainers) {
+			continue
+		}
+		var initContainers []corev1.Container
+		for i := range localTemplate.Spec.InitContainers {
+			initContainers = append(initContainers, *localTemplate.Spec.InitContainers[i].DeepCopy())
+		}
+		remoteTemplate.Spec.InitContainers = initContainers
+		updated = true
+	}
+	partitionUpdated := copyPartition(remote, local)
+	return updated || partitionUpdated
+}
+
 // copyAddedTolerations copies the tolerations added to the local LeaderWorkerSet
 // to the remote one, and reports whether the local one added any.
 func copyAddedTolerations(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
 	if !utiltolerations.CopyAddedByName(podTemplates(remote), podTemplates(local)) {
 		return false
 	}
-	// The remote LWS keeps the partition it was created with. The manager admits added
-	// tolerations only with its partition at 0, so the partition is copied with them to
-	// let the worker admit the tolerations and update all groups as well.
-	if cfg := remote.Spec.RolloutStrategy.RollingUpdateConfiguration; cfg != nil {
-		cfg.Partition = new(rollingUpdatePartition((*LeaderWorkerSet)(local)))
+	// The manager admits added tolerations only with its partition at 0, so the
+	// partition is copied with them to let the worker admit the tolerations and
+	// update all groups as well.
+	copyPartition(remote, local)
+	return true
+}
+
+// copyPartition copies the rolling update partition of the local LeaderWorkerSet
+// to the remote one, which otherwise keeps the partition it was created with,
+// and reports whether it changed.
+func copyPartition(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
+	cfg := remote.Spec.RolloutStrategy.RollingUpdateConfiguration
+	if cfg == nil {
+		return false
 	}
+	partition := rollingUpdatePartition((*LeaderWorkerSet)(local))
+	if ptr.Deref(cfg.Partition, 0) == partition {
+		return false
+	}
+	cfg.Partition = new(partition)
 	return true
 }
 
@@ -149,6 +215,17 @@ func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 
 func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &leaderworkersetv1.LeaderWorkerSetList{}
+}
+
+// NewEmptyLocalJob lets the MultiKueue controller watch the manager
+// LeaderWorkerSet, so that changed init containers promptly reach the worker.
+// Unlike added tolerations or a scale down, they do not change the Workloads,
+// which would otherwise trigger the sync.
+func (*multiKueueAdapter) NewEmptyLocalJob() client.Object {
+	if !features.Enabled(features.LWSAllowChangingInitContainers) {
+		return nil
+	}
+	return &leaderworkersetv1.LeaderWorkerSet{}
 }
 
 func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {

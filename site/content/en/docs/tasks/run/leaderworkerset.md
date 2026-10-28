@@ -116,6 +116,34 @@ on the worker cluster. Together with the tolerations, Kueue copies the
 To turn this off, disable the `AllowAddingPodTemplateTolerations`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 
+Since Kueue v0.21, you can add, remove or change the `initContainers` of the Pod templates,
+including sidecar containers, as long as the effective resource requests of the Pods and the
+ports of the init containers stay the same.
+For example, you can add a regular init container whose requests do not exceed the total requests
+of the app containers.
+A sidecar container runs alongside the app containers, so its requests add to theirs.
+Kueue accepts a change of the sidecar containers only when the effective requests stay the same,
+for example when you add a sidecar container after a regular init container that still sets them.
+Kueue also rejects moving a port between a sidecar container and a regular init container,
+because the scheduler reserves the host ports of sidecar containers for the whole lifetime of the Pod.
+Kueue computes the effective requests as for the quota of the Workloads: limits are used as
+missing requests, and the defaults of the LimitRanges in the namespace fill in the requests that
+are still missing for each resource.
+Requests of zero use no quota, so Kueue ignores them.
+The quota of the Workloads stays valid, so Kueue does not change them.
+In MultiKueue, Kueue also copies the changed init containers to the LeaderWorkerSet on the worker
+cluster, together with the `rolloutStrategy.rollingUpdateConfiguration.partition`, so that the
+worker cluster updates the same groups.
+Kueue also copies later changes of the partition, so that lowering it updates the remaining
+groups on the worker cluster too.
+Kueue copies these changes right away when the `MultiKueueRemoteSpecSync` feature gate is enabled,
+which is the default. Otherwise, they reach the worker cluster only when Kueue next reconciles the Workloads.
+If the worker cluster rejects the changed init containers, for example because it runs an earlier
+version of Kueue or its LimitRanges set higher defaults, kueue-controller-manager logs the error,
+and the worker cluster keeps the previous init containers and partition.
+To turn this off, disable the `LWSAllowChangingInitContainers`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
 ### e. Group identity
 
 Kueue supports only the default `spec.groupIdentity: Ordinal`. With

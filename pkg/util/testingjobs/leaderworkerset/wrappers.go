@@ -150,6 +150,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecToleration(t corev1.Toleratio
 	return w
 }
 
+// WorkerTemplateSpecInitContainer adds an init container to the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecInitContainer(c corev1.Container) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers, c)
+	return w
+}
+
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
@@ -176,6 +182,12 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *Lead
 // LeaderTemplateSpecToleration adds a toleration to the pod template spec of the leader
 func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecToleration(t corev1.Toleration) *LeaderWorkerSetWrapper {
 	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations = append(w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations, t)
+	return w
+}
+
+// LeaderTemplateSpecInitContainer adds an init container to the pod template spec of the leader
+func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecInitContainer(c corev1.Container) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.InitContainers = append(w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.InitContainers, c)
 	return w
 }
 
