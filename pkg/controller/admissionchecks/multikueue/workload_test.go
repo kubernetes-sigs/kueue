@@ -2375,36 +2375,46 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 }
 
-func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
+func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 	cases := map[string]struct {
-		configClusters      []string
-		previousClusterName string
+		configClusters []string
+		// evictedFrom lists the clusters the workload is evicted from, in order.
+		// The workload is reconciled after each eviction.
+		evictedFrom         []string
 		worker1Disconnected bool
 
 		wantWorker1Objects       bool
-		wantPreviousClusterNames int
+		wantPreviousClusterNames sets.Set[string]
 		wantRequeueAfter         time.Duration
 	}{
 		"remote objects on a cluster removed from the config are deleted after the eviction": {
-			configClusters:      []string{"worker2"},
-			previousClusterName: "worker1",
+			configClusters: []string{"worker2"},
+			evictedFrom:    []string{"worker1"},
 		},
 		"remote objects on a cluster in the config are left to the regular flow": {
-			configClusters:      []string{"worker1", "worker2"},
-			previousClusterName: "worker1",
+			configClusters: []string{"worker1", "worker2"},
+			evictedFrom:    []string{"worker1"},
 		},
 		"remote objects on a disconnected cluster removed from the config are kept for a later retry": {
 			configClusters:           []string{"worker2"},
-			previousClusterName:      "worker1",
+			evictedFrom:              []string{"worker1"},
 			worker1Disconnected:      true,
 			wantWorker1Objects:       true,
-			wantPreviousClusterNames: 1,
+			wantPreviousClusterNames: sets.New("worker1"),
+			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"a later eviction from a cluster in the config keeps the pending cleanup on a disconnected cluster": {
+			configClusters:           []string{"worker2"},
+			evictedFrom:              []string{"worker1", "worker2"},
+			worker1Disconnected:      true,
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
 			wantRequeueAfter:         defaultWorkerLostTimeout,
 		},
 		"a previous cluster without a MultiKueueCluster is forgotten": {
-			configClusters:      []string{"worker2"},
-			previousClusterName: "worker3",
-			wantWorker1Objects:  true,
+			configClusters:     []string{"worker2"},
+			evictedFrom:        []string{"worker3"},
+			wantWorker1Objects: true,
 		},
 	}
 
@@ -2475,15 +2485,19 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 				nil,
 			)
 
-			// The eviction cleared the cluster name of the manager's workload.
-			reconciler.Update(event.UpdateEvent{
-				ObjectOld: baseWorkloadBuilder.Clone().ClusterName(tc.previousClusterName).Obj(),
-				ObjectNew: managerWl,
-			})
-
-			gotResult, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
-			if err != nil {
-				t.Fatalf("unexpected reconcile error: %v", err)
+			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
+			var gotResult reconcile.Result
+			for _, clusterName := range tc.evictedFrom {
+				// The eviction cleared the cluster name of the manager's workload.
+				reconciler.Update(event.UpdateEvent{
+					ObjectOld: baseWorkloadBuilder.Clone().ClusterName(clusterName).Obj(),
+					ObjectNew: managerWl,
+				})
+				var err error
+				gotResult, err = reconciler.Reconcile(ctx, req)
+				if err != nil {
+					t.Fatalf("unexpected reconcile error after the eviction from %q: %v", clusterName, err)
+				}
 			}
 			if gotResult.RequeueAfter != tc.wantRequeueAfter {
 				t.Errorf("unexpected RequeueAfter: want %v, got %v", tc.wantRequeueAfter, gotResult.RequeueAfter)
@@ -2498,8 +2512,9 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			} else if !apierrors.IsNotFound(gotWlErr) || !apierrors.IsNotFound(gotJobErr) {
 				t.Errorf("expected worker1 objects to be deleted, got workload error %v, job error %v", gotWlErr, gotJobErr)
 			}
-			if got := reconciler.previousClusterNames.Len(); got != tc.wantPreviousClusterNames {
-				t.Errorf("unexpected previousClusterNames length: want %d, got %d", tc.wantPreviousClusterNames, got)
+			gotPreviousClusterNames, _ := reconciler.previousClusterNames.Get(req.String())
+			if diff := cmp.Diff(tc.wantPreviousClusterNames, gotPreviousClusterNames); diff != "" {
+				t.Errorf("unexpected previousClusterNames (-want/+got):\n%s", diff)
 			}
 		})
 	}
