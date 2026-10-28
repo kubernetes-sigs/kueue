@@ -110,7 +110,16 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
 		wantPodSets       []podset.PodSetInfo
+		namespaceMissing  bool
+		wantErr           func(error) bool
 	}{
+		"requeue job when its namespace is not in the cache yet": {
+			req:              baseReq,
+			job:              baseJob.DeepCopy(),
+			namespaceMissing: true,
+			wantWorkloads:    []kueue.Workload{},
+			wantErr:          apierrors.IsNotFound,
+		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			req:          baseReq,
@@ -640,8 +649,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
-			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
+			clBuilder := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme)
+			if !tc.namespaceMissing {
+				clBuilder = clBuilder.WithObjects(utiltesting.MakeNamespace(tc.req.Namespace))
+			}
+			cl := clBuilder.
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
@@ -650,7 +662,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
 			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
-			if err != nil {
+			if tc.wantErr != nil {
+				if !tc.wantErr(err) {
+					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)
+				}
+			} else if err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
 
