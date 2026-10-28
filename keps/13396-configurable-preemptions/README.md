@@ -491,7 +491,7 @@ Requested functionalities from the community can be satisfied with the following
                 timeSinceCreation:
                   maxSeconds: 3600
       ```
-    * Prioritize finishing workloads that were created before preemptor to make sure that older workloads are able to finish. This enables SLA requirements when workload should be able to finish in N days. Available since v0.21:
+    * Avoid preempting workloads older than the preemptor to give them a better chance of finishing within their defined SLA. Available since v0.21:
       ```yaml
       spec:
         rules:
@@ -1078,7 +1078,7 @@ Configurable candidate ordering via an `Ordering` field is deferred to [Future W
 #### Workload Requeuing When No Candidates Are Available
 If a workload cannot be admitted due to current preemption config (for example `executionTime.minSeconds`), the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue moves the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
 
-The returned timestamp corresponds to the earliest blocking limit that halts or restricts candidate searching, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as the state of the system can change in the meantime.
+The returned timestamp corresponds to the minimum from encountered constraint until candidate searching halts, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as the state of the system can change in the meantime.
 
 ### Integration
 
