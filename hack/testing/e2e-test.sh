@@ -62,7 +62,7 @@ function startup {
 trap cleanup EXIT
 # Compiling the suite is CPU-bound while cluster bring-up leaves most of the CPU
 # idle, so compile in the background and run the compiled binary afterwards.
-e2e_timed compile_e2e "$GINKGO" build ./test/e2e/"${E2E_TARGET_FOLDER}" &
+e2e_timed compile_e2e "$GINKGO" build -r ./test/e2e/"${E2E_TARGET_FOLDER}" &
 COMPILE_PID=$!
 e2e_timed build_kind_node_image build_kind_node_image
 # Cluster creation and image pulls run in parallel; "wait_for_cluster" shows how
@@ -85,8 +85,9 @@ fi
 e2e_timed wait_for_compile wait "$COMPILE_PID"
 # Ginkgo runs a compiled suite from the binary's directory, so the binary stays in
 # the package directory for the suite's relative paths to resolve.
+mapfile -t E2E_TEST_BINARIES < <(find ./test/e2e/"${E2E_TARGET_FOLDER}" -name '*.test' | sort)
 e2e_timed ginkgo run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v \
-    ./test/e2e/"${E2E_TARGET_FOLDER}"/"$(basename "${E2E_TARGET_FOLDER}")".test
+    "${E2E_TEST_BINARIES[@]}"
 "${E2E_BIN_DIR}/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
 
 # Runs after the main suite so the two cannot interfere, and only with the policies
