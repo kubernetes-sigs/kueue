@@ -54,7 +54,8 @@ const (
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
 )
 
-// Keep this value local so API documentation generation does not load the Kubernetes clients.
+// Must match resourcelock.LeasesResourceLock. Keep it local so API documentation
+// generation does not load the Kubernetes clients.
 const defaultLeaderElectionResourceLock = "leases"
 
 func getOperatorNamespace() string {
