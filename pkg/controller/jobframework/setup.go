@@ -93,11 +93,11 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 				if err := cb.SetupWebhook(mgr, opts...); err != nil {
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
-				logger.Info("No matching API in the server for job framework, deferring setting up controller")
-				go WaitForAPI(ctx, mgr, log, gvk, func() {
-					log.Info("API now available, starting controller", "gvk", gvk)
+				logger.V(1).Info("No matching API in the server for job framework, deferring setting up controller", "gvk", gvk)
+				go WaitForAPI(ctx, mgr, logger, gvk, func() {
+					logger.V(1).Info("API now available, starting controller", "gvk", gvk)
 					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
-						log.Error(err, "Failed to setup controller for job framework")
+						logger.Error(err, "Failed to setup controller for job framework", "gvk", gvk)
 					}
 				})
 			} else {
