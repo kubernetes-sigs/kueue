@@ -22,6 +22,8 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -29,6 +31,7 @@ import (
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
@@ -108,16 +111,27 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 			Args: &schedulerconfig.NodeAffinityArgs{},
 		},
 	}
+	var podGroupPostFilter []schedulerconfig.Plugin
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
-		config = append(config, schedulerconfig.PluginConfig{
-			Name: noderesources.Name,
-			Args: &schedulerconfig.NodeResourcesFitArgs{
-				ScoringStrategy: &schedulerconfig.ScoringStrategy{
-					Type: schedulerconfig.LeastAllocated,
+		podGroupPostFilter = append(podGroupPostFilter, schedulerconfig.Plugin{Name: defaultpreemption.Name})
+		config = append(config,
+			schedulerconfig.PluginConfig{
+				Name: noderesources.Name,
+				Args: &schedulerconfig.NodeResourcesFitArgs{
+					ScoringStrategy: &schedulerconfig.ScoringStrategy{
+						Type: schedulerconfig.LeastAllocated,
+					},
 				},
 			},
-		})
+			schedulerconfig.PluginConfig{
+				Name: defaultpreemption.Name,
+				Args: &schedulerconfig.DefaultPreemptionArgs{
+					MinCandidateNodesPercentage: 10,
+					MinCandidateNodesAbsolute:   100,
+				},
+			},
+		)
 	}
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
@@ -142,6 +156,9 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					},
 					PlacementGenerate: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{{Name: topologyaware.Name}},
+					},
+					PodGroupPostFilter: schedulerconfig.PluginSet{
+						Enabled: podGroupPostFilter,
 					},
 				},
 				PluginConfig: config,
@@ -184,8 +201,10 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot: clusterSnap,
-		pods:        tracker,
+		wasSnapshot:        clusterSnap,
+		pods:               tracker,
+		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
+		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
 		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)
