@@ -221,6 +221,14 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 			envValue: "invalid",
 			wantErr:  errInvalidListRequestLimit,
 		},
+		"should return an error for a zero limit env var": {
+			envValue: "0",
+			wantErr:  errInvalidListRequestLimit,
+		},
+		"should return an error for a negative limit env var": {
+			envValue: "-1",
+			wantErr:  errInvalidListRequestLimit,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
