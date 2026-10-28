@@ -18,6 +18,8 @@ package waitforpodsready
 
 import (
 	"encoding/json"
+	"fmt"
+	stdmath "math"
 	"time"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -60,14 +62,34 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 	if err := json.Unmarshal([]byte(value), &raw); err != nil {
 		return nil, err
 	}
+	timeoutDuration, err := secondsToDuration(raw.TimeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("timeoutSeconds: %w", err)
+	}
 	cfg := &WorkloadLevelConfig{
-		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
+		Timeout: timeoutDuration,
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
-		rt := time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second
+		rt, err := secondsToDuration(*raw.RecoveryTimeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("recoveryTimeoutSeconds: %w", err)
+		}
 		cfg.RecoveryTimeout = &rt
 	}
 	return cfg, nil
+}
+
+// secondsToDuration converts an integer number of seconds to a time.Duration.
+// It returns an error if the multiplication would overflow int64, rather than
+// silently wrapping or clamping.
+func secondsToDuration(seconds int64) (time.Duration, error) {
+	if seconds > 0 && seconds > stdmath.MaxInt64/int64(time.Second) {
+		return 0, fmt.Errorf("value %d overflows when converted to duration", seconds)
+	}
+	if seconds < 0 && seconds < stdmath.MinInt64/int64(time.Second) {
+		return 0, fmt.Errorf("value %d overflows when converted to duration", seconds)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func WorkloadLevelWaitForPodsReadyEnabled() bool {

@@ -17,7 +17,9 @@ limitations under the License.
 package waitforpodsready
 
 import (
+	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +30,72 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+func TestSecondsToDuration(t *testing.T) {
+	maxSafeSeconds := math.MaxInt64 / int64(time.Second) // 9223372036
+	minSafeSeconds := math.MinInt64 / int64(time.Second) // -9223372036
+
+	testCases := map[string]struct {
+		seconds    int64
+		wantDur    time.Duration
+		wantErrMsg string
+	}{
+		"zero": {
+			seconds: 0,
+			wantDur: 0,
+		},
+		"positive": {
+			seconds: 100,
+			wantDur: 100 * time.Second,
+		},
+		"negative": {
+			seconds: -100,
+			wantDur: -100 * time.Second,
+		},
+		"max safe positive": {
+			seconds: maxSafeSeconds,
+			wantDur: time.Duration(maxSafeSeconds) * time.Second,
+		},
+		"min safe negative": {
+			seconds: minSafeSeconds,
+			wantDur: time.Duration(minSafeSeconds) * time.Second,
+		},
+		"overflow positive": {
+			seconds:    maxSafeSeconds + 1,
+			wantErrMsg: "overflows when converted to duration",
+		},
+		"overflow negative": {
+			seconds:    minSafeSeconds - 1,
+			wantErrMsg: "overflows when converted to duration",
+		},
+		"MaxInt64 overflows": {
+			seconds:    math.MaxInt64,
+			wantErrMsg: "overflows when converted to duration",
+		},
+		"MinInt64 overflows": {
+			seconds:    math.MinInt64,
+			wantErrMsg: "overflows when converted to duration",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotDur, err := secondsToDuration(tc.seconds)
+			gotErrMsg := ""
+			if err != nil {
+				gotErrMsg = err.Error()
+			}
+			if (tc.wantErrMsg == "") != (err == nil) {
+				t.Fatalf("secondsToDuration(%d) error = %v, wantErr = %q", tc.seconds, err, tc.wantErrMsg)
+			}
+			if tc.wantErrMsg != "" && !strings.Contains(gotErrMsg, tc.wantErrMsg) {
+				t.Errorf("secondsToDuration(%d) error = %q, want to contain %q", tc.seconds, gotErrMsg, tc.wantErrMsg)
+			}
+			if err == nil && gotDur != tc.wantDur {
+				t.Errorf("secondsToDuration(%d) = %v, want %v", tc.seconds, gotDur, tc.wantDur)
+			}
+		})
+	}
+}
 
 func TestPodsScheduledTrackingEnabled(t *testing.T) {
 	testCases := map[string]struct {
@@ -148,6 +216,14 @@ func TestParseAnnotation(t *testing.T) {
 			annotation: `{timeoutSeconds:100,recoveryTimeoutSeconds:50}`,
 			wantErrMsg: "invalid character 't' looking for beginning of object key string",
 		},
+		"timeoutSeconds overflow": {
+			annotation: `{"timeoutSeconds":9223372037}`,
+			wantErrMsg: "timeoutSeconds: value 9223372037 overflows when converted to duration",
+		},
+		"recoveryTimeoutSeconds overflow": {
+			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":-9223372037}`,
+			wantErrMsg: "recoveryTimeoutSeconds: value -9223372037 overflows when converted to duration",
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -159,8 +235,11 @@ func TestParseAnnotation(t *testing.T) {
 			if err != nil {
 				gotErrMsg = err.Error()
 			}
-			if gotErrMsg != tc.wantErrMsg {
-				t.Errorf("ParseAnnotation() error = %q, want %q", gotErrMsg, tc.wantErrMsg)
+			if tc.wantErrMsg != "" && !strings.Contains(gotErrMsg, tc.wantErrMsg) {
+				t.Errorf("ParseAnnotation() error = %q, want to contain %q", gotErrMsg, tc.wantErrMsg)
+			}
+			if tc.wantErrMsg == "" && err != nil {
+				t.Errorf("ParseAnnotation() error = %q, want nil", gotErrMsg)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("ParseAnnotation() = %v, want %v", got, tc.want)
