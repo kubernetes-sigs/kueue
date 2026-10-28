@@ -392,7 +392,7 @@ verify-git-tag:
 		exit 1; \
 	fi
 
-define _artifacts_recipe
+define _manifest_artifacts_recipe
 $(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
 $(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
 $(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
@@ -406,7 +406,15 @@ $(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS
 $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 $(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
 @$(call set-release-branch-images)
+endef
+
+define _cli_artifacts_recipe
 CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" BUILD_NPROCS="$(CLI_BUILD_NPROCS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+endef
+
+define _artifacts_recipe
+$(_manifest_artifacts_recipe)
+$(_cli_artifacts_recipe)
 endef
 
 # helm-chart-package and prepare-manifests write to the working tree, so they run from the recipe

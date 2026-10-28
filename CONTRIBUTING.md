@@ -48,6 +48,67 @@ If your repo has certain guidelines for contribution, put them here ahead of the
   - **Just run checks**: `make verify-checks`
   - **Common single checks**: `make ci-lint`, `make fmt-verify`, `make helm-verify`, `make helm-unit-test`, `make toc-verify`, `make shell-lint`, `make npm-depcheck`
 
+
+### Verification for local changes
+
+Use change-aware verification for local iteration:
+
+```shell
+# Inspect the plan without generating files or running checks.
+make verify-plan VERIFY_BASE_REF=upstream/main
+
+# Run the selected generators, followed by the related checks.
+make verify-changed VERIFY_BASE_REF=upstream/main
+
+# For a PR targeting a release branch, compare against that branch instead.
+make verify-changed VERIFY_BASE_REF=upstream/release-0.19
+```
+
+If `VERIFY_BASE_REF` is omitted, the selector uses `upstream/main`, then
+`origin/main`. It compares the PR diff from the merge base and also includes
+staged, unstaged, deleted, renamed, and non-ignored untracked files. It does not
+use the feature branch's tracking ref, so pushing a branch does not hide its
+committed changes.
+
+| Changed inputs | Selected work |
+| --- | --- |
+| Skills or agent instructions | skillsaw |
+| Markdown or site content | Hugo version synchronization and KEP TOCs |
+| Ordinary Go source or tests | Go lint and formatting |
+| API source | API/code/manifest/doc generation and related checks |
+| CLI source or a production Go dependency | CLI docs and cross-platform CLI build |
+| RBAC/webhook source, Helm charts or deployment configuration | Helm/manifests generation and checks |
+| Shell scripts | ShellCheck, plus helper tests for testing scripts |
+| Release utilities | Release utility tests |
+| Frontend dependency inputs | npm dependency checks |
+| Makefiles, generator tooling, module/toolchain inputs, or unclassified inputs | Full verification checks |
+
+CLI dependency discovery uses every platform in `CLI_PLATFORMS`. If Go cannot
+resolve the dependency graph, the selector includes the CLI build conservatively.
+A test-only change does not by itself trigger a CLI build. `LICENSE` and the CLI
+build script also trigger packaging. This selection is a local optimization; CI's
+`make verify` continues to run every check and build all default CLI platforms.
+
+The scoped driver allows existing uncommitted edits. It compares generated/output
+files before and after execution, and fails if generation updates them. Review
+those changes, include newly generated files in the PR, and rerun. An invalid base
+ref or a failed command fails the run; it is never treated as "nothing changed".
+
+The following scopes can also be run explicitly:
+
+| Command | Scope |
+| --- | --- |
+| `make verify-go` | Go lint and formatting, without unrelated generation |
+| `make verify-api` | API code, docs and CRD generation, then Go/API checks |
+| `make verify-cli` | CLI binaries and archives for `CLI_PLATFORMS` |
+| `make verify-manifests` | Helm and manifest artifacts, without CLI compilation |
+| `make verify-helm` | Helm rendering and chart unit tests |
+| `make verify-docs` | Hugo version synchronization and KEP TOCs |
+| `make verify-scripts` | ShellCheck and shell helper tests |
+
+Run relevant application tests separately. Neither `verify-changed` nor the full
+`verify` target replaces the Go unit, integration, or cluster E2E test suites.
+
 ### Adding a new step to `make verify`
 
 The `verify` pipeline is defined in `hack/make/verify.mk` and intentionally split into:

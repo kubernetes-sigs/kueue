@@ -76,6 +76,22 @@ make fmt
 make verify
 ```
 
+For local changes, inspect and run the related checks instead of rebuilding every
+artifact:
+
+```shell
+make verify-plan VERIFY_BASE_REF=upstream/main
+make verify-changed VERIFY_BASE_REF=upstream/main
+```
+
+Use the PR's target ref for release branches. The selector includes committed,
+staged, unstaged and untracked files, and resolves CLI dependencies for all
+configured platforms. Build-system, dependency-manifest, and unclassified changes
+select the full checks. Review any generated diffs and rerun; application tests
+remain separate. See [CONTRIBUTING.md](https://github.com/kubernetes-sigs/kueue/blob/main/CONTRIBUTING.md#verification-for-local-changes)
+for selection rules and explicit targets such as `verify-cli`, `verify-manifests`,
+`verify-go`, and `verify-scripts`.
+
 Run individual phases:
 ```shell
 # Phase 1 only: regenerate all checked-in artifacts
