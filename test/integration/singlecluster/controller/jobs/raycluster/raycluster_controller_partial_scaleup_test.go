@@ -267,6 +267,18 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("quota usage drops to the scaled-down 9 pods (1 head + 8 workers)")
 		expectPodsUsage(9)
+
+		ginkgo.By("the admission keeps its 12-worker grant after the scale-down")
+		gomega.Consistently(func(g gomega.Gomega) {
+			currentProbe := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probe), currentProbe)).Should(gomega.Succeed())
+			g.Expect(currentProbe.Status.Admission).ShouldNot(gomega.BeNil())
+			assignmentIdx := slices.IndexFunc(currentProbe.Status.Admission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool {
+				return psa.Name == workersGroupName
+			})
+			g.Expect(assignmentIdx).ShouldNot(gomega.Equal(-1), "no worker PodSet assignment in %v", currentProbe.Status.Admission.PodSetAssignments)
+			g.Expect(currentProbe.Status.Admission.PodSetAssignments[assignmentIdx].Count).Should(gomega.Equal(new(int32(12))))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should give the spare capacity to the earlier worker group rather than spread it", func() {
