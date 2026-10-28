@@ -175,16 +175,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				topologyAssignment := tas.InternalFrom(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
-				gomega.Expect(topologyAssignment.Levels).Should(gomega.Equal([]string{corev1.LabelHostname}))
-				gomega.Expect(topologyAssignment.Domains).Should(gomega.HaveLen(3), "expected 3 assigned topology domains (1 per pod)")
-				assignedNodes := make([]string, 0, len(topologyAssignment.Domains))
-				for _, domain := range topologyAssignment.Domains {
-					gomega.Expect(domain.Count).Should(gomega.Equal(int32(1)))
-					gomega.Expect(domain.Values).Should(gomega.HaveLen(1))
-					assignedNodes = append(assignedNodes, domain.Values[0])
-				}
-				e2e.ExpectSameTopologyDomain(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel, assignedNodes...)
+				gotAssignment := e2e.ReadRankAssignmentsFromTopologyAssignment(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(3), "expected 3 assigned topology domains (1 per pod)")
+				e2e.ExpectSameTopologyDomain(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel,
+					gotAssignment["0"], gotAssignment["1"], gotAssignment["2"],
+				)
 			})
 			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
 				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 3, client.MatchingLabels{"job-name": sampleJob.Name})

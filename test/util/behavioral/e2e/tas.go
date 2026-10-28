@@ -18,11 +18,16 @@ package e2e
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 // ExpectRanksOnIncreasingNodes asserts that gotAssignment maps the given ranks to strictly increasing node names
@@ -37,22 +42,6 @@ func ExpectRanksOnIncreasingNodes(gotAssignment map[string]string, ranks []strin
 			prevNode := gotAssignment[ranks[i-1]]
 			gomega.Expect(node > prevNode).To(gomega.BeTrue(),
 				"expected increasing node order: rank %q (node %q) > rank %q (node %q), got assignments %v", rank, node, ranks[i-1], prevNode, gotAssignment)
-		}
-	}
-}
-
-// ExpectRanksOnNonDecreasingNodes asserts that gotAssignment maps the given ranks to non-decreasing node names
-// (allowing multiple pods to share a node).
-func ExpectRanksOnNonDecreasingNodes(gotAssignment map[string]string, ranks []string) {
-	ginkgo.GinkgoHelper()
-	gomega.Expect(len(ranks)).To(gomega.BeNumerically(">=", 2), "expected at least 2 ranks to verify order")
-	for i, rank := range ranks {
-		node := gotAssignment[rank]
-		gomega.Expect(node).NotTo(gomega.BeEmpty(), "missing assignment for rank %q", rank)
-		if i > 0 {
-			prevNode := gotAssignment[ranks[i-1]]
-			gomega.Expect(node >= prevNode).To(gomega.BeTrue(),
-				"expected non-decreasing node order: rank %q (node %q) >= rank %q (node %q), got assignments %v", rank, node, ranks[i-1], prevNode, gotAssignment)
 		}
 	}
 }
@@ -89,4 +78,23 @@ func ExpectDistinctTopologyDomains(ctx context.Context, c client.Client, level s
 		usedDomains.Insert(groupDomains.UnsortedList()...)
 	}
 	gomega.Expect(usedDomains).To(gomega.HaveLen(len(nodeGroups)), "expected %d distinct %q domains across groups, got %v", len(nodeGroups), level, usedDomains.UnsortedList())
+}
+
+// ReadRankAssignmentsFromTopologyAssignment returns a map from rank index to assigned node name.
+func ReadRankAssignmentsFromTopologyAssignment(ta *kueue.TopologyAssignment) map[string]string {
+	ginkgo.GinkgoHelper()
+	gomega.Expect(ta).ShouldNot(gomega.BeNil(), "TopologyAssignment should not be nil")
+	gomega.Expect(ta.Levels).Should(gomega.Equal([]string{corev1.LabelHostname}))
+	topologyAssignment := utiltas.InternalFrom(ta)
+	gomega.Expect(topologyAssignment).ShouldNot(gomega.BeNil())
+	assignment := make(map[string]string)
+	rank := 0
+	for _, domain := range topologyAssignment.Domains {
+		gomega.Expect(domain.Values).Should(gomega.HaveLen(1))
+		for range domain.Count {
+			assignment[strconv.Itoa(rank)] = domain.Values[0]
+			rank++
+		}
+	}
+	return assignment
 }

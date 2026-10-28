@@ -417,11 +417,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gotAssignment := make(map[string]string, 2)
 				for i, psa := range createdWorkload.Status.Admission.PodSetAssignments {
-					gomega.Expect(psa.TopologyAssignment).ShouldNot(gomega.BeNil())
-					gomega.Expect(psa.TopologyAssignment.Levels).Should(gomega.Equal([]string{corev1.LabelHostname}))
-					gomega.Expect(psa.TopologyAssignment.Slices).Should(gomega.HaveLen(1))
-					gomega.Expect(psa.TopologyAssignment.Slices[0].ValuesPerLevel).Should(gomega.HaveLen(1))
-					gotAssignment[strconv.Itoa(i)] = *psa.TopologyAssignment.Slices[0].ValuesPerLevel[0].Universal
+					assignment := e2e.ReadRankAssignmentsFromTopologyAssignment(psa.TopologyAssignment)
+					gomega.Expect(assignment).Should(gomega.HaveLen(1))
+					gotAssignment[strconv.Itoa(i)] = assignment["0"]
 				}
 				gomega.Expect(gotAssignment).Should(gomega.HaveLen(2))
 				e2e.ExpectDistinctTopologyDomains(ctx, k8sClient, corev1.LabelHostname,
