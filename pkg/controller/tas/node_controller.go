@@ -502,7 +502,7 @@ func (r *nodeReconciler) checkPodsOnNode(
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
-// It returns whether the node was evicted, and whether an error was encountered.
+// It returns whether the workload was evicted, and whether an error was encountered.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)

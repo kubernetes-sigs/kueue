@@ -1135,7 +1135,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
-		"Node has untolerated NoSchedule taint, pod is Gated -> Healthy": {
+		"Node has untolerated NoSchedule taint, pod is Gated -> Unhealthy": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
 					Type:               corev1.NodeReady,
