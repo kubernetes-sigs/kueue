@@ -208,7 +208,7 @@ const ClusterQueueDetail = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Local Queue</TableCell>
+              <TableCell>Queue Name</TableCell>
               <TableCell>Flavor</TableCell>
               <TableCell>Resource</TableCell>
               <TableCell>Reservation</TableCell>
