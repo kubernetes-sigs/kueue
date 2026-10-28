@@ -38,8 +38,8 @@ var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
-	// pods indexes the tracked Pods by the Workload that owns them, which
-	// is the only set PreemptWorkload can release.
+	// pods is this cycle's tracker, including unmanaged and virtual Pods.
+	// PreemptWorkload only releases Pods indexed by Workload.
 	pods *podtracker.Tracker
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.
