@@ -19,9 +19,12 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -40,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
@@ -264,16 +268,27 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		warnings = append(warnings, groupIdentityWarns...)
 		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
+		var in workload.AdjustmentInputs
+		if features.Enabled(features.LWSAllowChangingInitContainers) &&
+			initContainersChanged(newLeaderWorkerSet, oldLeaderWorkerSet) {
+			// The quota of the Workloads includes the defaults of the LimitRanges,
+			// so the effective requests of the pods have to include them too.
+			if in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, wh.client, newLeaderWorkerSet.Namespace); err != nil {
+				return nil, err
+			}
+		}
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			partition,
+			in,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			partition,
+			in,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -432,7 +447,13 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, partition int32, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(
+	newPodTemplateSpec *corev1.PodTemplateSpec,
+	oldPodTemplateSpec *corev1.PodTemplateSpec,
+	partition int32,
+	in workload.AdjustmentInputs,
+	fieldPath *field.Path,
+) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
@@ -444,6 +465,13 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 			// that Kueue assigned.
 			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
 			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		if features.Enabled(features.LWSAllowChangingInitContainers) {
+			// The quota of the Workloads depends only on the effective requests of
+			// the pods, so the init containers can change as long as these requests
+			// and the ports stay the same.
+			allErrors = append(allErrors, validateInitContainersUpdate(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec", "initContainers"))...)
+			newPodSpec.InitContainers, oldPodSpec.InitContainers = nil, nil
 		}
 		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
@@ -469,4 +497,71 @@ func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
 		return 0
 	}
 	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
+}
+
+// initContainersChanged reports whether the init containers of any pod template changed.
+func initContainersChanged(newLWS, oldLWS *LeaderWorkerSet) bool {
+	oldTemplates := podTemplates((*leaderworkersetv1.LeaderWorkerSet)(oldLWS))
+	for name, newTemplate := range podTemplates((*leaderworkersetv1.LeaderWorkerSet)(newLWS)) {
+		if oldTemplate, found := oldTemplates[name]; found && !equality.Semantic.DeepEqual(newTemplate.Spec.InitContainers, oldTemplate.Spec.InitContainers) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateInitContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
+	if equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) {
+		return nil
+	}
+	var allErrors field.ErrorList
+	// Compare against the old app containers, so that only the init containers
+	// can change the effective requests. They are computed as for the quota of
+	// the Workloads: limits are used as missing requests, then the defaults of
+	// the LimitRanges are applied.
+	withNewInitContainers := *oldPodSpec
+	withNewInitContainers.InitContainers = newPodSpec.InitContainers
+	if !equality.Semantic.DeepEqual(effectiveRequests(&withNewInitContainers, in), effectiveRequests(oldPodSpec, in)) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath, "init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
+	}
+	// Kueue keeps the ports unchanged: the host ports of sidecar containers limit
+	// the nodes that the pods fit on.
+	if !maps.Equal(initContainerPorts(newPodSpec), initContainerPorts(oldPodSpec)) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath, "init container ports cannot be changed while the LeaderWorkerSet is managed by Kueue"))
+	}
+	return allErrors
+}
+
+// effectiveRequests returns the effective requests of the pods without the zero
+// requests, which use no quota, so that adding one, for example `memory: 0`, is
+// not a change.
+func effectiveRequests(podSpec *corev1.PodSpec, in workload.AdjustmentInputs) corev1.ResourceList {
+	requests := resources.PodRequests(new(workload.EffectivePodSpec(podSpec, in)))
+	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q resource.Quantity) bool {
+		return q.IsZero()
+	})
+	return requests
+}
+
+// initContainerPort is a port of an init container. The scheduler reserves the
+// host ports of sidecar containers for the whole lifetime of the pod, but not
+// those of the other init containers, so moving a port between them matters.
+type initContainerPort struct {
+	corev1.ContainerPort
+	sidecar bool
+}
+
+// initContainerPorts counts the ports of the init containers. Kubernetes checks
+// host port conflicts only within each init container, so a sidecar container
+// can repeat the host port of another one. Count each port, so that adding such
+// a repeat counts as a change.
+func initContainerPorts(podSpec *corev1.PodSpec) map[initContainerPort]int {
+	ports := make(map[initContainerPort]int)
+	for _, c := range podSpec.InitContainers {
+		sidecar := ptr.Deref(c.RestartPolicy, "") == corev1.ContainerRestartPolicyAlways
+		for _, p := range c.Ports {
+			ports[initContainerPort{ContainerPort: p, sidecar: sidecar}]++
+		}
+	}
+	return ports
 }

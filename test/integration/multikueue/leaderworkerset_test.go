@@ -31,6 +31,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadleaderworkerset "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -45,7 +46,10 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			enabledIntegrations := defaultEnabledIntegrations.Union(sets.New(workloadleaderworkerset.FrameworkName))
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, enabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			// A long worker lost timeout keeps the periodic requeue from syncing the
+			// LeaderWorkerSet, so that the tests rely on the watch of the local one.
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, enabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce,
+				multikueue.WithWorkerLostTimeout(time.Minute))
 		})
 	})
 
@@ -124,6 +128,49 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 			waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, group0Key, "worker2", behavioral.Timeout)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, &leaderworkersetv1.LeaderWorkerSet{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should copy the changed init containers to the remote LeaderWorkerSet", func() {
+		lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", f.managerNs.Name).
+			Queue(f.managerLq.Name).
+			Request(corev1.ResourceCPU, "1").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lws)
+		lwsKey := client.ObjectKeyFromObject(lws)
+		group0Key := types.NamespacedName{Name: workloadleaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: lws.Namespace}
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, group0Key, admission)
+
+		remoteLws := &leaderworkersetv1.LeaderWorkerSet{}
+		ginkgo.By("checking the LeaderWorkerSet is created on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, remoteLws)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		initContainer := *utiltesting.MakeContainer().Name("init").Image("pause").WithResourceReq(corev1.ResourceCPU, "500m").Obj()
+		ginkgo.By("adding an init container within the effective requests on the manager", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerLws := &leaderworkersetv1.LeaderWorkerSet{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lwsKey, managerLws)).To(gomega.Succeed())
+				managerLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{initContainer}
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerLws)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the init container is copied to the LeaderWorkerSet on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				gotLws := &leaderworkersetv1.LeaderWorkerSet{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, gotLws)).To(gomega.Succeed())
+				g.Expect(gotLws.UID).To(gomega.Equal(remoteLws.UID))
+				g.Expect(gotLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers).To(gomega.BeComparableTo([]corev1.Container{initContainer}))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
