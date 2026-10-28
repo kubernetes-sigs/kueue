@@ -49,6 +49,13 @@ const (
 	executorPodSetName = "executor"
 )
 
+// The driver and executor PodSets are always present, in this order.
+const (
+	driverPodSetIndex   = 0
+	executorPodSetIndex = 1
+	podSetsCount        = 2
+)
+
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:          SetupIndexes,
@@ -98,8 +105,7 @@ func (j *SparkApplication) PodLabelSelector() string {
 }
 
 func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	// driver and executor
-	podSets := make([]kueue.PodSet, 2)
+	podSets := make([]kueue.PodSet, podSetsCount)
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -118,14 +124,14 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[0] = kueue.PodSet{
+	podSets[driverPodSetIndex] = kueue.PodSet{
 		Name:     driverPodSetName,
 		Template: *driverPodTemplateSpec,
 		Count:    1,
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[0], driverPodTemplateSpec,
+		&podSets[driverPodSetIndex], driverPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -135,14 +141,14 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[1] = kueue.PodSet{
+	podSets[executorPodSetIndex] = kueue.PodSet{
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
 		Count:    j.numInitialExecutors(),
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[1], executorPodTemplateSpec,
+		&podSets[executorPodSetIndex], executorPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -151,9 +157,8 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 }
 
 func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := 2 // driver + executor
-	if len(podSetsInfo) != expectedLen {
-		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
+	if len(podSetsInfo) != podSetsCount {
+		return podset.BadPodSetsInfoLenError(podSetsCount, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = new(false)
@@ -167,7 +172,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			if j.Spec.Driver.Template == nil {
 				j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
 			}
@@ -178,7 +183,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 			}
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			if j.Spec.Executor.Template == nil {
 				j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
@@ -225,11 +230,10 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 }
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	expectedLength := 2 // driver + executor
-	if len(podSetsInfo) != expectedLength {
+	if len(podSetsInfo) != podSetsCount {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
-			"expectedCount", expectedLength,
+			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
 		)
 		return false
@@ -245,11 +249,11 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 			emptyPodTemplate = emptyDriverPodTemplateSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			emptyPodTemplate = emptyExecutorPodTemplateSpec
 		default:
