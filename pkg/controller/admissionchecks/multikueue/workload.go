@@ -102,9 +102,12 @@ type wlReconciler struct {
 	dispatcherName    string
 	roleTracker       *roletracker.RoleTracker
 
-	// previousClusterNames keeps the cluster a workload was admitted on after an eviction
-	// clears its status.clusterName, so its remote objects there can still be removed.
-	previousClusterNames *utilmaps.SyncMap[string, string]
+	// previousClusterNames keeps the clusters a workload was admitted on after evictions
+	// clear its status.clusterName, so its remote objects there can still be removed.
+	// A workload can be evicted again before the cleanup on an earlier cluster finishes.
+	// The sets are replaced, never modified in place, so a reader can range over one
+	// without holding the lock.
+	previousClusterNames *utilmaps.SyncMap[string, sets.Set[string]]
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -322,7 +325,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	retryCleanupAfter, err := w.removeObjectsOnPreviousCluster(ctx, grp, req.String())
+	retryCleanupAfter, err := w.removeObjectsOnPreviousClusters(ctx, grp, req.String())
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -353,47 +356,56 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return res, err
 }
 
-// removeObjectsOnPreviousCluster deletes the remote objects on the cluster the workload was
-// admitted on before an eviction cleared its cluster name, if that cluster is no longer in the
-// MultiKueueConfig. The group no longer reads that cluster, so nothing else stops the remote
-// job there, and it would keep running after the workload is dispatched again.
-// It returns how long to wait before retrying when that cluster is disconnected.
-func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
-	clusterName, found := w.previousClusterNames.Get(key)
-	if !found {
-		return 0, nil
-	}
-	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
-		// The group reads this cluster, so the regular flow removes its remote objects.
-		w.previousClusterNames.Delete(key)
-		return 0, nil
-	}
-	rc, found := w.clusters.controllerFor(clusterName)
-	if !found {
-		// Without a MultiKueueCluster the cluster cannot be reached.
-		w.previousClusterNames.Delete(key)
-		return 0, nil
-	}
-	if !rc.connState.isConnected() {
-		// A reconnected watch does not replay the remote workloads, so nothing else
-		// triggers a reconcile once the cluster is back.
-		return w.workerLostTimeout, nil
-	}
+// removeObjectsOnPreviousClusters deletes the remote objects on the clusters the workload was
+// admitted on before evictions cleared its cluster name, if those clusters are no longer in the
+// MultiKueueConfig. The group no longer reads those clusters, so nothing else stops the remote
+// jobs there, and they would keep running after the workload is dispatched again.
+// It returns how long to wait before retrying when any of those clusters is disconnected.
+func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
+	clusterNames, _ := w.previousClusterNames.Get(key)
+	var retryAfter time.Duration
+	for _, clusterName := range sets.List(clusterNames) {
+		if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
+			// The group reads this cluster, so the regular flow removes its remote objects.
+			w.forgetPreviousCluster(key, clusterName)
+			continue
+		}
+		rc, found := w.clusters.controllerFor(clusterName)
+		if !found {
+			// Without a MultiKueueCluster the cluster cannot be reached.
+			w.forgetPreviousCluster(key, clusterName)
+			continue
+		}
+		if !rc.connState.isConnected() {
+			// A reconnected watch does not replay the remote workloads, so nothing else
+			// triggers a reconcile once the cluster is back.
+			retryAfter = w.workerLostTimeout
+			continue
+		}
 
-	remWl := &kueue.Workload{}
-	err := rc.getClient().Get(ctx, client.ObjectKeyFromObject(group.local), remWl)
-	if client.IgnoreNotFound(err) != nil {
-		return 0, err
+		remWl := &kueue.Workload{}
+		err := rc.getClient().Get(ctx, client.ObjectKeyFromObject(group.local), remWl)
+		if client.IgnoreNotFound(err) != nil {
+			return 0, err
+		}
+		if err != nil {
+			remWl = nil
+		}
+		if err := group.removeRemoteObjects(ctx, rc, remWl); err != nil {
+			return 0, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
+		}
+		ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
+		w.forgetPreviousCluster(key, clusterName)
 	}
-	if err != nil {
-		remWl = nil
-	}
-	if err := group.removeRemoteObjects(ctx, rc, remWl); err != nil {
-		return 0, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
-	}
-	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
-	w.previousClusterNames.Delete(key)
-	return 0, nil
+	return retryAfter, nil
+}
+
+// forgetPreviousCluster drops only clusterName, so a cluster added by a concurrent eviction is kept.
+func (w *wlReconciler) forgetPreviousCluster(key, clusterName string) {
+	w.previousClusterNames.UpdateOrDelete(key, func(clusterNames sets.Set[string]) (sets.Set[string], bool) {
+		remaining := clusterNames.Difference(sets.New(clusterName))
+		return remaining, remaining.Len() == 0
+	})
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
@@ -1133,7 +1145,9 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 	newWl, isNewWl := e.ObjectNew.(*kueue.Workload)
 	if isOldWl && isNewWl {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
-			w.previousClusterNames.Add(client.ObjectKeyFromObject(newWl).String(), clusterName)
+			w.previousClusterNames.Update(client.ObjectKeyFromObject(newWl).String(), func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
+				return sets.New(clusterName).Union(clusterNames)
+			})
 		}
 	}
 	return true
@@ -1162,7 +1176,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		dispatcherName:    dispatcherName,
 		roleTracker:       roleTracker,
 
-		previousClusterNames: utilmaps.NewSyncMap[string, string](0),
+		previousClusterNames: utilmaps.NewSyncMap[string, sets.Set[string]](0),
 	}
 	for _, option := range options {
 		option(r)
