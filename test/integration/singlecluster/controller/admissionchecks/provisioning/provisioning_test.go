@@ -42,7 +42,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -2307,6 +2309,68 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			behavioral.MustCreate(ctx, k8sClient, rj)
 
 			expectHeadSidecarInProvisioningRequest(rj, "ray-job-submitter")
+		})
+
+		ginkgo.It("Should replace a legacy reserved Workload with an empty submitter image for a suspended RayJob", func() {
+			// Without the queue-name label Kueue ignores the RayJob, so the test can
+			// create the Workload an older Kueue version built for it.
+			rj := testingrayjob.MakeJob("rayjob", ns.Name).
+				Suspend(true).
+				WithSubmissionMode(rayv1.SidecarMode).
+				Entrypoint("python -c 'print(1)'").
+				Image(rayv1.HeadNode, rayImage).
+				Image(rayv1.WorkerNode, rayImage).
+				RequestHead(corev1.ResourceCPU, "100m").
+				RequestWorkerGroup(corev1.ResourceCPU, "100m").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rj)
+			podSets, err := (*workloadrayjob.RayJob)(rj).PodSets(ctx, k8sClient)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(podSets[0].Name).To(gomega.Equal(kueue.PodSetReference("head")))
+			submitter := slices.IndexFunc(podSets[0].Template.Spec.Containers, func(c corev1.Container) bool { return c.Name == "ray-job-submitter" })
+			gomega.Expect(submitter).NotTo(gomega.Equal(-1))
+			podSets[0].Template.Spec.Containers[submitter].Image = ""
+			legacyWl := utiltestingapi.MakeWorkload("legacy", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ControllerReference(rayv1.GroupVersion.WithKind("RayJob"), rj.Name, string(rj.UID)).
+				PodSets(podSets...).
+				Obj()
+
+			ginkgo.By("create the legacy Workload and await for it to be stuck on the ProvisioningRequest check", func() {
+				behavioral.MustCreate(ctx, k8sClient, legacyWl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(legacyWl), legacyWl)).To(gomega.Succeed())
+					g.Expect(workload.Status(legacyWl)).To(gomega.Equal(workload.StatusQuotaReserved))
+					check := admissioncheck.FindAdmissionCheck(legacyWl.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(check.Message).To(gomega.ContainSubstring("image: Required value"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("add the queue-name label to the RayJob and await for the legacy Workload to be deleted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rj), rj)).To(gomega.Succeed())
+					metav1.SetMetaDataLabel(&rj.ObjectMeta, controllerconstants.QueueLabel, lq.Name)
+					g.Expect(k8sClient.Update(ctx, rj)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(legacyWl), &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			expectHeadSidecarInProvisioningRequest(rj, "ray-job-submitter")
+
+			ginkgo.By("check the replacement Workload is kept", func() {
+				var wls kueue.WorkloadList
+				gomega.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gomega.Expect(wls.Items).To(gomega.HaveLen(1))
+				uid := wls.Items[0].UID
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(wls.Items).To(gomega.ConsistOf(gomega.HaveField("UID", uid)))
+				}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 
