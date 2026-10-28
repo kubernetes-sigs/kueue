@@ -238,7 +238,7 @@ func (j *RayService) SetManagedBy(managedBy *string) {
 	j.Spec.ManagedBy = managedBy
 }
 
-func (j *RayService) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *RayService) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 

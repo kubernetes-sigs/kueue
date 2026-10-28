@@ -142,7 +142,7 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 	return j.Status.Reason, j.Status.State != rayv1.Failed, false
 }
 
-func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	if !features.Enabled(features.RayClusterHeadPodReady) {
 		return j.Status.State == rayv1.Ready
 	}
