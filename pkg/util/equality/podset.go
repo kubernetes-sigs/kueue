@@ -30,6 +30,7 @@ type ComparePodSetsOptions struct {
 	ignoreTolerations         bool
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
+	ignoreRuntimeClassName    bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -52,6 +53,12 @@ func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	}
 }
 
+func WithIgnoreRuntimeClassName() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreRuntimeClassName = true
+	}
+}
+
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
 func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
@@ -60,7 +67,7 @@ func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 		opt(opts)
 	}
 	// The class decides the overhead the Pods will carry.
-	if ptr.Deref(a.RuntimeClassName, "") != ptr.Deref(b.RuntimeClassName, "") {
+	if !opts.ignoreRuntimeClassName && ptr.Deref(a.RuntimeClassName, "") != ptr.Deref(b.RuntimeClassName, "") {
 		return false
 	}
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {

@@ -1793,9 +1793,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 3)
+	opts := make([]equality.ComparePodSetsOption, 0, 4)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	// A running Job may have been admitted before RuntimeClassName became part
+	// of this comparison. Keep its reservation while Pods may still be running;
+	// otherwise an upgrade could finish the Workload and release its quota first.
+	if workload.HasQuotaReservation(wl) && (!job.IsSuspended() || job.IsActive()) {
+		opts = append(opts, equality.WithIgnoreRuntimeClassName())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
