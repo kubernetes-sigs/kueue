@@ -744,7 +744,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	}
 	wasSim := schedulerSimulator.(*wasSimulator)
 
-	pods := wasSim.podsByWorkload.getPodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	pods := wasSim.pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
 	if len(pods) != 2 {
 		t.Fatalf("Expected 2 pods in podsByWorkload, got %d", len(pods))
 	}
@@ -753,6 +753,23 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		if !strings.HasPrefix(p.Name, "virtual-wl1-main-") {
 			t.Errorf("Expected virtual pod, got real pod %q", p.Name)
 		}
+	}
+
+	// Replacing real Pods in a simulator must leave the factory's physical
+	// Pod state available for subsequent scheduling cycles.
+	nextSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
+	if err != nil {
+		t.Fatalf("Next snapshot failed: %v", err)
+	}
+	nextPods := nextSimulator.(*wasSimulator).pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	if diff := cmp.Diff([]*corev1.Pod{realPod}, nextPods); diff != "" {
+		t.Errorf("Virtual replacement changed tracked real pods (-want,+got):\n%s", diff)
+	}
+	if got := simulatorFactory.UntrackPod(ctx, types.NamespacedName{Namespace: "default", Name: realPod.Name}); got != "node1" {
+		t.Errorf("UntrackPod() = %q, want node1", got)
+	}
+	if got := len(wasSim.pods.Pods()); got != 2 {
+		t.Errorf("Factory mutation changed earlier snapshot: got %d pods, want 2", got)
 	}
 }
 

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -48,9 +49,9 @@ var (
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
-	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
-	// is the only set PreemptWorkload can release.
-	podsByWorkload podsByWorkload
+	// pods is this cycle's tracker, including unmanaged and virtual Pods.
+	// PreemptWorkload only releases Pods indexed by Workload.
+	pods *podtracker.Tracker
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.
 	emptyCluster lazyCluster
@@ -135,10 +136,10 @@ func (s *wasSimulator) FindFeasibleNodes(
 }
 
 func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
-	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
+	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
-	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.pods.PodsForWorkload(wlKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}

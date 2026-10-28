@@ -1,5 +1,3 @@
-//go:build !exclude_scheduler_library
-
 /*
 Copyright The Kubernetes Authors.
 
@@ -16,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package was
+// Package podtracker maintains event-driven Pod state for the scheduler cache.
+// It does not decide which Pods consume capacity or are covered by reservations.
+package podtracker
 
 import (
 	"maps"
@@ -32,28 +32,24 @@ import (
 type podsByKey map[client.ObjectKey]*corev1.Pod
 type podsByWorkload map[client.ObjectKey]podsByKey
 
-// podTracker maintains pod state for scheduler plugins that need
-// existing pod information.
-type podTracker struct {
-	sync.RWMutex
+// Tracker stores Pods and indexes them by their Workload annotation.
+// Its zero value is ready to use. All methods are safe for concurrent use.
+// A Tracker must not be copied after first use; use Clone instead.
+type Tracker struct {
+	mu           sync.RWMutex
 	pods         podsByKey
 	workloadPods podsByWorkload
 }
 
-func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
-	if len(m) == 0 {
-		return nil
-	}
-	if podSet, ok := m[wlKey]; ok {
-		return slices.Collect(maps.Values(podSet))
-	}
-	return nil
+// PodsForWorkload returns the Pods annotated with the given Workload name in
+// its namespace, in unspecified order. Returned Pods are read-only.
+func (t *Tracker) PodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.workloadPods[wlKey].toSlice()
 }
 
 func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
-	if m == nil {
-		return
-	}
 	if _, ok := m[wlKey]; !ok {
 		m[wlKey] = make(podsByKey)
 	}
@@ -76,11 +72,21 @@ func (p podsByKey) toSlice() []*corev1.Pod {
 	return slices.Collect(maps.Values(p))
 }
 
-func (t *podTracker) copy() *podTracker {
-	t.RLock()
-	defer t.RUnlock()
+// Pods returns all tracked Pods in unspecified order. Returned Pods are read-only.
+func (t *Tracker) Pods() []*corev1.Pod {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.pods.toSlice()
+}
 
-	copyTracker := &podTracker{
+// Clone returns an independent tracker with the current Pod state. Its indexes
+// can be changed without affecting the original. Read-only Pod objects are
+// shared; Track deep-copies incoming Pods before storing them.
+func (t *Tracker) Clone() *Tracker {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	copyTracker := &Tracker{
 		pods:         maps.Clone(t.pods),
 		workloadPods: make(podsByWorkload, len(t.workloadPods)),
 	}
@@ -90,7 +96,12 @@ func (t *podTracker) copy() *podTracker {
 	return copyTracker
 }
 
-func (t *podTracker) clearWorkload(wlKey client.ObjectKey) {
+// RemoveWorkload removes all Pods indexed under the given Workload.
+// This only changes tracked state; it does not delete Kubernetes objects.
+func (t *Tracker) RemoveWorkload(wlKey client.ObjectKey) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	if pods, ok := t.workloadPods[wlKey]; ok {
 		for podKey := range pods {
 			delete(t.pods, podKey)
@@ -99,9 +110,12 @@ func (t *podTracker) clearWorkload(wlKey client.ObjectKey) {
 	}
 }
 
-func (t *podTracker) track(pod *corev1.Pod) {
-	t.Lock()
-	defer t.Unlock()
+// Track adds or replaces a Pod by namespace and name, updating its Workload
+// index. The input is deep-copied and may be modified by the caller afterward.
+// A nil Pod is ignored. Lifecycle and capacity filtering belong to the caller.
+func (t *Tracker) Track(pod *corev1.Pod) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	if pod == nil {
 		return
@@ -114,9 +128,11 @@ func (t *podTracker) track(pod *corev1.Pod) {
 	t.savePod(key, pod)
 }
 
-func (t *podTracker) untrack(key client.ObjectKey) string {
-	t.Lock()
-	defer t.Unlock()
+// Untrack removes a Pod and returns its last observed node name, or an empty
+// string if the Pod was not tracked or had no assigned node.
+func (t *Tracker) Untrack(key client.ObjectKey) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	if pod, ok := t.pods[key]; ok {
 		t.clearPod(key, pod)
@@ -125,7 +141,7 @@ func (t *podTracker) untrack(key client.ObjectKey) string {
 	return ""
 }
 
-func (t *podTracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
+func (t *Tracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
 	delete(t.pods, podKey)
 
 	wl := pod.Annotations[kueue.WorkloadAnnotation]
@@ -135,11 +151,17 @@ func (t *podTracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
 	}
 }
 
-func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
+func (t *Tracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
+	if t.pods == nil {
+		t.pods = make(podsByKey)
+	}
 	t.pods[podKey] = pod
 
 	wl := pod.Annotations[kueue.WorkloadAnnotation]
 	if wl != "" {
+		if t.workloadPods == nil {
+			t.workloadPods = make(podsByWorkload)
+		}
 		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
 		t.workloadPods.recordPod(wlKey, podKey, pod)
 	}
