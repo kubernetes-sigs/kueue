@@ -19,9 +19,11 @@ package configurablepreemptions
 import (
 	"slices"
 	"strings"
+	"testing"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +51,34 @@ func isExpectedInvalidSelectorPreemptionLog(le observer.LoggedEntry) bool {
 	return ok &&
 		strings.Contains(errLog, invalidSelectorToken) &&
 		!strings.Contains(errLog, "\n")
+}
+
+func TestIsExpectedInvalidSelectorPreemptionLog(t *testing.T) {
+	testCases := map[string]struct {
+		errLog string
+		want   bool
+	}{
+		"single invalid selector error": {
+			errLog: "preemptionConfig \"test\" rule \"rule\" candidateSelectors[0]: building LabelSelector filter (InvalidSelector): invalid selector",
+			want:   true,
+		},
+		"joined candidate selector errors": {
+			errLog: "preemptionConfig \"test\" rule \"rule\" candidateSelectors[0]: building LabelSelector filter (InvalidSelector): invalid selector\npreemptionConfig \"test\" rule \"rule\" candidateSelectors[1]: building Scope filter (UnsupportedScope): unsupported scope \"invalid\"",
+			want:   false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			entry := observer.LoggedEntry{
+				Entry:   zapcore.Entry{Message: "Failed to get candidates for preemption"},
+				Context: []zapcore.Field{zap.String("error", tc.errLog)},
+			}
+			if got := isExpectedInvalidSelectorPreemptionLog(entry); got != tc.want {
+				t.Errorf("isExpectedInvalidSelectorPreemptionLog() = %t, want %t", got, tc.want)
+			}
+		})
+	}
 }
 
 var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configurablepreemptions"), func() {
