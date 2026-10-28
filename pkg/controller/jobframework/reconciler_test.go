@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
@@ -140,6 +141,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		nameExtraPart     *string
 		podSets           []kueue.PodSet
 		objs              []client.Object
+		interceptorFuncs  interceptor.Funcs
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
 		wantWorkloadNames []string
@@ -153,6 +155,39 @@ func TestReconcileGenericJob(t *testing.T) {
 			namespaceMissing: true,
 			wantWorkloads:    []kueue.Workload{},
 			wantErr:          apierrors.IsNotFound,
+		},
+		"report invalid Workload creation on the owning Job": {
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
+			interceptorFuncs: interceptor.Funcs{
+				Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					if wl, ok := obj.(*kueue.Workload); ok {
+						return apierrors.NewInvalid(
+							kueue.SchemeGroupVersion.WithKind("Workload").GroupKind(),
+							wl.Name,
+							field.ErrorList{
+								field.Forbidden(
+									field.NewPath("spec", "podSets").
+										Index(0).
+										Child("topologyRequest", "preferred"),
+									"preferred topology is not supported",
+								),
+							},
+						)
+					}
+					return c.Create(ctx, obj, opts...)
+				},
+			},
+			wantErr:       apierrors.IsInvalid,
+			wantWorkloads: []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message: `Failed to create Workload: Workload.kueue.x-k8s.io "job-test-job-ce737" is invalid: ` +
+					`spec.podSets[0].topologyRequest.preferred: Forbidden: preferred topology is not supported`,
+			}},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
@@ -1103,6 +1138,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				WithInterceptorFuncs(tc.interceptorFuncs).
 				Build()
 
 			recorder := &utiltesting.EventRecorder{}
