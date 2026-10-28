@@ -1009,6 +1009,12 @@ const (
 	// sets back a priority changed directly on the Workload. Disable this gate to
 	// keep such a priority until the class is reconciled again.
 	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
+
+	// owner: @kevin85421
+	//
+	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
+	// which MultiKueue worker clusters a Workload may be dispatched to.
+	MultiKueueClusterNames featuregate.Feature = "MultiKueueClusterNames"
 )
 
 func init() {
@@ -1566,6 +1572,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadPriorityClassWatchesWorkloads: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueClusterNames: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

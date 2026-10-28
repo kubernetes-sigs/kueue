@@ -1,0 +1,114 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package multikueue
+
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+)
+
+func TestIntersectAuthorizedClusters(t *testing.T) {
+	authorized := map[string]*kueue.Workload{"worker1": nil, "worker2": nil}
+	cases := map[string]struct {
+		requested []string
+		want      []string
+	}{
+		"narrow to one authorized cluster": {
+			requested: []string{"worker1"},
+			want:      []string{"worker1"},
+		},
+		"drop unauthorized clusters (narrow only, never widen)": {
+			requested: []string{"worker1", "worker3"},
+			want:      []string{"worker1"},
+		},
+		"all requested unauthorized -> empty": {
+			requested: []string{"worker3", "worker4"},
+			want:      []string{},
+		},
+		"result is sorted and deduplicated": {
+			requested: []string{"worker2", "worker1", "worker1"},
+			want:      []string{"worker1", "worker2"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := intersectAuthorizedClusters(tc.requested, authorized)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUserNominatedClusters(t *testing.T) {
+	cases := map[string]struct {
+		featureEnabled bool
+		wl             *kueue.Workload
+		want           []string
+		wantOK         bool
+	}{
+		"feature disabled -> not requested": {
+			featureEnabled: false,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}).Obj(),
+			wantOK: false,
+		},
+		"no annotation -> not requested": {
+			featureEnabled: true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(nil).Obj(),
+			wantOK: false,
+		},
+		"empty annotation -> not requested": {
+			featureEnabled: true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: ""}).Obj(),
+			wantOK: false,
+		},
+		"single cluster": {
+			featureEnabled: true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}).Obj(),
+			want:   []string{"worker1"},
+			wantOK: true,
+		},
+		"multiple clusters": {
+			featureEnabled: true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2,worker3"}).Obj(),
+			want:   []string{"worker1", "worker2", "worker3"},
+			wantOK: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterNames, tc.featureEnabled)
+			got, ok := userNominatedClusters(tc.wl)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected clusters (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
