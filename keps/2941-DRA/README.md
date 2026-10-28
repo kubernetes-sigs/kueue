@@ -2195,7 +2195,6 @@ is more valuable than CPU time for fair sharing purposes.
 
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism.
 ResourceClaimTemplates and DeviceClasses must be deployed on worker clusters by users, and each worker needs the DRA driver, which publishes the `ResourceSlices`. Kueue does not sync any of these.
-automatically synced.
 
 For a Workload in a ClusterQueue with a MultiKueue admission check, the manager cluster typically
 does not have hardware nodes or DRA drivers publishing `ResourceSlices`. On the manager:
