@@ -2382,6 +2382,8 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		// The workload is reconciled after each eviction.
 		evictedFrom         []string
 		worker1Disconnected bool
+		// deleted delivers the delete event of the manager's workload after the reconciles.
+		deleted bool
 
 		wantWorker1Objects       bool
 		wantPreviousClusterNames sets.Set[string]
@@ -2410,6 +2412,14 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			wantWorker1Objects:       true,
 			wantPreviousClusterNames: sets.New("worker1"),
 			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"the pending cleanup of a deleted workload is dropped": {
+			configClusters:      []string{"worker2"},
+			evictedFrom:         []string{"worker1"},
+			worker1Disconnected: true,
+			deleted:             true,
+			wantWorker1Objects:  true,
+			wantRequeueAfter:    defaultWorkerLostTimeout,
 		},
 		"a previous cluster without a MultiKueueCluster is forgotten": {
 			configClusters:     []string{"worker2"},
@@ -2498,6 +2508,9 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected reconcile error after the eviction from %q: %v", clusterName, err)
 				}
+			}
+			if tc.deleted {
+				reconciler.Delete(event.DeleteEvent{Object: managerWl})
 			}
 			if gotResult.RequeueAfter != tc.wantRequeueAfter {
 				t.Errorf("unexpected RequeueAfter: want %v, got %v", tc.wantRequeueAfter, gotResult.RequeueAfter)
