@@ -36,7 +36,6 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
@@ -53,7 +52,6 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
 	newSnapshot snapshotFactory
-	pods        podtracker.Tracker
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
@@ -163,8 +161,8 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	tracker := s.pods.Clone()
+func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	tracker := pods.Clone()
 
 	for _, wl := range simulator.AssumedWorkloads(options...) {
 		vPods := VirtualPodsForWorkload(wl)
@@ -207,19 +205,4 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 		}
 	}
 	return kept
-}
-
-func (s *wasSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
-		ctrl.LoggerFrom(ctx).V(1).Info(
-			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
-			"pod", client.ObjectKeyFromObject(pod).String(),
-			"missing annotation", kueue.WorkloadAnnotation,
-		)
-	}
-	s.pods.Track(pod)
-}
-
-func (s *wasSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) string {
-	return s.pods.Untrack(key)
 }
