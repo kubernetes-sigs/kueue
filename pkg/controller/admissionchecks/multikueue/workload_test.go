@@ -1378,6 +1378,35 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"a pending local workload is not dispatched to a cluster removed from the config": {
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:             "wl1",
+			worker1RemovedFromConfig: true,
+			useSecondWorker:          true,
+			managersJobs:             []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker2").
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PreemptionGates(kueue.PreemptionGate{Name: constants.MultiKueuePreemptionGate}).
+					Obj(),
+			},
+		},
 		"the local workload keeps running on its admitting cluster after the cluster is removed from the config": {
 			featureGates:             map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor:             "wl1",

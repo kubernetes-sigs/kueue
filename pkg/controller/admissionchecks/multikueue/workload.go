@@ -348,6 +348,9 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
+// readGroup builds the wlGroup of the local workload. It reads the remote workload from each
+// connected cluster returned by remoteClientsForWorkload, storing nil when the cluster has no
+// remote workload, and records the clusters that cannot be read.
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
 	rClients, unavailable, err := w.remoteClientsForWorkload(ctx, acName, local)
 	if err != nil {
