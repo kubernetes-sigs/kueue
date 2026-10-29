@@ -165,7 +165,7 @@ func reportCQFinishedWorkloads(cq *ClusterQueue, roleTracker *roletracker.RoleTr
 }
 
 func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
-	metrics.ClearClusterQueueMetrics(cqRef)
+	metrics.ClearDeletedClusterQueueMetrics(cqRef)
 }
 
 func clearLQMetrics(lqRef queue.LocalQueueReference) {

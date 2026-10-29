@@ -1382,12 +1382,19 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
-	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+}
+
+// ClearDeletedClusterQueueMetrics also clears the MultiKueue counters, which
+// carry no ClusterQueue custom labels and so must survive a label resync.
+func ClearDeletedClusterQueueMetrics(cq kueue.ClusterQueueReference) {
+	ClearClusterQueueMetrics(cq)
+	lbls := prometheus.Labels{"cluster_queue": string(cq)}
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(lbls)
 }
 
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
