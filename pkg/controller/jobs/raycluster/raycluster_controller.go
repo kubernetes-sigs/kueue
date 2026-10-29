@@ -99,10 +99,6 @@ func (j *RayCluster) IsSuspended() bool {
 }
 
 func (j *RayCluster) IsActive() bool {
-	// KubeRay sets RayClusterSuspended to false on its first reconcile, before creating any Pods,
-	// and sets it to true only after all Pods of a suspended RayCluster are deleted.
-	// A missing condition means KubeRay hasn't created any Pods yet.
-	// Status.State is not used because it stays "suspended" after resume until all Pods are running again.
 	cond := apimeta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayClusterSuspended))
 	return cond != nil && cond.Status != metav1.ConditionTrue
 }
