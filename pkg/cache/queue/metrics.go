@@ -170,7 +170,7 @@ func clearCQMetrics(cqRef kueue.ClusterQueueReference) {
 
 func clearLQMetrics(lqRef queue.LocalQueueReference) {
 	namespace, lqName := queue.MustParseLocalQueueReference(lqRef)
-	metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{
+	metrics.ClearLocalQueueGaugeMetrics(metrics.LocalQueueReference{
 		Name:      lqName,
 		Namespace: namespace,
 	})
