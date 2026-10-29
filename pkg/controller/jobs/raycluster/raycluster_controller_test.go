@@ -47,6 +47,11 @@ import (
 )
 
 var (
+	suspendedCondition = metav1.Condition{
+		Type:   string(rayv1.RayClusterSuspended),
+		Status: metav1.ConditionTrue,
+		Reason: string(rayv1.RayClusterSuspended),
+	}
 	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(rayv1.RayCluster{}, "TypeMeta", "ObjectMeta"),
@@ -398,6 +403,64 @@ func TestPodSets(t *testing.T) {
 	}
 }
 
+func TestIsActive(t *testing.T) {
+	cases := map[string]struct {
+		job  *rayv1.RayCluster
+		want bool
+	}{
+		"not yet reconciled by KubeRay": {
+			job:  testingrayutil.MakeCluster("job", "ns").Obj(),
+			want: true,
+		},
+		"suspending, pods may still exist": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				State(rayv1.Ready).
+				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspending), Status: metav1.ConditionTrue}).
+				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionFalse}).
+				Obj(),
+			want: true,
+		},
+		"suspended": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				State(rayv1.Suspended).
+				StatusConditions(suspendedCondition).
+				Obj(),
+			want: false,
+		},
+		"resumed, state still suspended until all pods are running": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				State(rayv1.Suspended).
+				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionFalse}).
+				Obj(),
+			want: true,
+		},
+		"no status conditions, state suspended": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				State(rayv1.Suspended).
+				Obj(),
+			want: false,
+		},
+		"no status conditions, state ready": {
+			job: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				State(rayv1.Ready).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := (*RayCluster)(tc.job).IsActive(); got != tc.want {
+				t.Errorf("IsActive() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -564,7 +627,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
-				State(rayv1.Suspended).
+				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
@@ -810,7 +873,7 @@ func TestReconciler(t *testing.T) {
 							}
 							rayCluster, isRayCluster := obj.(*rayv1.RayCluster)
 							if tc.simulateSuspensionCompletion && isRayCluster && (*RayCluster)(rayCluster).IsSuspended() {
-								rayCluster.Status.State = rayv1.Suspended
+								rayCluster.Status.Conditions = append(rayCluster.Status.Conditions, suspendedCondition)
 								return c.Status().Update(ctx, rayCluster)
 							}
 							return nil

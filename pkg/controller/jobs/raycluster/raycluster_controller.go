@@ -23,6 +23,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -98,7 +99,13 @@ func (j *RayCluster) IsSuspended() bool {
 }
 
 func (j *RayCluster) IsActive() bool {
-	// Use State for compatibility with KubeRay v1.1 and v1.2, which don't report the RayClusterSuspended condition.
+	// KubeRay sets RayClusterSuspended to true only after all Pods are deleted, and back to false
+	// before recreating Pods on resume. Status.State is not used because it stays "suspended"
+	// after resume until all Pods are running again.
+	if cond := apimeta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayClusterSuspended)); cond != nil {
+		return cond.Status != metav1.ConditionTrue
+	}
+	// Fall back to State when KubeRay doesn't report status conditions (RayClusterStatusConditions disabled).
 	return j.Status.State != rayv1.Suspended
 }
 
