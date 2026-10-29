@@ -140,11 +140,10 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 		},
 		"should do nothing if clusterQueue is being deleted": {
 			clusterQueues: func() []*kueue.ClusterQueue {
-				now := metav1.Now()
 				return []*kueue.ClusterQueue{
 					{
 						Name:              "cq",
-						DeletionTimestamp: &now,
+						DeletionTimestamp: new(metav1.Now()),
 						Finalizers:        []string{"finalizer"},
 						Spec: kueue.ClusterQueueSpec{
 							NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}},
@@ -173,12 +172,11 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 				},
 			},
 			namespaces: func() []*corev1.Namespace {
-				now := metav1.Now()
 				return []*corev1.Namespace{
 					{
 						Name:              "ns",
 						Labels:            map[string]string{"dep": "eng"},
-						DeletionTimestamp: &now,
+						DeletionTimestamp: new(metav1.Now()),
 						Finalizers:        []string{"finalizer"},
 					},
 				}
@@ -190,11 +188,10 @@ func TestKueuePopulatorReconciler(t *testing.T) {
 		},
 		"should preserve existing LocalQueue if clusterQueue is being deleted": {
 			clusterQueues: func() []*kueue.ClusterQueue {
-				now := metav1.Now()
 				return []*kueue.ClusterQueue{
 					{
 						Name:              "cq",
-						DeletionTimestamp: &now,
+						DeletionTimestamp: new(metav1.Now()),
 						Finalizers:        []string{"finalizer"},
 						Spec: kueue.ClusterQueueSpec{
 							NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"dep": "eng"}},

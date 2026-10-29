@@ -99,9 +99,11 @@ assumes individual pods are spread.
   admission time.
 - Elastic workload resize (e.g. via WorkloadSlice scale-up or scale-down);
   spreading is designed for fixed-size workloads. Rolling updates in Deployment
-  and LWS are handled naturally — each replica is an independent Workload that
+  and LWS need no special handling — each replica is an independent Workload that
   is admitted and deleted individually, so spreading rules apply at each
-  admission event without special handling. Support for elastic resize will be
+  admission event. However, old replicas still count while new ones are placed,
+  so the distribution after a rollout can cover fewer domains than a fresh
+  scale-up would (see [Drawbacks](#drawbacks)). Support for elastic resize will be
   re-evaluated in a later milestone.
 
 ## Proposal
@@ -126,19 +128,11 @@ The team wants to ensure high availability when some of the Nodes go down, so th
 want at most 45% of the inference pods in any single availability zone at the time
 the next pod is placed there.
 
-Because each Deployment pod has its own `kueue.x-k8s.io/job-uid` label (the pod's
-own UID), the default `workloadLabelSelectors` would only match the workload being
-placed and not group all Deployment pods together. The team must specify an explicit
-`workloadLabelSelectors` using a shared label (e.g., `app`) and ensure that label is
-propagated to the Workload via `integrations.labelKeysToCopy`:
-
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-integrations:
-  labelKeysToCopy:
-    - app
-```
+With the `DeploymentJobUIDLabel` feature gate (Beta, enabled by default since
+v0.20), all Workloads of one Deployment carry the Deployment's UID as their
+`kueue.x-k8s.io/job-uid` label. The default `workloadLabelSelectors` therefore
+groups the replicas of one Deployment, and separate Deployments spread
+independently, so no explicit selector is required:
 
 ```yaml
 apiVersion: apps/v1
@@ -148,16 +142,30 @@ metadata:
 spec:
   template:
     metadata:
-      labels:
-        app: main-inference-service
       annotations:
+        kueue.x-k8s.io/podset-required-topology: topology.kubernetes.io/zone
         kueue.x-k8s.io/podset-topology-spreading: |
           {
-            "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
             "rules": [
               {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45"}
             ]
           }
+```
+
+With `DeploymentJobUIDLabel` disabled, each Deployment pod's Workload carries the
+pod's own UID as `kueue.x-k8s.io/job-uid`, so the default selector matches only
+the Workload being placed and no spreading happens. In that case, or to spread
+several Deployments against each other, the team specifies an explicit
+`workloadLabelSelectors` on a shared label (e.g.,
+`{"key": "app", "operator": "In", "values": ["main-inference-service"]}`) and
+propagates that label to the Workload via `integrations.labelKeysToCopy`:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+integrations:
+  labelKeysToCopy:
+    - app
 ```
 
 #### Story 2: Serving a large AI inference model with multiple replicas
@@ -230,7 +238,6 @@ metadata:
     app: large-inference-service
   annotations:
     kueue.x-k8s.io/pod-group-total-count: "4"
-    kueue.x-k8s.io/podset-group-name: large-inference-service-0
     kueue.x-k8s.io/podset-required-topology: cloud.provider.com/rack
     kueue.x-k8s.io/podset-topology-spreading: |
       {
@@ -244,6 +251,14 @@ metadata:
 Each pod in the group carries the same annotations. The `app` label on each Pod is
 propagated to the Workload via `integrations.labelKeysToCopy`, making it available
 for the `workloadLabelSelectors`.
+
+The PodGroups count against each other only because they share a PodSet group key
+(see [Spreading group](#spreading-group)). With `kueue.x-k8s.io/podset-group-name`
+omitted, the key is the PodSet name, which for a PodGroup is derived from the pod
+spec and is therefore the same for all replicas built from the same template.
+Setting a distinct `kueue.x-k8s.io/podset-group-name` per PodGroup (for example
+`large-inference-service-0`, `large-inference-service-1`, …) would make each
+PodGroup its own spreading group, and no spreading would happen.
 
 #### Story 4: Soft spreading with limited capacity
 
@@ -261,6 +276,7 @@ spec:
       labels:
         app: main-inference-service
       annotations:
+        kueue.x-k8s.io/podset-required-topology: topology.kubernetes.io/zone
         kueue.x-k8s.io/podset-topology-spreading: |
           {
             "rules": [
@@ -390,8 +406,8 @@ Each element of `rules` is:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `topologyKey` | string | yes | — | The topology level key for this rule. Must correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`. Not validated at annotation creation time — validation happens at scheduling time. |
-| `maxShareAllowingPlacement` | resource.Quantity | yes | — | A fractional share in the range (0, 1) expressed as a `resource.Quantity` (e.g., `"0.45"` for 45%). A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
+| `topologyKey` | string | yes | — | The topology level key for this rule. Should correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`, at or above the level requested by `kueue.x-k8s.io/podset-required-topology`. Not validated at annotation creation time — validation happens at scheduling time (see [Key validity at scheduling time](#validation-and-error-handling)). |
+| `maxShareAllowingPlacement` | resource.Quantity | yes | — | A fractional share in the range (0, 1) expressed as a `resource.Quantity` (e.g., `"0.45"` for 45%). A domain is eligible to receive the next PodSet group only if its current share is at most this value (see [Admission constraint formula](#admission-constraint-formula)). |
 | `enforcementMode` | string | no | `"Required"` | Enforcement mode: `"Required"` blocks admission into over-threshold domains; `"Preferred"` deprioritizes them via spread-aware domain ordering but still allows admission. |
 
 #### Field definitions
@@ -463,8 +479,8 @@ parsed via JSON unmarshaling into `resource.Quantity`, so any valid quantity
 representation is accepted; values outside (0, 1) are rejected by the Workload
 webhook with a validation error.
 It is a before-placement gate: a domain is eligible to receive the next PodSet group
-only if the domain's current share of the total admitted PodSet groups in the
-spreading group is at most this value. In other words, `maxShareAllowingPlacement` is
+only if the domain's current share is at most this value (see
+[Admission constraint formula](#admission-constraint-formula)). In other words, `maxShareAllowingPlacement` is
 the maximum current share a domain may hold for the next placement to be allowed there
 — the new group itself is not yet counted when the check is performed.
 
@@ -488,23 +504,36 @@ share the same topology domain assignment and are treated as one unit — a
 where *effective-podset-name* is the `podset-group-name` value if set, or the
 individual PodSet name otherwise. This mirrors how TAS tracks topology assignments.
 
-**Spreading group.** The spreading group for a rule is the set of admitted
-Workloads in the namespace whose `metadata.labels` match the effective selector:
-the `workloadLabelSelectors` from the annotation, or the job-uid default resolved
-in its place when they are omitted. Only Workloads with
-`status.admission` set are counted; pending or suspended Workloads contribute
-nothing. A Workload need not carry the annotation to be counted — it only needs
-matching labels and a topology assignment at the relevant level. Workloads that do
-carry the annotation enforce the rules at their own admission time.
+**Spreading group.** The spreading group for a PodSet group is the set of PodSet
+groups of admitted Workloads in the namespace that satisfy both of the following:
+
+- the Workload's `metadata.labels` match the effective selector: the
+  `workloadLabelSelectors` from the annotation, or the job-uid default resolved
+  in its place when they are omitted;
+- the PodSet group has the same *effective-podset-name* (the PodSet group key)
+  as the PodSet group being placed.
+
+Only Workloads with `status.admission` set are counted; pending or suspended
+Workloads contribute nothing. A Workload need not carry the annotation to be
+counted — it only needs matching labels, the same PodSet group key, and a
+topology assignment at the relevant level. Workloads that do carry the annotation
+enforce the rules at their own admission time.
+
+As a consequence, all replicas that should spread against each other must use the
+same `kueue.x-k8s.io/podset-group-name`, or all omit it. Workloads whose labels
+match but whose PodSet group key differs (for example LWS groups next to a
+Deployment's `main` PodSet) are not counted, with no error, event or condition.
 
 #### Admission constraint formula
 
 For a given domain `D` and rule with `topologyKey` K, let:
 
-- `count(D)` = number of admitted PodSet groups in domain `D` (at topology level K)
-  among workloads matching the effective selector
-- `N` = total number of admitted PodSet groups across all domains at level K
-  among workloads matching the effective selector
+- `count(D)` = number of admitted PodSet groups of the spreading group in domain `D`
+  (at topology level K)
+- `N` = number of admitted PodSet groups of the spreading group in `D`'s parent
+  domain (the domain directly above `D` in the `Topology`, whether or not a rule
+  targets that level); when K is the top topology level, `N` is the total number
+  of admitted PodSet groups of the spreading group
 
 A domain `D` is admissible for a new PodSet group if and only if:
 
@@ -516,12 +545,12 @@ where `maxShareAllowingPlacement` is the fractional value parsed from the field.
 The check is performed **before** the new group is counted — `count(D)` and `N`
 reflect only the currently admitted groups, not the candidate being placed.
 
-When `N == 0` (no PodSet groups have been admitted yet), any domain is
-admissible — the first PodSet group can always be placed regardless of which
-domain is selected (cold-start case).
+When `N == 0` (no PodSet groups have been admitted yet in the parent domain), any
+child domain is admissible — the first PodSet group can always be placed regardless
+of which domain is selected (cold-start case).
 
 The `<=` means a domain whose current share is exactly `maxShareAllowingPlacement`
-of the total is still eligible to receive the next group. A domain
+of `N` is still eligible to receive the next group. A domain
 becomes ineligible only when its share strictly exceeds the threshold.
 
 The following example illustrates the formula for 3 domains and
@@ -554,7 +583,9 @@ Validation is split into two layers:
    non-empty `values` array. At most one requirement may be specified in alpha.
 3. All `topologyKey` values within the `rules` array must be distinct. Two rules for the
    same topology key are rejected because the combined behavior would be ambiguous.
-4. For each distinct `kueue.x-k8s.io/podset-group-name` value in the workload,
+4. The annotation may only be set together with
+   `kueue.x-k8s.io/podset-required-topology`; it is rejected otherwise.
+5. For each distinct `kueue.x-k8s.io/podset-group-name` value in the workload,
    all PodSets in that group must either all carry the same
    `kueue.x-k8s.io/podset-topology-spreading` annotation value or none must carry it.
    Partial annotating within a group (some PodSets annotated, others not) is rejected.
@@ -569,11 +600,21 @@ objects at annotation creation time — ResourceFlavor configurations can change
 independently and the scheduler is better positioned to evaluate the match at
 admission time.
 
-When a `topologyKey` does not match any topology level, the rule is ignored for that flavor
-regardless of whether the `enforcementMode` is `"Required"` or `"Preferred"` — the workload is
-admitted if capacity is available, without spreading being applied. To surface
-the misconfiguration, the scheduler sets a `TopologySpreadKeyNotFound` workload
-condition identifying the unmatched `topologyKey`. See [Visibility](#visibility).
+When a `topologyKey` does not match any level of the flavor's `Topology`:
+
+- `"Required"`: the flavor is rejected for the PodSet. If no other flavor fits, the
+  workload stays pending with a `NoMatchingFlavor` message stating that the flavor
+  "does not contain a topology level required by topology spreading".
+- `"Preferred"`: the rule is skipped for that flavor and the workload is admitted
+  if capacity is available, without that rule being applied. No condition or event
+  is set; only a `V(3)` log entry records it.
+
+When a `topologyKey` names a level below the level requested by
+`kueue.x-k8s.io/podset-required-topology` (for example a rack rule with
+`kueue.x-k8s.io/podset-required-topology: topology.kubernetes.io/zone`), the rule
+cannot be enforced. The webhook accepts it, but the workload stays pending with
+`TopologyPlacementFailed` and a message stating that the topology spreading level
+is below the PodSet topology. See [Visibility](#visibility).
 
 ### Scheduler integration
 
@@ -599,7 +640,9 @@ admitted and is not included.
 From the per-domain PodSet group counts, two derived sets are computed for each rule:
 
 - **Banned domains** (applies to `Required` rules): domains where
-  `N > 0 && count(D) > maxShareAllowingPlacement * N`. **Candidates whose
+  `N > 0 && count(D) > maxShareAllowingPlacement * N`, with `N` measured in the
+  parent domain as defined in
+  [Admission constraint formula](#admission-constraint-formula). **Candidates whose
   topology domain is banned are removed from the candidate list** — the entire
   candidate entry is dropped, not just individual nodes within it. When `N == 0`
   no domain is banned.
@@ -622,38 +665,48 @@ over-threshold domains (`Preferred` only), the least-loaded is chosen first.
 
 **`Required` rule — temporarily blocked (domains exist but are full):**
 
-When a workload cannot be admitted because all eligible domains exceed
-`maxShareAllowingPlacement`, the following surfaces are updated:
+When a workload cannot be admitted because the rule bans some or all candidate
+domains, the following surfaces are updated:
 
-- **Workload condition**: `QuotaReserved: False` or `Admitted: False` with
-  `reason: TopologyPlacementFailed` and a message describing which rule,
-  which PodSet, and which domains are blocked. The condition is cleared when the
-  workload is eventually admitted. This reason indicates a **transient** state —
-  the workload will be retried and may be admitted once capacity frees up.
-- **Logs**: a structured log entry at `V(3)` naming the workload, the PodSet
-  name, the effective selector, the violated rule `topologyKey`, and the per-domain
-  PodSet group counts.
+- **Workload condition**: `QuotaReserved: False`. The reason is not specific to
+  spreading; it is the same reason Kueue reports for any other failure to place
+  the PodSet, for example `TopologyPlacementFailed`, or `WaitingForQuota` when
+  quota or preemption is also involved. The reasons are set while the
+  `UnadmittedWorkloadsObservability` feature gate (Beta, enabled by default in
+  v0.20) is on. The message identifies topology spreading:
+  - when spreading excludes every candidate domain:
+    `topology spreading excludes all topology domains at level: <level>`;
+  - when spreading excludes some domains and the rest lack capacity, the
+    capacity message is followed by
+    `; topology spreading excluded <n> topology domain(s) at level: <level>`.
 
-**`Required` or `Preferred` rule — `topologyKey` not found on ResourceFlavor (admitted but rule not applied):**
+  The condition is cleared when the workload is eventually admitted. This is a
+  **transient** state — the workload will be retried and may be admitted once
+  capacity frees up.
+- **Logs**: a structured log entry at `V(3)` naming the workload, the PodSet, the
+  searched topology level, the banned domains, the rules, and the failure reason.
+
+**`topologyKey` not found on ResourceFlavor:**
 
 When a rule's `topologyKey` does not match any `spec.levels[].nodeLabel` in the `Topology`
-referenced by the evaluated `ResourceFlavor`, the rule is ignored for that flavor
-and the workload is admitted if capacity is available. To surface the
-misconfiguration, the scheduler sets a new workload condition of type
-`TopologySpreadKeyNotFound` (value `True`) with a message identifying the unmatched
-`topologyKey`. This is a new `ConditionType` that will be added to the Workload API alongside
-the existing `QuotaReserved` and `Admitted` types.
+referenced by the evaluated `ResourceFlavor`:
 
-**Admitted onto a non-topology flavor (spreading not applied):**
+- `Required` rule: the flavor is rejected. If no other flavor fits, the workload
+  reports `NoMatchingFlavor` with a message naming the flavor that does not
+  contain a topology level required by topology spreading.
+- `Preferred` rule: the rule is skipped for that flavor and the workload is
+  admitted if capacity is available. No condition is set; a log entry at `V(3)`
+  records it.
 
-When a workload carrying the annotation is admitted onto a `ResourceFlavor` that
-has no `spec.topologyName` (non-TAS flavor), spreading cannot be evaluated:
+No dedicated condition (such as a `TopologySpreadKeyNotFound` condition type)
+exists in alpha; whether to add one is to be re-evaluated for beta.
 
-- **Workload condition**: a new condition of type `TopologySpreadingNotApplied`
-  (value `True`) with a message identifying the affected PodSet name(s) and the
-  flavor each was assigned to. This is cleared if the workload is later
-  re-admitted onto topology-enabled flavors for all affected PodSets.
-- **Logs**: a structured log entry at `V(3)`.
+**Non-topology flavors:**
+
+The annotation may only be set together with
+`kueue.x-k8s.io/podset-required-topology`, so a PodSet carrying it is never
+admitted onto a `ResourceFlavor` without `spec.topologyName`, and no
+condition is needed for that case.
 
 **`Preferred` rule — admitted into an over-threshold domain (SpreadTier 2):**
 
@@ -740,9 +793,9 @@ Concrete test cases:
     the same scheduling cycle (snapshot reflects the removal).
 17. PodSet template annotation propagated correctly from Job pod template to Workload
     PodSet template.
-18. Targeting a `topologyKey` not present on the ResourceFlavor: workload is admitted
-    (rule ignored for that flavor regardless of `Required` or `Preferred`) and
-    condition `TopologySpreadKeyNotFound` is set in both cases.
+18. Targeting a `topologyKey` not present on the ResourceFlavor: for a `Required`
+    rule the flavor is rejected; for a `Preferred` rule the rule is skipped and the
+    workload is admitted.
 
 ### Integration tests
 
@@ -783,8 +836,10 @@ admitted workloads, using both the default job-uid selector and explicit selecto
 - Feature gate `TASTopologySpreading` introduced, disabled by default.
 - Support for up to two topology levels.
 - `Required` and `Preferred` rule types implemented.
-- Annotation supported for Deployment, plain Pods, and LWS only; other integrations
-  (e.g. JobSet) are rejected in alpha.
+- Annotation supported for Deployment, plain Pods, and LWS only. Other
+  integrations (e.g. Job, JobSet) do not reject the annotation, and its value is
+  validated by the shared `jobframework` TAS validation, but they are not tested
+  and are unsupported in alpha.
 - Unit and integration tests covering all cases listed in [Test Plan](#test-plan).
 
 #### Beta
@@ -843,6 +898,11 @@ admitted workloads, using both the default job-uid selector and explicit selecto
   workloads frequently complete and new ones are admitted, the actual distribution
   may drift from the target. This is a deliberate trade-off to avoid continuous
   eviction storms.
+- Rolling updates can leave a less spread distribution. Old replicas still count
+  while new ones are placed, so after a Deployment or LWS rollout the replicas can
+  cover fewer domains than a fresh scale-up would. Tuning the rollout's
+  `maxSurge`/`maxUnavailable`, or scaling down and back up, re-spreads the
+  replicas.
 
 ## Alternatives
 

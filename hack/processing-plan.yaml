@@ -299,8 +299,8 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
-          {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
+          {{- $managerConfig := include "kueue.managerConfig" . | fromYaml }}
+          {{- $integrationsConfig := $managerConfig.integrations }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
       - type: INSERT_TEXT
         key: .metadata
@@ -995,3 +995,66 @@ files:
         value: |
           {{- end }}
         onFileCondition: '.kind == "Certificate"'
+  - path: ./config/components/networkpolicy/manager-ingress.yaml
+    outputDir: ./charts/kueue/templates/networkpolicy
+    removeComments: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+      - type: DELETE
+        key: .spec.podSelector
+      - type: DELETE
+        key: .spec.ingress
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          podSelector:
+            matchLabels:
+            {{- include "kueue.selectorLabels" . | nindent 6 }}
+          ingress:
+          {{- include "kueue.networkPolicy.managerIngress" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and (dig "enabled" false (.Values.networkPolicy | default dict)) (not .Values.controllerManager.hostNetwork) }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/networkpolicy/kueueviz/kueueviz-*.yaml
+    outputDir: ./charts/kueue/templates/networkpolicy
+    removeComments: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and (dig "enabled" false (.Values.networkPolicy | default dict)) .Values.enableKueueViz }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}

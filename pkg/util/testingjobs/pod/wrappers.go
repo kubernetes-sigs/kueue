@@ -260,6 +260,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// SchedulingGroup makes the Pod belong to the given PodGroup.
+func (p *PodWrapper) SchedulingGroup(podGroupName string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &podGroupName}
+	return p
+}
+
 func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
 	if p.Spec.Affinity == nil {
 		p.Spec.Affinity = &corev1.Affinity{}
@@ -413,6 +419,18 @@ func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
 	return p
 }
 
+// StatusPodIP updates status pod IP of the Pod.
+func (p *PodWrapper) StatusPodIP(ip string) *PodWrapper {
+	p.Status.PodIP = ip
+	return p
+}
+
+// StatusContainerStatuses updates status container statuses of the Pod.
+func (p *PodWrapper) StatusContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
+	p.Status.ContainerStatuses = statuses
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
@@ -422,15 +440,19 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 
 // DeletionTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
-	timestamp := metav1.NewTime(t).Rfc3339Copy()
-	p.Pod.DeletionTimestamp = &timestamp
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return p
+}
+
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
 	return p
 }
 
 // Delete sets a deletion timestamp for the pod object
 func (p *PodWrapper) Delete() *PodWrapper {
-	t := metav1.NewTime(time.Now())
-	p.Pod.DeletionTimestamp = &t
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(time.Now()))
 	return p
 }
 

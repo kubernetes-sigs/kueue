@@ -1,8 +1,18 @@
 {{- $kueueConfig := dict -}}
+{{- if .Subcharts.kueue }}
+{{- $kueueConfig = include "kueue.managerConfig" .Subcharts.kueue | fromYaml -}}
+{{- else }}
 {{- with .Values.kueue }}
 {{- with .managerConfig }}
-{{- with .controllerManagerConfigYaml }}
-{{- $kueueConfig = . | fromYaml -}}
+{{- $mode := default "" .mode }}
+{{- if and (ne $mode "structured") (hasKey . "controllerManagerConfigYaml") }}
+{{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
+{{- else if and (ne $mode "yaml") (hasKey . "structuredOverrides") }}
+{{- if not (kindIs "map" .structuredOverrides) }}
+{{- fail "kueue.managerConfig.structuredOverrides must be a map" }}
+{{- end }}
+{{- $kueueConfig = include "kueue-populator.withoutNullKeys" .structuredOverrides | fromYaml -}}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

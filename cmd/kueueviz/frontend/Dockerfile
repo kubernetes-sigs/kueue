@@ -3,7 +3,7 @@
 # linux/ppc64le or linux/s390x; running the build on BUILDPLATFORM keeps the
 # bundler off those archs entirely. The build output is static JS/CSS, so it
 # is architecture-agnostic.
-FROM --platform=${BUILDPLATFORM} node:26-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS builder
+FROM --platform=${BUILDPLATFORM} node:26-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN retry.sh --attempts 5 --delay 5 --stream --exponential -- npm install --pref
 # arch metadata for the multi-arch manifest. It contains no RUN steps, so
 # building it for ppc64le/s390x does not require QEMU binfmt_misc on the
 # build host — only file copies happen.
-FROM --platform=${TARGETPLATFORM} node:26-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS runtime
+FROM --platform=${TARGETPLATFORM} node:26-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS runtime
 
 WORKDIR /app
 

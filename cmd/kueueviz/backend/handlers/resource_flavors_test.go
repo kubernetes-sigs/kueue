@@ -262,3 +262,68 @@ func toJSONList(t *testing.T, v any) []map[string]any {
 	}
 	return out
 }
+
+func TestFetchResourceFlavorDetailsSpec(t *testing.T) {
+	withSpec := makeResourceFlavor("spot", map[string]string{"capacity": "spot"})
+	withSpec.Spec.NodeTaints = []corev1.Taint{{Key: "spot", Value: "true", Effect: corev1.TaintEffectNoSchedule}}
+	withSpec.Spec.Tolerations = []corev1.Toleration{{Key: "spot", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+
+	tests := map[string]struct {
+		flavor *kueueapi.ResourceFlavor
+	}{
+		"node labels, taints and tolerations are set": {
+			flavor: withSpec,
+		},
+		"node labels, taints and tolerations are unset": {
+			flavor: makeResourceFlavor("spot", nil),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := New(newFakeClient(t, nil, tc.flavor), nil, nil)
+			got, err := h.fetchResourceFlavorDetails(t.Context(), "spot", middleware.Identity{Username: "alice"})
+			if err != nil {
+				t.Fatalf("fetchResourceFlavorDetails() error = %v", err)
+			}
+
+			// The ResourceFlavor detail page reads these keys from details.
+			want := map[string]any{
+				"nodeLabels":  tc.flavor.Spec.NodeLabels,
+				"nodeTaints":  tc.flavor.Spec.NodeTaints,
+				"tolerations": tc.flavor.Spec.Tolerations,
+			}
+			if diff := cmp.Diff(want, got["details"]); diff != "" {
+				t.Errorf("unexpected details (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFetchResourceFlavorDetailsGetsFlavorOnce(t *testing.T) {
+	flavorGets := 0
+	funcs := &interceptor.Funcs{
+		Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+			if _, ok := obj.(*kueueapi.ResourceFlavor); ok {
+				flavorGets++
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}
+	objs := []ctrlclient.Object{
+		makeResourceFlavor("spot", map[string]string{"capacity": "spot"}),
+		makeNode("node-spot", map[string]string{"capacity": "spot"}),
+	}
+	h := New(newFakeClient(t, funcs, objs...), nil, nil)
+
+	got, err := h.fetchResourceFlavorDetails(t.Context(), "spot", middleware.Identity{Username: "alice"})
+	if err != nil {
+		t.Fatalf("fetchResourceFlavorDetails() error = %v", err)
+	}
+	if flavorGets != 1 {
+		t.Errorf("ResourceFlavor fetched %d times, want 1", flavorGets)
+	}
+	if nodes := got["nodes"].([]map[string]any); len(nodes) != 1 || nodes[0]["name"] != "node-spot" {
+		t.Errorf("nodes = %v, want only node-spot", nodes)
+	}
+}

@@ -61,19 +61,10 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 			ginkgo.Entry("Allow nil multiplier (defaults to 1)", nil, true),
 			ginkgo.Entry("Allow zero integer multiplier", resource.NewQuantity(0, resource.DecimalSI), true),
 			ginkgo.Entry("Allow positive integer multiplier", resource.NewQuantity(1, resource.DecimalSI), true),
-			ginkgo.Entry("Allow positive fractional quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("1.5")
-				return &q
-			}(), true),
-			ginkgo.Entry("Allow positive milli-quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("500m")
-				return &q
-			}(), true),
+			ginkgo.Entry("Allow positive fractional quantity multiplier", new(resource.MustParse("1.5")), true),
+			ginkgo.Entry("Allow positive milli-quantity multiplier", new(resource.MustParse("500m")), true),
 			ginkgo.Entry("Disallow negative integer multiplier", resource.NewQuantity(-1, resource.DecimalSI), false),
-			ginkgo.Entry("Disallow negative quantity multiplier", func() *resource.Quantity {
-				q := resource.MustParse("-500m")
-				return &q
-			}(), false),
+			ginkgo.Entry("Disallow negative quantity multiplier", new(resource.MustParse("-500m")), false),
 		)
 
 		ginkgo.It("Should disallow empty subtreeRootQuotaRef name", func() {

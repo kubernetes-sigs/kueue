@@ -49,9 +49,10 @@ func TestFetchCohorts(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		objs  []ctrlclient.Object
-		funcs *interceptor.Funcs
-		want  []map[string]any
+		objs       []ctrlclient.Object
+		funcs      *interceptor.Funcs
+		authorizer middleware.Authorizer
+		want       []map[string]any
 		// wantErr is set when listing cohorts fails.
 		wantErr bool
 	}{
@@ -94,6 +95,53 @@ func TestFetchCohorts(t *testing.T) {
 				},
 			},
 		},
+		"allowed cluster queue access keeps cluster queue names": {
+			objs: objs,
+			authorizer: authorizerFunc(func(attrs authorizationv1.ResourceAttributes) (bool, error) {
+				return attrs.Verb == "list" && attrs.Resource == ClusterQueuesGVR().Resource, nil
+			}),
+			want: []map[string]any{
+				{
+					"name":          "root",
+					"clusterQueues": []map[string]any{},
+				},
+				{
+					"name":          "team",
+					"parentName":    "root",
+					"clusterQueues": []map[string]any{{"name": "cq-a"}, {"name": "cq-b"}},
+				},
+			},
+		},
+		"denied cluster queue access omits cluster queues": {
+			objs: objs,
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return false, nil
+			}),
+			want: []map[string]any{
+				{
+					"name": "root",
+				},
+				{
+					"name":       "team",
+					"parentName": "root",
+				},
+			},
+		},
+		"authorizer error is treated as denied": {
+			objs: objs,
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return true, errors.New("boom")
+			}),
+			want: []map[string]any{
+				{
+					"name": "root",
+				},
+				{
+					"name":       "team",
+					"parentName": "root",
+				},
+			},
+		},
 		"cohort list error is returned": {
 			objs:    objs,
 			funcs:   listErrorFuncs(errors.New("boom")),
@@ -103,9 +151,9 @@ func TestFetchCohorts(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			h := New(newFakeClient(t, tc.funcs, tc.objs...), nil, nil)
+			h := New(newFakeClient(t, tc.funcs, tc.objs...), nil, tc.authorizer)
 
-			got, err := h.fetchCohorts(t.Context())
+			got, err := h.fetchCohorts(t.Context(), middleware.Identity{Username: "alice"})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("fetchCohorts() error = %v, wantErr %v", err, tc.wantErr)
 			}

@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"maps"
 	"slices"
 	"sync"
@@ -28,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -43,10 +41,9 @@ type tasCache struct {
 
 	nonTasUsageCache *nonTasUsageCache
 	nodesCache       *nodesCache
-	simulatorFactory simulator.Factory
 }
 
-func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resourceFormatter *resources.ResourceFormatter) tasCache {
+func NewTASCache(client client.Client, resourceFormatter *resources.ResourceFormatter) tasCache {
 	return tasCache{
 		client:            client,
 		flavors:           make(map[kueue.ResourceFlavorReference]flavorInformation),
@@ -58,8 +55,7 @@ func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resou
 			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
-		nodesCache:       newNodesCache(),
-		simulatorFactory: simulatorFactory,
+		nodesCache: newNodesCache(),
 	}
 }
 
@@ -153,16 +149,6 @@ func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) string {
 // Returns the node name when an entry is removed.
 func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger) string {
 	return t.nonTasUsageCache.delete(key, log)
-}
-
-// TrackPod notifies the scheduling simulator that a pod is running on a node.
-func (t *tasCache) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	t.simulatorFactory.TrackPod(ctx, pod)
-}
-
-// UntrackPod notifies the scheduling simulator that a pod has been removed.
-func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) {
-	t.simulatorFactory.UntrackPod(ctx, key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

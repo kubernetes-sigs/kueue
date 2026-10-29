@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -382,7 +383,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsIn
 
 	info := podSetsInfo[0]
 
-	if j.minPodsCount() != nil {
+	if j.partialAdmissionRequested() {
 		j.Spec.Parallelism = new(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
@@ -398,7 +399,7 @@ func (j *Job) RestorePodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetI
 
 	changed := false
 	// if the job accepts partial admission
-	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
+	if j.partialAdmissionRequested() && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
 		j.Spec.Parallelism = new(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
@@ -425,13 +426,20 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *Job) PodsReady(_ context.Context, _ client.Client, options ...jobframework.PodsReadyOption) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
 		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
 	}
-	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
+	target := j.podsCount()
+	wl := jobframework.PodsReadyWorkload(options...)
+	if jobframework.WorkloadSliceEnabled(j) && wl != nil && workload.IsAdmitted(wl) {
+		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]; ok && granted < target {
+			target = granted
+		}
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= target
 }
 
 func (j *Job) CanDefaultManagedBy() bool {
@@ -467,6 +475,10 @@ func (j *Job) minPodsCount() *int32 {
 		return nil
 	}
 	return new(int32(minCount))
+}
+
+func (j *Job) partialAdmissionRequested() bool {
+	return j.minPodsCount() != nil
 }
 
 func (j *Job) syncCompletionWithParallelism() bool {

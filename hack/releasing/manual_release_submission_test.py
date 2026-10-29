@@ -31,55 +31,84 @@ TEMPLATE = (REPO_ROOT / ".github/ISSUE_TEMPLATE/NEW_RELEASE.md").read_text()
 
 class ManualReleaseSubmissionTest(unittest.TestCase):
     def test_submission_and_checklist_control_flow(self):
+        harness = '''
+set -o errexit
+set -o nounset
+set -o pipefail
+function mktemp() {
+  if [[ "$REQUIRE_MKTEMP_TEMPLATE" == "1" && "$#" -eq 0 ]]; then
+    echo "mktemp: template required" >&2
+    return 1
+  fi
+  command mktemp "$@"
+}
+function prepare_local_branch() { printf '["prepare"]\\n' >> "$GH_CALLS"; }
+function git() {
+  case "$1" in
+    checkout|branch) ;;
+    *) printf '["git", "%s"]\\n' "$1" >> "$GH_CALLS"; return "$PUSH_STATUS" ;;
+  esac
+}
+function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }
+function make_pr() { gh pr create; }
+'''
         scripts = {
-            "prepare_pull.sh": ('if [[ "$TARGET" == "all"',
-                                {"prepare-pull-release", "prepare-pull-main"}),
-            "promote_pull.sh": ('K8S_IO_BRANCH="', {"promote-pull"}),
-            "ci_pull.sh": ('CI_BRANCH="', {"ci-pull"}),
+            "prepare all": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "all",
+                            {"prepare-pull-release", "prepare-pull-main"}),
+            "prepare release": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "release",
+                                {"prepare-pull-release"}),
+            "prepare main": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "main",
+                             {"prepare-pull-main"}),
+            "promote": ("promote_pull.sh", 'K8S_IO_BRANCH="', "", {"promote-pull"}),
+            "CI": ("ci_pull.sh", 'CI_BRANCH="', "", {"ci-pull"}),
         }
-        submitted = ["git push", "pr create", "pr list", "issue edit"]
+        prepared = ["prepare", "submit"]
+        submitted = prepared + ["git push", "pr create", "pr list", "issue edit"]
         cases = {
             "confirmed": ({}, "y\ny\n", 0, submitted, True),
             "uppercase confirmation": ({}, "Y\nY\n", 0, submitted, True),
-            "declined": ({}, "n\n", 1, [], False),
-            "uppercase decline": ({}, "N\n", 1, [], False),
-            "default answer": ({}, "\n", 1, [], False),
-            "invalid answer": ({}, "yes\n", 1, [], False),
-            "closed stdin": ({}, "", 1, [], False),
-            "push failed": ({"PUSH_STATUS": "1"}, "y\n", 1, ["git push"], False),
-            "PR creation failed": ({"CREATE_STATUS": "1"}, "y\n", 1, ["git push", "pr create"], False),
-            "dry run": ({"DRY_RUN": "1"}, "", 0, [], False),
+            "declined": ({}, "n\n", 1, prepared, False),
+            "uppercase decline": ({}, "N\n", 1, prepared, False),
+            "default answer": ({}, "\n", 1, prepared, False),
+            "invalid answer": ({}, "yes\n", 1, prepared, False),
+            "closed stdin": ({}, "", 1, prepared, False),
+            "push failed": ({"PUSH_STATUS": "1"}, "y\n", 1, prepared + ["git push"], False),
+            "PR creation failed": ({"CREATE_STATUS": "1"}, "y\n", 1, prepared + ["git push", "pr create"], False),
+            "dry run": ({"DRY_RUN": "1"}, "", 0, ["prepare"], False),
             "PR not found": ({"NO_PR": "1"}, "y\ny\n", 0, submitted[:-1], False),
         }
-        for script_name, (start, want_steps) in scripts.items():
+        for script_case, (script_name, start, target, want_steps) in scripts.items():
             source = (REPO_ROOT / "hack/releasing" / script_name).read_text()
-            push_function = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
-                                      source, re.MULTILINE | re.DOTALL).group()
+            match = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
+                              source, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(match, f"push_and_create_pr not found in {script_name}")
+            push_function = match.group().replace("{\n", '{\n  printf \'["submit"]\\n\' >> "$GH_CALLS"\n', 1)
             script = push_function + "\n" + source[source.index(start):]
             script_cases = dict(cases)
             if script_name == "prepare_pull.sh":
                 # Keep the real initialization, cleanup and main phases in source order.
                 # Only branch preparation is mocked, since it changes tracked files.
                 script = source[source.index("clean_branches=()"):]
+                script = script.replace(match.group(), push_function, 1)
                 prepare_function = '''function prepare_local_branch() {
   test -f "$RELEASE_CHECKLIST_SCRIPT"
   case "$RELEASE_CHECKLIST_SCRIPT" in "$TMPDIR"/*) ;; *) return 1 ;; esac
   cmp "$RELEASE_CHECKLIST_SCRIPT" "$EXPECTED_HELPER"
+  printf '["prepare"]\\n' >> "$GH_CALLS"
   printf '%s\\n' "$RELEASE_CHECKLIST_SCRIPT" >> "$SNAPSHOT_SEEN"
   cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"
 }'''
                 script = re.sub(r"^function prepare_local_branch\(\) \{.*?^\}", lambda _: prepare_function,
                                 script, count=1, flags=re.MULTILINE | re.DOTALL)
-                script_cases.update({
-                    "release target": ({"TARGET": "release"}, "y\n", 0, submitted, True),
-                    "main target": ({"TARGET": "main"}, "y\n", 0, submitted, True),
-                    "snapshot copy failed": ({"MISSING_HELPER": "1"}, "", 1, [], False),
-                    "mktemp failed": ({"MISSING_TMPDIR": "1"}, "", 1, [], False),
-                    "mktemp requires a template": ({"REQUIRE_MKTEMP_TEMPLATE": "1"}, "y\ny\n", 0, submitted, True),
-                    "temporary directory contains spaces": ({"TMPDIR_WITH_SPACES": "1"}, "y\ny\n", 0, submitted, True),
-                })
+                if target == "all":
+                    script_cases.update({
+                        "snapshot copy failed": ({"MISSING_HELPER": "1"}, "", 1, [], False),
+                        "mktemp failed": ({"MISSING_TMPDIR": "1"}, "", 1, [], False),
+                        "mktemp requires a template": ({"REQUIRE_MKTEMP_TEMPLATE": "1"}, "y\ny\n", 0, submitted, True),
+                        "temporary directory contains spaces": ({"TMPDIR_WITH_SPACES": "1"}, "y\ny\n", 0, submitted, True),
+                    })
             for name, (env, answers, want_status, want_calls, want_edit) in script_cases.items():
-                with self.subTest(script=script_name, case=name), tempfile.TemporaryDirectory() as directory:
+                with self.subTest(script=script_case, case=name), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     helper = root / "hack/releasing/log_to_issue.py"
                     helper.parent.mkdir(parents=True)
@@ -122,7 +151,7 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                         "RELEASE_VERSION": "v0.20.0",
                         "RELEASE_BRANCH": "release-0.20",
                         "MAJOR_MINOR": "0.20",
-                        "TARGET": "all",
+                        "TARGET": target,
                         "MAIN_REPO_ORG": "kubernetes-sigs",
                         "MAIN_REPO_NAME": "kueue",
                         "KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG": "kubernetes-sigs",
@@ -151,31 +180,12 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                         **env,
                     }
                     test_env.pop("RELEASE_CHECKLIST_SCRIPT", None)
-                    harness = '''
-set -o errexit
-set -o nounset
-set -o pipefail
-function mktemp() {
-  if [[ "$REQUIRE_MKTEMP_TEMPLATE" == "1" && "$#" -eq 0 ]]; then
-    echo "mktemp: template required" >&2
-    return 1
-  fi
-  command mktemp "$@"
-}
-function prepare_local_branch() { cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"; }
-function git() {
-  case "$1" in
-    checkout|branch) ;;
-    *) printf '["git", "%s"]\\n' "$1" >> "$GH_CALLS"; return "$PUSH_STATUS" ;;
-  esac
-}
-function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }
-function make_pr() { gh pr create; }
-'''
                     result = subprocess.run(["bash", "-c", harness + script],
                                             env=test_env, cwd=root, input=answers,
                                             capture_output=True, text=True, check=False)
                     self.assertEqual(result.returncode, want_status, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.count("Skipping git push"),
+                                     (2 if target == "all" else 1) if test_env["DRY_RUN"] else 0)
                     recorded = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
                     phases = 2 if script_name == "prepare_pull.sh" and test_env["TARGET"] == "all" else 1
                     expected_calls = want_calls * phases if want_status == 0 else want_calls
