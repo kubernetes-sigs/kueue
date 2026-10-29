@@ -808,6 +808,137 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"RayCluster with NumOfHosts > 1": {
+			initObjects: []client.Object{
+				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
+			},
+			job: *baseJobWrapper.Clone().
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				WithNumOfHosts("workers-group-0", 2).
+				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
+				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("head-container").
+										Obj(),
+								},
+							}).
+							Obj(),
+						*utiltestingapi.MakePodSet("workers-group-0", 2).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("worker-container").
+										WithResourceReq(corev1.ResourceCPU, "10").
+										Obj(),
+								},
+							}).
+							Obj(),
+					).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("head").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+									Count(2).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("workers-group-0").
+									Count(2).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("head-container").
+										Obj(),
+								},
+							}).
+							Obj(),
+						*utiltestingapi.MakePodSet("workers-group-0", 2).
+							PodSpec(corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									*utiltesting.MakeContainer().
+										Name("worker-container").
+										Obj(),
+								},
+							}).
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("head").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+									Count(2).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("workers-group-0").
+									Count(2).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
