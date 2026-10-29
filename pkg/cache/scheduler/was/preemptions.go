@@ -19,9 +19,12 @@ limitations under the License.
 package was
 
 import (
+	"cmp"
 	"iter"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -39,12 +42,15 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey], committedVictims sets.Set[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for wlKey := range candidates {
+			if committedVictims.Has(wlKey) {
+				continue
+			}
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
 			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
@@ -59,6 +65,27 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) i
 			}
 		}
 	}
+}
+
+func (s *wasSimulator) committedVictims(victimWorkloads []client.ObjectKey) []schedlib.PreemptionVictim {
+	cv := make([]*preemptionVictim, 0)
+	for _, preemptedWlKey := range victimWorkloads {
+		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); victimPods != nil {
+			cv = append(cv, &preemptionVictim{
+				wlKey: preemptedWlKey,
+				pods:  victimPods,
+			})
+		}
+	}
+	slices.SortFunc(cv, func(a, b *preemptionVictim) int {
+		return cmp.Compare(a.wlKey.String(), b.wlKey.String())
+	})
+
+	pv := make([]schedlib.PreemptionVictim, len(cv))
+	for i, v := range cv {
+		pv[i] = v
+	}
+	return pv
 }
 
 func toPreemptionVictims(victims []schedlib.PreemptionVictim) []client.ObjectKey {
