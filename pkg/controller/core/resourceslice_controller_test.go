@@ -20,41 +20,57 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func testResourceSliceConfig() *configapi.Configuration {
+	selector := resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}}
 	return &configapi.Configuration{
 		Resources: &configapi.Resources{
 			DeviceClassMappings: []configapi.DeviceClassMapping{
 				{
-					Name: "example.com/a-capacity",
+					Name:             "example.com/a-capacity",
+					DeviceClassNames: []corev1.ResourceName{"class-a"},
 					Sources: []configapi.DeviceClassSourceConfig{
-						{Counter: &configapi.DeviceClassCounterSource{Driver: "driver-a.example.com"}},
+						{Counter: &configapi.DeviceClassCounterSource{
+							Name: "gpu", Driver: "driver-a.example.com", DeviceSelector: selector,
+						}},
 					},
 				},
 				{
-					Name: "example.com/b-capacity",
+					Name:             "example.com/b-capacity",
+					DeviceClassNames: []corev1.ResourceName{"class-b"},
 					Sources: []configapi.DeviceClassSourceConfig{
-						{Capacity: &configapi.DeviceClassCapacitySource{Driver: "driver-b.example.com"}},
+						{Capacity: &configapi.DeviceClassCapacitySource{
+							Name: "example.com/capacity", Driver: "driver-b.example.com", DeviceSelector: selector,
+						}},
 					},
 				},
 				{
-					Name: "example.com/shared",
+					Name:             "example.com/shared",
+					DeviceClassNames: []corev1.ResourceName{"class-shared"},
 					Sources: []configapi.DeviceClassSourceConfig{
-						{Counter: &configapi.DeviceClassCounterSource{Driver: "driver-a.example.com"}},
-						{Capacity: &configapi.DeviceClassCapacitySource{Driver: "driver-b.example.com"}},
+						{Capacity: &configapi.DeviceClassCapacitySource{
+							Name: "example.com/capacity", Driver: "driver-a.example.com", DeviceSelector: selector,
+						}},
+						{Capacity: &configapi.DeviceClassCapacitySource{
+							Name: "example.com/capacity", Driver: "driver-b.example.com", DeviceSelector: selector,
+						}},
 					},
 				},
 			},
@@ -79,6 +95,8 @@ func TestResourceSliceDriverEventRequests(t *testing.T) {
 	}
 	if !r.Create(event.TypedCreateEvent[*resourcev1.ResourceSlice]{Object: a}) ||
 		!r.Update(event.TypedUpdateEvent[*resourcev1.ResourceSlice]{ObjectOld: a, ObjectNew: b}) ||
+		!r.Update(event.TypedUpdateEvent[*resourcev1.ResourceSlice]{ObjectOld: a, ObjectNew: unknown}) ||
+		!r.Update(event.TypedUpdateEvent[*resourcev1.ResourceSlice]{ObjectOld: unknown, ObjectNew: b}) ||
 		!r.Delete(event.TypedDeleteEvent[*resourcev1.ResourceSlice]{Object: b}) {
 		t.Fatal("configured driver event should pass predicate")
 	}
@@ -128,5 +146,91 @@ func TestResourceSliceDriverMappedClusterQueues(t *testing.T) {
 		!r.quotaResourcesByDriver["driver-a.example.com"].Has(corev1.ResourceName("example.com/shared")) ||
 		!r.quotaResourcesByDriver["driver-b.example.com"].Has(corev1.ResourceName("example.com/shared")) {
 		t.Fatal("shared mapping missing from one or more drivers")
+	}
+}
+
+func TestResourceSliceReconcileRetriesOnlyAffectedDriver(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		driver           string
+		wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		{
+			name:   "driver A does not retry driver B",
+			driver: "driver-a.example.com",
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-b": {workload.NewReference("ns", "b-wl")},
+			},
+		},
+		{
+			name:   "driver B does not retry driver A",
+			driver: "driver-b.example.com",
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-a": {workload.NewReference("ns", "a-wl")},
+			},
+		},
+		{
+			name:   "unknown driver does not retry any queue",
+			driver: "unknown.example.com",
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-a": {workload.NewReference("ns", "a-wl")},
+				"cq-b": {workload.NewReference("ns", "b-wl")},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+			cqA := utiltestingapi.MakeClusterQueue("cq-a").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/a-capacity", "10").Obj()).Obj()
+			cqB := utiltestingapi.MakeClusterQueue("cq-b").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/b-capacity", "10").Obj()).Obj()
+			lqA := utiltestingapi.MakeLocalQueue("lq-a", "ns").ClusterQueue("cq-a").Obj()
+			lqB := utiltestingapi.MakeLocalQueue("lq-b", "ns").ClusterQueue("cq-b").Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(
+					utiltesting.MakeNamespace("ns"),
+					flavor, lqA, lqB,
+					utiltestingapi.MakeWorkload("a-wl", "ns").Queue("lq-a").Request("example.com/a-capacity", "1").Obj(),
+					utiltestingapi.MakeWorkload("b-wl", "ns").Queue("lq-b").Request("example.com/b-capacity", "1").Obj(),
+				).Build()
+			cache := schdcache.New(cl)
+			cache.AddOrUpdateResourceFlavor(log, flavor)
+			queues, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			for _, cq := range []*kueue.ClusterQueue{cqA, cqB} {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+				if err := queues.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, lq := range []*kueue.LocalQueue{lqA, lqB} {
+				if err := queues.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Ignore notifications emitted while setting up the queues.
+			requeuer.ProcessRequeues(ctx)
+			heads := queues.Heads(ctx)
+			if len(heads) != 2 {
+				t.Fatalf("popped workload heads = %d, want 2", len(heads))
+			}
+			for _, head := range heads {
+				if !queues.RequeueWorkload(ctx, &head.Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota) {
+					t.Fatalf("could not make workload %s inadmissible", head.Obj.Name)
+				}
+			}
+
+			r := NewResourceSliceReconciler(queues, cache, testResourceSliceConfig(), nil)
+			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKey{Name: tc.driver}}); err != nil {
+				t.Fatal(err)
+			}
+			requeuer.ProcessRequeues(ctx)
+			if diff := cmp.Diff(tc.wantInadmissible, queues.DumpInadmissible()); diff != "" {
+				t.Errorf("unexpected inadmissible Workloads (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
