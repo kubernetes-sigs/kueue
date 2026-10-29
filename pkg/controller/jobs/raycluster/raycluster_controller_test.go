@@ -466,6 +466,43 @@ func TestReconciler(t *testing.T) {
 		RequestHead(corev1.ResourceCPU, "10").
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
+	evictedWorkloadWrapper := utiltestingapi.MakeWorkload("test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+				PodSpec(corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						*utiltesting.MakeContainer().
+							Name("head-container").
+							Obj(),
+					},
+				}).
+				Obj(),
+			*utiltestingapi.MakePodSet("workers-group-0", 1).
+				PodSpec(corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						*utiltesting.MakeContainer().
+							Name("worker-container").
+							WithResourceReq(corev1.ResourceCPU, "10").
+							Obj(),
+					},
+				}).
+				Obj(),
+		).
+		Request(corev1.ResourceCPU, "10").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+		Generation(1).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadEvicted,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.WorkloadDeactivated,
+			Message:            "The workload was deactivated",
+			ObservedGeneration: 1,
+		}).
+		AdmittedAt(true, now.Add(-time.Second))
+
 	cases := map[string]struct {
 		reconcilerOptions            []jobframework.Option
 		job                          rayv1.RayCluster
@@ -619,43 +656,7 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(suspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("head-container").
-										Obj(),
-								},
-							}).
-							Obj(),
-						*utiltestingapi.MakePodSet("workers-group-0", 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("worker-container").
-										WithResourceReq(corev1.ResourceCPU, "10").
-										Obj(),
-								},
-							}).
-							Obj(),
-					).
-					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
-					Generation(1).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadEvicted,
-						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadDeactivated,
-						Message:            "The workload was deactivated",
-						ObservedGeneration: 1,
-					}).
-					AdmittedAt(true, now.Add(-time.Second)).
-					Obj(),
+				*evictedWorkloadWrapper.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -730,82 +731,10 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(notSuspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("head-container").
-										Obj(),
-								},
-							}).
-							Obj(),
-						*utiltestingapi.MakePodSet("workers-group-0", 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("worker-container").
-										WithResourceReq(corev1.ResourceCPU, "10").
-										Obj(),
-								},
-							}).
-							Obj(),
-					).
-					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
-					Generation(1).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadEvicted,
-						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadDeactivated,
-						Message:            "The workload was deactivated",
-						ObservedGeneration: 1,
-					}).
-					AdmittedAt(true, now.Add(-time.Second)).
-					Obj(),
+				*evictedWorkloadWrapper.Clone().Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("head-container").
-										Obj(),
-								},
-							}).
-							Obj(),
-						*utiltestingapi.MakePodSet("workers-group-0", 1).
-							PodSpec(corev1.PodSpec{
-								RestartPolicy: corev1.RestartPolicyNever,
-								Containers: []corev1.Container{
-									*utiltesting.MakeContainer().
-										Name("worker-container").
-										WithResourceReq(corev1.ResourceCPU, "10").
-										Obj(),
-								},
-							}).
-							Obj(),
-					).
-					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
-					Generation(1).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadEvicted,
-						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadDeactivated,
-						Message:            "The workload was deactivated",
-						ObservedGeneration: 1,
-					}).
-					AdmittedAt(true, now.Add(-time.Second)).
-					Obj(),
+				*evictedWorkloadWrapper.Clone().Obj(),
 			},
 		},
 		"RayCluster with NumOfHosts > 1": {
