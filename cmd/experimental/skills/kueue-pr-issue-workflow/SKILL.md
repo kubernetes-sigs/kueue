@@ -29,9 +29,15 @@ requirements below come from `.github/PULL_REQUEST_TEMPLATE.md` and `.github/ISS
 - Inspect `.github/ISSUE_TEMPLATE/`, select the single template that best
   matches the issue type, and read it in full.
 - Apply all labels specified in the selected template's `labels` field,
-  including every `kind/*` label when multiple are listed.
+  including every `kind/*` label when multiple are listed. GitHub applies
+  template labels only through the web form, so `gh issue create` must pass
+  each label with `--label`. The REST API must send each label in the request
+  body's `labels` array.
 - Fill its existing sections. Preserve their titles and order; do not add,
   remove, rename, or combine sections.
-- Start the title with the emoji from the template's `title` field.
+- Start the title with the emoji representing the issue type from the template's
+  `title` field (for example, `🧹 ` or `🐛 `). GitHub pre-fills the title only
+  in the web form, so `gh issue create` and API callers must explicitly include
+  the emoji in the title.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
