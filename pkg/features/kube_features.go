@@ -78,8 +78,9 @@ const (
 	// owner: @mukund-wayve
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/9406
 	//
-	// In fair sharing preemption, allow preemption when the preemptor CQ
-	// is within nominal quota for contested resources, bypassing DRS gates.
+	// In fair sharing preemption, allow preemption when the preemptor's
+	// AlmostLCA with the target is within nominal quota for the requested
+	// resources, bypassing DRS gates.
 	FairSharingPreemptWithinNominal featuregate.Feature = "FairSharingPreemptWithinNominal"
 
 	// owner: @mukund-wayve
@@ -226,13 +227,6 @@ const (
 	// regardless of pod state. When disabled, node replacement is driven solely
 	// by pod termination. Sunset gate: deprecated and off by default from 0.19.
 	TASReplaceNodeDueToNotReadyOverFixedTime featuregate.Feature = "TASReplaceNodeDueToNotReadyOverFixedTime"
-
-	// owner: @PannagaRao
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3589-manage-jobs-selectively
-	//
-	// Enforces that even Jobs with a queue-name label are only reconciled if their namespace
-	// matches managedJobsNamespaceSelector.
-	ManagedJobsNamespaceSelectorAlwaysRespected featuregate.Feature = "ManagedJobsNamespaceSelectorAlwaysRespected"
 
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -1055,11 +1049,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASReplaceNodeDueToNotReadyOverFixedTime: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Deprecated},
-	},
-	ManagedJobsNamespaceSelectorAlwaysRespected: {
-		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 	TASBalancedPlacement: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -125,6 +126,105 @@ func TestSanitizeProvisioningRequestPodTemplate(t *testing.T) {
 	}
 }
 
+func TestFindDanglingVolumeMounts(t *testing.T) {
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	cases := map[string]struct {
+		spec corev1.PodSpec
+		want []string
+	}{
+		"no volume mounts": {
+			spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}},
+		},
+		"mount with existing volume": {
+			spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{pvc},
+				Containers: []corev1.Container{{
+					Name:         "c",
+					VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
+				}},
+			},
+		},
+		"mount used only by an init container": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Name:         "init",
+					VolumeMounts: []corev1.VolumeMount{{Name: "scratch", MountPath: "/scratch"}},
+				}},
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+			want: []string{"scratch"},
+		},
+		"mounts without volume in init and regular containers are reported once each": {
+			spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{pvc},
+				InitContainers: []corev1.Container{{
+					Name:         "init",
+					VolumeMounts: []corev1.VolumeMount{{Name: "state", MountPath: "/state"}},
+				}},
+				Containers: []corev1.Container{
+					{
+						Name: "c1",
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: "data", MountPath: "/data"},
+							{Name: "state", MountPath: "/state"},
+							{Name: "cache", MountPath: "/cache"},
+						},
+					},
+					{
+						Name:         "c2",
+						VolumeMounts: []corev1.VolumeMount{{Name: "cache", MountPath: "/cache", SubPath: "c2"}},
+					},
+				},
+			},
+			want: []string{"state", "cache"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := findDanglingVolumeMounts(&tc.spec)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected dangling volume mounts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAddPlaceholderVolumes(t *testing.T) {
+	emptyDir := func(name string) corev1.Volume {
+		return corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}}
+	}
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	cases := map[string]struct {
+		names       []string
+		wantVolumes []corev1.Volume
+	}{
+		"no names": {
+			wantVolumes: []corev1.Volume{pvc},
+		},
+		"names are appended as emptyDir volumes": {
+			names:       []string{"state", "cache"},
+			wantVolumes: []corev1.Volume{pvc, emptyDir("state"), emptyDir("cache")},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := corev1.PodSpec{Volumes: []corev1.Volume{pvc}}
+			addPlaceholderVolumes(&spec, tc.names)
+			if diff := cmp.Diff(tc.wantVolumes, spec.Volumes); diff != "" {
+				t.Errorf("Unexpected volumes (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClearStaleAdmissionAnnotations(t *testing.T) {
 	template := corev1.PodTemplateSpec{
 		Annotations: map[string]string{
@@ -181,7 +281,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 
 	cases := map[string]struct {
 		wl              *kueue.Workload
-		previousCounts  map[kueue.PodSetReference]int32
+		previousCounts  workload.PodSetsCounts
 		wantPodSetNames []kueue.PodSetReference
 		wantCounts      []int32
 	}{
@@ -192,7 +292,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"elastic worker scale-up omits unchanged head": {
 			wl: makeWL(1, 2),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 0,
 			},
@@ -201,7 +301,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"elastic worker scale 2 to 4 requests only the increment": {
 			wl: makeWL(1, 4),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 2,
 			},
@@ -210,7 +310,7 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 		},
 		"fully covered previous counts request nothing": {
 			wl: makeWL(1, 2),
-			previousCounts: map[kueue.PodSetReference]int32{
+			previousCounts: workload.PodSetsCounts{
 				"head":    1,
 				"default": 2,
 			},
@@ -268,12 +368,12 @@ func TestPreviousSlicePodSetCounts(t *testing.T) {
 	cases := map[string]struct {
 		featureEnabled bool
 		current        *kueue.Workload
-		wantCounts     map[kueue.PodSetReference]int32
+		wantCounts     workload.PodSetsCounts
 	}{
 		"elastic workload with the feature enabled gets the admitted baseline": {
 			featureEnabled: true,
 			current:        elastic,
-			wantCounts:     map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts:     workload.PodSetsCounts{"workers": 2},
 		},
 		"feature disabled requests the full size": {
 			featureEnabled: false,
@@ -702,6 +802,14 @@ func TestReconcile(t *testing.T) {
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
+	check2 := utiltestingapi.MakeAdmissionCheck("check2").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
+		Obj()
+	check2Request := baseRequest.DeepCopy()
+	check2Request.Name = "wl-check2-1"
+	check2Request.Spec.PodSets[0].PodTemplateRef.Name = "ppt-wl-check2-1-ps1"
+	check2Request.Spec.PodSets[1].PodTemplateRef.Name = "ppt-wl-check2-1-ps2"
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
 		{
@@ -2016,6 +2124,65 @@ func TestReconcile(t *testing.T) {
 			wantRequestsNotFound: []string{
 				ProvisioningRequestName("wl", "check1", 1),
 				ProvisioningRequestName("wl", "check2", 1),
+			},
+		},
+		"when check1 is ready without a request; check2 is still synced from its provisioned request": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				}, kueue.AdmissionCheckState{
+					Name:  "check2",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy(), *check2.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(check2Request, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+					}, kueue.AdmissionCheckState{
+						Name:    "check2",
+						Message: "By test",
+						State:   kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "ps1",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check2-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+							{
+								Name: "ps2",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check2-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+						},
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "UpdatedAdmissionCheck",
+					Message:   `Admission check check2 updated state from Pending to Ready with message: By test`,
+				},
 			},
 		},
 		"workloads status gets updated based on the provisioning request": {

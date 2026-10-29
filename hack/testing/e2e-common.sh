@@ -96,10 +96,44 @@ function e2e_is_truthy {
     esac
 }
 
-# Returns success when the kind node Kubernetes version supports image volumes,
-# which are Beta and enabled by default from v1.35.
-function e2e_supports_image_volume {
-    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
+# Runs a step and logs how long it took, so CI logs show where e2e time goes.
+# The fields follow the make-timing lines from hack/make-timed-shell.sh:
+#   e2e-timing: started=2026-10-24T05:47:19Z finished=2026-10-24T05:48:01Z status=0 duration=42s step=kind/install_jobset
+# Callers must run with errexit on and invoke it as a plain command, not inside
+# "if", "&&" or "||": bash disables errexit for the whole function there, so a
+# failing step would keep running and be logged as status=0.
+# A failing step exits the script before its timing line; an EXIT trap that calls
+# e2e_timed_log_unfinished logs it instead. The trap only sees steps run in its
+# own shell, not in a background job or a subshell.
+# $1 label (prefix with the cluster or kubeconfig file name when several clusters run the step)
+# $2... command and its arguments
+function e2e_timed {
+    local label=$1
+    shift
+    local start=$SECONDS
+    local started_at
+    started_at=$(e2e_timestamp)
+    E2E_TIMED_STEP=$label
+    E2E_TIMED_START=$start
+    E2E_TIMED_STARTED_AT=$started_at
+    "$@"
+    E2E_TIMED_STEP=""
+    echo "e2e-timing: started=${started_at} finished=$(e2e_timestamp) status=0 duration=$((SECONDS - start))s step=${label}"
+}
+
+# Logs the e2e_timed step that was still running when the script exited, with
+# the script's exit status. Call it first in the EXIT trap, before cleanup adds
+# to the duration.
+# $1 exit status of the script
+function e2e_timed_log_unfinished {
+    if [[ -n ${E2E_TIMED_STEP:-} ]]; then
+        echo "e2e-timing: started=${E2E_TIMED_STARTED_AT} finished=$(e2e_timestamp) status=$1 duration=$((SECONDS - E2E_TIMED_START))s step=${E2E_TIMED_STEP}"
+    fi
+}
+
+# Prints the current UTC time in the format hack/make-timed-shell.sh uses.
+function e2e_timestamp {
+    date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
 # Returns success when a failed `docker pull` is worth another attempt.
@@ -298,7 +332,7 @@ if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|manag
     export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
-if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
@@ -340,7 +374,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -359,15 +393,9 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
-    # enabled by default, so the official image can be mounted directly; on older versions we
-    # use the self-built image whose binary an init container copies into a shared volume,
-    # because the official image does not ship a "cp" command.
-    if e2e_supports_image_volume; then
-        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
-    else
-        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
-    fi
+    # Image volumes are enabled by default on all tested k8s versions (Beta from 1.35), so the
+    # official secretreader image is mounted directly into the Kueue manager pod.
+    export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
@@ -712,7 +740,7 @@ function prepare_docker_images {
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${JOBSET_IMAGE}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -739,7 +767,7 @@ function prepare_docker_images {
             E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -780,51 +808,51 @@ function kind_load {
     local e2e_cluster_name=$1
     local e2e_kubeconfig=$2
 
-    cluster_kind_load "${e2e_cluster_name}"
+    e2e_timed "${e2e_cluster_name}/load_images" cluster_kind_load "${e2e_cluster_name}"
 
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_appwrapper" install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        e2e_timed "${e2e_cluster_name}/install_jobset" install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         # In order for MPI-operator and Training-operator to work on the same cluster it is required that:
         # 1. 'kubeflow.org_mpijobs.yaml' is removed from base/crds/kustomization.yaml - https://github.com/kubeflow/training-operator/issues/1930
         # 2. Training-operator deployment is modified to enable all kubeflow jobs except for mpi -  https://github.com/kubeflow/training-operator/issues/1777
-        install_kubeflow "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_kubeflow" install_kubeflow "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
     if [[ -n ${KUBEFLOW_TRAINER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(tas|trainjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kubeflow_trainer "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_kubeflow_trainer" install_kubeflow_trainer "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
 
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_mpi" install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+        e2e_timed "${e2e_cluster_name}/install_lws" install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_kuberay" install_kuberay "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_sparkoperator "$1" "$2"
+        e2e_timed "${e2e_cluster_name}/install_sparkoperator" install_sparkoperator "$1" "$2"
     fi
     if [[ -n ${CERTMANAGER_VERSION:-} ]]; then
-        install_cert_manager "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_cert_manager" install_cert_manager "${e2e_kubeconfig}"
     fi
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
-        install_prometheus_operator "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_prometheus_operator" install_prometheus_operator "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
-        install_multicluster "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_multicluster" install_multicluster "${e2e_kubeconfig}"
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_dra_example_driver" install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
-        install_provisioning_request_crds "${e2e_kubeconfig}"
+        e2e_timed "${e2e_cluster_name}/install_provisioning_request_crds" install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
 
@@ -1001,7 +1029,7 @@ function cluster_kueue_deploy {
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/config/networkpolicy"
     fi
 
-    wait_for_kueue_controller_operator "$1"
+    e2e_timed "${1:+$(basename "$1")/}kueue_wait_ready" wait_for_kueue_controller_operator "$1"
 }
 
 # $1 kubeconfig

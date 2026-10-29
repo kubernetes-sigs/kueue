@@ -18,6 +18,7 @@ import (
 	"slices"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // AlmostLCA is defined on two ClusterQueues, as the two nodes before
@@ -25,6 +26,10 @@ import (
 // is always a Cohort, AlmostLCA may be a ClusterQueue or a Cohort.
 type AlmostLCA interface {
 	DominantResourceShare() schdcache.DRS
+	// BorrowingWith reports whether usage of the flavor-resource, plus
+	// the given amount, exceeds the node's nominal quota (SubtreeQuota
+	// for a Cohort).
+	BorrowingWith(resources.FlavorResource, resources.Amount) bool
 }
 
 // AlmostLCAs returns AlmostLCAs of (preemptor, target).

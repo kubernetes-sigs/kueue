@@ -233,7 +233,6 @@ func assertJSONString(t *testing.T, fields map[string]any, key string) {
 // evaluation into that entry's strategyEvaluations array, only when V(4) is
 // enabled, and with every DominantResourceShare serialized as a JSON string.
 func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
-	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		enabledUpToV     int                 // logger is enabled up to this logr V-level (4 = strategy log on, 3 = off).
 		cqs              []fsLogClusterQueue // candidate ClusterQueues to seed the fixture with.
@@ -281,7 +280,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 		},
 		"serializes an infinite DRS (zero FairSharing weight) as a JSON string": {
 			enabledUpToV:        4,
-			cqs:                 []fsLogClusterQueue{{name: "b", candidates: 3, fairWeight: &zeroWeight}},
+			cqs:                 []fsLogClusterQueue{{name: "b", candidates: 3, fairWeight: new(resource.MustParse("0"))}},
 			wantEntries:         1,
 			wantEvaluationsByCQ: map[string]int{"b": 3},
 			wantDRSJSONStrings:  true,
@@ -450,13 +449,12 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 // serializes its DominantResourceShare values as JSON strings, for both finite
 // and +Inf DRS.
 func TestIterateWithSecondFsStrategyLog(t *testing.T) {
-	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		fairWeight         *resource.Quantity
 		wantTargetOldShare string
 	}{
 		"finite DRS":   {fairWeight: nil, wantTargetOldShare: "1000"},
-		"infinite DRS": {fairWeight: &zeroWeight, wantTargetOldShare: "+Inf"},
+		"infinite DRS": {fairWeight: new(resource.MustParse("0")), wantTargetOldShare: "+Inf"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

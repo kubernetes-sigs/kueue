@@ -127,6 +127,7 @@ type preemptionCtx struct {
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
 	tasRequests           schdcache.WorkloadTASRequests
+	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
 }
@@ -203,6 +204,7 @@ func (p *Preemptor) buildContext(
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
+		assignment:        assignment,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
@@ -357,10 +359,11 @@ func messageAndUnderlyingCause(
 
 			return message, underlyingCause
 		}
-		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+		// Not expected: the configurable preemption evaluator always sets this data, so
+		// reaching this point means an invariant is broken. Fall back to the default message.
+		log.V(1).Info("Configurable preemption reason data is missing; using default message",
 			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
 			"preemptingWorkload", klog.KObj(preemptor.Obj))
-		// fallback to default behavior
 	}
 
 	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
@@ -389,7 +392,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
 				if strategy.verify != nil {
 					if valid, reason := strategy.verify(targets); !valid {
-						if logV := log.V(6); logV.Enabled() {
+						if logV := log.V(5); logV.Enabled() {
 							logV.Info("Discarding preemption targets: strategy verification failed",
 								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 								"targets", logging.GetObjectReferences(targets),
@@ -399,8 +402,8 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 					}
 				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
-				if logV := log.V(6); logV.Enabled() {
-					logV.Info("Preemption succeeded",
+				if logV := log.V(5); logV.Enabled() {
+					logV.Info("Preemption target search succeeded",
 						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 						"targets", logging.GetObjectReferences(targets))
 				}
@@ -409,9 +412,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		}
 		restoreSnapshot(strategy.pCtx.snapshot, targets)
 	}
-	if logV := log.V(6); logV.Enabled() {
-		logV.Info("All preemption strategies failed")
-	}
+	log.V(5).Info("Preemption target search found no suitable targets")
 	return nil
 }
 
@@ -585,8 +586,9 @@ func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workload, given the simulated usage of the snapshot. It always succeeds if the
 // workload has no topology requests.
 func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) bool {
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
+	tasResult := preemptionCtx.assignment.FindTopologyAssignments(
 		ctx,
+		preemptionCtx.preemptorCQ,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
 	)
@@ -605,21 +607,16 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInRequestedResources checks whether the preemptor CQ's
-// usage is at or below nominal quota (usage <= nominal) for all positive
-// flavor-resource requests assigned to the incoming workload.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is that
-// this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
+// requestedFlavorResources returns the flavor-resources with a positive
+// request assigned to the incoming workload.
+func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
+	frs := sets.New[resources.FlavorResource]()
 	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if request.CmpInt64(0) <= 0 {
-			continue
-		}
-		if preemptionCtx.preemptorCQ.Borrowing(fr) {
-			return false
+		if request.CmpInt64(0) > 0 {
+			frs.Insert(fr)
 		}
 	}
-	return true
+	return frs
 }
 
 // buildCQPath constructs a path like "/parent/.../cq" for a given ClusterQueue snapshot.

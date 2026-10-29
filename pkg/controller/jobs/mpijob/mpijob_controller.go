@@ -149,6 +149,11 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		// With runLauncherAsWorker, Worker indexes start from 1, which matches
+		// the PodSet group offset.
+		if !ptr.Deref(j.Spec.RunLauncherAsWorker, false) {
+			jobframework.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
+		}
 	}
 	return nil
 }
@@ -200,7 +205,7 @@ func (j *MPIJob) PriorityClass() string {
 	return ""
 }
 
-func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == kfmpi.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
