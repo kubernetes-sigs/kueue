@@ -52,6 +52,11 @@ var (
 		Status: metav1.ConditionTrue,
 		Reason: string(rayv1.RayClusterSuspended),
 	}
+	notSuspendedCondition = metav1.Condition{
+		Type:   string(rayv1.RayClusterSuspended),
+		Status: metav1.ConditionFalse,
+		Reason: string(rayv1.RayClusterSuspended),
+	}
 	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(rayv1.RayCluster{}, "TypeMeta", "ObjectMeta"),
@@ -410,12 +415,11 @@ func TestIsActive(t *testing.T) {
 	}{
 		"not yet reconciled by KubeRay": {
 			job:  testingrayutil.MakeCluster("job", "ns").Obj(),
-			want: true,
+			want: false,
 		},
 		"suspending, pods may still exist": {
 			job: testingrayutil.MakeCluster("job", "ns").
 				Suspend(true).
-				State(rayv1.Ready).
 				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspending), Status: metav1.ConditionTrue}).
 				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionFalse}).
 				Obj(),
@@ -424,7 +428,6 @@ func TestIsActive(t *testing.T) {
 		"suspended": {
 			job: testingrayutil.MakeCluster("job", "ns").
 				Suspend(true).
-				State(rayv1.Suspended).
 				StatusConditions(suspendedCondition).
 				Obj(),
 			want: false,
@@ -432,22 +435,7 @@ func TestIsActive(t *testing.T) {
 		"resumed, state still suspended until all pods are running": {
 			job: testingrayutil.MakeCluster("job", "ns").
 				Suspend(false).
-				State(rayv1.Suspended).
-				StatusConditions(metav1.Condition{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionFalse}).
-				Obj(),
-			want: true,
-		},
-		"no status conditions, state suspended": {
-			job: testingrayutil.MakeCluster("job", "ns").
-				Suspend(true).
-				State(rayv1.Suspended).
-				Obj(),
-			want: false,
-		},
-		"no status conditions, state ready": {
-			job: testingrayutil.MakeCluster("job", "ns").
-				Suspend(true).
-				State(rayv1.Ready).
+				StatusConditions(notSuspendedCondition).
 				Obj(),
 			want: true,
 		},
@@ -624,6 +612,7 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				StatusConditions(notSuspendedCondition).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
@@ -727,29 +716,21 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"RayCluster with NumOfHosts > 1": {
+		"when an admitted workload is evicted, keep quota while KubeRay is suspending the cluster": {
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			job: *baseJobWrapper.Clone().
-				WithNumOfHosts("workers-group-0", 2).
-				Obj(),
-			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
-				WithNumOfHosts("workers-group-0", 2).
-				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
-				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
-				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
-				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
-				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
-				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "test").
-				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "test").
+				StatusConditions(notSuspendedCondition).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				StatusConditions(notSuspendedCondition).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
-					Queue(localQueueName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -762,7 +743,7 @@ func TestReconciler(t *testing.T) {
 								},
 							}).
 							Obj(),
-						*utiltestingapi.MakePodSet("workers-group-0", 2).
+						*utiltestingapi.MakePodSet("workers-group-0", 1).
 							PodSpec(corev1.PodSpec{
 								RestartPolicy: corev1.RestartPolicyNever,
 								Containers: []corev1.Container{
@@ -775,37 +756,20 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
-							PodSets(
-								utiltestingapi.MakePodSetAssignment("head").
-									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-									Count(2).
-									Obj(),
-								utiltestingapi.MakePodSetAssignment("workers-group-0").
-									Count(2).
-									Obj(),
-							).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "head",
-							},
-							{
-								Name: "workers-group-0",
-							},
-						},
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("a", "ns").
-					Queue(localQueueName).
+				*utiltestingapi.MakeWorkload("test", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -818,43 +782,29 @@ func TestReconciler(t *testing.T) {
 								},
 							}).
 							Obj(),
-						*utiltestingapi.MakePodSet("workers-group-0", 2).
+						*utiltestingapi.MakePodSet("workers-group-0", 1).
 							PodSpec(corev1.PodSpec{
 								RestartPolicy: corev1.RestartPolicyNever,
 								Containers: []corev1.Container{
 									*utiltesting.MakeContainer().
 										Name("worker-container").
+										WithResourceReq(corev1.ResourceCPU, "10").
 										Obj(),
 								},
 							}).
 							Obj(),
 					).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
-							PodSets(
-								utiltestingapi.MakePodSetAssignment("head").
-									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
-									Count(2).
-									Obj(),
-								utiltestingapi.MakePodSetAssignment("workers-group-0").
-									Count(2).
-									Obj(),
-							).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "head",
-							},
-							{
-								Name: "workers-group-0",
-							},
-						},
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadDeactivated,
+						Message:            "The workload was deactivated",
+						ObservedGeneration: 1,
 					}).
+					AdmittedAt(true, now.Add(-time.Second)).
 					Obj(),
 			},
 		},
@@ -873,7 +823,7 @@ func TestReconciler(t *testing.T) {
 							}
 							rayCluster, isRayCluster := obj.(*rayv1.RayCluster)
 							if tc.simulateSuspensionCompletion && isRayCluster && (*RayCluster)(rayCluster).IsSuspended() {
-								rayCluster.Status.Conditions = append(rayCluster.Status.Conditions, suspendedCondition)
+								rayCluster.Status.Conditions = []metav1.Condition{suspendedCondition}
 								return c.Status().Update(ctx, rayCluster)
 							}
 							return nil

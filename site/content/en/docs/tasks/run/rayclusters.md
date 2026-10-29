@@ -13,7 +13,10 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
+1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.3.0 or newer.
+   Kueue relies on the `RayClusterSuspended` status condition to release quota only after
+   all Pods of a suspended RayCluster are deleted, so keep the KubeRay `RayClusterStatusConditions`
+   feature gate enabled (the default).
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
