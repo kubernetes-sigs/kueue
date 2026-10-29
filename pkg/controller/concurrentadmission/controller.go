@@ -405,6 +405,14 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 		v := &variants[i]
 		evCond := apimeta.FindStatusCondition(v.Status.Conditions, kueue.WorkloadEvicted)
 		if evCond != nil && evCond.Status == metav1.ConditionTrue && workload.HasQuotaReservation(v) {
+			// A deactivated variant lost the race, so release its quota without touching the parent.
+			if !workload.IsActive(v) {
+				log.V(2).Info("Variant is not active, clearing variant admission", "variant", klog.KObj(v))
+				if err := r.clearWorkloadAdmission(ctx, v, evCond); err != nil {
+					return false, fmt.Errorf("clearing variant admission: %w", err)
+				}
+				continue
+			}
 			if workload.HasQuotaReservation(parent) {
 				if !workloadevict.IsEvicted(parent) {
 					log.V(2).Info("Evicting parent", "parent", klog.KObj(parent))
