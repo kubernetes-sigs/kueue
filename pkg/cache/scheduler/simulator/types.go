@@ -17,11 +17,13 @@ limitations under the License.
 package simulator
 
 import (
+	"fmt"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -100,19 +102,26 @@ type ScheduleOptions struct {
 	// SimulateEmpty configures the simulator to schedule the workload against
 	// a cluster snapshot containing only Pods not managed by Kueue.
 	SimulateEmpty bool
+	// CommittedPreemptionVictims lists the ObjectKeys of workloads that have
+	// already been established as preemption targets/victims.
+	// The list should never contain duplicate keys.
+	CommittedPreemptionVictims []client.ObjectKey
 }
 
 type ScheduleOption func(*ScheduleOptions)
 
 // BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
-func BuildScheduleOptions(options ...ScheduleOption) ScheduleOptions {
-	var opts ScheduleOptions
+func BuildScheduleOptions(options []ScheduleOption) (*ScheduleOptions, error) {
+	opts := &ScheduleOptions{}
 	for _, opt := range options {
 		if opt != nil {
-			opt(&opts)
+			opt(opts)
 		}
 	}
-	return opts
+	if err := validateCommittedVictims(opts); err != nil {
+		return nil, err
+	}
+	return opts, nil
 }
 
 // WithPreemptionCandidates configures the ordered sequence of candidate workloads
@@ -138,6 +147,26 @@ func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 	return func(o *ScheduleOptions) {
 		o.SimulateEmpty = simulateEmpty
 	}
+}
+
+func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
+	return func(opts *ScheduleOptions) {
+		opts.CommittedPreemptionVictims = targets
+	}
+}
+
+func validateCommittedVictims(o *ScheduleOptions) error {
+	if len(o.CommittedPreemptionVictims) == 0 {
+		return nil
+	}
+	present := sets.New[client.ObjectKey]()
+	for _, t := range o.CommittedPreemptionVictims {
+		if present.Has(t) {
+			return fmt.Errorf("committed preemption target listed twice: %s", t)
+		}
+		present.Insert(t)
+	}
+	return nil
 }
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.

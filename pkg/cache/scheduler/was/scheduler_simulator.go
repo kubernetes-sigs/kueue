@@ -41,6 +41,8 @@ const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
+var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
+
 var (
 	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
 	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
@@ -184,7 +186,11 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
-	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+	scheduleOpts, err := simulator.BuildScheduleOptions(opts)
+	if err != nil {
+		return simulator.SchedulingResult{Error: fmt.Errorf("ScheduleWorkload() error when processing ScheduleOptions: %w", err)}
+	}
+
 	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
 	if err != nil {
 		return simulator.SchedulingResult{Error: err}
@@ -194,27 +200,34 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
-func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
 	if scheduleOpts.SimulateEmpty {
 		return s.getEmptyCluster(ctx)
 	}
 	return s.wasSnapshot, nil
 }
 
-func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
-	var schedlibFilter schedlib.PreemptionFilter
+func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
+	libOpts := schedlib.ScheduleWorkloadOptions{
+		DryRun: true,
+	}
 	if scheduleOpts.PreemptionFilter != nil {
-		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
+		libOpts.PreemptionFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
 	}
-	var potentialVictims iter.Seq[schedlib.PreemptionVictim]
 	if !scheduleOpts.SimulateEmpty {
-		potentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
 	}
-	return schedlib.ScheduleWorkloadOptions{
-		DryRun:           true,
-		PotentialVictims: potentialVictims,
-		PreemptionFilter: schedlibFilter,
+
+	for _, preemptedWlKey := range scheduleOpts.CommittedPreemptionVictims {
+		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); victimPods != nil {
+			libOpts.CommittedVictims = append(libOpts.CommittedVictims, &preemptionVictim{
+				wlKey: preemptedWlKey,
+				pods:  victimPods,
+			})
+		}
 	}
+
+	return libOpts
 }
 
 func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
