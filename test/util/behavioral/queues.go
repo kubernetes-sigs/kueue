@@ -87,7 +87,7 @@ func setLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *k
 		}
 		lqCopy.Spec.StopPolicy = policy
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set local queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &lqCopy))
+	}, Timeout, ShortInterval).Should(gomega.Succeed(), AssertMsg("Failed to set local queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &lqCopy))
 }
 
 func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
