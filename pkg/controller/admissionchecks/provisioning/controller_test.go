@@ -695,6 +695,9 @@ func TestReconcile(t *testing.T) {
 	zeroEffectiveCountPodSetWorkload := baseWorkload.DeepCopy()
 	zeroEffectiveCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = ptr.To[int32](0)
 
+	ephemeralContainersWorkload := baseWorkload.DeepCopy()
+	ephemeralContainersWorkload.Spec.PodSets[0].Template.Spec.EphemeralContainers = []corev1.EphemeralContainer{{Name: "debugger", Image: "busybox"}}
+
 	allZeroCountWorkload := zeroCountPodSetWorkload.DeepCopy()
 	allZeroCountWorkload.Spec.PodSets[0].Count = 0
 	allZeroCountWorkload.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](0)
@@ -831,6 +834,34 @@ func TestReconcile(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"drops ephemeral containers from ProvisioningRequest PodTemplates": {
+			workload: ephemeralContainersWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				ephemeralContainersWorkload.GetName(): ephemeralContainersWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(ephemeralContainersWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
 					Message:   `Created ProvisioningRequest: "wl-check1-1"`,

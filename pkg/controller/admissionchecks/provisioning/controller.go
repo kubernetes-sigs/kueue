@@ -480,6 +480,8 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
 	}
+	// PodTemplates forbid ephemeral containers, and they request no resources.
+	newPt.Template.Spec.EphemeralContainers = nil
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 
 	// set the controller reference to workload so that the template is not left orphaned
