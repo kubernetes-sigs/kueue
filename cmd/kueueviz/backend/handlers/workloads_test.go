@@ -20,9 +20,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/go-cmp/cmp"
+	"github.com/gorilla/websocket"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kueueviz/middleware"
@@ -94,13 +102,20 @@ func TestFetchWorkloadDetails(t *testing.T) {
 		Status: metav1.ConditionTrue,
 		Reason: "InClusterQueue",
 	}
+	admittedWorkload := makeWorkloadObj("ns-1", "wl-1", "lq-1")
+	admittedWorkload.Status.Admission = &kueueapi.Admission{ClusterQueue: "cq-admitted"}
+	workloadWithoutQueue := admittedWorkload.DeepCopy()
+	workloadWithoutQueue.Spec.QueueName = ""
 
 	tests := map[string]struct {
 		objs                 []ctrlclient.Object
 		funcs                *interceptor.Funcs
+		authorizer           middleware.Authorizer
 		workloadName         string
 		wantClusterQueueName string
 		wantPreemption       map[string]any
+		wantAuthCalls        int
+		wantLocalQueueGets   int
 		wantErr              bool
 	}{
 		"cluster queue name comes from the local queue": {
@@ -111,6 +126,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-a",
 			wantPreemption:       map[string]any{},
+			wantLocalQueueGets:   1,
 		},
 		"preemption condition is reported": {
 			objs: []ctrlclient.Object{
@@ -120,9 +136,84 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-a",
 			wantPreemption:       map[string]any{"preempted": true, "reason": "InClusterQueue"},
+			wantLocalQueueGets:   1,
+		},
+		"authorized local queue access returns its cluster queue": {
+			objs: []ctrlclient.Object{
+				makeWorkloadObj("ns-1", "wl-1", "lq-1"),
+				makeLocalQueue("ns-1", "lq-1", "cq-a"),
+			},
+			authorizer:           stubAuthorizer{allowed: true},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-a",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
+			wantLocalQueueGets:   1,
+		},
+		"authorized local queue takes precedence over the admission": {
+			objs: []ctrlclient.Object{
+				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-current"),
+			},
+			authorizer:           stubAuthorizer{allowed: true},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-current",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
+			wantLocalQueueGets:   1,
+		},
+		"denied local queue access does not disclose its cluster queue": {
+			objs: []ctrlclient.Object{
+				makeWorkloadObj("ns-1", "wl-1", "lq-1"),
+				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
+			},
+			authorizer:           stubAuthorizer{allowed: false},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "Unknown",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
+		},
+		"denied local queue access falls back to the admission": {
+			objs: []ctrlclient.Object{
+				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
+			},
+			authorizer:           stubAuthorizer{allowed: false},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
+		},
+		"local queue authorization error does not disclose its cluster queue": {
+			objs: []ctrlclient.Object{
+				makeWorkloadObj("ns-1", "wl-1", "lq-1"),
+				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
+			},
+			authorizer:           stubAuthorizer{allowed: true, err: errors.New("sar failed")},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "Unknown",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
+		},
+		"local queue authorization error falls back to the admission": {
+			objs: []ctrlclient.Object{
+				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
+			},
+			authorizer:           stubAuthorizer{allowed: false, err: errors.New("sar failed")},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
+			wantAuthCalls:        1,
 		},
 		"workload without queue name has unknown cluster queue": {
 			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "")},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "Unknown",
+			wantPreemption:       map[string]any{},
+		},
+		"workload without queue name does not use the admission": {
+			objs:                 []ctrlclient.Object{workloadWithoutQueue.DeepCopy()},
 			workloadName:         "wl-1",
 			wantClusterQueueName: "Unknown",
 			wantPreemption:       map[string]any{},
@@ -135,12 +226,24 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "Unknown",
 			wantPreemption:       map[string]any{},
+			wantLocalQueueGets:   1,
+		},
+		"local queue without cluster queue does not use the admission": {
+			objs: []ctrlclient.Object{
+				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", ""),
+			},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "Unknown",
+			wantPreemption:       map[string]any{},
+			wantLocalQueueGets:   1,
 		},
 		"missing local queue has unknown cluster queue": {
 			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
 			workloadName:         "wl-1",
 			wantClusterQueueName: "Unknown",
 			wantPreemption:       map[string]any{},
+			wantLocalQueueGets:   1,
 		},
 		"missing local queue falls back to the admission": {
 			objs: []ctrlclient.Object{func() ctrlclient.Object {
@@ -151,6 +254,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-a",
 			wantPreemption:       map[string]any{},
+			wantLocalQueueGets:   1,
 		},
 		"local queue get error is returned": {
 			objs: []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
@@ -162,8 +266,9 @@ func TestFetchWorkloadDetails(t *testing.T) {
 					return c.Get(ctx, key, obj, opts...)
 				},
 			},
-			workloadName: "wl-1",
-			wantErr:      true,
+			workloadName:       "wl-1",
+			wantLocalQueueGets: 1,
+			wantErr:            true,
 		},
 		"missing workload returns error": {
 			workloadName: "missing",
@@ -173,9 +278,41 @@ func TestFetchWorkloadDetails(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			h := New(newFakeClient(t, tc.funcs, tc.objs...), nil, nil)
+			var authCalls []authorizationv1.ResourceAttributes
+			var authorizer middleware.Authorizer
+			if tc.authorizer != nil {
+				authorizer = authorizerFunc(func(attrs authorizationv1.ResourceAttributes) (bool, error) {
+					authCalls = append(authCalls, attrs)
+					return tc.authorizer.Authorize(t.Context(), middleware.Identity{}, attrs)
+				})
+			}
+			localQueueGets := 0
+			funcs := &interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+					if _, ok := obj.(*kueueapi.LocalQueue); ok {
+						localQueueGets++
+					}
+					if tc.funcs != nil && tc.funcs.Get != nil {
+						return tc.funcs.Get(ctx, c, key, obj, opts...)
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			}
+			h := New(newFakeClient(t, funcs, tc.objs...), nil, authorizer)
 
-			got, err := h.fetchWorkloadDetails(t.Context(), "ns-1", tc.workloadName)
+			got, err := h.fetchWorkloadDetails(t.Context(), "ns-1", tc.workloadName, middleware.Identity{Username: "alice"})
+			if len(authCalls) != tc.wantAuthCalls {
+				t.Errorf("authorization calls = %d, want %d", len(authCalls), tc.wantAuthCalls)
+			}
+			for _, attrs := range authCalls {
+				want := middleware.ResourceAccess("get", LocalQueuesGVR(), "ns-1", "lq-1")
+				if diff := cmp.Diff(want, attrs); diff != "" {
+					t.Errorf("unexpected authorization request (-want,+got):\n%s", diff)
+				}
+			}
+			if localQueueGets != tc.wantLocalQueueGets {
+				t.Errorf("local queue gets = %d, want %d", localQueueGets, tc.wantLocalQueueGets)
+			}
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("fetchWorkloadDetails() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -208,6 +345,89 @@ func TestFetchWorkloadDetails(t *testing.T) {
 				t.Errorf("unexpected preemption (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestWorkloadDetailsWebSocketAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	identity := middleware.Identity{
+		Username: "alice",
+		UID:      "alice-uid",
+		Groups:   []string{"team-a", "system:authenticated"},
+		Extra:    map[string][]string{"scope": {"workload-viewer"}},
+	}
+	var authMu sync.Mutex
+	var authCalls []authorizationv1.ResourceAttributes
+	authorizer := identityAuthorizerFunc(func(got middleware.Identity, attrs authorizationv1.ResourceAttributes) (bool, error) {
+		if diff := cmp.Diff(identity, got); diff != "" {
+			t.Errorf("unexpected authorization identity (-want,+got):\n%s", diff)
+		}
+		authMu.Lock()
+		authCalls = append(authCalls, attrs)
+		authMu.Unlock()
+		return attrs.Resource == WorkloadsGVR().Resource, nil
+	})
+
+	var localQueueGets atomic.Int32
+	client := newFakeClient(t, &interceptor.Funcs{
+		Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+			if _, ok := obj.(*kueueapi.LocalQueue); ok {
+				localQueueGets.Add(1)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}, makeWorkloadObj("ns-1", "wl-1", "lq-1"), makeLocalQueue("ns-1", "lq-1", "cq-hidden"))
+	h := New(client, nil, authorizer)
+	h.heartbeatInterval = 0
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.ContextKeyIdentity, identity)
+		c.Next()
+	})
+	h.InitializeWebSocketRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	dialer := websocket.Dialer{Subprotocols: []string{middleware.WebSocketBaseProtocol}}
+	conn, _, err := dialer.Dial(
+		"ws"+strings.TrimPrefix(server.URL, "http")+"/ws/workload/ns-1/wl-1",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	var body struct {
+		Metadata         metav1.ObjectMeta `json:"metadata"`
+		ClusterQueueName string            `json:"clusterQueueName"`
+	}
+	if err := conn.ReadJSON(&body); err != nil {
+		t.Fatalf("read workload details: %v", err)
+	}
+	if body.Metadata.Namespace != "ns-1" || body.Metadata.Name != "wl-1" {
+		t.Errorf("workload = %s/%s, want ns-1/wl-1", body.Metadata.Namespace, body.Metadata.Name)
+	}
+	if body.ClusterQueueName != "Unknown" {
+		t.Errorf("clusterQueueName = %q, want Unknown", body.ClusterQueueName)
+	}
+	if got := localQueueGets.Load(); got != 0 {
+		t.Errorf("LocalQueue reads = %d, want 0", got)
+	}
+
+	wantCalls := []authorizationv1.ResourceAttributes{
+		middleware.ResourceAccess("get", WorkloadsGVR(), "ns-1", "wl-1"),
+		middleware.ResourceAccess("watch", WorkloadsGVR(), "ns-1", "wl-1"),
+		middleware.ResourceAccess("get", LocalQueuesGVR(), "ns-1", "lq-1"),
+	}
+	authMu.Lock()
+	defer authMu.Unlock()
+	if diff := cmp.Diff(wantCalls, authCalls); diff != "" {
+		t.Errorf("unexpected authorization requests (-want,+got):\n%s", diff)
 	}
 }
 
