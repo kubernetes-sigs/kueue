@@ -400,8 +400,6 @@ func TestReconcile(t *testing.T) {
 			State: kueue.CheckStatePending,
 		})
 
-	basePodSet := []autoscaling.PodSet{{PodTemplateRef: autoscaling.Reference{Name: "ppt-wl-check1-1-main"}, Count: 1}}
-
 	baseWorkloadWithCheck1Ready := baseWorkload.DeepCopy()
 	workloadpatching.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
 		Name:  "check1",
@@ -418,40 +416,15 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	baseFlavor2 := utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
 
-	baseRequest := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check1-1",
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
-			},
-		},
-		Spec: autoscaling.ProvisioningRequestSpec{
-			PodSets: []autoscaling.PodSet{
-				{
-					PodTemplateRef: autoscaling.Reference{
-						Name: "ppt-wl-check1-1-ps1",
-					},
-					Count: 4,
-				},
-				{
-					PodTemplateRef: autoscaling.Reference{
-						Name: "ppt-wl-check1-1-ps2",
-					},
-					Count: 3,
-				},
-			},
-			ProvisioningClassName: "class1",
-			Parameters: map[string]autoscaling.Parameter{
-				"p1": "v1",
-			},
-		},
-	}
+	workloadOwnerGVK := schema.GroupVersionKind{Group: "kueue.x-k8s.io", Version: "v1beta2", Kind: "Workload"}
+	baseRequest := utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+		OwnerReference(workloadOwnerGVK, "wl", "").
+		PodSet("ppt-wl-check1-1-ps1", 4).
+		PodSet("ppt-wl-check1-1-ps2", 3).
+		ProvisioningClass("class1").
+		WithParameter("p1", "v1").
+		Obj()
 
 	baseTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -496,7 +469,6 @@ func TestReconcile(t *testing.T) {
 		})
 
 	// Kueue-derived PodTemplates already created for this attempt (skip content Update).
-	workloadOwnerGVK := schema.GroupVersionKind{Group: "kueue.x-k8s.io", Version: "v1beta2", Kind: "Workload"}
 	identicalTemplate1 := baseTemplate1.Clone().ControllerReference(workloadOwnerGVK, "wl", "").Obj()
 	identicalTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 	identicalTemplate2 := baseTemplate2.Clone().ControllerReference(workloadOwnerGVK, "wl", "").Obj()
@@ -543,10 +515,14 @@ func TestReconcile(t *testing.T) {
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
-	check2Request := baseRequest.DeepCopy()
-	check2Request.Name = "wl-check2-1"
-	check2Request.Spec.PodSets[0].PodTemplateRef.Name = "ppt-wl-check2-1-ps1"
-	check2Request.Spec.PodSets[1].PodTemplateRef.Name = "ppt-wl-check2-1-ps2"
+	check2Request := utiltestingapi.MakeProvisioningRequest("wl-check2-1", TestNamespace).
+		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+		OwnerReference(workloadOwnerGVK, "wl", "").
+		PodSet("ppt-wl-check2-1-ps1", 4).
+		PodSet("ppt-wl-check2-1-ps2", 3).
+		ProvisioningClass("class1").
+		WithParameter("p1", "v1").
+		Obj()
 
 	allZeroCountWorkload := baseWorkload.DeepCopy()
 	for i := range allZeroCountWorkload.Spec.PodSets {
@@ -730,26 +706,12 @@ func TestReconcile(t *testing.T) {
 			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
 			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						Parameters: map[string]autoscaling.Parameter{
-							"ValidUntilSeconds": "0",
-						},
-						PodSets: basePodSet,
-					},
-				},
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					PodSet("ppt-wl-check1-1-main", 1).
+					WithParameter("ValidUntilSeconds", "0").
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -766,17 +728,9 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check2",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
-						},
-					},
-				},
+				*utiltestingapi.MakeProvisioningRequest("wl-check2", TestNamespace).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					Obj(),
 			},
 			wantWorkloads:        map[string]*kueue.Workload{baseWorkload.GetName(): baseWorkload.DeepCopy()},
 			wantRequestsNotFound: []string{"wl-check2"},
@@ -1150,11 +1104,15 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
-				func() autoscaling.ProvisioningRequest {
-					r := *baseRequest.DeepCopy()
-					r.UID = "pr-uid"
-					return r
-				}(),
+				*utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					UID("pr-uid").
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					PodSet("ppt-wl-check1-1-ps1", 4).
+					PodSet("ppt-wl-check1-1-ps2", 3).
+					ProvisioningClass("class1").
+					WithParameter("p1", "v1").
+					Obj(),
 			},
 			// Already owned by the ProvReq (matching UID): no ownership transfer.
 			templates: []corev1.PodTemplate{
@@ -1188,31 +1146,12 @@ func TestReconcile(t *testing.T) {
 			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check1-1",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-main",
-								},
-								Count: 1,
-							},
-						},
-						ProvisioningClassName: "class1",
-						Parameters: map[string]autoscaling.Parameter{
-							"p1": "v0",
-						},
-					},
-				},
+				*utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					PodSet("ppt-wl-check1-1-main", 1).
+					ProvisioningClass("class1").
+					WithParameter("p1", "v0").
+					Obj(),
 			},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): baseWorkload.DeepCopy(),
@@ -1332,35 +1271,13 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2): {
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2),
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-2-ps1",
-								},
-								Count: 4,
-							},
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-2-ps2",
-								},
-								Count: 3,
-							},
-						},
-						ProvisioningClassName: "class1",
-						Parameters: map[string]autoscaling.Parameter{
-							"p1": "v1",
-						},
-					},
-				},
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 2): utiltestingapi.MakeProvisioningRequest("wl-check1-2", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					PodSet("ppt-wl-check1-2-ps1", 4).
+					PodSet("ppt-wl-check1-2-ps2", 3).
+					ProvisioningClass("class1").
+					WithParameter("p1", "v1").
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -1513,27 +1430,12 @@ func TestReconcile(t *testing.T) {
 				baseWorkload.GetName(): baseWorkload.DeepCopy(),
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				"wl-check1-1": {
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps2",
-								},
-								Count: 3,
-							},
-						},
-						ProvisioningClassName: "class1",
-						Parameters: map[string]autoscaling.Parameter{
-							"p1": "v1",
-						},
-					},
-				},
+				"wl-check1-1": utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					PodSet("ppt-wl-check1-1-ps2", 3).
+					ProvisioningClass("class1").
+					WithParameter("p1", "v1").
+					Obj(),
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate2.Name: baseTemplate2.Clone().
@@ -1558,27 +1460,12 @@ func TestReconcile(t *testing.T) {
 				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),
 			},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				"wl-check1-1": {
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps1",
-								},
-								Count: 4,
-							},
-						},
-						ProvisioningClassName: "class1",
-						Parameters: map[string]autoscaling.Parameter{
-							"p1": "v1",
-						},
-					},
-				},
+				"wl-check1-1": utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					PodSet("ppt-wl-check1-1-ps1", 4).
+					ProvisioningClass("class1").
+					WithParameter("p1", "v1").
+					Obj(),
 			},
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.Clone().
@@ -2423,41 +2310,13 @@ func TestReconcile(t *testing.T) {
 			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalPodTemplates).Obj()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps1",
-								},
-								Count: 3,
-							},
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps3",
-								},
-								Count: 3,
-							},
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps5"},
-								Count: 1,
-							},
-						},
-					},
-				},
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					PodSet("ppt-wl-check1-1-ps1", 3).
+					PodSet("ppt-wl-check1-1-ps3", 3).
+					PodSet("ppt-wl-check1-1-ps5", 1).
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -2572,41 +2431,13 @@ func TestReconcile(t *testing.T) {
 			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
 			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantRequests: map[string]*autoscaling.ProvisioningRequest{
-				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): {
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1),
-						Labels: map[string]string{
-							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-						},
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
-						},
-					},
-					Spec: autoscaling.ProvisioningRequestSpec{
-						PodSets: []autoscaling.PodSet{
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps1",
-								},
-								Count: 3,
-							},
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps3",
-								},
-								Count: 3,
-							},
-							{
-								PodTemplateRef: autoscaling.Reference{
-									Name: "ppt-wl-check1-1-ps5"},
-								Count: 1,
-							},
-						},
-					},
-				},
+				ProvisioningRequestName("wl", kueue.AdmissionCheckReference(baseCheck.Name), 1): utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					OwnerReference(workloadOwnerGVK, "wl", "").
+					PodSet("ppt-wl-check1-1-ps1", 3).
+					PodSet("ppt-wl-check1-1-ps3", 3).
+					PodSet("ppt-wl-check1-1-ps5", 1).
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -2869,35 +2700,20 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
-	baseRequest := autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check-1",
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
-			},
-		},
-		Spec: autoscaling.ProvisioningRequestSpec{
-			PodSets: []autoscaling.PodSet{
-				{
-					PodTemplateRef: autoscaling.Reference{
-						Name: "ppt-wl-check-1-ps1",
-					},
-					Count: 4,
-				},
-			},
-			ProvisioningClassName: "class1",
-			Parameters: map[string]autoscaling.Parameter{
-				"p1": "v1",
-			},
-		},
-	}
+	baseRequest := utiltestingapi.MakeProvisioningRequest("wl-check-1", TestNamespace).
+		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+		PodSet("ppt-wl-check-1-ps1", 4).
+		ProvisioningClass("class1").
+		WithParameter("p1", "v1").
+		Obj()
 	pr1Failed := baseRequest.DeepCopy()
 	pr1Failed = requestWithCondition(pr1Failed, autoscaling.Failed, metav1.ConditionTrue)
-	pr2Created := baseRequest.DeepCopy()
-	pr2Created.Name = "wl-check-2"
+	pr2Created := utiltestingapi.MakeProvisioningRequest("wl-check-2", TestNamespace).
+		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+		PodSet("ppt-wl-check-1-ps1", 4).
+		ProvisioningClass("class1").
+		WithParameter("p1", "v1").
+		Obj()
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
@@ -2967,9 +2783,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 }
 
 func TestIsMissingInCache(t *testing.T) {
-	request := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "wl-check1-1"},
-	}
+	request := utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).Obj()
 	cases := map[string]struct {
 		requests []autoscaling.ProvisioningRequest
 		want     bool
