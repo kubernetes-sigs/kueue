@@ -42,7 +42,7 @@ type ResourceSliceReconciler struct {
 	cache    *schdcache.Cache
 	// Mapping quota resources by driver limits notifications to affected ClusterQueues.
 	quotaResourcesByDriver map[string]sets.Set[corev1.ResourceName]
-	roleTracker *roletracker.RoleTracker
+	roleTracker            *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ResourceSliceReconciler)(nil)
