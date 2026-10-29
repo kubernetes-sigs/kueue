@@ -198,12 +198,14 @@ The values you can put in the `preemptionStrategies` list are:
 - `ReclaimOnly`: Only preempt a Workload to reclaim nominal quota (rule S1 in
   [KEP-1714](https://sigs.k8s.io/kueue/keps/1714-fair-sharing#choosing-workloads-from-clusterqueues-for-preemption)).
   A Workload in another ClusterQueue is only preempted if AlmostLCA(preemptor, target), with the
-  preemptor Workload admitted, stays within its nominal quota, and AlmostLCA(target, preemptor) is
-  borrowing. Shares are still used to order admission, but they never trigger a preemption on
-  their own. Candidates are considered starting from the ClusterQueues closest to the preemptor in
-  the cohort hierarchy, so reclaiming quota from a nearby subtree can make a reclaim from a further
-  one possible. Workloads in the preemptor's own ClusterQueue can still be preempted according to
-  `withinClusterQueue`.
+  preemptor Workload admitted, stays within its nominal quota, and every cohort and ClusterQueue on
+  the path from AlmostLCA(target, preemptor) down to the target's ClusterQueue is borrowing; a
+  cohort or ClusterQueue within its nominal quota protects the Workloads below it. Shares are still
+  used to order admission, but they never trigger a preemption on their own. Candidates are
+  considered starting from the ClusterQueues farthest from the preemptor in the cohort hierarchy;
+  a level that can't be reclaimed yet is revisited after reclaiming elsewhere, so reclaiming from
+  one subtree can make a reclaim from another possible. Workloads in the preemptor's own
+  ClusterQueue can still be preempted according to `withinClusterQueue`.
 
 Kueue only supports the following `preemptionStrategies` lists:
 
@@ -222,7 +224,8 @@ The initial step of the algorithm is to identify the [Workloads that are candida
 with the same criteria and ordering as the classic preemption, and grouped by ClusterQueue.
 
 Next, the above candidates are qualified as preemption targets,
-following an algorithm that can be summarized as follows:
+following an algorithm that, for the share-based strategies (`LessThanOrEqualToFinalShare`
+and `LessThanInitialShare`), can be summarized as follows:
 
 ```
 FindFairPreemptionTargets(X ClusterQueue, W Workload)
@@ -235,3 +238,7 @@ FindFairPreemptionTargets(X ClusterQueue, W Workload)
   In the reverse order of the list of targets:
     Attempt to remove a Workload from the targets, while W still fits.
 ```
+
+`ReclaimOnly` follows the ordering described in [Preemption strategies](#preemption-strategies),
+and a Workload is only removed from the targets in the last step if the remaining targets
+still satisfy the strategy.

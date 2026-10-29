@@ -126,14 +126,22 @@ func fairPreemptionStrategy(
 		}
 	}
 
+	opts := []strategyOption{
+		withVerify(func(targets []*Target) (bool, string) {
+			return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies, preemptor.fsReclaimOnly)
+		}),
+	}
+	if preemptor.fsReclaimOnly {
+		// A ReclaimOnly target may only be valid because of the targets
+		// preempted before it, so the fill back must not drop those.
+		opts = append(opts, withVerifyFillBack())
+	}
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		yieldStrategy(newPreemptionStrategy(
 			candidatesIter,
 			allowBorrowing,
 			preemptionCtx,
-			withVerify(func(targets []*Target) (bool, string) {
-				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies, preemptor.fsReclaimOnly)
-			}),
+			opts...,
 		))
 	}
 }
@@ -150,7 +158,8 @@ func fairPreemptionStrategy(
 // preemptor's actual post-preemption share is higher than the share used to
 // justify the cross-CQ preemption, causing a preemption loop between queues (#14543).
 func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy, reclaimOnly bool) (bool, string) {
-	if !features.Enabled(features.FairSharingVerifyFinalTargets) {
+	// ReclaimOnly always verifies its targets, as the fill back relies on it.
+	if !reclaimOnly && !features.Enabled(features.FairSharingVerifyFinalTargets) {
 		return true, ""
 	}
 
@@ -252,21 +261,30 @@ func iterateFsStrategies(
 
 // iterateReclaimOnly yields candidates for the ReclaimOnly strategy (rule S1
 // in KEP-1714): a workload from another ClusterQueue is only a target if
-// preempting it reclaims nominal quota, evaluated at the AlmostLCAs of the
-// preemptor and target ClusterQueues.
+// preempting it reclaims nominal quota. The preemptor's AlmostLCA with the
+// target ClusterQueue, with the preemptor workload admitted, has to be
+// within nominal quota, and every node on the path from the target
+// ClusterQueue up to its AlmostLCA has to be borrowing. A ClusterQueue or
+// Cohort within its nominal quota at any level protects all the workloads
+// below it.
 //
-// Candidates from other ClusterQueues are considered starting from the
-// ClusterQueues closest to the preemptor in the cohort hierarchy. Removing a
-// target lowers the usage of every Cohort above it, so reclaiming from a
-// close subtree can bring the preemptor's AlmostLCA with a further
-// ClusterQueue back within nominal quota. Candidates at the same distance
-// can't affect each other's check, because the usage they free is never
-// counted in the preemptor's AlmostLCA with the other one.
+// The LeastCommonAncestors on the preemptor's path are visited starting
+// from the root, so quota is reclaimed from the ClusterQueues farthest from
+// the preemptor first, and the preemptor's closest neighbours are preempted
+// last. Within a LeastCommonAncestor, targets are ordered by
+// DominantResourceShare, as in the other strategies.
 //
-// Candidates in the preemptor's own ClusterQueue are considered after the
-// other ClusterQueues, matching the preference of the other strategies for
-// reclaiming borrowed quota first. If any of them is a target, the skipped
-// candidates are evaluated once more, as the preemptor's usage went down.
+// Reclaiming from a closer subtree lowers the usage of the preemptor's
+// Cohorts, which can bring the preemptor's AlmostLCA with a farther
+// ClusterQueue back within nominal quota. So a LeastCommonAncestor which is
+// skipped because the preemptor would be borrowing at its AlmostLCA is
+// revisited after every pass which found a target, until a pass finds none.
+//
+// Candidates in the preemptor's own ClusterQueue are considered once the
+// other ClusterQueues yield nothing more, matching the preference of the
+// other strategies for reclaiming borrowed quota first. If any of them is a
+// target, the skipped LeastCommonAncestors are visited once more after
+// each of them, as the preemptor's usage went down.
 func iterateReclaimOnly(
 	log logr.Logger,
 	preemptionCtx *preemptionCtx,
@@ -276,68 +294,75 @@ func iterateReclaimOnly(
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	preemptorCQ := preemptionCtx.preemptorCQ
 	preemptorFrs := requestedFlavorResources(preemptionCtx)
-	targetFrs := preemptionCtx.frsNeedPreemption
-	if len(targetFrs) == 0 {
-		targetFrs = preemptorFrs
-	}
 
-	type candidate struct {
-		wl       *workload.Info
-		cq       *schdcache.ClusterQueueSnapshot
-		distance int
-	}
-	var others []candidate
-	var own []*workload.Info
+	var own, others []*workload.Info
 	for _, wl := range candidates {
 		if wl.ClusterQueue == preemptorCQ.Name {
 			own = append(own, wl)
-			continue
+		} else {
+			others = append(others, wl)
 		}
-		cq := preemptionCtx.snapshot.ClusterQueue(wl.ClusterQueue)
-		if cq == nil || !preemptorCQ.HasParent() || !cq.HasParent() {
-			continue
-		}
-		others = append(others, candidate{wl: wl, cq: cq, distance: fairsharing.LCADistance(preemptorCQ, cq)})
 	}
-	// The candidates are already sorted by the preemption ordering, so a
-	// stable sort keeps that ordering within each distance.
-	slices.SortStableFunc(others, func(a, b candidate) int { return a.distance - b.distance })
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptorCQ, others, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 
-	reclaim := func() bool {
-		remaining := others[:0]
-		for _, c := range others {
-			passed := fairsharing.IsReclaim(preemptorCQ, c.cq, preemptorFrs, targetFrs)
+	// The LeastCommonAncestors on the preemptor's path, farthest first.
+	lcas := slices.Collect(preemptorCQ.PathParentToRoot())
+	slices.Reverse(lcas)
+
+	// reclaimAtLCA yields the targets whose LeastCommonAncestor with the
+	// preemptor is lca, while the preemptor stays within nominal quota at
+	// its AlmostLCA. All those targets share the same preemptor AlmostLCA,
+	// and removing them doesn't change its usage.
+	reclaimAtLCA := func(lca *schdcache.CohortSnapshot) (found, cont bool) {
+		for candCQ := range ordering.IterAtLCA(lca) {
+			if !candCQ.PreemptorWithinNominal(preemptorFrs) {
+				if logV := log.V(4); logV.Enabled() {
+					logV.Info("Skipping ReclaimOnly targets, the preemptor would borrow at its AlmostLCA",
+						"leastCommonAncestor", lca.GetName(),
+						"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)))
+				}
+				return found, true
+			}
+			candWl := candCQ.PopWorkload()
 			if logV := log.V(4); logV.Enabled() {
-				logV.Info("Evaluating ReclaimOnly FairSharing strategy",
-					"targetClusterQueue", klog.KRef("", string(c.cq.Name)),
-					"targetWorkload", klog.KObj(c.wl.Obj),
-					"lcaDistance", c.distance,
-					"strategyPassed", passed)
+				logV.Info("Selected ReclaimOnly target",
+					"leastCommonAncestor", lca.GetName(),
+					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetWorkload", klog.KObj(candWl.Obj))
 			}
-			if !passed {
-				remaining = append(remaining, c)
-				continue
-			}
-			if !yield(&Target{WorkloadInfo: c.wl, Reason: kueue.InCohortReclamationReason, WorkloadCq: c.cq}) {
-				return false
+			found = true
+			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
+				return found, false
 			}
 		}
-		others = remaining
-		return true
+		return found, true
+	}
+	reclaim := func() bool {
+		for {
+			progress := false
+			for _, lca := range lcas {
+				found, cont := reclaimAtLCA(lca)
+				if !cont {
+					return false
+				}
+				progress = progress || found
+			}
+			if !progress {
+				return true
+			}
+		}
 	}
 
 	if !reclaim() {
 		return false
 	}
-	ownYielded := false
 	for _, wl := range own {
-		ownYielded = true
 		if !yield(&Target{WorkloadInfo: wl, Reason: kueue.InClusterQueueReason, WorkloadCq: preemptorCQ}) {
 			return false
 		}
-	}
-	if ownYielded && len(others) > 0 {
-		return reclaim()
+		if !reclaim() {
+			return false
+		}
 	}
 	return true
 }

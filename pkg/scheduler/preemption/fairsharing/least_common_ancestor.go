@@ -67,19 +67,3 @@ func getAlmostLCA(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnaps
 	// to make the compiler happy
 	panic("serious bug: could not find AlmostLeastCommonAncestor")
 }
-
-// LCADistance returns the number of Cohorts between preemptorCq and the
-// LeastCommonAncestor of preemptorCq and targetCq, the LCA included. A
-// smaller distance means that targetCq is closer to preemptorCq in the
-// cohort hierarchy.
-func LCADistance(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot) int {
-	lca := getLCA(preemptorCq, targetCq)
-	distance := 0
-	for ancestor := range preemptorCq.PathParentToRoot() {
-		distance++
-		if ancestor == lca {
-			break
-		}
-	}
-	return distance
-}
