@@ -30,6 +30,7 @@ import (
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/scheduler-library/pkg/preemption"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -216,18 +217,21 @@ func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.Sche
 	}
 	if !scheduleOpts.SimulateEmpty {
 		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+		libOpts.CommittedVictims = s.committedVictims(scheduleOpts.CommittedPreemptionVictims)
 	}
+	return libOpts
+}
 
-	for _, preemptedWlKey := range scheduleOpts.CommittedPreemptionVictims {
+func (s *wasSimulator) committedVictims(victimWorkloads []client.ObjectKey) (cv []preemption.PreemptionVictim) {
+	for _, preemptedWlKey := range victimWorkloads {
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); victimPods != nil {
-			libOpts.CommittedVictims = append(libOpts.CommittedVictims, &preemptionVictim{
+			cv = append(cv, &preemptionVictim{
 				wlKey: preemptedWlKey,
 				pods:  victimPods,
 			})
 		}
 	}
-
-	return libOpts
+	return
 }
 
 func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
