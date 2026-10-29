@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -108,10 +109,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	admitJobAndExpectRunning := func(name, priorityClassName string, parallelism int32, nodeSelector map[string]string) (*batchv1.Job, types.NamespacedName) {
+	admitJobAndExpectRunning := func(name, lqName, priorityClassName string, parallelism int32, nodeSelector map[string]string) (*batchv1.Job, types.NamespacedName) {
 		ginkgo.GinkgoHelper()
 		jobWrapper := testingjob.MakeJob(name, ns.Name).
-			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Queue(kueue.LocalQueueName(lqName)).
 			WorkloadPriorityClass(priorityClassName).
 			Parallelism(parallelism).
 			Completions(parallelism).
@@ -136,7 +137,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 	}
 
 	ginkgo.It("Should preempt a lower-priority Job when quota and nodes are occupied", func() {
-		_, lowWlKey := admitJobAndExpectRunning("low-priority-job", lowPriorityClass.Name, 8, nil)
+		_, lowWlKey := admitJobAndExpectRunning("low-priority-job", localQueue.Name, lowPriorityClass.Name, 8, nil)
 
 		highJob := testingjob.MakeJob("high-priority-job", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -165,9 +166,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 	})
 
 	ginkgo.It("Should preempt only the lowest-priority Job when multiple candidates exist", func() {
-		lowJob1, low1WlKey := admitJobAndExpectRunning("low-priority-job-1", lowPriorityClass.Name, 2, nil)
-		_, lowestWlKey := admitJobAndExpectRunning("lowest-priority-job", lowestPriorityClass.Name, 4, nil)
-		lowJob2, low2WlKey := admitJobAndExpectRunning("low-priority-job-2", lowPriorityClass.Name, 2, nil)
+		lowJob1, low1WlKey := admitJobAndExpectRunning("low-priority-job-1", localQueue.Name, lowPriorityClass.Name, 2, nil)
+		_, lowestWlKey := admitJobAndExpectRunning("lowest-priority-job", localQueue.Name, lowestPriorityClass.Name, 4, nil)
+		lowJob2, low2WlKey := admitJobAndExpectRunning("low-priority-job-2", localQueue.Name, lowPriorityClass.Name, 2, nil)
 
 		// High-priority job requests 4 GPUs; preempting lowest-priority-job (admitted second) alone is sufficient.
 		highJob := testingjob.MakeJob("high-priority-job", ns.Name).
@@ -210,8 +211,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 	})
 
 	ginkgo.It("Should preempt multiple lower-priority Jobs when a single candidate is insufficient", func() {
-		_, lowestWlKey := admitJobAndExpectRunning("lowest-priority-job", lowestPriorityClass.Name, 4, nil)
-		_, lowWlKey := admitJobAndExpectRunning("low-priority-job", lowPriorityClass.Name, 4, nil)
+		_, lowestWlKey := admitJobAndExpectRunning("lowest-priority-job", localQueue.Name, lowestPriorityClass.Name, 4, nil)
+		_, lowWlKey := admitJobAndExpectRunning("low-priority-job", localQueue.Name, lowPriorityClass.Name, 4, nil)
 
 		// High-priority job requests 6 GPUs; both 4-GPU candidates must be preempted.
 		highJob := testingjob.MakeJob("high-priority-job", ns.Name).
@@ -244,8 +245,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
 		blockB2 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b2"}
 
-		lowestJobB1, lowestB1WlKey := admitJobAndExpectRunning("lowest-job-b1", lowestPriorityClass.Name, 2, blockB1)
-		_, lowB2WlKey := admitJobAndExpectRunning("low-job-b2", lowPriorityClass.Name, 4, blockB2)
+		lowestJobB1, lowestB1WlKey := admitJobAndExpectRunning("lowest-job-b1", localQueue.Name, lowestPriorityClass.Name, 2, blockB1)
+		_, lowB2WlKey := admitJobAndExpectRunning("low-job-b2", localQueue.Name, lowPriorityClass.Name, 4, blockB2)
 
 		// High-priority job requests 2 GPUs on block b2; ClusterQueue quota fits (2 + 4 + 2 = 8),
 		// but block b2 is full. lowest-job-b1 is on b1 and should be reprieved.
@@ -290,8 +291,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
 		blockB2 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b2"}
 
-		highJobB1, highB1WlKey := admitJobAndExpectRunning("high-job-b1", highPriorityClass.Name, 4, blockB1)
-		lowJobB2, lowB2WlKey := admitJobAndExpectRunning("low-job-b2", lowPriorityClass.Name, 4, blockB2)
+		highJobB1, highB1WlKey := admitJobAndExpectRunning("high-job-b1", localQueue.Name, highPriorityClass.Name, 4, blockB1)
+		lowJobB2, lowB2WlKey := admitJobAndExpectRunning("low-job-b2", localQueue.Name, lowPriorityClass.Name, 4, blockB2)
 
 		// Mid-priority job requires block b1, which is occupied by high-job-b1 (priority 200).
 		// Even though low-job-b2 (priority 100) could free quota, its nodes are in b2.
@@ -343,6 +344,142 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": highJobB1.Name})
 			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": lowJobB2.Name})
+		})
+	})
+
+	ginkgo.It("Should preempt a lower-priority Job when ClusterQueue quota is full even if nodes have free capacity", func() {
+		ginkgo.By("reduce ClusterQueue quota to 4 GPUs while cluster has 8 GPUs across 4 nodes", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: clusterQueue.Name}, clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("4")
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// low-priority-job uses 4 GPUs (filling the 4-GPU ClusterQueue quota), leaving 2 nodes (4 GPUs) physically free.
+		_, lowWlKey := admitJobAndExpectRunning("low-priority-job", localQueue.Name, lowPriorityClass.Name, 4, nil)
+
+		highJob := testingjob.MakeJob("high-priority-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			WorkloadPriorityClass(highPriorityClass.Name).
+			Parallelism(2).
+			Completions(2).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, highJob)
+
+		highWlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verify low-priority workload is preempted", func() {
+			behavioral.ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, lowWlKey)
+		})
+
+		ginkgo.By("verify high-priority workload is admitted and running after preemption", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.MediumTimeout, highWlKey)
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": highJob.Name})
+		})
+	})
+
+	ginkgo.It("Should mark workload as WaitingForQuota and not preempt when reprieval causes fair-sharing verification to fail", func() {
+		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
+		blockB2 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b2"}
+
+		makeFairCQ := func(name, weight string) *kueue.ClusterQueue {
+			return utiltestingapi.MakeClusterQueue(name).
+				Cohort("fair-cohort").
+				FairWeight(resource.MustParse(weight)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+						Resource(extraResource, "3").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+		}
+
+		// cqA is the preemptor queue (weight 2, nominal 3); cqB is the borrower queue (weight 1, nominal 3).
+		cqA := makeFairCQ("cq-a", "2")
+		cqB := makeFairCQ("cq-b", "1")
+		lqA := utiltestingapi.MakeLocalQueue("lq-a", ns.Name).ClusterQueue(cqA.Name).Obj()
+		lqB := utiltestingapi.MakeLocalQueue("lq-b", ns.Name).ClusterQueue(cqB.Name).Obj()
+
+		defer func() {
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqB, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
+		}()
+
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA, cqB)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA, lqB)
+
+		// a-small uses 2 GPUs on block b1 in cqA (nominal 3, weight 2).
+		aSmallJob, aSmallWlKey := admitJobAndExpectRunning("a-small", lqA.Name, lowPriorityClass.Name, 2, blockB1)
+
+		// b-hero uses 4 GPUs on block b2 in borrower cqB (nominal 3, weight 1, borrowing 1 from cohort; old DRS = (1/6)/1 = 1/6).
+		// Total cohort usage is 2 + 4 = 6 GPUs (all 6 GPUs of cohort quota).
+		bHeroJob, bHeroWlKey := admitJobAndExpectRunning("b-hero", lqB.Name, lowPriorityClass.Name, 4, blockB2)
+
+		// a-hero requests 4 GPUs on block b2 in cqA.
+		// fairPreemptionStrategy proposes [a-small, b-hero] under LessThanInitialShare
+		// (with a-small evicted, cqA DRS is ((4-3)/6)/2 = 1/12 < cqB old DRS 1/6).
+		// During simulation, ScheduleWorkload removes both, places a-hero (4 GPUs) on block b2,
+		// and reprieves a-small (2 GPUs on block b1) since 2 + 4 = 6 <= 6 cohort quota and b1 is untouched.
+		// However, filter.Verify([b-hero]) rejects the remaining target set because keeping a-small gives
+		// cqA DRS ((6-3)/6)/2 = 1/4 > cqB old DRS 1/6.
+		aHeroJob := testingjob.MakeJob("a-hero", ns.Name).
+			Queue(kueue.LocalQueueName(lqA.Name)).
+			WorkloadPriorityClass(highPriorityClass.Name).
+			NodeSelector(utiltesting.DefaultBlockTopologyLevel, "b2").
+			Parallelism(4).
+			Completions(4).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, aHeroJob)
+		aHeroWlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(aHeroJob.Name, aHeroJob.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verify a-hero waits for quota with WaitingForQuota reason", func() {
+			aHeroWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, aHeroWlKey, aHeroWl)).Should(gomega.Succeed())
+				g.Expect(aHeroWl.Status.Admission).Should(gomega.BeNil())
+				g.Expect(workload.HasQuotaReservation(aHeroWl)).Should(gomega.BeFalse())
+				cond := apimeta.FindStatusCondition(aHeroWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify neither running workload is preempted and both remain running", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wlKey := range []types.NamespacedName{aSmallWlKey, bHeroWlKey} {
+					wl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
+				}
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": aSmallJob.Name})
+			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": bHeroJob.Name})
 		})
 	})
 })
