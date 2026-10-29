@@ -1275,6 +1275,21 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
+	return c.clusterQueuesUsingCohort(cohortName)
+}
+
+// ClusterQueuesInCohortTree returns the ClusterQueues under the root of the
+// Cohort's tree. A Cohort in a cycle has no root, so its subtree is returned.
+func (c *Cache) ClusterQueuesInCohortTree(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	if cohort := c.hm.Cohort(cohortName); cohort != nil && !hierarchy.HasCycle(cohort) {
+		cohortName = cohort.getRootUnsafe().Name
+	}
+	return c.clusterQueuesUsingCohort(cohortName)
+}
+
+func (c *Cache) clusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	var cqs []kueue.ClusterQueueReference
 
 	for _, cq := range c.hm.ClusterQueues() {

@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -337,8 +336,13 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	default:
 		return
 	}
+	cqs := r.cache.ClusterQueuesUsingCohort(cohortName)
+	if r.fairSharingEnabled {
+		// The weighted share divides borrowing by the tree's lendable quota.
+		cqs = r.cache.ClusterQueuesInCohortTree(cohortName)
+	}
 	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
-		Object: slices.Values(r.cache.ClusterQueuesUsingCohort(cohortName)),
+		Object: slices.Values(cqs),
 	}
 }
 
@@ -395,8 +399,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		return true
 	}
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	specOrQuotaUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) ||
-		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(e.ObjectOld), resourcegroups.EffectiveResourceGroups(e.ObjectNew))
+	specOrQuotaUpdated := clusterQueueSpecOrQuotaUpdated(e.ObjectOld, e.ObjectNew)
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
