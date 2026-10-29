@@ -68,6 +68,33 @@ spec:
 
 By default, Kueue will set `suspend` to true via webhook and unsuspend it when the SparkApplication is admitted.
 
+### c. Resource requests
+
+Spark, not the Spark Operator, computes the CPU and memory requests of the driver and executor Pods
+from the SparkApplication configuration. Kueue reproduces this computation to reserve the quota the
+Pods will actually use:
+
+- CPU: `coreRequest` if set, otherwise `cores`, otherwise `1`.
+- Memory: `memory` (default `1g`) plus `memoryOverhead`. If `memoryOverhead` is not set, the overhead is
+  `max(memoryOverheadFactor * memory, 384m)`, where `memoryOverheadFactor` defaults to `0.1` for
+  Java and Scala applications and to `0.4` for Python and R applications. Executors of Python
+  applications also get `spark.executor.pyspark.memory`, and executors get `spark.memory.offHeap.size`
+  when `spark.memory.offHeap.enabled` is `true`.
+
+Memory values use the Java format (for example `512m` or `2g`). The corresponding properties in
+`spec.sparkConf` (for example `spark.driver.cores` or `spark.kubernetes.memoryOverheadFactor`) are
+honored with the same precedence as `spark-submit` applies: typed driver and executor fields take
+precedence over `spec.sparkConf`, which takes precedence over `spec.memoryOverheadFactor`.
+
+{{% alert title="Note" color="primary" %}}
+Kueue uses `spec.type` to decide whether an application is a Python or R application, while Spark
+decides based on the extension of `spec.mainApplicationFile`. Make sure they agree, otherwise the
+default memory overhead factor reserved by Kueue will differ from the one Spark applies.
+
+Resources set through Spark Pod template files (`spark.kubernetes.driver.podTemplateFile` and
+`spark.kubernetes.executor.podTemplateFile`) are not taken into account.
+{{% /alert %}}
+
 ## Sample SparkApplication
 
 {{< include "v0.19/examples/jobs/sample-sparkapplication.yaml" "yaml" >}}

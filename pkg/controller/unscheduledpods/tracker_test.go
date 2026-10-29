@@ -5178,10 +5178,8 @@ func TestPodHandler_Create(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5198,10 +5196,8 @@ func TestPodHandler_Create(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      "wl-1",
-					},
+					Namespace: testNamespace,
+					Name:      "wl-1",
 				},
 			},
 		},
@@ -5211,10 +5207,8 @@ func TestPodHandler_Create(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      "wl-1",
-					},
+					Namespace: testNamespace,
+					Name:      "wl-1",
 				},
 			},
 		},
@@ -5266,10 +5260,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5313,10 +5305,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5334,10 +5324,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5355,10 +5343,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5399,16 +5385,12 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      "wl-a",
-					},
+					Namespace: testNamespace,
+					Name:      "wl-a",
 				},
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      "wl-b",
-					},
+					Namespace: testNamespace,
+					Name:      "wl-b",
 				},
 			},
 		},
@@ -5421,10 +5403,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      "wl-a",
-					},
+					Namespace: testNamespace,
+					Name:      "wl-a",
 				},
 			},
 		},
@@ -5437,10 +5417,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5455,10 +5433,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5479,10 +5455,8 @@ func TestPodHandler_Update(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},
@@ -5518,10 +5492,8 @@ func TestPodHandler_Delete(t *testing.T) {
 				Obj(),
 			wantRequests: []reconcile.Request{
 				{
-					NamespacedName: types.NamespacedName{
-						Namespace: testNamespace,
-						Name:      testWorkload,
-					},
+					Namespace: testNamespace,
+					Name:      testWorkload,
 				},
 			},
 		},

@@ -104,6 +104,35 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"sync shrinks existing remote leaderworkerset after a scale down": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Replicas(1).Obj(),
+			},
+			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(2).
+					ReadyReplicas(2).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("manager-uid-123").Replicas(1).Obj(),
+			},
+			wantWorkerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*utiltestingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-uid-123").
+					Replicas(1).
+					ReadyReplicas(2).
+					Obj(),
+			},
+		},
 		"remote leaderworkerset is deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
@@ -297,49 +326,39 @@ func TestGetWorkloadIndex(t *testing.T) {
 	}{
 		"workload with index 0": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "0",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "0",
 				},
 			},
 			wantIndex: 0,
 		},
 		"workload with index 5": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "5",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "5",
 				},
 			},
 			wantIndex: 5,
 		},
 		"workload with index 10": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "10",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "10",
 				},
 			},
 			wantIndex: 10,
 		},
 		"workload with index 100": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "100",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "100",
 				},
 			},
 			wantIndex: 100,
 		},
 		"workload without annotation": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{},
-				},
+				Annotations: map[string]string{},
 			},
 			wantIndex: -1,
 		},
@@ -351,10 +370,8 @@ func TestGetWorkloadIndex(t *testing.T) {
 		},
 		"workload with non-numeric index": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "abc",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "abc",
 				},
 			},
 			wantIndex: -1,

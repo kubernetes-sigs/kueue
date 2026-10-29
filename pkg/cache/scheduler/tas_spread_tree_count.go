@@ -46,6 +46,20 @@ type SpreadTreeCount struct {
 	ByDomain map[utiltas.TopologyDomainID]int32
 }
 
+type TopologySpreadCountsOption func(*topologySpreadCountsOptions)
+
+type topologySpreadCountsOptions struct {
+	simulateEmpty bool
+}
+
+// WithSpreadCountsSimulateEmpty allows looking for the assignment under the
+// assumption that all TAS workloads are preempted.
+func WithSpreadCountsSimulateEmpty(simulateEmpty bool) TopologySpreadCountsOption {
+	return func(o *topologySpreadCountsOptions) {
+		o.simulateEmpty = simulateEmpty
+	}
+}
+
 // topologySpreadCountsForFlavor counts, for a single flavor, how many
 // Workloads matching each spreading PodSet group's selector already occupy the
 // flavor's domains. Returns nil when spreading applies to none of the PodSets
@@ -54,6 +68,7 @@ func (c *ClusterQueueSnapshot) topologySpreadCountsForFlavor(
 	wl *workload.Info,
 	flavor kueue.ResourceFlavorReference,
 	flavorRequests FlavorTASRequests,
+	options ...TopologySpreadCountsOption,
 ) PodSetGroupNameToTreeCount {
 	// Gated in the callee rather than at the call site, so every current and
 	// future caller is covered and the scan below never runs while the feature
@@ -69,6 +84,11 @@ func (c *ClusterQueueSnapshot) topologySpreadCountsForFlavor(
 		return nil
 	}
 
+	opts := &topologySpreadCountsOptions{}
+	for _, opt := range options {
+		opt(opts)
+	}
+
 	groupCounts := make(PodSetGroupNameToTreeCount)
 	for i := range flavorRequests {
 		groupKey := utiltas.GroupKeyForPodSet(flavorRequests[i].PodSet)
@@ -78,6 +98,9 @@ func (c *ClusterQueueSnapshot) topologySpreadCountsForFlavor(
 	}
 	if len(groupCounts) == 0 {
 		return nil
+	}
+	if opts.simulateEmpty {
+		return groupCounts
 	}
 
 	// A Workload being re-placed - an elastic scale-up, or a re-nomination

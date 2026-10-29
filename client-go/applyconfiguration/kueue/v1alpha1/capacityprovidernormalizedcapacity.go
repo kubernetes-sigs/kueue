@@ -21,7 +21,10 @@ package v1alpha1
 // CapacityProviderNormalizedCapacityApplyConfiguration represents a declarative configuration of the CapacityProviderNormalizedCapacity type for use
 // with apply.
 type CapacityProviderNormalizedCapacityApplyConfiguration struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors reports capacity for each flavor and resource.
+	// The list must contain at least one flavor.
+	// It should contain the same flavors as spec.orchestratedFlavors.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	Flavors []CapacityProviderNormalizedCapacityFlavorApplyConfiguration `json:"flavors,omitempty"`
 }

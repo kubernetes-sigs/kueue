@@ -46,7 +46,7 @@ import (
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -120,7 +120,7 @@ type testClusterProfileAccessProvider struct {
 	supportedProviders map[string]bool
 }
 
-func (t *testClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+func (t *testClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error) {
 	for _, provider := range clusterprofile.Status.AccessProviders {
 		if t.supportedProviders[provider.Name] {
 			if strings.Contains(clusterprofile.Name, "invalid") {
@@ -149,14 +149,12 @@ func testRestConfigInvalid() *rest.Config {
 	}
 }
 
-func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
-	return inventoryv1alpha1.ClusterProfile{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: TestNamespace,
-		},
-		Status: inventoryv1alpha1.ClusterProfileStatus{
-			AccessProviders: []inventoryv1alpha1.AccessProvider{
+func makeTestClusterProfile(name string, providerName string) inventoryv1alpha2.ClusterProfile {
+	return inventoryv1alpha2.ClusterProfile{
+		Name:      name,
+		Namespace: TestNamespace,
+		Status: inventoryv1alpha2.ClusterProfileStatus{
+			AccessProviders: []inventoryv1alpha2.AccessProvider{
 				{
 					Name: providerName,
 				},
@@ -198,7 +196,7 @@ func TestUpdateConfig(t *testing.T) {
 		remoteClients    map[string]*remoteClient
 		clusters         []kueue.MultiKueueCluster
 		secrets          []corev1.Secret
-		clusterprofiles  []inventoryv1alpha1.ClusterProfile
+		clusterprofiles  []inventoryv1alpha2.ClusterProfile
 		cpAccessProvider clusterProfileAccessProvider
 
 		wantRemoteClients             map[string]*remoteClient
@@ -532,7 +530,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -564,7 +562,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -588,7 +586,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker2", "accessProvider2"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -661,7 +659,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("invalid", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -686,7 +684,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder := getClientBuilder(ctx)
 			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
-			builder = builder.WithLists(&inventoryv1alpha1.ClusterProfileList{Items: tc.clusterprofiles})
+			builder = builder.WithLists(&inventoryv1alpha2.ClusterProfileList{Items: tc.clusterprofiles})
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
@@ -732,7 +730,7 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor})
 			if diff := cmp.Diff(gotErr, tc.wantErr, cmp.Comparer(func(a, b error) bool {
 				if a == nil || b == nil {
 					return a == b
@@ -892,7 +890,7 @@ func TestReconnectBackoff(t *testing.T) {
 			reconciler.remoteClients["worker1"] = rc
 			t.Cleanup(rc.StopWatchers)
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
+			req := reconcile.Request{Name: "worker1"}
 
 			for i, s := range tc.steps {
 				fc.Step(s.advance)
@@ -952,7 +950,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}})
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
 	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -1053,6 +1051,19 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	if act := apimeta.FindStatusCondition(got2.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
 		act.Status != metav1.ConditionTrue || act.Message != "Connected" {
 		t.Fatalf("want Active=True message %q, got %+v", "Connected", act)
+	}
+
+	got2.Generation = 2
+	if err := cRec.updateStatus(ctx, got2, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus with stale observed generation: %v", err)
+	}
+	got3 := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(got2), got3); err != nil {
+		t.Fatalf("get cluster after generation update: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(got3.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.ObservedGeneration != 2 {
+		t.Fatalf("want Active observed generation 2, got %+v", act)
 	}
 }
 
@@ -1247,8 +1258,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
 
 	deletingCluster := baseCluster.DeepCopy()
-	now := metav1.Now()
-	deletingCluster.DeletionTimestamp = &now
+	deletingCluster.DeletionTimestamp = new(metav1.Now())
 
 	cases := map[string]struct {
 		invoke        func(p predicate.Predicate) bool
@@ -1613,7 +1623,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	slowDone := make(chan struct{})
 	go func() {
 		defer close(slowDone)
-		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}})
+		_, _ = reconciler.Reconcile(ctx, reconcile.Request{Name: "cluster-slow"})
 	}()
 
 	select {
@@ -1624,7 +1634,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 
 	fastDone := make(chan error, 1)
 	go func() {
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}})
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "cluster-fast"})
 		fastDone <- err
 	}()
 
@@ -1763,7 +1773,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+	if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
 
@@ -1777,7 +1787,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 		defer writerDone.Store(true)
 		for i := range iterations {
 			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
-			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+			if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
 				writerErr = err
 				return
 			}
@@ -2037,10 +2047,9 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				KubeConfig(kueue.SecretLocationType, "worker1").
 				Generation(1).
 				Obj()
-			secret := makeTestSecret("worker1", testKubeconfig("worker1"))
 
 			c := getClientBuilder(ctx).
-				WithObjects(cluster, &secret).
+				WithObjects(cluster, new(makeTestSecret("worker1", testKubeconfig("worker1")))).
 				WithStatusSubresource(&kueue.MultiKueueCluster{}).
 				Build()
 
@@ -2062,7 +2071,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				return fakeClientBuilder(ctx)(builderCtx, cfg, opts)
 			}
 
-			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
 			}
 
@@ -2109,5 +2118,29 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected worker2 to still be reported as active, got %v", got)
+	}
+}
+
+func TestShouldWatchClusterProfiles(t *testing.T) {
+	cases := map[string]struct {
+		gateEnabled bool
+		crdPresent  bool
+		want        bool
+	}{
+		"gate off, crd absent":  {gateEnabled: false, crdPresent: false, want: false},
+		"gate off, crd present": {gateEnabled: false, crdPresent: true, want: false},
+		// Regression for issue 17133: gate on without the CRD must not register
+		// the watch, otherwise cache sync fails and the manager exits.
+		"gate on, crd absent":  {gateEnabled: true, crdPresent: false, want: false},
+		"gate on, crd present": {gateEnabled: true, crdPresent: true, want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, tc.gateEnabled)
+			c := &clustersReconciler{clusterProfileCRDPresent: tc.crdPresent}
+			if got := c.shouldWatchClusterProfiles(); got != tc.want {
+				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
@@ -38,14 +38,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "equivalence-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "equivalence-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
+		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		var cq *kueue.ClusterQueue
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit a fitting workload behind identical no-fit workloads in BestEffortFIFO", func() {
@@ -62,28 +62,28 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			queue := utiltestingapi.MakeLocalQueue("equiv-queue", ns.Name).ClusterQueue("equiv-cq").Obj()
-			util.MustCreate(ctx, k8sClient, queue)
+			behavioral.MustCreate(ctx, k8sClient, queue)
 
 			ginkgo.By("creating all workloads at once: 10 identical no-fit + 1 fitting")
 			for i := range 10 {
-				util.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("nofit-%d", i), ns.Name).
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("nofit-%d", i), ns.Name).
 					Queue(kueue.LocalQueueName(queue.Name)).
 					Request(corev1.ResourceCPU, "10").Obj())
 			}
 			fitWl := utiltestingapi.MakeWorkload("fits", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, fitWl)
+			behavioral.MustCreate(ctx, k8sClient, fitWl)
 
 			ginkgo.By("verifying the fitting workload gets admitted")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, fitWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, fitWl)
 
 			ginkgo.By("verifying all no-fit workloads become inadmissible via bulk-move")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
-			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 10)
+			behavioral.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
 		})
 
 		ginkgo.It("Should not hash workloads that don't fit due to namespace mismatch", func() {
@@ -95,23 +95,23 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			queue := utiltestingapi.MakeLocalQueue("ns-queue", ns.Name).ClusterQueue("ns-mismatch-cq").Obj()
-			util.MustCreate(ctx, k8sClient, queue)
+			behavioral.MustCreate(ctx, k8sClient, queue)
 
-			matchingNs := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "matching-")
+			matchingNs := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "matching-")
 			defer func() {
-				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, matchingNs)).To(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, matchingNs)).To(gomega.Succeed())
 			}()
 			matchingNs.Labels = map[string]string{"match": "true"}
 			gomega.Expect(k8sClient.Update(ctx, matchingNs)).To(gomega.Succeed())
 			matchQueue := utiltestingapi.MakeLocalQueue("match-queue", matchingNs.Name).ClusterQueue("ns-mismatch-cq").Obj()
-			util.MustCreate(ctx, k8sClient, matchQueue)
+			behavioral.MustCreate(ctx, k8sClient, matchQueue)
 
 			ginkgo.By("creating workloads from non-matching namespace (should be inadmissible but not hashed)")
 			for i := range 5 {
-				util.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("nomatch-%d", i), ns.Name).
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("nomatch-%d", i), ns.Name).
 					Queue(kueue.LocalQueueName(queue.Name)).
 					Request(corev1.ResourceCPU, "1").Obj())
 			}
@@ -120,17 +120,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			fitWl := utiltestingapi.MakeWorkload("matching-fit", matchingNs.Name).
 				Queue(kueue.LocalQueueName(matchQueue.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, fitWl)
+			behavioral.MustCreate(ctx, k8sClient, fitWl)
 
 			ginkgo.By("verifying the matching workload gets admitted despite non-matching ones")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, fitWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, fitWl)
 
 			ginkgo.By("verifying the non-matching workloads are inadmissible and share a single scheduling hash")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 5)
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 5)
 			// The hash is computed for every workload when SchedulingEquivalenceHashing
 			// is enabled, so the identical non-matching workloads still surface one
 			// inadmissible hash even though the bulk-move optimization ignores them.
-			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
+			behavioral.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
 		})
 
 		// Validates correctness of PreemptionNoCandidates path, not the optimization.
@@ -144,28 +144,28 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			queue := utiltestingapi.MakeLocalQueue("preempt-queue", ns.Name).ClusterQueue("preempt-nocandidate-cq").Obj()
-			util.MustCreate(ctx, k8sClient, queue)
+			behavioral.MustCreate(ctx, k8sClient, queue)
 
 			ginkgo.By("admitting a workload to fill the quota")
 			blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(queue.Name)).
 				Request(corev1.ResourceCPU, "2").Obj()
-			util.MustCreate(ctx, k8sClient, blocker)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, blocker)
+			behavioral.MustCreate(ctx, k8sClient, blocker)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, blocker)
 
 			ginkgo.By("creating identical workloads that need preemption but have no lower-priority targets")
 			for i := range 10 {
-				util.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("blocked-%d", i), ns.Name).
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("blocked-%d", i), ns.Name).
 					Queue(kueue.LocalQueueName(queue.Name)).
 					Request(corev1.ResourceCPU, "1").Obj())
 			}
 
 			ginkgo.By("verifying equivalent blocked workloads are bulk-moved to inadmissible")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
-			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 10)
+			behavioral.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
 		})
 	})
 })

@@ -7,6 +7,9 @@ description: >
 type: docs
 ---
 
+For coverage, test levels, and maintainable test design, see
+[Writing tests](/community/contribution_guidelines/writing_tests/).
+
 ## Quick start
 
 The most common development workflows:
@@ -112,6 +115,7 @@ make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
+make test-e2e-networkpolicy
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
@@ -119,6 +123,14 @@ make test-multikueue-e2e-baseline
 make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
+
+The baseline and baseline sequential targets install the opt-in ingress NetworkPolicies
+with Kueue (`E2E_NETWORK_POLICIES=true`), so admission, metrics, and visibility tests run
+under them. kind's default CNI enforces NetworkPolicy, so no extra agent is needed.
+Baseline jobs also run the policy connectivity and denial tests, regardless of their
+main suite's label filter.
+
+`test-e2e-networkpolicy` covers the policies themselves and can be run on its own.
 
 You can specify the Kubernetes version:
 ```shell
@@ -270,7 +282,7 @@ INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
 SingleCluster tests are labeled by feature and area. You can use `GINKGO_ARGS` with `--label-filter` to run specific tests:
 
 **Label Taxonomy:**
-- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha`
+- Features: `appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,ha`
 
 **Examples:**
 ```shell

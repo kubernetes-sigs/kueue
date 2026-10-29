@@ -82,7 +82,7 @@ func TestTopologySpreadCounts(t *testing.T) {
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n2", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulatorSnapshot())
+	}, 0), newDefaultSimulator())
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(
@@ -144,6 +144,21 @@ func TestTopologySpreadCounts(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
+
+	gotSimulateEmpty := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor], WithSpreadCountsSimulateEmpty(true))
+	wantSimulateEmpty := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total:    0,
+			ByDomain: map[utiltas.TopologyDomainID]int32{},
+		},
+		spreadKeyForGroupName("group-b"): {
+			Total:    0,
+			ByDomain: map[utiltas.TopologyDomainID]int32{},
+		},
+	}
+	if diff := cmp.Diff(wantSimulateEmpty, gotSimulateEmpty); diff != "" {
+		t.Errorf("topologySpreadCountsForFlavor(simulateEmpty=true) mismatch (-want +got):\n%s", diff)
+	}
 }
 
 type spreadCountsPodSetPlacement struct {
@@ -197,7 +212,7 @@ func TestTopologySpreadCountsExcludesSelf(t *testing.T) {
 	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, newTopologyTree(levels, []*corev1.Node{
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulatorSnapshot())
+	}, 0), newDefaultSimulator())
 
 	// An admitted Workload being re-placed: it matches its own selector and is
 	// already in the snapshot with a topology assignment.
@@ -261,7 +276,7 @@ func TestTopologySpreadCountsHostnameLessTopology(t *testing.T) {
 	if !tree.virtualHostname {
 		t.Fatalf("expected a virtual hostname level to be injected for levels %v", declaredLevels)
 	}
-	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, tree, newDefaultSimulatorSnapshot())
+	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, tree, newDefaultSimulator())
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(*utiltestingapi.MakePodSet("worker", 1).PodSetGroup("group-a").Obj()).
@@ -322,7 +337,7 @@ func TestTopologySpreadCountsHostnameLevelRule(t *testing.T) {
 	tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"}, newTopologyTree(levels, []*corev1.Node{
 		makeTreeTestNode("n1", "b1", "r1"),
 		makeTreeTestNode("n3", "b2", "r2"),
-	}, 0), newDefaultSimulatorSnapshot())
+	}, 0), newDefaultSimulator())
 
 	incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
 		PodSets(*utiltestingapi.MakePodSet("worker", 1).PodSetGroup("group-a").Obj()).
@@ -491,7 +506,7 @@ func TestTopologySpreadCountsSkipped(t *testing.T) {
 
 			log := testr.New(t)
 			tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"},
-				newTopologyTree(levels, nodes, 0), newDefaultSimulatorSnapshot())
+				newTopologyTree(levels, nodes, 0), newDefaultSimulator())
 
 			podSetName := kueue.PodSetReference("worker")
 			groupName := "group-a"

@@ -159,17 +159,17 @@ func flavorAssignmentsForRequests(
 ) (map[corev1.ResourceName]kueue.ResourceFlavorReference, error) {
 	type rq struct {
 		name corev1.ResourceName
-		qty  int64
+		qty  resources.Amount
 	}
 	pairs := make([]rq, 0, requests.Len())
-	requests.ForEach(func(name corev1.ResourceName, quantity int64) {
+	requests.ForEach(func(name corev1.ResourceName, quantity resources.Amount) {
 		pairs = append(pairs, rq{name, quantity})
 	})
 	slices.SortFunc(pairs, func(a, b rq) int { return strings.Compare(string(a.name), string(b.name)) })
 
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
 	for _, p := range pairs {
-		if p.qty == 0 {
+		if p.qty.Sign() == 0 {
 			continue
 		}
 		flv, ok := flavorsByResource[p.name]

@@ -171,8 +171,32 @@ type ControllerWebhook struct {
 	CertDir string `json:"certDir,omitempty"`
 }
 
+// MetricsAccessControlMode specifies how access to the metrics listener is controlled.
+// +enum
+type MetricsAccessControlMode string
+
+const (
+	// MetricsAccessControlModeDelegated delegates authentication and authorization
+	// to Kubernetes through controller-runtime.
+	MetricsAccessControlModeDelegated MetricsAccessControlMode = "Delegated"
+
+	// MetricsAccessControlModeNone disables authentication and authorization
+	// for the metrics listener.
+	MetricsAccessControlModeNone MetricsAccessControlMode = "None"
+)
+
 // ControllerMetrics defines the metrics configs.
 type ControllerMetrics struct {
+	// AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+	// Requires the MetricsAccessControl feature gate.
+	// Possible values are:
+	// - Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.
+	// - None: no authentication or authorization. For enabled metrics, requires the
+	//   loopback IP and port in bindAddress.
+	// Defaults to Delegated when the feature gate is enabled.
+	// +optional
+	AccessControlMode *MetricsAccessControlMode `json:"accessControlMode,omitempty"`
+
 	// BindAddress is the TCP address that the controller should bind to
 	// for serving prometheus metrics.
 	// It can be set to "0" to disable the metrics serving.
@@ -341,6 +365,15 @@ type WaitForPodsReady struct {
 	// Enabling this gate together with DisableWaitForPodsReady is rejected.
 	// +optional
 	UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
+
+	// MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
+	// PodsReady timeoutSeconds and recoveryTimeoutSeconds override (set via the `kueue.x-k8s.io/wait-for-pods-ready`
+	// annotation). If a workload requests a timeoutSeconds or recoveryTimeoutSeconds greater than
+	// MaxTimeoutOnWorkload, the job is rejected by the admission webhook.
+	// When unset, the default maximum of 2 hours is enforced.
+	// It has no effect on workloads that don't set a per-workload override.
+	// +optional
+	MaxTimeoutOnWorkload *metav1.Duration `json:"maxTimeoutOnWorkload,omitempty"`
 }
 
 type MultiKueue struct {
@@ -583,6 +616,9 @@ type Integrations struct {
 	// match or otherwise the workload creation would fail. The labels are copied only
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
+	// Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
+	// kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
+	// the job.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 

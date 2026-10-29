@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -130,10 +131,8 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	for _, childJob := range childJobs.Items {
 		log.V(5).Info("Queueing reconcile for child job", "job", klog.KObj(&childJob))
 		q.Add(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      childJob.Name,
-				Namespace: w.Namespace,
-			},
+			Name:      childJob.Name,
+			Namespace: w.Namespace,
 		})
 	}
 }
@@ -232,17 +231,20 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	}
 
 	// A single-pod Job or one with no terminal pods has nothing to reclaim; so
-	// does one whose remaining work still fills every parallel slot.
+	// does one whose remaining work still needs every Pod in the PodSet. Measure
+	// against the PodSet count rather than parallelism, which can exceed it.
+	count := j.podsCount()
 	reclaimable := int32(0)
-	if parallelism > 1 && terminalCount > 0 {
-		if remaining := max(completions-terminalCount, 0); remaining < parallelism {
-			reclaimable = parallelism - remaining
+	if count > 1 && terminalCount > 0 {
+		if remaining := max(completions-terminalCount, 0); remaining < count {
+			reclaimable = count - remaining
 		}
 	}
 
 	log.V(3).Info("Computed reclaimable pods for Job",
 		"parallelism", parallelism,
 		"completions", completions,
+		"podSetCount", count,
 		"terminalCount", terminalCount,
 		"reclaimable", reclaimable)
 
@@ -381,7 +383,7 @@ func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsIn
 
 	info := podSetsInfo[0]
 
-	if j.minPodsCount() != nil {
+	if j.partialAdmissionRequested() {
 		j.Spec.Parallelism = new(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
@@ -397,7 +399,7 @@ func (j *Job) RestorePodSetsInfo(_ context.Context, podSetsInfo []podset.PodSetI
 
 	changed := false
 	// if the job accepts partial admission
-	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
+	if j.partialAdmissionRequested() && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
 		j.Spec.Parallelism = new(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
@@ -424,13 +426,20 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *Job) PodsReady(_ context.Context, _ client.Client, options ...jobframework.PodsReadyOption) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
 		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
 	}
-	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
+	target := j.podsCount()
+	wl := jobframework.PodsReadyWorkload(options...)
+	if jobframework.WorkloadSliceEnabled(j) && wl != nil && workload.IsAdmitted(wl) {
+		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]; ok && granted < target {
+			target = granted
+		}
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= target
 }
 
 func (j *Job) CanDefaultManagedBy() bool {
@@ -457,12 +466,19 @@ func (j *Job) podsCount() int32 {
 }
 
 func (j *Job) minPodsCount() *int32 {
-	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
-		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return new(int32(iVal))
-		}
+	strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]
+	if !found {
+		return nil
 	}
-	return nil
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil {
+		return nil
+	}
+	return new(int32(minCount))
+}
+
+func (j *Job) partialAdmissionRequested() bool {
+	return j.minPodsCount() != nil
 }
 
 func (j *Job) syncCompletionWithParallelism() bool {

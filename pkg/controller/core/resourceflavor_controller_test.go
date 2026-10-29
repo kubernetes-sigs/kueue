@@ -204,7 +204,7 @@ func TestResourceFlavorReconcile(t *testing.T) {
 				}
 			}
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.flavor.Name}}
+			req := reconcile.Request{Name: tc.flavor.Name}
 			_, err := reconciler.Reconcile(ctx, req)
 
 			if tc.wantError && err == nil {

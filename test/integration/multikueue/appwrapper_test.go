@@ -34,7 +34,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MultiKueue AppWrapper", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("MultiKueue AppWrapper", ginkgo.Label("area:multikueue",
 			ManagedBy(kueue.MultiKueueControllerName).
 			Obj()
 
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, aw)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, aw)
 		wlLookupKey := types.NamespacedName{Name: workloadappwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: f.managerNs.Name}
 
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
@@ -82,12 +82,12 @@ var _ = ginkgo.Describe("MultiKueue AppWrapper", ginkgo.Label("area:multikueue",
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperRunning
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdAppWrapper := awv1beta2.AppWrapper{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker appwrapper, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("MultiKueue AppWrapper", ginkgo.Label("area:multikueue",
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(aw), &createdAppWrapper)).To(gomega.Succeed())
 				createdAppWrapper.Status.Phase = awv1beta2.AppWrapperSucceeded
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdAppWrapper)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})

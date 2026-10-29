@@ -115,6 +115,12 @@ func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) r
 	return f.ResourceQuantity(name, quantityCap(a.Sign()))
 }
 
+// HoldsAmount reports whether a Quantity of name can carry a. AmountQuantity
+// caps a magnitude past that, and reading the cap back is a different number.
+func (f *ResourceFormatter) HoldsAmount(name corev1.ResourceName, a Amount) bool {
+	return AmountFromQuantity(name, f.AmountQuantity(name, a)).Equal(a)
+}
+
 // quantityCap returns the largest magnitude a Quantity carries, with sign, in
 // the unit the Quantity reports.
 func quantityCap(sign int) int64 {
@@ -129,4 +135,18 @@ func quantityCap(sign int) int64 {
 func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
 	q := f.AmountQuantity(name, a)
 	return q.String()
+}
+
+// ExactAmountString renders a as the API would when that spelling is the same
+// number, and as the exact accounted value when a Quantity would cap it.
+// CPU is accounted in milli, so that fallback keeps the milli suffix.
+func (f *ResourceFormatter) ExactAmountString(name corev1.ResourceName, a Amount) string {
+	q := f.AmountQuantity(name, a)
+	if AmountFromQuantity(name, q).Equal(a) {
+		return q.String()
+	}
+	if name == corev1.ResourceCPU {
+		return a.String() + "m"
+	}
+	return a.String()
 }

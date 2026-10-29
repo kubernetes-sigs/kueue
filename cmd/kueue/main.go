@@ -40,13 +40,11 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -111,7 +109,7 @@ func init() {
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
-	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		integrationManager.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -160,6 +158,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Apply feature-gated defaults after the configured gates have been loaded.
+	scheme.Default(&cfg)
+
 	// Validates the configuration after it has been loaded and feature gates have been set.
 	if err := config.Validate(&cfg, scheme, integrationManager).ToAggregate(); err != nil {
 		setupLog.Error(err, "Unable to validate the configuration")
@@ -178,15 +179,15 @@ func main() {
 
 	features.LogFeatureGates(setupLog)
 
+	if labels := jobframework.NonInheritableLabelsIn(cfg.Integrations.LabelKeysToCopy); len(labels) > 0 {
+		setupLog.Info("integrations.labelKeysToCopy names Kueue's internal labels, which are never copied to a Workload", "labels", labels)
+	}
+
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:    cfg.Metrics.BindAddress,
-		SecureServing:  true,
-		FilterProvider: filters.WithAuthenticationAndAuthorization,
-	}
+	metricsServerOptions := config.MetricsServerOptions(setupLog, cfg.Metrics)
 
 	parsedTLSConfig := &tlsconfig.TLS{}
 	if features.Enabled(features.TLSOptions) {
@@ -231,7 +232,11 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
-	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	lqMetrics, err := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	if err != nil {
+		setupLog.Error(err, "Unable to configure LocalQueue metrics")
+		os.Exit(1)
+	}
 
 	var customLabels *metrics.CustomLabels
 	if features.Enabled(features.CustomMetricLabels) {
@@ -274,10 +279,17 @@ func main() {
 		}
 	}
 
+	var clusterProfileCRDPresent bool
 	if features.Enabled(features.MultiKueueClusterProfile) {
-		if err := config.ConfigureClusterProfileCache(ctx, setupLog, &options, kubeConfig, cfg); err != nil {
-			setupLog.Error(err, "Unable to configure cluster profile")
+		var err error
+		if clusterProfileCRDPresent, err = config.ClusterProfileCRDPresent(ctx, kubeConfig); err != nil {
+			setupLog.Error(err, "Unable to check ClusterProfile CRD")
 			os.Exit(1)
+		}
+		if clusterProfileCRDPresent {
+			config.ConfigureClusterProfileCache(&options, cfg)
+		} else {
+			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
 		}
 	}
 
@@ -354,12 +366,25 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
+		simulatorFactory, err := was.NewWASSimulatorFactory(ctx, mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)
 		}
-		cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
+		cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(simulatorFactory))
+	}
+	if draBackedResources != nil {
+		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
+	}
+	if features.Enabled(features.KueueDRAIntegrationDeviceTaints) {
+		// Only a discovery failure errors. Carrying on unregistered would let a scheduling
+		// cycle block on the informer once discovery recovered.
+		served, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)
+		if err != nil {
+			setupLog.Error(err, "Unable to watch DeviceTaintRules")
+			os.Exit(1)
+		}
+		cacheOptions = append(cacheOptions, schdcache.WithDeviceTaintRules(served))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
@@ -419,6 +444,7 @@ func main() {
 		DRABackedResources:        draBackedResources,
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		ClusterProfileCRDPresent:  clusterProfileCRDPresent,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -568,6 +594,7 @@ func setupControllers(
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
+			multikueue.WithClusterProfileCRDPresent(opts.ClusterProfileCRDPresent),
 			multikueue.WithRoleTracker(opts.RoleTracker),
 			multikueue.WithClientConnection(cfg.ClientConnection),
 		); err != nil {

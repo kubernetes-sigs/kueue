@@ -19,9 +19,11 @@ package leaderworkerset
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -34,12 +36,14 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Webhook struct {
@@ -48,6 +52,7 @@ type Webhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -58,6 +63,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &leaderworkersetv1.LeaderWorkerSet{}
 	if options.NoopWebhook {
@@ -82,8 +88,15 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+	oldLWSObj, err := webhook.OldObjectFromContext[leaderworkersetv1.LeaderWorkerSet](ctx)
+	if err != nil {
 		return err
+	}
+	// ValidateUpdate rejects adding the label to a running LeaderWorkerSet that did not have it.
+	if oldLWSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
@@ -167,6 +180,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	if err != nil {
 		return nil, err
 	}
+	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -182,17 +196,20 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	if err != nil {
 		return nil, err
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
 
-	// Prevents updating the queue-name if at least one replica is ready
-	// or if the queue-name has been deleted.
-	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
+		return hasWorkloadWithQuotaReservation(ctx, wh.client, oldObj)
+	})
+	if err != nil {
+		return nil, err
 	}
+	allErrs = append(allErrs, queueErrs...)
 
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
@@ -244,6 +261,18 @@ func (wh *Webhook) ValidateDelete(_ context.Context, _ *leaderworkersetv1.Leader
 	return nil, nil
 }
 
+func hasWorkloadWithQuotaReservation(ctx context.Context, c client.Client, lws *leaderworkersetv1.LeaderWorkerSet) (bool, error) {
+	wlList := &kueue.WorkloadList{}
+	if err := c.List(ctx, wlList, client.InNamespace(lws.Namespace),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(lws.UID)},
+	); err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(wlList.Items, func(wl kueue.Workload) bool {
+		return workload.HasQuotaReservation(&wl)
+	}), nil
+}
+
 func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	// Workload name should be unique by group index.
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
@@ -280,8 +309,7 @@ func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
-	podSets, podSetsErr := podSets(&lwsv1)
+	podSets, podSetsErr := podSets(new(leaderworkersetv1.LeaderWorkerSet(*lws)))
 
 	defaultPodSetName := kueue.DefaultPodSetName
 

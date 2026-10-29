@@ -25,8 +25,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const emptyResourceName = corev1.ResourceName("")
@@ -46,7 +44,7 @@ func hashResourceName(name corev1.ResourceName) uint64 {
 type resourceEntry struct {
 	name  corev1.ResourceName
 	hash  uint64
-	value int64
+	value Amount
 }
 
 // cmp compares two resourceEntry structs by hash, then name.
@@ -77,7 +75,7 @@ func toSliceRequests(r Requests) SliceRequests {
 		return *sr
 	}
 	res := make(SliceRequests, 0, r.Len())
-	r.ForEach(func(name corev1.ResourceName, val int64) {
+	r.ForEach(func(name corev1.ResourceName, val Amount) {
 		res = append(res, resourceEntry{
 			name:  name,
 			hash:  hashResourceName(name),
@@ -86,6 +84,23 @@ func toSliceRequests(r Requests) SliceRequests {
 	})
 	res.sort()
 	return res
+}
+
+// int64MapToSliceRequests constructs a sorted SliceRequests from counts that already fit an int64.
+func int64MapToSliceRequests(m map[corev1.ResourceName]int64) SliceRequests {
+	if len(m) == 0 {
+		return nil
+	}
+	sr := make(SliceRequests, 0, len(m))
+	for name, v := range m {
+		sr = append(sr, resourceEntry{
+			name:  name,
+			hash:  hashResourceName(name),
+			value: NewAmount(v),
+		})
+	}
+	sr.sort()
+	return sr
 }
 
 // ResourceListToSliceRequests constructs a SliceRequests from a corev1.ResourceList.
@@ -98,7 +113,7 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 		sr = append(sr, resourceEntry{
 			name:  name,
 			hash:  hashResourceName(name),
-			value: ResourceValue(name, q),
+			value: AmountFromQuantity(name, q),
 		})
 	}
 	sr.sort()
@@ -106,7 +121,7 @@ func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 }
 
 // ToMap converts a SliceRequests back to a MapRequests map.
-func (sr *SliceRequests) ToMap() map[corev1.ResourceName]int64 {
+func (sr *SliceRequests) ToMap() map[corev1.ResourceName]Amount {
 	if sr.IsEmpty() {
 		return nil
 	}
@@ -117,7 +132,7 @@ func (sr *SliceRequests) ToMap() map[corev1.ResourceName]int64 {
 	return req
 }
 
-func (sr *SliceRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+func (sr *SliceRequests) ForEach(fn func(name corev1.ResourceName, val Amount)) {
 	if sr == nil {
 		return
 	}
@@ -126,19 +141,19 @@ func (sr *SliceRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 	}
 }
 
-func (sr *SliceRequests) ResourceValue(name corev1.ResourceName) int64 {
+func (sr *SliceRequests) ResourceValue(name corev1.ResourceName) Amount {
 	if sr == nil {
-		return 0
+		return Amount{}
 	}
 	target := resourceEntry{name: name, hash: hashResourceName(name)}
 	idx, found := slices.BinarySearchFunc(*sr, target, resourceEntry.cmp)
 	if found {
 		return (*sr)[idx].value
 	}
-	return 0
+	return Amount{}
 }
 
-func (sr *SliceRequests) Set(name corev1.ResourceName, val int64) {
+func (sr *SliceRequests) Set(name corev1.ResourceName, val Amount) {
 	if sr == nil {
 		return
 	}
@@ -174,7 +189,7 @@ func (sr *SliceRequests) ScaledUp(f int64) Requests {
 		res[i] = resourceEntry{
 			name:  entry.name,
 			hash:  entry.hash,
-			value: utilmath.SaturatingMul(entry.value, f),
+			value: entry.value.MulInt64(f),
 		}
 	}
 	return &res
@@ -194,10 +209,10 @@ func (sr *SliceRequests) Divide(f int64) {
 		return
 	}
 	for i := range *sr {
-		if (*sr)[i].value == 0 && f == 0 {
+		if (*sr)[i].value.Sign() == 0 && f == 0 {
 			continue
 		}
-		(*sr)[i].value /= f
+		(*sr)[i].value = (*sr)[i].value.QuoInt64(f)
 	}
 }
 
@@ -206,7 +221,7 @@ func (sr *SliceRequests) Mul(f int64) {
 		return
 	}
 	for i := range *sr {
-		(*sr)[i].value = utilmath.SaturatingMul((*sr)[i].value, f)
+		(*sr)[i].value = (*sr)[i].value.MulInt64(f)
 	}
 }
 
@@ -216,7 +231,7 @@ func (sr *SliceRequests) ToResourceList(formatter *ResourceFormatter) corev1.Res
 	}
 	ret := make(corev1.ResourceList, len(*sr))
 	for _, entry := range *sr {
-		ret[entry.name] = formatter.ResourceQuantity(entry.name, entry.value)
+		ret[entry.name] = formatter.AmountQuantity(entry.name, entry.value)
 	}
 	return ret
 }
@@ -234,7 +249,7 @@ func (sr *SliceRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 		for j < len(otherSR) && otherSR[j].cmp(entry) < 0 {
 			j++
 		}
-		if j < len(otherSR) && otherSR[j].cmp(entry) == 0 && entry.value > otherSR[j].value {
+		if j < len(otherSR) && otherSR[j].cmp(entry) == 0 && entry.value.Cmp(otherSR[j].value) > 0 {
 			result = append(result, entry.name)
 		}
 	}
@@ -252,7 +267,7 @@ func (sr *SliceRequests) Add(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.mergeWithInPlace(toSliceRequests(other), utilmath.SaturatingAdd)
+	sr.mergeWithInPlace(toSliceRequests(other), func(a, b Amount) Amount { return a.Add(b) })
 }
 
 // Sub performs an element-wise subtraction.
@@ -260,11 +275,11 @@ func (sr *SliceRequests) Sub(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.mergeWithInPlace(toSliceRequests(other), utilmath.SaturatingSub)
+	sr.mergeWithInPlace(toSliceRequests(other), func(a, b Amount) Amount { return a.Sub(b) })
 }
 
 // mergeFunc defines a computation lambda between matching or missing values in two SliceRequests.
-type mergeFunc func(valA, valB int64) int64
+type mergeFunc func(valA, valB Amount) Amount
 
 // mergeWithInPlace performs a linear O(N+M) in-place merge of other into *sr.
 func (sr *SliceRequests) mergeWithInPlace(other SliceRequests, fn mergeFunc) {
@@ -317,25 +332,25 @@ func mergeInto(dst, a, b SliceRequests, fn mergeFunc) SliceRequests {
 			i++
 			j++
 		case c < 0:
-			dst = appendEntry(dst, a[i], fn(a[i].value, 0))
+			dst = appendEntry(dst, a[i], fn(a[i].value, Amount{}))
 			i++
 		default:
-			dst = appendEntry(dst, b[j], fn(0, b[j].value))
+			dst = appendEntry(dst, b[j], fn(Amount{}, b[j].value))
 			j++
 		}
 	}
 	for i < len(a) {
-		dst = appendEntry(dst, a[i], fn(a[i].value, 0))
+		dst = appendEntry(dst, a[i], fn(a[i].value, Amount{}))
 		i++
 	}
 	for j < len(b) {
-		dst = appendEntry(dst, b[j], fn(0, b[j].value))
+		dst = appendEntry(dst, b[j], fn(Amount{}, b[j].value))
 		j++
 	}
 	return dst
 }
 
-func appendEntry(dst SliceRequests, entry resourceEntry, val int64) SliceRequests {
+func appendEntry(dst SliceRequests, entry resourceEntry, val Amount) SliceRequests {
 	return append(dst, resourceEntry{
 		name:  entry.name,
 		hash:  entry.hash,
@@ -357,7 +372,7 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 	minCount, limitingRes, j := int32(math.MaxInt32), emptyResourceName, 0
 
 	for i, entry := range *sr {
-		var capVal int64
+		var capVal Amount
 		if isSlice && capSR != nil {
 			for j < len(*capSR) && (*capSR)[j].cmp(entry) < 0 {
 				j++
@@ -369,10 +384,7 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 			capVal = capacity.ResourceValue(entry.name)
 		}
 
-		count := int32(math.MaxInt32)
-		if entry.value != 0 {
-			count = int32(max(0, min(capVal/entry.value, math.MaxInt32)))
-		}
+		count := fitsCount(capVal, entry.value)
 		if i == 0 || count < minCount || (count == minCount && entry.name < limitingRes) {
 			minCount = count
 			limitingRes = entry.name
@@ -391,12 +403,14 @@ func (sr *SliceRequests) FloorToZero() {
 		return
 	}
 	for i := range *sr {
-		(*sr)[i].value = max((*sr)[i].value, 0)
+		if (*sr)[i].value.Sign() < 0 {
+			(*sr)[i].value = Amount{}
+		}
 	}
 }
 
-func (sr *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
-	return func(yield func(corev1.ResourceName, int64) bool) {
+func (sr *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, Amount] {
+	return func(yield func(corev1.ResourceName, Amount) bool) {
 		if sr == nil {
 			return
 		}

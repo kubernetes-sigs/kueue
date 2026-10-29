@@ -41,7 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -53,14 +54,14 @@ var (
 )
 
 func TestScheduler(t *testing.T) {
-	util.RunSuite(t, "Scheduler Fair Sharing Suite")
+	behavioral.RunSuite(t, "Scheduler Fair Sharing Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 		},
@@ -80,6 +81,7 @@ func managerAndSchedulerSetup(
 	admissionFairSharing *config.AdmissionFairSharing,
 	mappings ...[]config.DeviceClassMapping,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
 
@@ -95,16 +97,21 @@ func managerAndSchedulerSetup(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		// The suite enables KueueDRAIntegration, which always gets a DRA-backed
+		// resource cache in cmd/kueue.
+		draBackedResources := dra.NewExtendedResourceCache()
 		cCache := schdcache.New(
 			mgr.GetClient(),
 			schdcache.WithFairSharing(fairsharing.Enabled(fairSharing)),
 			schdcache.WithAdmissionFairSharing(admissionFairSharing),
+			schdcache.WithDRABackedResources(draBackedResources),
 		)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{}
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 
 		configuration := &config.Configuration{
@@ -125,7 +132,11 @@ func managerAndSchedulerSetup(
 			queues,
 			cCache,
 			configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, DRAMapper: draMapper},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				DRAMapper:              draMapper,
+				DRABackedResources:     draBackedResources,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -146,7 +157,7 @@ func managerAndSchedulerSetup(
 			scheduler.WithAdmissionFairSharing(admissionFairSharing),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }

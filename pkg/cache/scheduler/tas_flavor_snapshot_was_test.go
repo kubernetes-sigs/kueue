@@ -23,10 +23,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -41,7 +41,7 @@ const wasRackLabel = "cloud.provider.com/topology-rack"
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
 // is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
-func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SimulatorSnapshot) {
+func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -54,32 +54,32 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 				corev1.ResourcePods: resource.MustParse("10"),
 			}).Ready().Obj(),
 	}
-	sim, err := was.NewWASSimulator(ctx, nil)
+	simulatorFactory, err := was.NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator() error = %v", err)
+		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
-	sim.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(testingpod.MakePod("victim-pod", victimKey.Namespace).
 		UID("victim-pod").
 		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	simSnapshot, err := sim.Snapshot(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
+		t.Fatalf("NewSimulator() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, simSnapshot), simSnapshot
+	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, schedulerSimulator), schedulerSimulator
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
 func wantsTheSamePort() FlavorTASRequests {
-	unconstrained := true
 	return FlavorTASRequests{{
 		PodSet: &kueue.PodSet{
 			Name:            "main",
-			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: &unconstrained},
+			TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: new(true)},
 			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 				Containers: []corev1.Container{{
 					Name:  "c",
@@ -100,7 +100,7 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
 	requests := wantsTheSamePort()
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
 	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
@@ -117,9 +117,9 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
-	snapshot, simSnapshot := wasSnapshotWithVictim(t, victim)
+	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	fits := func() bool {
 		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
 	}
@@ -128,7 +128,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	if fits() {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
 	}
-	revert, err := simSnapshot.PreemptWorkload(ctx, victim)
+	revert, err := schedulerSimulator.PreemptWorkload(ctx, victim)
 	if err != nil {
 		t.Fatalf("PreemptWorkload() error = %v", err)
 	}
@@ -185,7 +185,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 
 	// A Workload is what keys matchingLeavesCache, so without one the leader's answers
 	// are never cached and this would not notice an entry serving the wrong question.
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	// Asked twice each way, because the cache only answers from the second cycle.
 	for _, cycle := range []string{"first", "second"} {
 		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {

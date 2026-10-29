@@ -17,9 +17,13 @@ limitations under the License.
 package simulator
 
 import (
+	"iter"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -47,6 +51,11 @@ type NodeExclusionStats struct {
 	// Temporary non-granular reason for SchedulerLibraryIntegration, equivalent to the total number of not matching nodes.
 	// TODO(#13283): Long term the granular information should be taken in a structured form from the `scheduler-library`.
 	SchedulerLibraryNoFit int
+
+	// DRANoFit counts nodes that cannot satisfy the Pod's ResourceClaims. The device
+	// check is layered on top of the simulator rather than being one of its filters,
+	// so folding it into SchedulerLibraryNoFit would misreport it.
+	DRANoFit int
 }
 
 // PodRequirements stores pod-driven scheduling filters and
@@ -65,6 +74,99 @@ type PodRequirements struct {
 	// to check whether preemption could help, and to reserve capacity for a
 	// Workload that is waiting for preemption candidates.
 	SimulateEmpty bool
+}
+
+// PreemptionFilter tracks external constraints (such as ClusterQueue and Cohort quota)
+// alongside node-level simulation during preemption candidate selection and reprieval.
+type PreemptionFilter interface {
+	// PreemptWorkload notifies the filter that the candidate workload with wlKey
+	// has been tentatively preempted during the simulation.
+	PreemptWorkload(wlKey client.ObjectKey)
+	// UnpreemptWorkload notifies the filter that the candidate workload with wlKey
+	// has been reprieved and is no longer preempted in the simulation.
+	UnpreemptWorkload(wlKey client.ObjectKey)
+	// MayFit reports whether the external constraints are satisfied given the
+	// currently preempted workloads.
+	MayFit() bool
+}
+
+type ScheduleOptions struct {
+	// PreemptionCandidates is the ordered sequence of candidate workloads
+	// that may be preempted to make room for the scheduled workload.
+	PreemptionCandidates iter.Seq[client.ObjectKey]
+	// PreemptionFilter evaluates whether preempting candidate workloads
+	// satisfies non-node constraints (such as quota).
+	PreemptionFilter PreemptionFilter
+	// SimulateEmpty configures the simulator to schedule the workload against
+	// a cluster snapshot containing only Pods not managed by Kueue.
+	SimulateEmpty bool
+}
+
+type ScheduleOption func(*ScheduleOptions)
+
+// BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
+func BuildScheduleOptions(options ...ScheduleOption) ScheduleOptions {
+	var opts ScheduleOptions
+	for _, opt := range options {
+		if opt != nil {
+			opt(&opts)
+		}
+	}
+	return opts
+}
+
+// WithPreemptionCandidates configures the ordered sequence of candidate workloads
+// that may be preempted to make room for the scheduled workload.
+func WithPreemptionCandidates(candidates iter.Seq[client.ObjectKey]) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.PreemptionCandidates = candidates
+	}
+}
+
+// WithPreemptionFilter configures the filter used to evaluate whether preempting
+// candidate workloads satisfies non-node constraints (such as quota).
+func WithPreemptionFilter(filter PreemptionFilter) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.PreemptionFilter = filter
+	}
+}
+
+// WithSimulateEmpty configures the simulator to schedule the workload against
+// a cluster snapshot containing only Pods not managed by Kueue when simulateEmpty
+// is true, or against the full cluster snapshot when false.
+func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.SimulateEmpty = simulateEmpty
+	}
+}
+
+// SchedulingResult encapsulates the node assignments for the pods of the Workload.
+type SchedulingResult struct {
+	PodPlacements     PodPlacements
+	PreemptionVictims []client.ObjectKey
+	Error             error
+}
+
+type PodPlacements map[client.ObjectKey]*PodPlacement
+
+// PodPlacement represents the assignment of a Pod to a specific node.
+// The placement is considered a success only if:
+//   - Node is not empty,
+//   - Error is not set, and
+//   - Reasons list is empty.
+//
+// If the pleacement is not successful, Node is expected to be empty.
+type PodPlacement struct {
+	// Node is the assigned Node.
+	Node types.NodeName
+	// Error lists the error returned for a Pod assignment, if present.
+	Error error
+	// Reasons explain why the Simulator failed to assign the Pod.
+	Reasons []string
+}
+
+func (p *PodPlacement) IsSuccess() bool {
+	return p.Node != "" && p.Error == nil && len(p.Reasons) == 0
 }
 
 type NodeExclusionType int

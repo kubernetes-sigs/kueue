@@ -1,0 +1,15 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+integrations:
+  frameworks:
+  - "batch/job"
+  - "jobset.x-k8s.io/jobset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"
+  - "pod"
+featureGates:
+  SchedulerLibraryIntegration: true
+  SchedulerLibraryDeepIntegration: true
+  # GenericWorkload, CompositePodGroup, and TopologyAwareWorkloadScheduling are Kubernetes-level (non-Kueue) feature gates.
+  GenericWorkload: true
+  CompositePodGroup: true
+  TopologyAwareWorkloadScheduling: true

@@ -23,76 +23,59 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
 	k8sClient client.WithWatch
+	cfg       *rest.Config
 	ctx       context.Context
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End TAS Extended Suite")
+	e2e.RunE2ESuite(t, "End To End TAS Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = util.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
-	if ginkgo.Label("feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForJobSetAvailability(ctx, k8sClient)
+	if ginkgo.Label("feature:jobset", "feature:trainjob", "feature:was-deepintegration").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForJobSetAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+	if ginkgo.Label("feature:leaderworkerset", "feature:was-deepintegration").MatchesLabelFilter(labelFilter) {
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient, cfg)
 	}
 	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
-		util.WaitForAppWrapperAvailability(ctx, k8sClient)
+		e2e.WaitForAppWrapperAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:pytorchjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
+		e2e.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+		e2e.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:trainjob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
+		e2e.WaitForKubeFlowTrainnerControllerManagerAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:mpijob").MatchesLabelFilter(labelFilter) {
-		util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
+		e2e.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
 
-	nodes := &corev1.NodeList{}
-	requiredLabels := client.MatchingLabels{}
-	requiredLabelKeys := client.HasLabels{tasNodeGroupLabel}
-	err = k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
-
-	for _, n := range nodes.Items {
-		gomega.Eventually(func(g gomega.Gomega) {
-			node := &corev1.Node{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
-			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
-				node.Status.Capacity[extraResource] = resource.MustParse("1")
-				node.Status.Allocatable[extraResource] = resource.MustParse("1")
-				return true, nil
-			})
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
+	e2e.SetupTASNodes(ctx, k8sClient, tasNodeGroupLabel, extraResource)
 })

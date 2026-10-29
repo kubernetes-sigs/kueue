@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 )
 
 // GenericJob is a required interface that must be implemented by all jobs
@@ -65,10 +66,38 @@ type GenericJob interface {
 	IsActive() bool
 
 	// PodsReady indicates whether all job-derived pods are ready.
-	PodsReady(ctx context.Context, c client.Client) bool
+	// For an elastic job, it should only consider the Pods admitted by the latest
+	// admitted Workload slice, and ignore the Pods of a pending scale-up, such as
+	// scheduling-gated Pods. While a replacement slice is pending, Kueue records
+	// PodsReady on the admitted slice and evaluates the PodsReady timeout there.
+	PodsReady(ctx context.Context, c client.Client, options ...PodsReadyOption) bool
 
 	// GVK returns the GroupVersionKind for the job.
 	GVK() schema.GroupVersionKind
+}
+
+type podsReadyOptions struct {
+	workload *kueue.Workload
+}
+
+// PodsReadyOption configures GenericJob.PodsReady.
+type PodsReadyOption func(*podsReadyOptions)
+
+// WithWorkload sets the admitted Workload slice whose Pods are evaluated for readiness.
+func WithWorkload(wl *kueue.Workload) PodsReadyOption {
+	return func(options *podsReadyOptions) {
+		options.workload = wl
+	}
+}
+
+// PodsReadyWorkload returns the Workload configured by the given options.
+// When multiple options specify a Workload, the last one is used.
+func PodsReadyWorkload(options ...PodsReadyOption) *kueue.Workload {
+	var opts podsReadyOptions
+	for _, option := range options {
+		option(&opts)
+	}
+	return opts.workload
 }
 
 // JobWithPodLabelSelector is an optional interface that should be implemented by generic jobs
@@ -188,6 +217,13 @@ type ComposableJob interface {
 type JobWithCustomWorkloadConditions interface {
 	// CustomWorkloadConditions returns custom workload conditions and whether the status changed.
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
+}
+
+// JobWithCustomEquivalenceOptions is an optional interface that should be implemented
+// by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
+type JobWithCustomEquivalenceOptions interface {
+	// CustomEquivalenceOptions returns custom ComparePodSetsOption for checking job equivalency.
+	CustomEquivalenceOptions(ctx context.Context, c client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption
 }
 
 // JobWithCustomWorkloadActivation is an optional interface that should be implemented

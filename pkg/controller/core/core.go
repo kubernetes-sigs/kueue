@@ -52,12 +52,19 @@ type SetupControllersOpts struct {
 	DRABackedResources        *dra.ExtendedResourceCache
 	ResourceFormatter         *resources.ResourceFormatter
 	ResourceSliceAPIAvailable bool
+	ClusterProfileCRDPresent  bool
+	// ClusterQueueWatchers are notified of ClusterQueue changes after the
+	// built in watchers.
+	ClusterQueueWatchers []ClusterQueueUpdateWatcher
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
 func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.Cache, cfg *configapi.Configuration, opts SetupControllersOpts) (string, error) {
-	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	lqMetrics, err := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	if err != nil {
+		return "LocalQueue", err
+	}
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc, opts.RoleTracker)
 	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
@@ -89,6 +96,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "Cohort", err
 	}
 	watchers = append(watchers, cohortRec)
+	watchers = append(watchers, opts.ClusterQueueWatchers...)
 
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),

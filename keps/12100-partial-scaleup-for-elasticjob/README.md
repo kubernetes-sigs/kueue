@@ -58,7 +58,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 
 ### Non-Goals
 
-- Partial admission for initial job creation when only partial scale-up is configured.
+- Partial admission of the initial Workload, as partial scale up applies only once the job's target count exceeds the count admitted so far.
 - Respecting pod indexing when ungating pods. Specifically, this means that only single-host worker replicas are supported in RayCluster (NumOfHosts = 1)
 
 ## Proposal
@@ -90,10 +90,10 @@ Also, a new Workload will be created and added to the queue to advance the scale
 
 Every Workload is defined by two per-PodSet count vectors, read for every PodSet `i`:
 
-- **Baseline** (`baseline[i]`): `spec.podSets[i].minCount`. When `minCount` is unset, `baseline[i] = target[i]` — the PodSet has no floor below its target and cannot be reduced (see `ps0` in [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)).
+- **Baseline** (`baseline[i]`): the lowest count the PodSet can be reduced to, given by `spec.podSets[i].minCount`. When `minCount` is unset, `baseline[i] = target[i]` — the PodSet cannot be reduced below its target (see `ps0` in [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)). For a scale-up replacement Workload, the scheduler also takes the replaced Workload into account: while it is admitted, its granted count (`status.admission.podSetAssignments[i].count`) is used as the baseline, so the scale-up must grow past what is already running.
 - **Target** (`target[i]`): the requested count in the Workload's spec, `spec.podSets[i].count`.
 
-For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), the job controller (the per-job-kind reconciler that builds the Workload for RayJob/RayCluster/RayService) sets `minCount[i]` to the previously granted count of the replaced Workload for every PodSet that is growing, read from the replaced Workload's `status.admission.podSetAssignments[i].count`. The reducer itself always just reads `baseline[i] = spec.podSets[i].minCount`.
+The job controller (the per-job-kind reconciler that builds the Workload for RayJob/RayCluster/RayService) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
 
 The reducer returns an assignment (`granted[i]`) satisfying, for every PodSet `i`:
 
@@ -174,7 +174,7 @@ Step 0: Job Creation (Initial Size: 5)
 * **Workloads**:
   * `wl-A` (Admitted):
     * `spec.podSets.count` = 5
-    * `spec.podSets.minCount` = 5 (partial admission disabled for initial creation)
+    * `spec.podSets.minCount` = 5
     * `status.admission.count` = 5
 * **Controller Actions**:
   1. **KubeRay Controller**: Creates `RayCluster`.
@@ -190,16 +190,16 @@ Step 0: Job Creation (Initial Size: 5)
   * `wl-A` (Finished - aggregated/replaced by `wl-B`)
   * `wl-B` (Admitted - Partially):
     * `spec.podSets.count` (target) = 10
-    * `spec.podSets.minCount` (baseline, set from `wl-A`'s granted count) = 5
+    * `spec.podSets.minCount` (baseline) = 5
     * `status.admission.count` (granted) = 7
   * `wl-C` (Pending, since there is no capacity above baseline for 10 pods)
     * `spec.podSets.count` (target) = 10
-    * `spec.podSets.minCount` (baseline, set from `wl-B`'s granted count) = 7
+    * `spec.podSets.minCount` = 5, but the baseline is 7 (`wl-B`'s granted count) while `wl-B` is admitted
 * **Controller Actions**:
   1. **KubeRay Controller**: Increase worker group replica count and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
-  2. **Kueue RayCluster Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` (target) and `spec.podSets.minCount = 5` (baseline, taken from `wl-A`'s granted count). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
+  2. **Kueue RayCluster Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` (target) and `spec.podSets.minCount = 5` (baseline). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
   3. **Kueue Scheduler**: Evaluates `wl-B`. Its baseline (5) and target (10) bound the search. The available quota is only 2, so the reducer searches for the largest count in `[5, 10]` that fits, and admits `wl-B` with `granted = 5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7). This satisfies `baseline (5) <= granted (7) <= target (10)` and makes progress since `granted > baseline`.
-  4. **Kueue RayCluster Controller**: Creates another WorkloadSlice `wl-C` that represents the current state of the job with `.spec.podSets[0].count` = 10 (target) and `.spec.podSets[0].minCount` = 7 (baseline, taken from `wl-B`'s granted count). This workload is added to the queue to be evaluated when capacity becomes available, and it currently stays `Pending`. `wl-A` is marked as finished.
+  4. **Kueue RayCluster Controller**: Creates another WorkloadSlice `wl-C` that represents the current state of the job with `.spec.podSets[0].count` = 10 (target) and `.spec.podSets[0].minCount` = 5 (the baseline is 7, `wl-B`'s granted count, while `wl-B` is admitted). This workload is added to the queue to be evaluated when capacity becomes available, and it currently stays `Pending`. `wl-A` is marked as finished.
   5. **ElasticJobUngater Controller**: Detects that `wl-B` is admitted with count 7. It removes the scheduling gate from 2 of the new pods (bringing running pods to 7). The other 3 new pods remain gated.
 * **Quota usage**: 7/7 (0 available).
 
@@ -209,11 +209,11 @@ Step 0: Job Creation (Initial Size: 5)
   * `wl-B` (Admitted)
   * `wl-C` (Updated, keep pending):
     * `spec.podSets.count` (target) = 12
-    * `spec.podSets.minCount` (baseline) = 7
+    * `spec.podSets.minCount` = 5, baseline = 7 while `wl-B` is admitted
 * **Controller Actions**:
   1. **KubeRay Controller**: Increase worker group replica count and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
   2. **Kueue RayCluster Controller**: Detects the update. Since the `RayCluster`'s worker group replica count is updated to 12, Kueue updates the pending workload `wl-C` with `spec.podSets.count = 12` (target).
-  3. **Kueue Scheduler**: Evaluates `wl-C`. The baseline is 7 and the target is 12, so the reducible delta is `12 - 7 = 5`. The available quota is 0, so no assignment above the baseline fits. `wl-C` remains pending and `wl-B` keeps running unchanged.
+  3. **Kueue Scheduler**: Evaluates `wl-C`. The baseline is 7 (`wl-B`'s granted count) and the target is 12, so the reducible delta is `12 - 7 = 5`. The available quota is 0, so no assignment above the baseline fits. `wl-C` remains pending and `wl-B` keeps running unchanged.
 
 ##### Step 3: Quota increases to 12, opportunistic scale up when capacity is freed
 If the available quota in the ClusterQueue increases to 12 (or more) in the future:
@@ -221,7 +221,7 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
   * `wl-B` (Finished)
   * `wl-C` (Admitted):
     * `spec.podSets.count` (target) = 12
-    * `spec.podSets.minCount` (baseline) = 7
+    * `spec.podSets.minCount` = 5
     * `status.admission.count` (granted) = 12
 * **Controller Actions**:
   1. In the next scheduler loop, the Kueue scheduler re-evaluates `wl-C`. The baseline (7) and target (12) are unchanged, and the full delta of 5 now fits, so the scheduler admits `wl-C` with `granted = 12`.
@@ -244,23 +244,23 @@ This section is normative for how a scale-up replacement Workload ("probe") move
 
 1. When the Job's desired replica counts increase, the controller creates a probe Workload targeting the new desired counts (`target`), annotated as a replacement for the currently admitted Workload slice (see [Baseline and target semantics](#baseline-and-target-semantics)).
 2. If no assignment above the baseline fits the available quota, the probe remains `Pending` and the previous slice keeps running unchanged; it is re-evaluated on every scheduling cycle like any other pending Workload.
-3. If the probe is partially admitted, its granted counts become the baseline for the next probe (see [Opportunistic scale up when capacity is freed](#opportunistic-scale-up-when-capacity-is-freed)).
+3. If the probe is partially admitted, its granted counts become the baseline for the next probe for as long as it stays admitted (see [Opportunistic scale up when capacity is freed](#opportunistic-scale-up-when-capacity-is-freed)).
 4. Probing stops once granted counts equal target counts for every PodSet.
 5. The target must track the job's actual desired counts while a probe is pending: the job controller must update it upward when the desired count increases further (as in Step 2, from 10 to 12), but must never narrow it down to match the currently running count, or a later quota increase would have nothing left to scale into.
 
 ### Eviction and readmission behavior
 
-If the Workload slice a pending probe replaces is evicted (e.g. ClusterQueue drain, or preemption), the probe's `baseline` — set from that slice's granted count — no longer corresponds to anything achievable: the slice it was relative to is gone. Left alone, the probe would stay stuck pending indefinitely, even once quota that previously supported the job reappears.
+If the Workload slice replaced by a pending probe is evicted (for example by a ClusterQueue drain or a preemption), the evicted slice is finished and the probe remains in the queue. The probe's `minCount` is copied forward from its predecessors, so it remains valid after the predecessor is gone. With no admitted predecessor, the baseline is `minCount` and the probe is not required to grow any PodSet beyond it, as described in the [Order-Based policy](#order-based-policy-order-based).
 
-To recover, Kueue finishes the stranded probe together with its evicted predecessor, so the job starts its next reconcile from zero Workloads instead of being left with an orphaned probe and a stale baseline. The Workload slice created afterward seeds its `baseline` from the job's last admitted count on record, so the job can be readmitted at the size it last ran at and resume scale-up toward `target` from there.
+Consequently, the reducer selects the counts for the probe between `minCount` and `target` as described in the [Order-Based policy](#order-based-policy-order-based), and the selected counts can be lower than those the evicted slice was running with. After readmission, scale-up continues toward `target` as described in [Probe lifecycle](#probe-lifecycle). While the available quota is lower than `minCount`, the probe remains pending.
 
 ### RayJob/RayService/RayCluster controller
 
 Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
 
-The `RayCluster.workerGroupSpecs[i].replicas * numOfHosts` will be translated to `PodSet.Count`. Only RayCluster WorkingGroups with minReplicas value will be considered for partial scale up. For those WorkingGroups the `spec.podSets[i].minCount` will be equal to `PodSet.Count` for the initial Workload in order to prevent partial admission for initial creation (see [Non-Goals](#non-goals)).
+`RayCluster.workerGroupSpecs[i].replicas * numOfHosts` is translated to `PodSet.Count`. With partial scale up enabled, each worker group's `minCount` is set to its `PodSet.Count` in the initial Workload; `minReplicas` is not consulted.
 
-For workloads representing scale up, `spec.podSets[i].minCount` is set to the previously granted count of the replaced Workload slice for every PodSet that is growing. An assignment must additionally make progress in at least one PodSet — this is not required for ordinary partial admission of a fresh Workload.
+Scale up replacement Workloads get their `minCount` and baseline as described in [Baseline and target semantics](#baseline-and-target-semantics).
 
 Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so the partial scale up won't affect the PodsReady() value.
 
@@ -276,12 +276,12 @@ Under the `order-based` policy, the reducer works as follows, given each PodSet 
 
 1. **Reduction phase.** The reduction is expressed as a single budget: the total number of replicas to give up, spread across the PodSets from the *last* one defined in the Workload spec towards the first, each giving up as much as it can (down to its `baseline[i]`) before the next one is touched. Kueue binary-searches that budget for the smallest one whose resulting counts fit the available quota, which requires every PodSet's count to be monotonically non-increasing as the budget grows. This suits Jobs whose PodSets are ordered by priority (the Workload PodSet order usually matches the PodSet order in the Job spec): later, lower-priority PodSets absorb the reduction first, so earlier, higher-priority PodSets stay closer to their target for as long as possible.
 2. **Failure case.** If every PodSet is reduced all the way to its `baseline[i]` and the total still doesn't fit, the search fails and the Workload is not admitted.
-3. **Giveback phase.** Once a fitting combination is found, Kueue tries to restore capacity, similar to the preemption algorithm: iterating over all PodSets from first to last, for each one that was reduced, Kueue first tries to restore it fully to its `target[i]`; if that doesn't fit, it binary-searches between the reduced count and `target[i]` for the largest count that still fits. This lets PodSets pinned to independently constrained ResourceFlavors each get back as much capacity as they individually have room for, even if another PodSet's ResourceFlavor is the limiting constraint.
-4. **Scale-up progress check.** For a scale-up replacement Workload (annotated via `kueue.x-k8s.io/workload-slice-replacement-for`, with `baseline[i]` set by the job controller to the replaced Workload's granted count for every growing PodSet — see [Baseline and target semantics](#baseline-and-target-semantics)), the assignment produced by step 3 must satisfy `exists i: granted[i] > baseline[i]`. One that lands on `baseline[i]` for every PodSet makes no scale-up progress and is discarded, leaving the replacement Workload pending rather than admitted as a no-op (see [Probe lifecycle](#probe-lifecycle)).
+3. **Giveback phase.** Once a fitting combination is found, Kueue tries to restore capacity, similar to the preemption algorithm. This phase only runs when at least two PodSets ended below their target, which keeps classic partial admission, where at most one PodSet has a `minCount`, unaffected. When it runs, Kueue iterates over all PodSets from first to last and, for each one that was reduced, first tries to restore it fully to its `target[i]`; if that doesn't fit, it binary-searches between the reduced count and `target[i]` for the largest count that still fits. This lets PodSets pinned to independently constrained ResourceFlavors each get back as much capacity as they individually have room for, even if another PodSet's ResourceFlavor is the limiting constraint.
+4. **Scale-up progress check.** For a scale-up replacement Workload (annotated via `kueue.x-k8s.io/workload-slice-replacement-for`, with `baseline[i]` the replaced Workload's granted count while it is admitted — see [Baseline and target semantics](#baseline-and-target-semantics)), the assignment produced by step 3 must satisfy `exists i: granted[i] > baseline[i]`. One that lands on `baseline[i]` for every PodSet makes no scale-up progress and is discarded, leaving the replacement Workload pending rather than admitted as a no-op (see [Probe lifecycle](#probe-lifecycle)).
 
    The check applies to the assignment step 3 finally produces, not to the candidates step 1 considers. Barring the all-baseline vector from the reduction search would lose valid scale-ups: where PodSets are pinned to independently constrained ResourceFlavors, the ordered shrink may only find a fit once every PodSet sits at its baseline, and the giveback phase then grows back the PodSets whose own flavor was never the constraint. Scenario D below is that case — with the all-baseline vector barred from step 1 the search would find nothing for step 3 to give back from.
 
-   The check also applies only while the replaced Workload still holds its quota. Once that Workload is evicted, its granted counts are no longer something to grow on top of — they are the size the job was last running at, and the replacement must be admissible at exactly them so the job can recover (see [Eviction and readmission behavior](#eviction-and-readmission-behavior)).
+   The check applies only while the replaced Workload is admitted, meaning it has reserved quota and all its admission checks are `Ready`. Only then does the job have running pods to grow beyond, and only then is the replaced Workload's granted count used as the baseline. When the replaced Workload is not admitted, the baseline is `minCount` and the replacement may be admitted at exactly `minCount`.
 
 One example when order-based policy is used, is when a multi-podset Job has identical PodSets that have different node selectors tied to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep pods running on reservation nodes rather than on-demand/spot nodes.
 
@@ -343,7 +343,7 @@ spec:
                 cpu: "1"
 ```
 
-The RayJob translates to a Workload with three PodSets. `ps1` and `ps2` are growing as part of a scale-up replacement Workload, so their `minCount` (`baseline`) is set to the previously granted count of the replaced Workload slice, rather than a fixed floor:
+The RayJob translates to a Workload with three PodSets. `ps1` and `ps2` are growing as part of a scale-up replacement Workload, so their baseline is the previously granted count of the replaced (admitted) Workload slice. In this example the replaced slice ran at those counts, so the baselines are the `minCount` values below:
 - `ps0` (head pod): `count: 1` (target), no `minCount` set (cannot be shrunk).
 - `ps1` (workers-reservation): `count: 4` (target), `minCount: 2` (baseline; can be reduced by up to 2 pods).
 - `ps2` (workers-spot): `count: 20` (target), `minCount: 10` (baseline; can be reduced by up to 10 pods).
@@ -387,7 +387,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 
 #### Unit Tests
 
-- Verifying the job controller sets a scale-up probe's `spec.podSets[i].minCount` (`baseline`) from the replaced Workload's granted `status.admission.podSetAssignments[*].count`.
+- Verifying the job controller copies a scale-up probe's `spec.podSets[i].minCount` forward from the replaced Workload (matched by PodSet name, capped at the new count), and the scheduler uses the replaced Workload's granted `status.admission.podSetAssignments[*].count` as the baseline while it is admitted.
 - Verifying the reducer only returns assignments satisfying `baseline[i] <= granted[i] <= target[i]` for every PodSet `i`.
 - Verifying the reducer excludes the fully-reduced baseline as a successful admission for a scale-up replacement Workload.
 - Verifying one PodSet growing while another PodSet stays at its baseline is a valid, independently admissible assignment.
@@ -395,15 +395,15 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - Verifying that when no assignment above the baseline fits available quota, the probe remains pending and the existing Workload slice is left running unchanged.
 - Verifying that an all-baseline fit which the giveback phase grows into real progress is admitted, since the progress check is applied after that phase.
 - Verifying that the progress check does not apply to a Workload with no admitted predecessor, so classic partial admission and post-eviction readmission can both land on `minCount`.
+- Verifying that a predecessor that holds quota but is not admitted (admission checks not `Ready`) neither imposes the progress check nor overrides the baseline, so the scale-up is not stalled.
 - Verifying ungater controller behavior when workloads are partially admitted.
 
 #### Integration tests
 
 - `test/integration/singlecluster/controller/jobs/raycluster/raycluster_controller_partial_scaleup_test.go`: the flow through Steps 0-3 of the worked example above — successive partial admissions, where each admitted probe's granted counts become the baseline for the next; a probe left pending while quota is exhausted; and the opportunistic admission once quota is raised. Also that spare capacity for two pods goes wholly to the earlier of two competing worker groups rather than one pod to each, and that partial scale-up and preemption interact correctly.
+- `test/integration/singlecluster/controller/jobs/raycluster/raycluster_controller_partial_scaleup_test.go`: a pending probe surviving a ClusterQueue drain or a preemption of its predecessor, readmission at `minCount` without requiring scale-up progress, probing resuming toward the target afterwards, and the probe staying pending while quota is below `minCount`.
 - `test/integration/singlecluster/controller/jobs/rayservice/rayservice_controller_partial_scaleup_test.go`: worker groups pinned to independently constrained ResourceFlavors — the giveback phase restoring a group that was drained on another group's behalf (Scenario D above), a group whose own flavor is exhausted not blocking a sibling that can still grow, and no admission at all when no group has room above its baseline.
 - `test/integration/singlecluster/controller/jobs/rayjob/rayjob_controller_partial_scaleup_test.go`: the same flow for the RayJob integration, whose workload slice naming differs.
-
-Deferred to the eviction handling in [#15417](https://github.com/kubernetes-sigs/kueue/pull/15417), since they depend on a stranded probe being finished together with its predecessor and the next slice reseeding its baseline: readmitting a previously runnable assignment without requiring scale-up progress, resuming probing from that restored baseline, and preserving the scale-up target while a probe is pending (see [Probe lifecycle](#probe-lifecycle)).
 
 #### E2E tests
 

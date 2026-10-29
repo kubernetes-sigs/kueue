@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -44,7 +44,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Failure Recovery Suite")
+	behavioral.RunSuite(t, "Failure Recovery Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -59,6 +59,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	err := indexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

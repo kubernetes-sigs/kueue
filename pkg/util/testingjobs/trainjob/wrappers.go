@@ -34,10 +34,8 @@ type TrainJobWrapper struct{ kftrainerapi.TrainJob }
 // MakeTrainJob creates a wrapper for a suspended TrainJob
 func MakeTrainJob(name, ns string) *TrainJobWrapper {
 	return &TrainJobWrapper{kftrainerapi.TrainJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
+		Name:      name,
+		Namespace: ns,
 		Spec: kftrainerapi.TrainJobSpec{
 			Suspend: new(true),
 			Trainer: &kftrainerapi.Trainer{
@@ -183,14 +181,13 @@ type RuntimePatchWrapper struct{ kftrainerapi.RuntimePatch }
 
 // MakeRuntimePatch creates a wrapper for a TrainJob RuntimePatch.
 func MakeRuntimePatch(manager string) *RuntimePatchWrapper {
-	return &RuntimePatchWrapper{RuntimePatch: kftrainerapi.RuntimePatch{
+	return &RuntimePatchWrapper{
 		Manager: manager,
 		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
 			Template: &kftrainerapi.JobSetTemplatePatch{
 				Spec: &kftrainerapi.JobSetSpecPatch{},
 			},
-		},
-	}}
+		}}
 }
 
 // Obj returns the inner RuntimePatch.
@@ -268,9 +265,8 @@ type ReplicatedJobPatchWrapper struct {
 
 // MakeReplicatedJobPatch creates a wrapper for a TrainJob ReplicatedJobPatch.
 func MakeReplicatedJobPatch(name string) *ReplicatedJobPatchWrapper {
-	return &ReplicatedJobPatchWrapper{ReplicatedJobPatch: kftrainerapi.ReplicatedJobPatch{
-		Name: name,
-	}}
+	return &ReplicatedJobPatchWrapper{
+		Name: name}
 }
 
 // Obj returns the inner ReplicatedJobPatch.
@@ -369,9 +365,7 @@ func KueueRuntimePatch(trainJob *kftrainerapi.TrainJob) *kftrainerapi.RuntimePat
 // MakeClusterTrainingRuntime creates a ClusterTrainingRuntime with the jobsetSpec provided
 func MakeClusterTrainingRuntime(name string, jobsetSpec jobsetapi.JobSetSpec) *kftrainerapi.ClusterTrainingRuntime {
 	return &kftrainerapi.ClusterTrainingRuntime{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name: name,
 		Spec: kftrainerapi.TrainingRuntimeSpec{
 			Template: kftrainerapi.JobSetTemplateSpec{
 				Spec: jobsetSpec,
@@ -383,10 +377,8 @@ func MakeClusterTrainingRuntime(name string, jobsetSpec jobsetapi.JobSetSpec) *k
 // MakeTrainingRuntime creates a TrainingRuntime with the jobsetSpec provided
 func MakeTrainingRuntime(name, ns string, jobsetSpec jobsetapi.JobSetSpec) *kftrainerapi.TrainingRuntime {
 	return &kftrainerapi.TrainingRuntime{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
+		Name:      name,
+		Namespace: ns,
 		Spec: kftrainerapi.TrainingRuntimeSpec{
 			Template: kftrainerapi.JobSetTemplateSpec{
 				Spec: jobsetSpec,

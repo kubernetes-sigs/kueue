@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -74,7 +73,7 @@ func TestLeaderAwareReconcilerNonLeadingDestinations(t *testing.T) {
 	for _, name := range []string{"first", "second"} {
 		wg.Go(func() {
 			if _, err := reconciler.Reconcile(t.Context(), reconcile.Request{
-				NamespacedName: types.NamespacedName{Namespace: "ns", Name: name},
+				Namespace: "ns", Name: name,
 			}); err != nil {
 				t.Errorf("Reconcile(%q) returned %v", name, err)
 			}

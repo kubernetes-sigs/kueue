@@ -111,7 +111,7 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 					return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 				}
 				if concurrentadmission.IsVariant(obj) {
-					return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.Namespace, Name: concurrentadmission.GetParentWorkloadName(obj)}}}
+					return []reconcile.Request{{Namespace: obj.Namespace, Name: concurrentadmission.GetParentWorkloadName(obj)}}
 				}
 				return nil
 			}),
@@ -247,7 +247,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncAdmissionStatus(ctx, parent, variants); err != nil {
+	if err := r.syncAdmissionStatus(ctx, parent, variants, flavorOrder); err != nil {
 		log.Error(err, "Failed to sync admission status")
 		return ctrl.Result{}, err
 	}
@@ -362,15 +362,13 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
 	variant := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
-			Namespace:     parent.Namespace,
-			Labels:        parent.Labels,
-			Annotations:   parent.Annotations,
-			ManagedFields: parent.ManagedFields,
-		},
-		Spec:   parent.Spec,
-		Status: parent.Status,
+		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
+		Namespace:     parent.Namespace,
+		Labels:        parent.Labels,
+		Annotations:   parent.Annotations,
+		ManagedFields: parent.ManagedFields,
+		Spec:          parent.Spec,
+		Status:        parent.Status,
 	}
 	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
@@ -662,7 +660,24 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 	return apimeta.SetStatusCondition(&variant.Status.Conditions, *parentCond)
 }
 
-func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+// hasRemovedAdmissionFlavor reports whether an assigned flavor is no longer
+// available for concurrent admission in the ClusterQueue.
+func hasRemovedAdmissionFlavor(wl *kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) bool {
+	if wl.Status.Admission == nil {
+		return false
+	}
+
+	for _, assignment := range wl.Status.Admission.PodSetAssignments {
+		for _, flavor := range assignment.Flavors {
+			if _, found := flavorOrder[flavor]; !found {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, flavorOrder map[kueue.ResourceFlavorReference]int) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(parent) {
 		return r.syncFinished(ctx, parent, variants)
@@ -677,6 +692,24 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
+		}
+	case admittedVariant != nil && workload.IsAdmitted(parent) && hasRemovedAdmissionFlavor(parent, flavorOrder):
+		// Preserve an existing eviction while waiting for the parent to release quota.
+		if workloadevict.IsEvicted(parent) {
+			return nil
+		}
+
+		log.V(2).Info("Parent admitted flavor is no longer in the ClusterQueue, evicting parent", "parent", klog.KObj(parent))
+
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workloadevict.SetEvictedCondition(
+				wl,
+				r.clock.Now(),
+				"ConcurrentAdmission",
+				"The admitted flavor is no longer in the ClusterQueue",
+			), nil
+		}); err != nil {
+			return fmt.Errorf("evicting parent: %w", err)
 		}
 	case admittedVariant != nil && !workload.IsAdmitted(parent):
 		log.V(2).Info("Parent not admitted and Variant admitted, syncing their status", "parent", klog.KObj(parent), "Variant", klog.KObj(admittedVariant))

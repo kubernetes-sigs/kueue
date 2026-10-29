@@ -29,7 +29,12 @@ type EffectiveCapacityFlavorApplyConfiguration struct {
 	// name identifies the ResourceFlavor whose capacity is reported.
 	//
 	Name *kueuev1alpha1.ResourceFlavorReference `json:"name,omitempty"`
-	// resources contains total capacity by resource name.
+	// resources contains total capacity by resource name, up to 64 distinct
+	// resources. If the referenced providers together report more distinct
+	// resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+	// with reason AggregationFailed and clears status.effectiveCapacity.
+	// A resource that is not listed, including when the map is empty, has zero
+	// capacity for the flavor.
 	//
 	Resources *v1.ResourceList `json:"resources,omitempty"`
 }

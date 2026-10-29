@@ -957,6 +957,14 @@ const (
 	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
 	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
 
+	// WorkloadQuotaReservedReasonUnrecordableResourceUsage indicates that an admitted
+	// PodSet total cannot be stored in PodSetAssignment.resourceUsage. A Quantity holds
+	// at most MaxInt64 in the unit it reports, so a non-CPU total past that, or a CPU
+	// total past MaxInt64 cores, would be written back capped. The workload is not
+	// admitted: the cache must not rebuild usage from the cap, and the admission is
+	// not retried when the capped value is not divisible by the Pod count.
+	WorkloadQuotaReservedReasonUnrecordableResourceUsage = "UnrecordableResourceUsage"
+
 	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
 	// requirements that cannot be satisfied with the current cluster topology usage.
 	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
@@ -969,6 +977,10 @@ const (
 	// misconfiguration, such as missing LocalQueue or ClusterQueue.
 	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
 
+	// WorkloadQuotaReservedReasonAssignmentError indicates kueue failed to create an assignment
+	// due to an unexpected error propagated from downstream.
+	WorkloadQuotaReservedReasonAssignmentError = "AssignmentError"
+
 	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
 	// the LocalQueue or ClusterQueue StopPolicy is active.
 	WorkloadQuotaReservedReasonSuspended = "Suspended"
@@ -979,6 +991,14 @@ const (
 	// WorkloadQuotaReservedReasonWaitingForPodsReady indicates that the workload is waiting
 	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
 	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
+
+	// WorkloadQuotaReservedReasonDRAResourcesUnresolved indicates that quota reservation
+	// failed because the workload's DRA resources could not be resolved.
+	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
+
+	// WorkloadQuotaReservedReasonSimulationFailed indicates that quota reservation
+	// failed when running the scheduling simulation.
+	WorkloadQuotaReservedReasonSimulationFailed = "SchedulingSimulationFailed"
 
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
@@ -1062,6 +1082,11 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+
+	// ConfigurablePreemptionReason indicates the Workload was preempted due to
+	// the configured PreemptionConfig rules (alpha, requires the
+	// ConfigurablePreemptions feature gate).
+	ConfigurablePreemptionReason string = "ConfigurablePreemption"
 )
 
 const (
@@ -1150,6 +1175,10 @@ const (
 	// local queue was restarted after being stopped.
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
 
+	// WorkloadDRAResourcesUnresolved indicates that the workload was not requeued
+	// because its DRA resources could not be resolved.
+	WorkloadDRAResourcesUnresolved = "DRAResourcesUnresolved"
+
 	// WorkloadDRAResourcesResolved indicates that the workload was requeued because
 	// its DRA resources were resolved after a previous inadmissible marking.
 	WorkloadDRAResourcesResolved = "DRAResourcesResolved"
@@ -1221,7 +1250,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.kind == self.spec.priorityClassRef.kind : true",message="priorityClassRef.kind is immutable while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef) && self.spec.priorityClassRef.group == 'scheduling.k8s.io' && self.spec.priorityClassRef.kind == 'PriorityClass') ? oldSelf.spec.priorityClassRef.name == self.spec.priorityClassRef.name : true",message="priorityClassRef.name is immutable for scheduling.k8s.io/priorityclass while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True'))) ? ((has(oldSelf.spec.queueName) == has(self.spec.queueName)) && (!has(oldSelf.spec.queueName) || oldSelf.spec.queueName == self.spec.queueName)) : true", message="queueName is immutable while workload quota reserved"
-// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while the workload is admitted"
 type Workload struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Workload.

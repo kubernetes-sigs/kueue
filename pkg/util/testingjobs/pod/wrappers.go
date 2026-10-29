@@ -43,11 +43,9 @@ type PodWrapper struct {
 // MakePod creates a wrapper for a pod with a single container.
 func MakePod(name, ns string) *PodWrapper {
 	return &PodWrapper{corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
@@ -178,6 +176,11 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
+// GroupMaxNotReadyCount updates the pod.GroupMaxNotReadyCountAnnotation of the Pod
+func (p *PodWrapper) GroupMaxNotReadyCount(count string) *PodWrapper {
+	return p.Annotation(podconstants.GroupMaxNotReadyCountAnnotation, count)
+}
+
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueue.PodGroupPodIndexLabel, index)
@@ -254,6 +257,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	}
 
 	p.Spec.NodeSelector[k] = v
+	return p
+}
+
+// SchedulingGroup makes the Pod belong to the given PodGroup.
+func (p *PodWrapper) SchedulingGroup(podGroupName string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &podGroupName}
 	return p
 }
 
@@ -334,6 +343,12 @@ func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodW
 	return p
 }
 
+// ContainerName sets the name of the default container.
+func (p *PodWrapper) ContainerName(name string) *PodWrapper {
+	p.Spec.Containers[0].Name = name
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -359,6 +374,12 @@ func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 // Limit adds a resource limit to the default container.
 func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	return p
+}
+
+// RuntimeClass sets the RuntimeClassName of the Pod.
+func (p *PodWrapper) RuntimeClass(name string) *PodWrapper {
+	p.Spec.RuntimeClassName = &name
 	return p
 }
 
@@ -398,6 +419,18 @@ func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
 	return p
 }
 
+// StatusPodIP updates status pod IP of the Pod.
+func (p *PodWrapper) StatusPodIP(ip string) *PodWrapper {
+	p.Status.PodIP = ip
+	return p
+}
+
+// StatusContainerStatuses updates status container statuses of the Pod.
+func (p *PodWrapper) StatusContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
+	p.Status.ContainerStatuses = statuses
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
@@ -407,15 +440,19 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 
 // DeletionTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
-	timestamp := metav1.NewTime(t).Rfc3339Copy()
-	p.Pod.DeletionTimestamp = &timestamp
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return p
+}
+
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
 	return p
 }
 
 // Delete sets a deletion timestamp for the pod object
 func (p *PodWrapper) Delete() *PodWrapper {
-	t := metav1.NewTime(time.Now())
-	p.Pod.DeletionTimestamp = &t
+	p.Pod.DeletionTimestamp = new(metav1.NewTime(time.Now()))
 	return p
 }
 

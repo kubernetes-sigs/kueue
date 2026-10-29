@@ -1,0 +1,33 @@
+# sample-jobset-tas-sliced.yaml
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: jobset-tas-sliced
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicatedJobs:
+    - name: workers
+      replicas: 1
+      template:
+        spec:
+          parallelism: 8
+          completions: 8
+          backoffLimit: 0
+          template:
+            metadata:
+              annotations:
+                kueue.x-k8s.io/podset-slice-required-topology: "cloud.provider.com/topology-rack"
+                kueue.x-k8s.io/podset-slice-size: "4"
+            spec:
+              containers:
+                - name: sleep
+                  image: busybox
+                  resources:
+                    requests:
+                      cpu: 1
+                      memory: "200Mi"
+                  command:
+                    - sleep
+                  args:
+                    - 100s

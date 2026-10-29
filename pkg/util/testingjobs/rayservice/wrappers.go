@@ -32,15 +32,14 @@ type ServiceWrapper struct{ rayv1.RayService }
 // MakeService creates a wrapper for a suspended RayService
 func MakeService(name, ns string) *ServiceWrapper {
 	return &ServiceWrapper{rayv1.RayService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayServiceSpec{
+			Suspend: true,
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
-				Suspend:    new(true),
+				Suspend:    new(false),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -95,7 +94,7 @@ func (j *ServiceWrapper) Obj() *rayv1.RayService {
 
 // Suspend updates the suspend status of the RayService
 func (j *ServiceWrapper) Suspend(s bool) *ServiceWrapper {
-	j.Spec.RayClusterSpec.Suspend = new(s)
+	j.Spec.Suspend = s
 	return j
 }
 
@@ -218,6 +217,12 @@ func (j *ServiceWrapper) GCSFaultTolerance(redisAddress string) *ServiceWrapper 
 	return j
 }
 
+// ActiveRayClusterName sets the name of the active RayCluster in the RayService status.
+func (j *ServiceWrapper) ActiveRayClusterName(name string) *ServiceWrapper {
+	j.Status.ActiveServiceStatus.RayClusterName = name
+	return j
+}
+
 // Clone returns a deep copy of the RayService.
 func (j *ServiceWrapper) Clone() *ServiceWrapper {
 	return &ServiceWrapper{*j.DeepCopy()}
@@ -273,6 +278,12 @@ func (j *ServiceWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *ServiceWr
 // RayVersion sets the Ray version.
 func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	j.Spec.RayClusterSpec.RayVersion = rv
+	return j
+}
+
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
 	return j
 }
 

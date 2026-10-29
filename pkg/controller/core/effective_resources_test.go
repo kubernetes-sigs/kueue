@@ -56,9 +56,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 		requeueAfterBackoff bool
 		preprocessingRead   int
 	}{
-		"initial DRA queue insertion": {preprocessingRead: 1},
 		// Reconcile first reads defaults in needsDRAReconcile; handleDRA
 		// takes the preprocessing snapshot on the second read.
+		"initial DRA queue insertion":       {preprocessingRead: 2},
 		"DRA queue insertion after backoff": {requeueAfterBackoff: true, preprocessingRead: 2},
 	}
 	for name, tc := range cases {
@@ -98,7 +98,10 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 					}}).Build()
 			cache := schdcache.New(cl)
 			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
-			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			if err := cl.Create(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatal(err)
 			}
@@ -106,6 +109,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 				t.Fatal(err)
 			}
 			lq := utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj()
+			if err := cl.Create(ctx, lq); err != nil {
+				t.Fatal(err)
+			}
 			if err := queues.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatal(err)
 			}
@@ -120,11 +126,7 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			backedResources.Add(gpu, dc.Name)
 			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRAMapper(mapper), WithDRABackedResources(backedResources))
 			reconciler.clock = testingclock.NewFakeClock(now)
-			if tc.requeueAfterBackoff {
-				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
-					t.Fatal(err)
-				}
-			} else if _, _, _, err := reconciler.handleDRA(ctx, wl); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
 				t.Fatal(err)
 			}
 			infos := queues.PendingWorkloadsInfo("cq")
@@ -135,14 +137,65 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			if qty.Cmp(resource.MustParse("1")) != 0 {
 				t.Errorf("queued view uses %s GPU, but DRA processed 1", qty.String())
 			}
-			if got := infos[0].TotalRequests[0].Requests.ResourceValue("logical-gpu"); got != 1 {
-				t.Errorf("logical quota = %d, want 1", got)
+			if got := infos[0].TotalRequests[0].Requests.ResourceValue("logical-gpu"); got.CmpInt64(1) != 0 {
+				t.Errorf("logical quota = %s, want 1", got)
 			}
-			if got := infos[0].TotalRequests[0].Requests.ResourceValue(gpu); got != 0 {
-				t.Errorf("replaced extended resource quota = %d, want 0", got)
+			if got := infos[0].TotalRequests[0].Requests.ResourceValue(gpu); got.Sign() != 0 {
+				t.Errorf("replaced extended resource quota = %s, want 0", got)
 			}
 			if len(infos[0].Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests) != 0 {
 				t.Fatal("raw Workload contains defaults")
+			}
+		})
+	}
+}
+
+// TestNeedsDRAReconcileReadsDefaultsOnlyWithBackedResources checks that the
+// DRA check on every Workload event reads the namespace defaults only when a
+// DeviceClass backs an extended resource.
+func TestNeedsDRAReconcileReadsDefaultsOnlyWithBackedResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	const gpu corev1.ResourceName = "example.com/gpu"
+	cases := map[string]struct {
+		backedResource bool
+		wantReads      int
+		want           bool
+	}{
+		"no DeviceClass backs an extended resource": {},
+		"a DeviceClass backs the defaulted extended resource": {
+			backedResource: true,
+			wantReads:      1,
+			want:           true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("queue").Obj()
+			lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", gpu, "1").Obj()
+			reads := 0
+			cl := utiltesting.NewClientBuilder().WithObjects(lr).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*corev1.LimitRangeList); ok {
+							reads++
+						}
+						return c.List(ctx, list, opts...)
+					}}).Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache)
+			backedResources := dra.NewExtendedResourceCache()
+			if tc.backedResource {
+				backedResources.Add(gpu, "gpu.example.com")
+			}
+			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRABackedResources(backedResources))
+			if got := reconciler.needsDRAReconcile(ctx, wl); got != tc.want {
+				t.Errorf("needsDRAReconcile() = %v, want %v", got, tc.want)
+			}
+			if reads != tc.wantReads {
+				t.Errorf("LimitRange reads = %d, want %d", reads, tc.wantReads)
 			}
 		})
 	}

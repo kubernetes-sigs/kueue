@@ -148,6 +148,19 @@ func InternalSeqFrom(ta *kueue.TopologyAssignment) iter.Seq[TopologyDomainAssign
 	}
 }
 
+func DomainIDs(ta *kueue.TopologyAssignment) iter.Seq[TopologyDomainID] {
+	if ta == nil {
+		return nil
+	}
+	return func(yield func(TopologyDomainID) bool) {
+		for domain := range InternalSeqFrom(ta) {
+			if !yield(DomainID(domain.Values)) {
+				return
+			}
+		}
+	}
+}
+
 func InternalFrom(ta *kueue.TopologyAssignment) *TopologyAssignment {
 	if ta == nil {
 		return nil
@@ -526,7 +539,10 @@ func CountPodsInAssignment(ta *TopologyAssignment) int32 {
 
 // TruncateAssignment reduces an assignment to fit newCount pods (removes from end).
 func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignment {
-	if ta == nil || newCount <= 0 {
+	if ta == nil {
+		return nil
+	}
+	if newCount <= 0 {
 		return &TopologyAssignment{Levels: ta.Levels, Domains: nil}
 	}
 
@@ -555,12 +571,13 @@ func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignm
 	return result
 }
 
-// ComputeUsagePerDomain calculates resource usage per topology domain from an assignment.
-func ComputeUsagePerDomain(ta *TopologyAssignment, singlePodRequests resources.Requests) map[TopologyDomainID]resources.Requests {
+// ComputeUsagePerDomain calculates resource usage per topology domain from an assignment,
+// charging each Pod what requestsFor returns for its domain, plus one Pod slot.
+func ComputeUsagePerDomain(ta *TopologyAssignment, requestsFor func(TopologyDomainID) resources.Requests) map[TopologyDomainID]resources.Requests {
 	usage := make(map[TopologyDomainID]resources.Requests)
 	for _, domain := range ta.Domains {
 		domainID := DomainID(domain.Values)
-		domainUsage := singlePodRequests.ScaledUp(int64(domain.Count))
+		domainUsage := requestsFor(domainID).ScaledUp(int64(domain.Count))
 		domainUsage.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(domain.Count)}))
 		usage[domainID] = domainUsage
 	}

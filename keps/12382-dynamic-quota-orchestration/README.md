@@ -446,7 +446,7 @@ type EffectiveCapacityFlavor struct {
     // resources contains total capacity by resource name.
     //
     // +required
-    // +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
+    // +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
     // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
     Resources corev1.ResourceList `json:"resources"`
 }
@@ -460,7 +460,8 @@ const (
     // DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
     DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+    // or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
     DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
     // DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).
@@ -497,7 +498,7 @@ Tracks whether aggregated capacity was successfully computed and written to `sta
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `Computed` | Aggregated capacity calculated and written to `status.effectiveCapacity`. |
-| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects do not report `CapacitySynchronized=True`. |
+| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects lack `CapacitySynchronized=True` for their current `metadata.generation` (including a stale or unset `ObservedGeneration`). |
 | `False` | `AggregationFailed` | Aggregated capacity calculation failed (e.g. multiplier application error, arithmetic overflow, or exceeded flavor/resource limits). |
 | `False` | `Misconfigured` | One or more `CapacityProvider` objects referenced in `spec.capacityDiscovery.providers` do not exist. |
 
@@ -620,7 +621,7 @@ type CapacityProviderNormalizedCapacityFlavor struct {
     // resources contains total capacity by resource name.
     //
     // +required
-    // +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
+    // +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
     // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
     Resources corev1.ResourceList `json:"resources"`
 }
@@ -655,10 +656,12 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 
 | Status | Reason | Description |
 |---|---|---|
-| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source. |
+| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source for the current provider generation. |
 | `False` | `SourceUnavailable` | The provider controller cannot query or reach the backend source (e.g., node API, cloud endpoint, or MultiKueue worker cluster). |
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
+
+Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not automatically revoked while discovery is not ready.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
@@ -727,10 +730,17 @@ For example, one byte for memory or one item for an extended scalar resource.
 ### Effective quota construction
 
 For each managed ClusterQueue or Cohort, DQO constructs `status.effectiveQuotas.resourceGroups`
-by copying `spec.resourceGroups`. It then overlays nominalQuota only for `(ResourceFlavor, resource)` 
-pairs present in `status.effectiveCapacity`. The aggregate contains the union of pairs
-reported by the specified providers. For a pair in that union, a provider that omits the pair
-contributes zero. A pair omitted by all specified providers remains unchanged from `spec.resourceGroups`.
+by copying `spec.resourceGroups`. It then overlays nominalQuota for `(ResourceFlavor, resource)` 
+pairs of every flavor present in `status.effectiveCapacity`.
+
+`status.effectiveCapacity` contains every flavor listed in `spec.orchestratedFlavors` of the
+specified providers, with the union of the resources they report for it; a flavor that no
+provider reports capacity for is present with an empty `resources` map. A provider orchestrates
+all resources of its flavors (partial orchestration of a flavor for a subset of resources is not
+supported), so a pair of a present flavor that is missing from its `resources` is distributed as
+zero capacity. This lets a provider report that capacity disappeared (for example, all nodes of
+a flavor left) by omitting it. A pair of a flavor that no specified provider orchestrates remains
+unchanged from `spec.resourceGroups`.
 
 Specifically, `status.effectiveQuotas` does not override the administrator-configured
 borrowing or lending limits. DQO treats borrowingLimit and lendingLimit as absolute quantities

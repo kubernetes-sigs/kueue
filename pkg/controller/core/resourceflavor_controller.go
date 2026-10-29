@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -263,9 +262,7 @@ func (h *cqHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue
 		for _, flavor := range rg.Flavors {
 			if cqs := h.cache.ClusterQueuesUsingFlavor(flavor.Name); len(cqs) == 0 {
 				req := reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name: string(flavor.Name),
-					},
+					Name: string(flavor.Name),
 				}
 				q.Add(req)
 			}
@@ -280,12 +277,12 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("resourceflavor_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.ResourceFlavor{},
 			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("ResourceFlavor").GroupKind().String()],

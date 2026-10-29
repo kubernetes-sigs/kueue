@@ -27,18 +27,19 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueuectl Delete", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Deleting a Workload", func() {
@@ -47,7 +48,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).Obj()
 
 			ginkgo.By("Create a standalone workload (no owner references)", func() {
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
@@ -63,7 +64,40 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			})
+		})
+
+		ginkgo.It("Should delete the owner Job without orphaning its dependents", func() {
+			jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+			job := testingjob.MakeJob("job-owner", ns.Name).Obj()
+
+			ginkgo.By("Create a Job", func() {
+				behavioral.MustCreate(ctx, k8sClient, job)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-owned", ns.Name).OwnerReference(jobGVK, job.Name, string(job.UID)).Obj()
+
+			ginkgo.By("Create a workload owned by the Job", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("Run kueuectl delete workload with --yes", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Verify the Job is removed from the cluster", func() {
+				// envtest runs no garbage collector, so an orphaning delete would leave
+				// the Job stuck with the orphan finalizer instead of removing it.
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, job, false)
 			})
 		})
 
@@ -76,7 +110,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).OwnerReference(jobGVK, "j-protected", "j-protected-uid").Obj()
 
 			ginkgo.By("Create a workload with an owner reference to a Job", func() {
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("Run kueuectl delete workload without --yes (declined confirmation)", func() {

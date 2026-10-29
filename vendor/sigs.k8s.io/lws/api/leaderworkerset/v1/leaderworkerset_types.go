@@ -19,8 +19,16 @@ package v1
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+)
+
+const (
+	// DefaultRestartBackoffBaseSeconds is the default base interval in seconds for group restart backoff.
+	DefaultRestartBackoffBaseSeconds int32 = 10
+	// DefaultRestartBackoffCapSeconds is the default maximum interval in seconds for group restart backoff.
+	DefaultRestartBackoffCapSeconds int32 = 300
 )
 
 const (
@@ -43,6 +51,13 @@ const (
 	// Worker index will be added to pods as a label which is
 	// the index/identity of the pod in the group.
 	WorkerIndexLabelKey string = "leaderworkerset.sigs.k8s.io/worker-index"
+
+	// Role label records whether a managed StatefulSet/Pod is the leader or a
+	// worker, so it can be selected directly instead of inferred from other
+	// labels. Values are RoleLeader or RoleWorker.
+	RoleLabelKey string = "leaderworkerset.sigs.k8s.io/role"
+	RoleLeader   string = "leader"
+	RoleWorker   string = "worker"
 
 	// Size will be added to pods as an annotation which corresponds to
 	// LeaderWorkerSet.Spec.LeaderWorkerTemplate.Size.
@@ -96,7 +111,56 @@ const (
 	// Enables feature where the group will be restarted after pod failure if and only if
 	// all pods in the group are not pending
 	RecreateGroupAfterStartAnnotationKey string = "leaderworkerset.sigs.k8s.io/experimental-recreate-group-after-start"
+
+	// GroupRestartCountsAnnotationKey is set on a LeaderWorkerSet and stores a JSON
+	// map of restart budget consumed by controller-initiated group recreation. Keys
+	// use "<revision>/<groupIndex>" and values are non-negative integers.
+	GroupRestartCountsAnnotationKey string = "leaderworkerset.sigs.k8s.io/group-restart-counts"
+
+	// GroupRecreatePendingAnnotationKey is set on a leader Pod when a group
+	// recreation has been triggered but deferred by restartBackoff.
+	GroupRecreatePendingAnnotationKey string = "leaderworkerset.sigs.k8s.io/group-recreate-pending"
+
+	// GroupRestartBudgetExhaustedAnnotationKey is set on a leader Pod after its
+	// group exhausts maxGroupRestarts.
+	GroupRestartBudgetExhaustedAnnotationKey string = "leaderworkerset.sigs.k8s.io/group-restart-budget-exhausted"
+
+	// GroupRestartBudgetRecoverAnnotationKey is set on an exhausted leader Pod to
+	// explicitly resume that group after its terminating Pod objects are inspected.
+	GroupRestartBudgetRecoverAnnotationKey string = "leaderworkerset.sigs.k8s.io/recover"
+
+	// GroupRestartBudgetCleanupFinalizer retains the terminating Pod API objects
+	// to which it was added until explicit recovery or workload teardown.
+	GroupRestartBudgetCleanupFinalizer string = "leaderworkerset.sigs.k8s.io/group-restart-budget-cleanup"
+
+	// GroupIdentityAnnotationKey is set on leader and worker pod templates when the
+	// LeaderWorkerSet runs with GroupIdentity=Hash so that admission and controllers
+	// can tell the identity scheme apart without fetching the LWS object.
+	GroupIdentityAnnotationKey string = "leaderworkerset.sigs.k8s.io/group-identity"
+
+	// LeaderAddressAnnotationKey carries the leader's DNS address on worker pods
+	// in both group identity modes, so that pod admission can inject
+	// LWS_LEADER_ADDRESS without recomputing it.
+	LeaderAddressAnnotationKey string = "leaderworkerset.sigs.k8s.io/leader-address"
+
+	// PodTerminationPolicyAnnotationKey is set on leader pod template to record the
+	// PodTerminationPolicy so that controllers can tell the termination policy
+	// even if the LeaderWorkerSet object is being deleted.
+	PodTerminationPolicyAnnotationKey string = "leaderworkerset.sigs.k8s.io/pod-termination-policy"
 )
+
+// GroupReadyConditionType is the pod readiness gate condition set on leader pods when
+// GroupIdentity=Hash. The pod controller marks it True once the group's worker
+// statefulset is ready, which makes Deployment rollout pacing count whole groups
+// instead of bare leader pods.
+const GroupReadyConditionType corev1.PodConditionType = "leaderworkerset.sigs.k8s.io/group-ready"
+
+// GroupReplacementSchedulingGate is the scheduling gate placed on every leader
+// pod. The pod controller lifts it once per-group scheduling prerequisites
+// (such as leaf PodGroups) exist and according to the groupReplacementPolicy,
+// so a replacement group does not compete for capacity before the group it
+// replaces has been fully deleted.
+const GroupReplacementSchedulingGate = "leaderworkerset.sigs.k8s.io/group-replacement"
 
 // One group consists of a single leader and M workers, and the total number of pods in a group is M+1.
 // LeaderWorkerSet will create N replicas of leader-worker pod groups (hereinafter referred to as group).
@@ -127,8 +191,10 @@ type LeaderWorkerSetSpec struct {
 	LeaderWorkerTemplate LeaderWorkerTemplate `json:"leaderWorkerTemplate"`
 
 	// rolloutStrategy defines the strategy that will be applied to update replicas
-	// when a revision is made to the leaderWorkerTemplate.
+	// when a revision is made to the leaderWorkerTemplate. It defaults to a
+	// RollingUpdate strategy whose configuration takes its own defaults.
 	// +optional
+	// +kubebuilder:default={type: RollingUpdate}
 	RolloutStrategy RolloutStrategy `json:"rolloutStrategy,omitempty"`
 
 	// startupPolicy determines the startup policy for the worker statefulset.
@@ -140,7 +206,179 @@ type LeaderWorkerSetSpec struct {
 	// networkConfig defines the network configuration of the group
 	// +optional
 	NetworkConfig *NetworkConfig `json:"networkConfig,omitempty"`
+
+	// scheduling defines Workload-Aware Scheduling for this LeaderWorkerSet.
+	// This field is immutable.
+	// +optional
+	Scheduling *LeaderWorkerSetScheduling `json:"scheduling,omitempty"`
+
+	// groupIdentity determines how group identities are assigned.
+	// Ordinal (default) manages leaders through a StatefulSet: groups are named
+	// <lws>-0..<lws>-N-1 and scale down always removes the highest ordinal.
+	// Hash manages leaders through a Deployment: group names are hash-suffixed,
+	// scale down prefers unscheduled and not-ready groups over healthy ones, and
+	// rollouts are paced by a group readiness gate on the leader pods.
+	// This field is immutable.
+	// +kubebuilder:default=Ordinal
+	// +kubebuilder:validation:Enum={Ordinal,Hash}
+	// +optional
+	GroupIdentity GroupIdentityType `json:"groupIdentity,omitempty"`
+
+	// groupReplacementPolicy controls when a replacement group may start
+	// scheduling after a group is deleted, whether by the restart policy
+	// recreating a failed group, by a rolling update or by a scale down that
+	// races a scale up.
+	// PostTermination (default) admits a replacement only once a previously
+	// deleted group has been fully removed, so the new group lands on the
+	// capacity the old one released instead of preempting other workloads.
+	// This matches the StatefulSet semantics of groupIdentity Ordinal, where a
+	// leader pod cannot be recreated until its predecessor is gone, and is the
+	// only supported value in that mode.
+	// Immediate admits replacement groups as soon as the leader Deployment
+	// creates them, overlapping with the teardown of the old group. Only
+	// supported with groupIdentity Hash.
+	// +kubebuilder:default=PostTermination
+	// +kubebuilder:validation:Enum={Immediate,PostTermination}
+	// +optional
+	GroupReplacementPolicy GroupReplacementPolicyType `json:"groupReplacementPolicy,omitempty"`
+
+	// podTerminationPolicy determines the termination policy for pods in a group.
+	// Sequential (default) keeps the sequential termination behavior: worker pods wait for the
+	// leader pod to be fully deleted before terminating.
+	// Parallel terminates leader and worker pods concurrently when a group is deleted,
+	// recreated, or when the LeaderWorkerSet is deleted.
+	// This field is immutable.
+	// +kubebuilder:default=Sequential
+	// +kubebuilder:validation:Enum={Sequential,Parallel}
+	// +optional
+	PodTerminationPolicy PodTerminationPolicyType `json:"podTerminationPolicy,omitempty"`
 }
+
+// LeaderWorkerSetScheduling defines scheduling for all replicas.
+type LeaderWorkerSetScheduling struct {
+	// schedulingPolicy defines scheduling for all replicas.
+	// +optional
+	SchedulingPolicy *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty"`
+
+	// schedulingConstraints defines placement constraints for all replicas.
+	// +optional
+	SchedulingConstraints *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty"`
+
+	// disruptionMode defines how replica groups may be disrupted.
+	// +optional
+	DisruptionMode *schedulingv1alpha3.WorkloadCompositePodGroupDisruptionMode `json:"disruptionMode,omitempty"`
+
+	// replica defines scheduling for each replica.
+	// +optional
+	Replica *LeaderWorkerSetReplicaScheduling `json:"replica,omitempty"`
+}
+
+// LeaderWorkerSetReplicaScheduling defines scheduling for a leader and its workers.
+type LeaderWorkerSetReplicaScheduling struct {
+	// schedulingPolicy defines scheduling for a leader and its workers.
+	// +optional
+	SchedulingPolicy *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty"`
+
+	// schedulingConstraints defines placement constraints for a replica.
+	// +optional
+	SchedulingConstraints *schedulingv1alpha3.WorkloadCompositePodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty"`
+
+	// disruptionMode defines how the leader and worker groups may be disrupted.
+	// +optional
+	DisruptionMode *schedulingv1alpha3.WorkloadCompositePodGroupDisruptionMode `json:"disruptionMode,omitempty"`
+
+	// leader defines scheduling for the leader PodGroup.
+	// +optional
+	Leader *LeaderWorkerSetLeaderScheduling `json:"leader,omitempty"`
+
+	// worker defines scheduling for the worker PodGroup.
+	// +optional
+	Worker *LeaderWorkerSetWorkerScheduling `json:"worker,omitempty"`
+}
+
+// LeaderWorkerSetLeaderScheduling defines scheduling for the leader PodGroup.
+type LeaderWorkerSetLeaderScheduling struct {
+	// schedulingPolicy defines scheduling for the leader PodGroup.
+	// +optional
+	SchedulingPolicy *schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty"`
+
+	// schedulingConstraints defines placement constraints for the leader PodGroup.
+	// +optional
+	SchedulingConstraints *schedulingv1alpha3.WorkloadPodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty"`
+
+	// disruptionMode defines how leader pods may be disrupted.
+	// +optional
+	DisruptionMode *schedulingv1alpha3.WorkloadPodGroupDisruptionMode `json:"disruptionMode,omitempty"`
+
+	// resourceClaims lists dynamic resource claims shared by leader pods.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=map
+	// +listMapKey=name
+	ResourceClaims []schedulingv1alpha3.WorkloadPodGroupResourceClaim `json:"resourceClaims,omitempty"`
+}
+
+// LeaderWorkerSetWorkerScheduling defines scheduling for the worker PodGroup.
+type LeaderWorkerSetWorkerScheduling struct {
+	// schedulingPolicy defines scheduling for the worker PodGroup.
+	// +optional
+	SchedulingPolicy *schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy `json:"schedulingPolicy,omitempty"`
+
+	// schedulingConstraints defines placement constraints for the worker PodGroup.
+	// +optional
+	SchedulingConstraints *schedulingv1alpha3.WorkloadPodGroupSchedulingConstraints `json:"schedulingConstraints,omitempty"`
+
+	// disruptionMode defines how worker pods may be disrupted.
+	// +optional
+	DisruptionMode *schedulingv1alpha3.WorkloadPodGroupDisruptionMode `json:"disruptionMode,omitempty"`
+
+	// resourceClaims lists dynamic resource claims shared by worker pods.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=map
+	// +listMapKey=name
+	ResourceClaims []schedulingv1alpha3.WorkloadPodGroupResourceClaim `json:"resourceClaims,omitempty"`
+}
+
+// GroupIdentityType defines how group identities are assigned.
+type GroupIdentityType string
+
+const (
+	// GroupIdentityOrdinal names groups by contiguous StatefulSet ordinals.
+	GroupIdentityOrdinal GroupIdentityType = "Ordinal"
+
+	// GroupIdentityHash names groups by hash-suffixed leader pod names managed
+	// through a Deployment.
+	GroupIdentityHash GroupIdentityType = "Hash"
+)
+
+// GroupReplacementPolicyType defines when a replacement group may start scheduling.
+type GroupReplacementPolicyType string
+
+const (
+	// GroupReplacementImmediate admits replacement groups as soon as they are
+	// created, overlapping with the teardown of the groups they replace.
+	GroupReplacementImmediate GroupReplacementPolicyType = "Immediate"
+
+	// GroupReplacementPostTermination holds replacement groups back until the
+	// groups they replace have been fully deleted.
+	GroupReplacementPostTermination GroupReplacementPolicyType = "PostTermination"
+)
+
+// PodTerminationPolicyType defines how pods in a group are terminated.
+type PodTerminationPolicyType string
+
+const (
+	// SequentialPodTerminationPolicy is the default sequential termination policy:
+	// worker pods wait for the leader pod to be fully deleted before terminating.
+	SequentialPodTerminationPolicy PodTerminationPolicyType = "Sequential"
+
+	// ParallelPodTerminationPolicy terminates leader and worker pods concurrently
+	// when a group is deleted, recreated, or when the LeaderWorkerSet is deleted.
+	// Note: worker pods receive termination signals concurrently with the leader pod;
+	// workloads that require the leader to remain running during worker shutdown should use Sequential.
+	ParallelPodTerminationPolicy PodTerminationPolicyType = "Parallel"
+)
 
 // Template of the leader/worker pods, the group will include at least one leader pod.
 // Defaults to the worker template if not specified. The idea is to allow users to create a
@@ -172,6 +410,34 @@ type LeaderWorkerTemplate struct {
 	// +optional
 	RestartPolicy RestartPolicyType `json:"restartPolicy,omitempty"`
 
+	// maxGroupRestarts bounds how many times the controller can recreate a group
+	// under RecreateGroupOnPodRestart or RecreateGroupAfterStart. Once exhausted,
+	// the controller terminates the group, retains Pod API objects that can still
+	// receive finalizers, and stops automatic group recreation. Setting
+	// leaderworkerset.sigs.k8s.io/recover=true on the retained leader Pod resets
+	// that revision/group's budget and allows recovery. Changing this value does
+	// not resume an exhausted group. It is opt-in: when unset (nil), group
+	// recreation is unlimited.
+	// Budget exhaustion handling requires Kubernetes 1.27 or later because it
+	// relies on deleted Pods reaching a terminal phase while finalizers retain
+	// their API objects.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxGroupRestarts *int32 `json:"maxGroupRestarts,omitempty"`
+
+	// restartBackoff bounds group restart frequency under RecreateGroupOnPodRestart
+	// or RecreateGroupAfterStart. When specified, the controller applies an exponential
+	// backoff delay between group recreations.
+	// The semantic is that a group must have existed for at least min(baseSeconds * 2^count, capSeconds)
+	// before it can be recreated. The delay is measured from leader pod creation time,
+	// not from the failure time, so a group that has run stably for longer than the backoff
+	// delay recovers immediately on failure.
+	// It is opt-in: when unset (nil), group recreation happens immediately.
+	//
+	// +optional
+	RestartBackoff *RestartBackoff `json:"restartBackoff,omitempty"`
+
 	// subGroupPolicy describes the policy that will be applied when creating subgroups
 	// in each replica.
 	// +optional
@@ -190,6 +456,23 @@ type LeaderWorkerTemplate struct {
 	PersistentVolumeClaimRetentionPolicy *appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
 }
 
+// RestartBackoff defines the exponential backoff configuration for group recreation.
+type RestartBackoff struct {
+	// baseSeconds is the initial backoff delay in seconds before group recreation.
+	// Defaults to 10.
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	BaseSeconds *int32 `json:"baseSeconds,omitempty"`
+
+	// capSeconds is the maximum backoff delay in seconds before group recreation.
+	// Defaults to 300.
+	// +kubebuilder:default=300
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CapSeconds *int32 `json:"capSeconds,omitempty"`
+}
+
 // RolloutStrategy defines the strategy that the leaderWorkerSet controller
 // will use to perform replica updates.
 type RolloutStrategy struct {
@@ -200,7 +483,10 @@ type RolloutStrategy struct {
 	Type RolloutStrategyType `json:"type"`
 
 	// rollingUpdateConfiguration defines the parameters to be used when type is RollingUpdateStrategyType.
+	// It defaults to an object whose fields take their own defaults: maxUnavailable 1,
+	// maxSurge 0 and partition 0.
 	// +optional
+	// +kubebuilder:default={}
 	RollingUpdateConfiguration *RollingUpdateConfiguration `json:"rollingUpdateConfiguration,omitempty"`
 }
 
@@ -257,11 +543,18 @@ const (
 	// will share. The host names look like:
 	// Replica 0: my-lws-0.my-lws, my-lws-0-1.my-lws
 	// Replica 1: my-lws-1.my-lws, my-lws-1-1.my-lws
+	// With groupIdentity Hash, the leader host name is the lws name plus an 8
+	// character prefix of the group key and worker host names extend the leader
+	// pod name:
+	// Group a1b2c3d4...: my-lws-a1b2c3d4.my-lws, my-lws-7d9f8b6c4-x2kkp-1.my-lws
 	SubdomainShared SubdomainPolicy = "Shared"
 	// UniquePerReplica will create a headless service per replica
 	// The pod host names look like:
 	// Replica 0: my-lws-0.my-lws-0,my-lws-0-1.my-lws-0, my-lws-0-2.my-lws-0
 	// Replica 1: my-lws-1.my-lws-1,my-lws-1-1.my-lws-1, my-lws-1-2.my-lws-1
+	// With groupIdentity Hash, the per replica service name matches the leader
+	// host name:
+	// Group a1b2c3d4...: my-lws-a1b2c3d4.my-lws-a1b2c3d4, my-lws-7d9f8b6c4-x2kkp-1.my-lws-a1b2c3d4
 	SubdomainUniquePerReplica SubdomainPolicy = "UniquePerReplica"
 )
 
@@ -337,6 +630,9 @@ const (
 	// But this will only happen if all pods in the group have been started
 	// (i.e., are not in Pending phase). Effectively, this is a synchronized
 	// version of RecreateGroupOnPodRestart that waits for initial deployment stability.
+	// A group with a pod that the scheduler cannot place, for example while a
+	// gang waits for capacity, is not recreated either. Such a group is reported
+	// with a GroupUnschedulable warning event and Progressing condition reason.
 	RecreateGroupAfterStart RestartPolicyType = "RecreateGroupAfterStart"
 
 	// Default will follow the same behavior as the StatefulSet where only the failed pod
@@ -410,6 +706,15 @@ const (
 	// is true when the lws is in upgrade process after the (leader/worker) template is updated. If only replicas is modified, it will
 	// not be considered as UpdateInProgress.
 	LeaderWorkerSetUpdateInProgress LeaderWorkerSetConditionType = "UpdateInProgress"
+
+	// LeaderWorkerSetDegraded means one or more groups exhausted their restart
+	// budget and automatic recovery stopped. Other replicas can remain available
+	// or continue progressing.
+	LeaderWorkerSetDegraded LeaderWorkerSetConditionType = "Degraded"
+
+	// LeaderWorkerSetWorkloadSchedulingCreated reports that scheduling objects
+	// for the current LWS generation were created. It is not replica health.
+	LeaderWorkerSetWorkloadSchedulingCreated LeaderWorkerSetConditionType = "WorkloadSchedulingCreated"
 )
 
 // +genclient

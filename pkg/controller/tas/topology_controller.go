@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -78,12 +77,12 @@ func (r *topologyReconciler) logger() logr.Logger {
 func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration) (string, error) {
 	return TASTopologyController, builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_topology_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Topology{},
 			&handler.TypedEnqueueRequestForObject[*kueue.Topology]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Topology").GroupKind().String()],
@@ -197,8 +196,6 @@ func (h *resourceFlavorHandler) Delete(_ context.Context, e event.DeleteEvent, q
 		return
 	}
 	q.AddAfter(reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name: string(*resourceFlavor.Spec.TopologyName),
-		},
+		Name: string(*resourceFlavor.Spec.TopologyName),
 	}, constants.UpdatesBatchPeriod)
 }

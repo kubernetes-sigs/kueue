@@ -30,7 +30,8 @@
 //	    real cluster.
 //	  - simulator.NewSchedulingSimulator starts the informers and holds the configuration used to
 //	    build the scheduling profiles. cfg may be nil, which selects the default kube-scheduler
-//	    profile, and so may informerFactory, which makes the simulator create its own.
+//	    profile, and so may informerFactory, which makes the simulator create its own. Its ctx owns
+//	    the informers, so it has to outlive every state and snapshot taken from the simulator.
 //
 // # Obtaining a snapshot
 //
@@ -40,7 +41,7 @@
 //   - SchedulingSimulator.NewClusterState followed by state.ClusterState.Snapshot, when the
 //     simulation should start from the live cluster state (see "Tracking the cluster" below).
 //   - SchedulingSimulator.NewClusterSnapshot, when the simulation should start from an
-//     explicitly provided set of pods and nodes. Those are the whole world for that snapshot:
+//     explicitly provided set of pods, nodes, pod groups, and composite pod groups. Those are the whole world for that snapshot:
 //     reflecting a later change means asking for a new one.
 //
 // Assembling a ClusterSnapshot by hand is not an option: all of its fields are unexported, and
@@ -72,6 +73,8 @@
 //     result in the snapshot.
 //   - SchedulePodsByTemplate schedules as many pods created from a pod template as fit.
 //   - PreemptPods removes running pods from the snapshot, and Unpreempt puts them back.
+//   - ScheduleWorkload schedules the given pods belonging to the same hierarchy using the
+//     workload-aware scheduling algorithm.
 //   - Transaction groups any of the above and commits or reverts them as a whole.
 //
 // # Package layout

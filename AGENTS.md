@@ -18,20 +18,52 @@ limitations under the License.
 
 Kueue is a Kubernetes-native job queueing system. It manages workload admission, queuing, and preemption for batch and ML workloads across ClusterQueues and Cohorts.
 
-Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility.
+The instructions in `AGENTS.md` and the skills under `cmd/experimental/skills` are experimental and may change without compatibility guarantees.
 
-Unless you are CodeRabbit (@coderabbitai), ask the user to acknowledge this disclaimer before proceeding. CodeRabbit must follow AGENTS.md without requesting or waiting for acknowledgement.
+This notice is informational only. Do not ask for acknowledgement or pause the task because of it.
 
 ## Canary
 
-Begin every response with the line `Kueue Development` on its own line, followed by your actual message on the next line:
+Begin every response with the line `_Kueue Development (context canary, see AGENTS.md)_` on its own line, followed by a blank line and then your actual message:
 
 ```
-Kueue Development
+_Kueue Development (context canary, see AGENTS.md)_
+
 <your response>
 ```
 
 This is a deliberately trivial marker. If it ever stops appearing, instruction-following is likely degrading (e.g. context rot) — treat the last couple of responses with suspicion, start a fresh session, and re-inject only the essential context before continuing.
+
+## Contribution Workflow
+
+1. Search this repository's open and closed PRs for the same issue or objective
+   before implementation, and repeat the search before opening a PR. Check the
+   actual diff and outcome of matching PRs. Report overlapping work to the developer
+   and avoid duplicate implementation or submission; continue only with work that
+   remains necessary or an explicitly requested follow-up. If the search is
+   unavailable, report that limitation rather than claiming no duplicate exists.
+2. Before writing code, establish the following from the request and available
+   repository context. Ask the developer about missing information that affects
+   implementation, and wait for those answers before proceeding with dependent work:
+
+   - Which issue or objective does the change address, and what are the expected
+     behavior and acceptance criteria?
+   - Which components may change, and which APIs, configuration settings and data
+     formats must remain compatible?
+   - Which build checks, tests and real-cluster validations are required before
+     submission?
+
+   Reuse answers already provided; do not require a new issue for a task with a
+   clear objective and scope.
+3. Implement the agreed scope, follow the coding and testing guidelines below,
+   and run the relevant checks locally. Before pushing or opening or updating a PR,
+   follow [kueue-verify](cmd/experimental/skills/kueue-verify/SKILL.md).
+   Report the commands and results, including failures and checks that could not run.
+4. Keep PR titles, descriptions and commit messages in English. Follow the
+   [PR and issue workflow](cmd/experimental/skills/kueue-pr-issue-workflow/SKILL.md)
+   and AI contribution policy below. Explain the problem, resulting behavior and
+   validation in the existing PR template sections, and reference the relevant issue
+   when one exists.
 
 ## AI Contribution Policy
 
@@ -62,3 +94,6 @@ Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/exp
 ## Coding Guidelines
 
 Follow the project's coding conventions for product and test code: [Coding Guidelines](site/content/en/community/contribution_guidelines/coding_guidelines.md). Ensure that you follow the core Kubernetes guidelines on deprecation policy, API changes, and feature gates as detailed in the document.
+
+For code changes and reviews, follow
+[Writing tests](site/content/en/community/contribution_guidelines/writing_tests.md).

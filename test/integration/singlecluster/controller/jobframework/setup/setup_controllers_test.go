@@ -36,7 +36,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframework", "area:jobs"), func() {
@@ -53,10 +53,10 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -65,14 +65,14 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 					Obj(),
 			).Obj()
 
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 
 		fwk.StopManager(ctx)
 		fwk.Teardown()
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 
 		ginkgo.By("Install the JobSet CRDs", func() {
 			options := envtest.CRDInstallOptions{
-				Paths:              []string{util.JobsetCrds},
+				Paths:              []string{behavioral.JobsetCrds},
 				ErrorIfPathMissing: true,
 				CleanUpAfterUse:    true,
 			}
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 		})
 
 		ginkgo.By("Create a JobSet", func() {
-			util.MustCreate(ctx, k8sClient, jobSet)
+			behavioral.MustCreate(ctx, k8sClient, jobSet)
 		})
 
 		ginkgo.By("Check that the JobSet was created and got suspended", func() {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobSet.Name, Namespace: ns.Name}, createdJobSet)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJobSet.Spec.Suspend, false)).Should(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check that the workload was created", func() {
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 			Obj()
 
 		ginkgo.By("Create a Job while only JobSet integration is enabled", func() {
-			util.MustCreate(ctx, k8sClient, job)
+			behavioral.MustCreate(ctx, k8sClient, job)
 		})
 
 		ginkgo.By("Check that the Job webhook does not default suspend", func() {

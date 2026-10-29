@@ -19,13 +19,23 @@ set -o nounset
 set -o pipefail
 
 test_dir=$(mktemp -d)
-trap 'rm -rf "${test_dir}"' EXIT
+# The fakes print errors that read like CI infra failures, so show output only on failure.
+exec 3>&1 4>&2 >"${test_dir}/test.log" 2>&1
+cleanup() {
+  local status=$?
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${test_dir}/test.log" >&4
+  fi
+  rm -rf "${test_dir}"
+}
+trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
 export SOURCE_DIR="${ROOT_DIR}/hack/testing"
 export GINKGO_ARGS="--label-filter=feature:trainjob"
 export E2E_KIND_VERSION="kindest/node:v1.36.1"
+export E2E_BIN_DIR="${test_dir}"
 export PATH="${test_dir}:$PATH"
 
 cat >"${test_dir}/kubectl" <<'EOF'
@@ -168,6 +178,16 @@ exit 1
 EOF
 chmod +x "${test_dir}/docker"
 
+cat >"${test_dir}/yq" <<'EOF'
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf 'registry.example.com/kueue:test\n'
+EOF
+chmod +x "${test_dir}/yq"
+
 # shellcheck source=hack/testing/e2e-common.sh
 source "${ROOT_DIR}/hack/testing/e2e-common.sh"
 
@@ -302,6 +322,73 @@ if [[ "${pull_attempts}" != "2" ]]; then
   exit 1
 fi
 
+# A bare `unauthorized:` whose manifest lookup is equally inconclusive is a
+# degraded token service rather than a denial, so it is retried.
+DOCKER_FAKE_MANIFEST_STATE="${test_dir}/docker-manifest-state"
+export DOCKER_FAKE_MANIFEST_STATE
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='unauthorized: '
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a bare unauthorized error to be retried until the pull succeeded" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a bare unauthorized error to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# The same bare `unauthorized:` for a tag the registry does not have is settled by
+# the manifest lookup, so the pull fails fast instead of spending the full backoff.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=99
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='no such manifest: quay.example.com/prometheus-operator/prometheus-operator:v9.99.9'
+
+if e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v9.99.9"; then
+  echo "expected a missing tag behind a bare unauthorized error to fail the pull" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "1" ]]; then
+  echo "expected a missing tag behind a bare unauthorized error to fail fast; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# A manifest lookup that 404s on the registry's own endpoint says nothing about the
+# tag, so the bare `unauthorized:` keeps its retries.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='404 page not found'
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a token-endpoint 404 to leave the retries in place" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a token-endpoint 404 to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
 # A missing image is not a transient failure, so it aborts after a single attempt.
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_STATE}"
@@ -351,9 +438,6 @@ if [[ "${pull_attempts}" != "1" ]]; then
 fi
 
 # e2e_docker_manifest_available retries a transient manifest-inspect failure until it succeeds.
-DOCKER_FAKE_LOG="${test_dir}/docker.log"
-DOCKER_FAKE_MANIFEST_STATE="${test_dir}/docker-manifest-state"
-export DOCKER_FAKE_LOG DOCKER_FAKE_MANIFEST_STATE
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
 export DOCKER_FAKE_MANIFEST_OK_AFTER=2
@@ -391,4 +475,68 @@ fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
-echo "e2e-common tests passed"
+# An unauthorized error that names a reason is a genuine denial, so it fails fast.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR="unauthorized: authentication required"
+
+if e2e_docker_manifest_available "registry.example.com/kueue:private"; then
+  echo "expected e2e_docker_manifest_available to fail for a denied manifest" >&2
+  exit 1
+fi
+
+manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${manifest_attempts}" != "1" ]]; then
+  echo "expected a denied manifest inspect to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# e2e_timed runs the step with its arguments unchanged and logs its start and end
+# time, status, duration and label; once the step completes,
+# e2e_timed_log_unfinished has nothing to log.
+timestamp_re='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+timed_output=$(e2e_timed "kind/install_example" printf '%s|%s\n' "first arg" "second"; e2e_timed_log_unfinished 0)
+if [[ "${timed_output}" != *"first arg|second"* ]]; then
+  echo "expected e2e_timed to pass arguments through unchanged; got: ${timed_output}" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' <<<"${timed_output}") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=0 duration=[0-9]+s step=kind/install_example$" <<<"${timed_output}"; then
+  echo "expected one e2e-timing line for a successful step; got: ${timed_output}" >&2
+  exit 1
+fi
+
+# The subshell below is a standalone statement: inside "if", "&&" or "||" bash
+# would ignore errexit, which is exactly the behavior being checked.
+set +o errexit
+
+# A multi-command step like install_* or kueue_deploy: under errexit it must
+# stop at the first failing command instead of running the rest of the step.
+function e2e_timed_test_step {
+  false
+  echo "step continued after failure"
+}
+
+# With errexit on, as in the e2e scripts, a failing step stops the step and the
+# caller, and the EXIT trap logs the step with the exit status.
+(set -o errexit; trap 'e2e_timed_log_unfinished $?' EXIT; e2e_timed "failing_step" e2e_timed_test_step; echo "caller continued after failure") >"${test_dir}/timed-errexit.out" 2>&1
+errexit_status=$?
+
+set -o errexit
+
+if [[ "${errexit_status}" != "1" ]] || grep -q "continued after failure" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected e2e_timed to stop the caller on failure (status ${errexit_status})" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=1 duration=[0-9]+s step=failing_step$" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
+  exit 1
+fi
+
+echo "e2e-common tests passed" >&3

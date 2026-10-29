@@ -55,11 +55,9 @@ func (j *SparkApplication) numInitialExecutors() int32 {
 
 func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
 	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				sparkcommon.LabelSparkApplicationSelector: j.Name,
-				sparkcommon.LabelSparkRole:                sparkcommon.SparkRoleDriver,
-			},
+		Labels: map[string]string{
+			sparkcommon.LabelSparkApplicationSelector: j.Name,
+			sparkcommon.LabelSparkRole:                sparkcommon.SparkRoleDriver,
 		},
 		Spec: *emptyDriverPodTemplateSpec.Spec.DeepCopy(),
 	}
@@ -76,11 +74,9 @@ func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec
 
 func (j *SparkApplication) buildExecutorPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
 	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				sparkcommon.LabelSparkApplicationSelector: j.Name,
-				sparkcommon.LabelSparkRole:                sparkcommon.SparkRoleExecutor,
-			},
+		Labels: map[string]string{
+			sparkcommon.LabelSparkApplicationSelector: j.Name,
+			sparkcommon.LabelSparkRole:                sparkcommon.SparkRoleExecutor,
 		},
 		Spec: *emptyExecutorPodTemplateSpec.Spec.DeepCopy(),
 	}

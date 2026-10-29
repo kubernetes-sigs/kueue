@@ -32,7 +32,8 @@ import (
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "feature:appwrapper"), func() {
@@ -47,7 +48,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
 		resourceFlavorName = "appwrapper-rf-" + ns.Name
 		clusterQueueName = "appwrapper-cq-" + ns.Name
 		localQueueName = "appwrapper-lq-" + ns.Name
@@ -55,7 +56,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -67,16 +68,16 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.It("Should admit Workload for Job", func() {
@@ -88,14 +89,14 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					SetTypeMeta().Obj(),
 			}).
 			Queue(localQueueName).
 			Obj()
 
 		ginkgo.By("Create an appwrapper", func() {
-			util.MustCreate(ctx, k8sClient, aw)
+			behavioral.MustCreate(ctx, k8sClient, aw)
 		})
 
 		ginkgo.By("Wait for appwrapper to be unsuspended", func() {
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Wait for the wrapped Job to successfully complete", func() {
@@ -111,37 +112,36 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Delete the appwrapper", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, aw, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, aw, true)
 		})
 	})
 
 	ginkgo.It("Should admit Workload for Deployment Pods", func() {
 		deploymentKey := types.NamespacedName{Name: "deployment", Namespace: ns.Name}
-		replicas := int32(3)
 		aw := awtesting.MakeAppWrapper("aw", ns.Name).
 			Queue(lq.Name).
 			Suspend(true).
 			Component(awtesting.Component{
 				Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					TerminationGracePeriod(1).
 					Replicas(3).
 					SetTypeMeta().
 					Obj(),
 				DeclaredPodSets: []awv1beta2.AppWrapperPodSet{{
-					Replicas: &replicas,
+					Replicas: new(int32(3)),
 					Path:     "template.spec.template",
 				}},
 			}).
 			Obj()
 
 		ginkgo.By("Creating an AppWrapper", func() {
-			util.MustCreate(ctx, k8sClient, aw)
+			behavioral.MustCreate(ctx, k8sClient, aw)
 		})
 
 		ginkgo.By("Wait for AppWrapper to be unsuspended", func() {
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check that only one workload is created and admitted", func() {
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 				g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 				g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(appwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID)))
 				g.Expect(createdWorkloads.Items[0].Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the Deployment ready", func() {
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, deploymentKey, createdDeployment)).To(gomega.Succeed())
 				g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

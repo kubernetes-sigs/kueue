@@ -21,7 +21,6 @@ import (
 	"errors"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,10 +53,8 @@ func (f *fakeWorkloadClient) GetInformerForKind(_ context.Context, _ schema.Grou
 
 func makeWorkload(name, namespace, queueName string) kueueapi.Workload {
 	return kueueapi.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
+		Name:      name,
+		Namespace: namespace,
 		Spec: kueueapi.WorkloadSpec{
 			QueueName: kueueapi.LocalQueueName(queueName),
 		},

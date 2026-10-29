@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // The ungater gets these labels through SetupWithManager, not the shared option, so it needs its own test.
@@ -64,26 +64,26 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-custom-metric-labels-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-custom-metric-labels-")
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq-elastic-custom-metric-labels").
 				Label("team", "platform").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			behavioral.MustCreate(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		ginkgo.It("should remove the gate and record it with the ClusterQueue's custom label", framework.SlowSpec, func() {
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 				Parallelism(1).
 				Completions(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, testJob)
+			behavioral.MustCreate(ctx, k8sClient, testJob)
 
 			var (
 				slice  *kueue.Workload
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 					slice = &workloads.Items[0]
 					g.Expect(workload.IsAdmitted(slice)).Should(gomega.BeTrue())
 					podSet = slice.Spec.PodSets[0].Name
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pod := testingpod.MakePod("elastic-pod", ns.Name).
@@ -118,14 +118,14 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 				Gate(kueue.ElasticJobSchedulingGate).
 				Obj()
 			ginkgo.By("creating a gated pod for the admitted slice", func() {
-				util.MustCreate(ctx, k8sClient, pod)
+				behavioral.MustCreate(ctx, k8sClient, pod)
 			})
 
 			ginkgo.By("waiting for the ungater to remove the gate", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
 					g.Expect(utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking the observation carries the ClusterQueue's label value", func() {
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 						"custom_team":   "platform",
 					})
 					g.Expect(got).Should(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

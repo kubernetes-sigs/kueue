@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -34,7 +33,7 @@ import (
 
 func TestWorkloadHandlerDelete(t *testing.T) {
 	groupRequest := reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "test-group", Namespace: "group/ns"},
+		Name: "test-group", Namespace: "group/ns",
 	}
 
 	cases := map[string]struct {

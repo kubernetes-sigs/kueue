@@ -29,7 +29,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Probe for: a Workload rejected for exceeding a LimitRange max is never
@@ -47,26 +47,26 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-max-probe-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-max-probe-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
+		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-lr-max").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
 				Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 
 		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("Max", corev1.ResourceCPU, "2").Obj()
-		util.MustCreate(ctx, k8sClient, limitRange)
+		behavioral.MustCreate(ctx, k8sClient, limitRange)
 
 		wl = utiltestingapi.MakeWorkload("over-max", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			RequestAndLimit(corev1.ResourceCPU, "3").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
 		ginkgo.By("Waiting for the workload to be rejected by the LimitRange, not by quota", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -76,14 +76,14 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 				g.Expect(cond).NotTo(gomega.BeNil())
 				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 				g.Expect(cond.Message).To(gomega.ContainSubstring("LimitRange"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
 	ginkgo.It("admits the workload after the LimitRange max is raised above its request", func() {
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 				read := kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 				read := kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -68,7 +68,8 @@ quota key, and drops the auto-created claim from accounting. This prevents
 quota from being charged for both the `resources.requests` entry **and** the
 auto-created claim, which would double count the same device. No
 `deviceClassMappings` configuration is needed; the mapping is discovered
-from the `DeviceClass` automatically.
+from the `DeviceClass` automatically. A `deviceClassMappings` entry covering
+that `DeviceClass` moves the charge to the mapping's logical name.
 
 This behavior is controlled by the `KueueDRAIntegrationExtendedResource`
 feature gate, which is enabled by default since v0.19.

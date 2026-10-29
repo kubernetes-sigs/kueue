@@ -27,19 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 )
-
-// FlavorAssignmentAttempt captures one attempted flavor and its worst-case outcome
-// across the requested resources.
-type FlavorAssignmentAttempt struct {
-	Flavor                kueue.ResourceFlavorReference
-	Mode                  FlavorAssignmentMode
-	Borrow                int
-	PreemptionPossibility *preemptioncommon.PreemptionPossibility
-	Reasons               []string
-	NoFitReason           string
-}
 
 type FlavorAssignmentAttempts []FlavorAssignmentAttempt
 

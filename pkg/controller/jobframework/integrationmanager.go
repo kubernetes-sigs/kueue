@@ -273,10 +273,8 @@ func (m *IntegrationManager) registerExternal(kindArg string) error {
 	}
 	apiVersion, kind := gvk.ToAPIVersionAndKind()
 	jobType := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: apiVersion,
-			Kind:       kind,
-		},
+		APIVersion: apiVersion,
+		Kind:       kind,
 	}
 
 	m.externalIntegrations[kindArg] = jobType

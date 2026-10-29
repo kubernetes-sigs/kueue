@@ -28,7 +28,7 @@ import (
 //
 // JobSet is the Schema for the jobsets API
 type JobSetApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the object metadata for JobSet
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification for jobset

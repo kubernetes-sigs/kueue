@@ -10,3 +10,6 @@ metadata:
 
 **Misaligned test names** — unit or integration test function names that do not
 reflect the function or behavior under test.
+
+See [Writing tests](../../../../../../site/content/en/community/contribution_guidelines/writing_tests.md)
+for which functions to test directly.

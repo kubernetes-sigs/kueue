@@ -29,10 +29,13 @@ import (
 //
 // DynamicQuotaOrchestrator is the Schema for the dynamicquotaorchestrators API
 type DynamicQuotaOrchestratorApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:""`
+	v1.TypeMetaApplyConfiguration `json:""`
+	// metadata is the standard object metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *DynamicQuotaOrchestratorSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *DynamicQuotaOrchestratorStatusApplyConfiguration `json:"status,omitempty"`
+	// spec defines the desired state of the DynamicQuotaOrchestrator.
+	Spec *DynamicQuotaOrchestratorSpecApplyConfiguration `json:"spec,omitempty"`
+	// status defines the observed state of the DynamicQuotaOrchestrator.
+	Status *DynamicQuotaOrchestratorStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // DynamicQuotaOrchestrator constructs a declarative configuration of the DynamicQuotaOrchestrator type for use with

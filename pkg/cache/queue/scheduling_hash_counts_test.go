@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -47,10 +48,10 @@ func makeSchedulingHashInfo(log logr.Logger, now time.Time, name string, hash wo
 	return info
 }
 
-func totalCPURequest(wInfo *workload.Info) int64 {
-	var result int64
+func totalCPURequest(wInfo *workload.Info) resources.Amount {
+	var result resources.Amount
 	for _, ps := range wInfo.TotalRequests {
-		result += ps.Requests.ResourceValue(corev1.ResourceCPU)
+		result = result.Add(ps.Requests.ResourceValue(corev1.ResourceCPU))
 	}
 	return result
 }
@@ -165,7 +166,7 @@ func TestPendingSchedulingHashes(t *testing.T) {
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
 	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-a", "hash-a", "1"))
 	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-b", "hash-b", "1"))
@@ -194,7 +195,7 @@ func TestPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	// With the gate disabled, NewInfo computes SchedulingHashUnknown, so the
 	// hash is never recorded and the counts stay empty without any explicit
 	// gate check in the read path.
@@ -304,7 +305,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			tc.mutate(t, log, cq)
 
 			if diff := cmp.Diff(tc.wantActiveCounts, cq.workloads.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
@@ -330,7 +331,7 @@ func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	cq.name = "stopped-cq"
 
 	cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-shared", "shared-hash", "1"))
@@ -410,7 +411,7 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			storedInfo := makeSchedulingHashInfo(log, now, "workload", "stored-hash", "1")
 			resyncInfo := makeSchedulingHashInfo(log, now, "workload", "resync-hash", "2")
 			cq.workloads.InsertInadmissible(workloadKey(storedInfo), storedInfo)
@@ -440,12 +441,12 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			if active != tc.wantActive || inadmissible != tc.wantInadmissible {
 				t.Errorf("PendingSchedulingHashes() active=%d inadmissible=%d, want active=%d inadmissible=%d", active, inadmissible, tc.wantActive, tc.wantInadmissible)
 			}
-			wantCPU := int64(0)
+			wantCPU := resources.Amount{}
 			if tc.wantCPU {
 				wantCPU = totalCPURequest(storedInfo)
 			}
-			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; gotCPU != wantCPU {
-				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; !gotCPU.Equal(wantCPU) {
+				t.Errorf("pending CPU = %s, want %s", gotCPU, wantCPU)
 			}
 		})
 	}

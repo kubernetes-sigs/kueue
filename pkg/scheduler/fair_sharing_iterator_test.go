@@ -25,7 +25,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -83,7 +82,7 @@ func TestFairSharingIteratorPush(t *testing.T) {
 				Obj()).
 			Obj()
 		return entry{
-			Head: qcache.Head{Info: *workload.NewInfo(log, wl)},
+			Info: *workload.NewInfo(log, wl),
 			assignment: flavorassigner.Assignment{
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),

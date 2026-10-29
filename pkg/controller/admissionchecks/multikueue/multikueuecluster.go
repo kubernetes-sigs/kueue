@@ -52,7 +52,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -73,14 +73,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
 	eventChBufferSize = 10
 
 	// this set will provide waiting time between 0 to 5m20s
-	retryIncrement = 5 * time.Second
-	retryMaxSteps  = 7
+	retryIncrement      = 5 * time.Second
+	retryMaxSteps       = 7
+	resyncRetryInterval = 5 * time.Second
 
 	// Bounds how long establishWatch waits for client.Watch(). The schedule
 	// (1m, 2m, 4m, 8m, 10m, ...) catches hung remotes quickly while the cap
@@ -187,6 +189,9 @@ type remoteClient struct {
 	// would stall every other cluster's reconcile via clustersReconciler.lock.
 	// See #11297.
 	updateConfigLock sync.Mutex
+	// resyncPending tracks whether a workload resync after reconnect is pending
+	// due to a previous list failure. Protected by updateConfigLock.
+	resyncPending bool
 
 	clock clock.Clock
 
@@ -342,12 +347,12 @@ func (rc *remoteClient) deferConnAttempt(d time.Duration) *time.Duration {
 
 // updateConfigAndRefreshWatchers - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used, a reconnect was requested, or the client was marked as disconnected.
-// If the encountered error is not permanent the duration after which a retry should be done is returned.
-func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
+// Returns whether the watchers were refreshed, a duration to retry after if the error is non-permanent, and any error encountered.
+func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (bool, *time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connected := rc.connState.isConnected()
 	if !configChanged && connected {
-		return nil, nil
+		return false, nil, nil
 	}
 
 	rc.StopWatchers()
@@ -359,7 +364,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	if !connected {
 		if untilNextAttempt := rc.getRetryConnNextAttempt().Sub(rc.clock.Now()); untilNextAttempt > 0 {
-			return &untilNextAttempt, nil
+			return false, &untilNextAttempt, nil
 		}
 	}
 
@@ -373,7 +378,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	}
 	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
-		return rc.increaseFailedConnAttempt(), err
+		return false, rc.increaseFailedConnAttempt(), err
 	}
 
 	rc.setClient(remoteClient)
@@ -387,9 +392,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	startWatcher, err := rc.establishWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		if errors.Is(err, errWatchEstablishInProgress) {
-			return rc.deferConnAttempt(retryIncrement), err
+			return false, rc.deferConnAttempt(retryIncrement), err
 		}
-		return rc.increaseFailedConnAttempt(), err
+		return false, rc.increaseFailedConnAttempt(), err
 	}
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 
@@ -402,18 +407,18 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher, err := rc.establishWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			if errors.Is(err, errWatchEstablishInProgress) {
-				return rc.deferConnAttempt(retryIncrement), err
+				return false, rc.deferConnAttempt(retryIncrement), err
 			}
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
 			// however let's not accept this for now.
-			return rc.increaseFailedConnAttempt(), err
+			return false, rc.increaseFailedConnAttempt(), err
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
 	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
-			return rc.increaseFailedConnAttempt(), err
+			return false, rc.increaseFailedConnAttempt(), err
 		}
 	}
 
@@ -423,7 +428,23 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	}
 
 	rc.resetFailedConnAttempt()
-	return nil, nil
+	return true, nil, nil
+}
+
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Duration {
+	wls := &kueue.WorkloadList{}
+	if err := rc.localClient.List(ctx, wls); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
+		retryAfter := resyncRetryInterval
+		return &retryAfter
+	}
+	for i := range wls.Items {
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
+			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		}
+	}
+	return nil
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
@@ -700,11 +721,29 @@ func (rc *remoteClient) StopWatchers() {
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
-	localWl := &kueue.Workload{}
-	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
+	log := ctrl.LoggerFrom(ctx)
+	// Runtime children can retain the first slice's prebuilt-workload marker after
+	// their parent is repointed to a replacement slice. Resolve the marker through
+	// the slice chain so their events wake the currently admitted Workload.
+	active, err := workloadslicing.FindActiveWorkload(ctx, rc.localClient, wlKey, false)
+	if err != nil {
+		log.Error(err, "reading local workload", "workload", wlKey)
+		return
+	}
+	if active != nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: active}
+		if active.Name == wlKey.Name {
+			return
+		}
+	}
+	// The key may also name a replacement slice that is not admitted yet, e.g. when
+	// the event comes from its remote Workload. It still has to be reconciled itself,
+	// since reconciling the admitted slice does not advance the replacement.
+	exact := &kueue.Workload{}
+	if err := rc.localClient.Get(ctx, wlKey, exact); err == nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: exact}
 	} else if !apierrors.IsNotFound(err) {
-		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
+		log.Error(err, "reading local workload", "workload", wlKey)
 	}
 }
 
@@ -821,6 +860,11 @@ type clustersReconciler struct {
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
+	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed.
+	// The ClusterProfile watch is only registered when both the feature gate is
+	// enabled and the CRD exists.
+	clusterProfileCRDPresent bool
+
 	logName     string
 	roleTracker *roletracker.RoleTracker
 
@@ -828,12 +872,12 @@ type clustersReconciler struct {
 }
 
 type clusterProfileAccessProvider interface {
-	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
+	BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error)
 }
 
 type NoOpClusterProfileAccessProvider struct{}
 
-func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error) {
 	return nil, errors.New("no access provider configured")
 }
 
@@ -898,15 +942,28 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
-	if retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config); err != nil {
+	hadClientBefore := client.getClient() != nil
+
+	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
 		if logV := ctrl.LoggerFrom(ctx).V(2); logV.Enabled() {
-			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", *retryAfter, "failedAttempts", client.getFailedConnAttempts())
 		}
 		return retryAfter, nil
 	}
+
+	shouldResync := hadClientBefore && refreshed
+	if shouldResync || client.resyncPending {
+		client.resyncPending = true
+		if retryAfter := client.requeueWorkloadsForCluster(clientCtx); retryAfter != nil {
+			return retryAfter, nil
+		}
+		client.resyncPending = false
+	}
+
 	return nil, nil
 }
 
@@ -959,7 +1016,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
-		log.Error(err, "setting client config", "retryAfter", retryAfter)
+		log.Error(err, "setting client config", "retryAfter", ptr.Deref(retryAfter, 0))
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 			return reconcile.Result{}, err
@@ -1102,7 +1159,7 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 }
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
-	cp := &inventoryv1alpha1.ClusterProfile{}
+	cp := &inventoryv1alpha2.ClusterProfile{}
 	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, err
 	}
@@ -1218,7 +1275,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.Mu
 
 	// if the condition is up-to-date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 
@@ -1263,6 +1320,7 @@ type clustersReconcilerOptions struct {
 	fsWatcher                    *KubeConfigFSWatcher
 	adapters                     map[string]jobframework.MultiKueueAdapter
 	clusterProfileAccessProvider clusterProfileAccessProvider
+	clusterProfileCRDPresent     bool
 	roleTracker                  *roletracker.RoleTracker
 	recorder                     events.EventRecorder
 	clientConnection             *configapi.ClientConnection
@@ -1297,6 +1355,12 @@ func withAdapters(adapters map[string]jobframework.MultiKueueAdapter) clustersRe
 func withClusterProfileAccessProvider(cpAccessProvider clusterProfileAccessProvider) clustersReconcilerOption {
 	return func(o *clustersReconcilerOptions) {
 		o.clusterProfileAccessProvider = cpAccessProvider
+	}
+}
+
+func withClusterProfileCRDPresent(present bool) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clusterProfileCRDPresent = present
 	}
 }
 
@@ -1346,6 +1410,7 @@ func newClustersReconciler(
 		fsWatcher:                    options.fsWatcher,
 		adapters:                     options.adapters,
 		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
+		clusterProfileCRDPresent:     options.clusterProfileCRDPresent,
 		logName:                      "multikueue-multikueuecluster-reconciler",
 		roleTracker:                  options.roleTracker,
 		clientConnection:             options.clientConnection,
@@ -1364,18 +1429,16 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}})
+			q.Add(reconcile.Request{
+				Name: e.Object.GetName()})
 		},
 	}
 
 	fsWatcherHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			// batch the events
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}}, 100*time.Millisecond)
+			q.AddAfter(reconcile.Request{
+				Name: e.Object.GetName()}, 100*time.Millisecond)
 		},
 	}
 
@@ -1389,16 +1452,25 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-multikueuecluster-reconciler"),
 		})
-	if features.Enabled(features.MultiKueueClusterProfile) {
+	if c.shouldWatchClusterProfiles() {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 			return obj.GetNamespace() == c.configNamespace
 		})
 
 		controllerBuilder = controllerBuilder.
-			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
+			Watches(&inventoryv1alpha2.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
 	return controllerBuilder.Complete(c)
+}
+
+// shouldWatchClusterProfiles reports whether the ClusterProfile watch should be
+// registered. Registering the watch without the CRD installed (and therefore
+// without a configured cache entry) makes cache sync fail and the manager exit,
+// which would break kubeconfig-based MultiKueue on clusters lacking the
+// optional CRD.
+func (c *clustersReconciler) shouldWatchClusterProfiles() bool {
+	return features.Enabled(features.MultiKueueClusterProfile) && c.clusterProfileCRDPresent
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
@@ -1523,9 +1595,7 @@ func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q work
 
 	for _, user := range users.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: user.Name,
-			},
+			Name: user.Name,
 		}
 		q.Add(req)
 	}
@@ -1554,7 +1624,7 @@ func (cp *clusterProfileHandler) Generic(ctx context.Context, event event.Generi
 }
 
 func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	clusterprofile, isClusterProfile := object.(*inventoryv1alpha1.ClusterProfile)
+	clusterprofile, isClusterProfile := object.(*inventoryv1alpha2.ClusterProfile)
 	if !isClusterProfile {
 		ctrl.LoggerFrom(ctx).Error(errors.New("not a clusterprofile"), "Failure on event")
 		return
@@ -1568,9 +1638,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 
 	for _, mkc := range mkcList.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: mkc.Name,
-			},
+			Name: mkc.Name,
 		}
 		q.Add(req)
 	}

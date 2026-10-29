@@ -34,6 +34,30 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
+// maxEffectiveCapacityFlavors must match the MaxItems marker on
+// EffectiveCapacity.Flavors in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
+const maxEffectiveCapacityFlavors = 128
+
+// maxEffectiveCapacityResourcesPerFlavor must match the CEL size rule on
+// EffectiveCapacityFlavor.Resources in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
+const maxEffectiveCapacityResourcesPerFlavor = 64
+
+// providerNotReadyMessage returns why the CapacityProvider's capacity cannot be
+// trusted, or "" if CapacitySynchronized=True for the current generation.
+// A spec update increments Generation without clearing the previous condition
+// or reported capacity, so a True condition from an older generation is stale.
+func providerNotReadyMessage(cp *kueuealpha.CapacityProvider) string {
+	cond := apimeta.FindStatusCondition(cp.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
+	switch {
+	case cond == nil || cond.Status != metav1.ConditionTrue:
+		return fmt.Sprintf("CapacityProvider %q is not synchronized", cp.Name)
+	case cond.ObservedGeneration != cp.Generation:
+		return fmt.Sprintf("CapacityProvider %q synchronization is stale (observedGeneration=%d, currentGeneration=%d)",
+			cp.Name, cond.ObservedGeneration, cp.Generation)
+	}
+	return ""
+}
+
 // reconcileDiscovery performs Phase 1 reconciliation: aggregates normalized capacities across referenced CapacityProviders.
 func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator) error {
 	aggregatedCapacity := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList)
@@ -54,12 +78,12 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 			return err
 		}
 
-		if !apimeta.IsStatusConditionTrue(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized) {
+		if message := providerNotReadyMessage(&capacityProvider); message != "" {
 			r.setDiscoveryCondition(
 				orchestrator,
 				metav1.ConditionFalse,
 				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
-				fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name),
+				message,
 			)
 			orchestrator.Status.EffectiveCapacity = nil
 			return nil
@@ -68,8 +92,31 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 		aggregateProviderCapacity(capacityProvider.Status.Capacity, capacityProvider.Spec.OrchestratedFlavors, providerContribution.EffectiveCapacityMultiplier, aggregatedCapacity)
 	}
 
+	if len(aggregatedCapacity) > maxEffectiveCapacityFlavors {
+		r.setDiscoveryCondition(
+			orchestrator,
+			metav1.ConditionFalse,
+			kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+			fmt.Sprintf("Aggregated capacity covers %d distinct flavors, which exceeds the supported limit of %d",
+				len(aggregatedCapacity), maxEffectiveCapacityFlavors),
+		)
+		orchestrator.Status.EffectiveCapacity = nil
+		return nil
+	}
+
 	effectiveCapacityFlavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, len(aggregatedCapacity))
 	for _, flavorName := range slices.Sorted(maps.Keys(aggregatedCapacity)) {
+		if n := len(aggregatedCapacity[flavorName]); n > maxEffectiveCapacityResourcesPerFlavor {
+			r.setDiscoveryCondition(
+				orchestrator,
+				metav1.ConditionFalse,
+				kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+				fmt.Sprintf("Aggregated capacity for flavor %q covers %d distinct resources, which exceeds the supported limit of %d",
+					flavorName, n, maxEffectiveCapacityResourcesPerFlavor),
+			)
+			orchestrator.Status.EffectiveCapacity = nil
+			return nil
+		}
 		effectiveCapacityFlavors = append(effectiveCapacityFlavors, kueuealpha.EffectiveCapacityFlavor{
 			Name:      flavorName,
 			Resources: aggregatedCapacity[flavorName],
@@ -85,18 +132,23 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 
 // aggregateProviderCapacity scales and adds flavor resource quantities from a single CapacityProvider into the running aggregated total,
 // filtering exclusively by the flavors declared in the CapacityProvider's spec.orchestratedFlavors.
+// Every orchestrated flavor is added to the aggregate, with no resources if the provider reports none,
+// because a provider orchestrates all resources of its flavors: an unreported resource has zero capacity.
 func aggregateProviderCapacity(
 	capacity *kueuealpha.CapacityProviderNormalizedCapacity,
 	orchestratedFlavors []kueuealpha.CapacityProviderOrchestratedFlavor,
 	multiplier *resource.Quantity,
 	aggregatedCapacity map[kueuealpha.ResourceFlavorReference]corev1.ResourceList,
 ) {
-	if capacity == nil {
-		return
-	}
 	allowedFlavors := sets.New[kueuealpha.ResourceFlavorReference]()
 	for _, f := range orchestratedFlavors {
 		allowedFlavors.Insert(f.Name)
+		if _, found := aggregatedCapacity[f.Name]; !found {
+			aggregatedCapacity[f.Name] = corev1.ResourceList{}
+		}
+	}
+	if capacity == nil {
+		return
 	}
 	for _, flavor := range capacity.Flavors {
 		if !allowedFlavors.Has(flavor.Name) {

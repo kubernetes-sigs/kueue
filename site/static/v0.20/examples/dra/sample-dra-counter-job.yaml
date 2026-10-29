@@ -1,0 +1,38 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  namespace: default
+  name: gpu-partition
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.example.com
+          count: 1
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-dra-counter-job-
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+        args: ["pause"]
+        resources:
+          claims:
+          - name: gpu
+          requests:
+            cpu: "1"
+            memory: "200Mi"
+      resourceClaims:
+      - name: gpu
+        resourceClaimTemplateName: gpu-partition
+      restartPolicy: Never

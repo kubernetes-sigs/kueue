@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -159,7 +158,7 @@ func collectNodeUsage(cache *nonTasUsageCache) map[string]resources.Requests {
 
 func makePod(name, namespace, node string, cpu string) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Name: name, Namespace: namespace,
 		Spec: corev1.PodSpec{
 			NodeName: node,
 			Containers: []corev1.Container{{

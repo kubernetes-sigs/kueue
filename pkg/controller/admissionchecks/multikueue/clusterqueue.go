@@ -49,6 +49,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
+// cqReconciler reconciles manager-side ClusterQueues that reference a MultiKueue AdmissionCheck.
+// It reports worker cluster status metrics and, when QuotaManagement is Automated,
+// the manager ClusterQueue has one ResourceGroup with one ResourceFlavor, and all worker
+// resources are covered, synchronizes the manager ClusterQueue's nominal quotas with its
+// related worker ClusterQueues.
 type cqReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -183,6 +188,11 @@ func (r *cqReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueu
 	return nil, false, nil
 }
 
+// aggregateWorkerQuotas sums the nominal quotas of all related worker ClusterQueues
+// across connected clusters in the MultiKueueConfig.
+//
+// Quotas are summed across all worker ResourceFlavors because manager flavor
+// assignment is not propagated to workers.
 func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
 	localLQs := &kueue.LocalQueueList{}
 	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
@@ -264,7 +274,7 @@ func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 	}
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 
@@ -283,7 +293,7 @@ func (r *cqReconciler) queueEventsForAC(ctx context.Context, acName string, q wo
 	}
 
 	for _, cq := range cqList.Items {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}, r.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: cq.Name}, r.eventsBatchPeriod)
 	}
 }
 
@@ -326,7 +336,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	remoteHandler := handler.TypedFuncs[kueue.ClusterQueueReference, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[kueue.ClusterQueueReference], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(e.Object)}}, r.eventsBatchPeriod)
+			q.AddAfter(reconcile.Request{Name: string(e.Object)}, r.eventsBatchPeriod)
 		},
 	}
 
@@ -352,7 +362,7 @@ var _ handler.EventHandler = (*lqHandler)(nil)
 
 func (l *lqHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -362,7 +372,7 @@ func (l *lqHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 
 func (l *lqHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -434,7 +444,7 @@ func (c *cqClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 
 	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
-	if !cmpConditionState(oldActive, newActive) {
+	if !isConditionEqual(oldActive, newActive) {
 		c.reconciler.queueEventsForMKCluster(ctx, newMKC.Name, q)
 	}
 }

@@ -52,7 +52,7 @@ func (mm *Match) Match(priorityClassName string, labels map[string]string, podRe
 		}
 	}
 	for _, r := range mm.Resources {
-		if podRequests.ResourceValue(r) <= 0 {
+		if podRequests.ResourceValue(r).Sign() <= 0 {
 			return false
 		}
 	}

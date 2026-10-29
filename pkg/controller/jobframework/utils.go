@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -96,9 +98,6 @@ func sanitizeContainer(container *corev1.Container) {
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
 func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
-	if !features.Enabled(features.MetricForWorkloadCreationLatency) {
-		return
-	}
 	if job.GetGeneration() > 1 {
 		ctrl.LoggerFrom(ctx).V(4).Info("Skip recording the workload creation metrics as the owner generation is already greater than 1", "generation", job.GetGeneration())
 		return
@@ -262,17 +261,21 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
+		if annotation != "" {
+			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
+		}
+	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
 	return &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: annotations,
-		},
+		Name:        name,
+		Namespace:   obj.GetNamespace(),
+		Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
+		Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+		Annotations: annotations,
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
@@ -339,4 +342,12 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	}
 
 	return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
+}
+
+// ElasticPartialScaleUpEnabled reports whether the job takes the partial
+// replica scale-up path for its workload slices.
+func ElasticPartialScaleUpEnabled(job GenericJob) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		WorkloadSliceEnabled(job) &&
+		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
 }

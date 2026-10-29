@@ -28,26 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
-func newSlice(name, driver, pool string) *resourcev1.ResourceSlice {
-	return &resourcev1.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: resourcev1.ResourceSliceSpec{
-			Driver: driver,
-			Pool: resourcev1.ResourcePool{
-				Name:               pool,
-				Generation:         1,
-				ResourceSliceCount: 1,
-			},
-		},
-	}
-}
-
 func TestResourceSliceCache_ListByDriver(t *testing.T) {
-	gpuSlice1 := newSlice("gpu-slice-1", "gpu.nvidia.com", "node1")
-	gpuSlice2 := newSlice("gpu-slice-2", "gpu.nvidia.com", "node2")
-	nicSlice := newSlice("nic-slice", "nic.mellanox.com", "node1")
+	gpuSlice1 := testingdra.MakeResourceSlice("gpu-slice-1", "gpu.nvidia.com").Pool("node1", 1, 1).Obj()
+	gpuSlice2 := testingdra.MakeResourceSlice("gpu-slice-2", "gpu.nvidia.com").Pool("node2", 1, 1).Obj()
+	nicSlice := testingdra.MakeResourceSlice("nic-slice", "nic.mellanox.com").Pool("node1", 1, 1).Obj()
 
 	cl := utiltesting.NewClientBuilder().
 		WithIndex(&resourcev1.ResourceSlice{}, "spec.driver", func(obj client.Object) []string {
@@ -95,8 +82,8 @@ func TestResourceSliceCache_ListByDriver(t *testing.T) {
 }
 
 func TestResourceSliceCache_ListAll(t *testing.T) {
-	gpuSlice := newSlice("gpu-slice", "gpu.nvidia.com", "node1")
-	nicSlice := newSlice("nic-slice", "nic.mellanox.com", "node1")
+	gpuSlice := testingdra.MakeResourceSlice("gpu-slice", "gpu.nvidia.com").Pool("node1", 1, 1).Obj()
+	nicSlice := testingdra.MakeResourceSlice("nic-slice", "nic.mellanox.com").Pool("node1", 1, 1).Obj()
 
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(gpuSlice, nicSlice).
@@ -131,9 +118,9 @@ func TestResourceSliceCache_ListAll(t *testing.T) {
 }
 
 func TestResourceSliceCache_ListAllThenListByDriver(t *testing.T) {
-	gpuSlice1 := newSlice("gpu-slice-1", "gpu.nvidia.com", "node1")
-	gpuSlice2 := newSlice("gpu-slice-2", "gpu.nvidia.com", "node2")
-	nicSlice := newSlice("nic-slice", "nic.mellanox.com", "node1")
+	gpuSlice1 := testingdra.MakeResourceSlice("gpu-slice-1", "gpu.nvidia.com").Pool("node1", 1, 1).Obj()
+	gpuSlice2 := testingdra.MakeResourceSlice("gpu-slice-2", "gpu.nvidia.com").Pool("node2", 1, 1).Obj()
+	nicSlice := testingdra.MakeResourceSlice("nic-slice", "nic.mellanox.com").Pool("node1", 1, 1).Obj()
 
 	listCallCount := 0
 	cl := utiltesting.NewClientBuilder().
@@ -178,8 +165,8 @@ func TestResourceSliceCache_ListAllThenListByDriver(t *testing.T) {
 }
 
 func TestResourceSliceCache_ListByDriverThenListByDriverDifferent(t *testing.T) {
-	gpuSlice := newSlice("gpu-slice", "gpu.nvidia.com", "node1")
-	nicSlice := newSlice("nic-slice", "nic.mellanox.com", "node1")
+	gpuSlice := testingdra.MakeResourceSlice("gpu-slice", "gpu.nvidia.com").Pool("node1", 1, 1).Obj()
+	nicSlice := testingdra.MakeResourceSlice("nic-slice", "nic.mellanox.com").Pool("node1", 1, 1).Obj()
 
 	listCallCount := 0
 	cl := utiltesting.NewClientBuilder().

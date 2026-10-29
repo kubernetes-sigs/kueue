@@ -1,0 +1,24 @@
+# permissions for end users to view admissionchecks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: admissioncheck-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/role: "admissioncheck-viewer"
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - admissionchecks
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - admissionchecks/status
+  verbs:
+  - get

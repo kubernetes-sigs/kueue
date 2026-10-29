@@ -84,7 +84,7 @@ func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
 	cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 	reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
+	req := reconcile.Request{Name: "cq1"}
 	if _, err := reconciler.Reconcile(ctx, req); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 			cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 			reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
+			req := reconcile.Request{Name: "cq1"}
 			if _, err := reconciler.Reconcile(ctx, req); err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
 			}
@@ -264,8 +264,8 @@ func TestCQReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
 	cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 	reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
-	req1 := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
-	req2 := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq2"}}
+	req1 := reconcile.Request{Name: "cq1"}
+	req2 := reconcile.Request{Name: "cq2"}
 	if _, err := reconciler.Reconcile(ctx, req1); err != nil {
 		t.Fatalf("unexpected reconcile error for cq1: %v", err)
 	}

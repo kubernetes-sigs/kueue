@@ -44,9 +44,9 @@ import (
 )
 
 var (
-	wlExample = templates.Examples(`  
+	wlExample = templates.Examples(`
 		# Delete the Workload
-  		kueuectl delete kueueworkload my-workload
+		kueuectl delete kueueworkload my-workload
 	`)
 	wlLong = templates.LongDesc(`
 		If the Workload has associated Jobs, the command will prompt for deletion approval
@@ -87,7 +87,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	o := NewWorkloadOptions(streams)
 
 	cmd := &cobra.Command{
-		Use:                   "workload NAME [--yes] [--all] [--dry-run STRATEGY]",
+		Use:                   "workload (NAME [NAME...] | --all [--all-namespaces]) [--namespace NAMESPACE] [--yes] [--dry-run STRATEGY]",
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"kwl", "kueueworkload", "kueueworkloads"},
 		Short:                 "Delete the given Workload and its corresponding Job",
@@ -124,7 +124,7 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 	}
 
 	if o.DeleteAll && len(o.Names) > 0 {
-		return errors.New("name cannot be provided when a selector is specified")
+		return errors.New("name(s) cannot be provided together with --all")
 	}
 
 	if o.AllNamespaces && len(o.Names) > 0 {
@@ -342,7 +342,10 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 
 func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceRef) error {
 	for wl, nrs := range workloadNameResources {
-		deleteOptions := metav1.DeleteOptions{}
+		// Like kubectl delete; otherwise deleting a batch/v1 Job orphans its Pods.
+		deleteOptions := metav1.DeleteOptions{
+			PropagationPolicy: new(metav1.DeletePropagationBackground),
+		}
 
 		if o.DryRunStrategy == dryrun.Server {
 			deleteOptions.DryRun = []string{metav1.DryRunAll}

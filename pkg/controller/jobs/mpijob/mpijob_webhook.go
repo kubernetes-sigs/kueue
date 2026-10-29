@@ -23,6 +23,7 @@ import (
 	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -62,6 +63,7 @@ type MpiJobWebhook struct {
 	kubeServerVersion            *kubeversion.ServerVersionFetcher
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupMPIJobWebhook configures the webhook for MPIJob.
@@ -75,6 +77,7 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		kubeServerVersion:            options.KubeServerVersion,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &v2beta1.MPIJob{}
 	if options.NoopWebhook {
@@ -131,9 +134,12 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob)
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCommon(ctx, mpiJob)
+	validationErrs, err := w.validateCommon(ctx, mpiJob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
+	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs = append(validationErrs, validateWorkerPodIndexOffset(mpiJob)...)
 	}
 	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
@@ -147,21 +153,15 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
-	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
-	validationErrs, err := w.validateCommon(ctx, newMpiJob)
+	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCommon(ctx, newMpiJob, nil)
 	if err != nil {
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		got := workerPodIndexOffset(newMpiJob)
-		if expected, managed := expectedWorkerPodIndexOffset(newMpiJob); managed {
-			if got != expected {
-				allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
-					fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected)))
-			}
-		}
+		allErrs = append(allErrs, validateWorkerPodIndexOffset(newMpiJob)...)
 	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
@@ -172,6 +172,27 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admission.Warnings, error) {
 	return nil, nil
+}
+
+// validateWorkerPodIndexOffset checks the Worker offset of an MPIJob with
+// runLauncherAsWorker.
+func validateWorkerPodIndexOffset(mpiJob *MPIJob) field.ErrorList {
+	expected, managed := expectedWorkerPodIndexOffset(mpiJob)
+	got := workerPodIndexOffset(mpiJob)
+	if !managed || got == expected {
+		return nil
+	}
+	if expected == "" {
+		// For grouped MPIJobs with runLauncherAsWorker, "1" matches
+		// the Worker offset inferred from the PodSet group.
+		if got == "1" {
+			return nil
+		}
+		return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+			fmt.Sprintf(`must be "1" or unset when '%s' is specified`, kueue.PodSetGroupName))}
+	}
+	return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+		fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected))}
 }
 
 func workerPodIndexOffset(mpiJob *MPIJob) string {
@@ -198,9 +219,9 @@ func expectedWorkerPodIndexOffset(mpiJob *MPIJob) (expected string, managed bool
 	return "1", true
 }
 
-func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = jobframework.ValidateJobOnCreate(mpiJob)
+	allErrs = jobframework.ValidateJobOnCreate(mpiJob, maxTimeoutOnWorkload)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, mpiJob)
 		if err != nil {

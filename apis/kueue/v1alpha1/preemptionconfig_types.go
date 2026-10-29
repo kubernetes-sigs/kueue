@@ -64,13 +64,16 @@ const (
 // labeled workload if this is desired.
 // If neither comparison, minValue, nor maxValue are specified, the constraint checks only that
 // candidate workloads possess the designated label key with a valid integer.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.minValue) || !has(self.maxValue) || self.minValue <= self.maxValue",message="minValue must be less than or equal to maxValue"
 type PreemptionConfigNumericLabelConstraint struct {
 	// key is the label key that stores the integer value in the workload that will
 	// be used for candidate selection.
 	//
-	// +kubebuilder:validation:Required
+	// +required
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=316
-	Key string `json:"key"`
+	Key string `json:"key,omitempty"`
 
 	// fallbackValue is used when a workload does not have the label key
 	// or the value under the key cannot be parsed as an integer.
@@ -111,9 +114,15 @@ type PreemptionConfigNumericLabelConstraint struct {
 
 // PreemptionConfig is the Schema for the preemptionconfigs API
 type PreemptionConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              PreemptionConfigSpec `json:"spec,omitempty"`
+
+	// spec defines the preemption rules of the PreemptionConfig.
+	// +optional
+	Spec PreemptionConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true
@@ -175,8 +184,8 @@ type PreemptionConfigActivationPolicy struct {
 	// - candidates selected by applicable rules in the referenced PreemptionConfig
 	//   whose activationPolicy.trigger is Always.
 	//
-	// +kubebuilder:validation:Required
-	Trigger PreemptionConfigActivationTrigger `json:"trigger"`
+	// +required
+	Trigger PreemptionConfigActivationTrigger `json:"trigger,omitempty"`
 }
 
 // PreemptionConfigPreemptionRule defines a single rule under which preemptions can be triggered
@@ -184,7 +193,7 @@ type PreemptionConfigActivationPolicy struct {
 type PreemptionConfigPreemptionRule struct {
 	// name is the identifier of the preemption rule.
 	//
-	// +kubebuilder:validation:Required
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -196,17 +205,27 @@ type PreemptionConfigPreemptionRule struct {
 	// +optional
 	PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
+	// preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+	// based on their priority class (matched against spec.priorityClassRef).
+	// When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
+	// If omitted or empty, workloads of any priority class can trigger this rule.
+	//
+	// +optional
+	PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"preemptorPriorityClassSelector,omitempty"`
+
 	// activationPolicy determines when this rule contributes matching
 	// candidates to preemption evaluation.
 	//
-	// +kubebuilder:validation:Required
-	ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy"`
+	// +required
+	ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy,omitzero"`
 
 	// candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
 	// Candidates resulting from multiple selectors are summed into one set.
 	// No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
 	//
 	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=32
 	CandidateSelectors []PreemptionConfigPreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
 }
 
@@ -246,11 +265,12 @@ const (
 )
 
 // PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+// All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).
 type PreemptionConfigPreemptionCandidateSelector struct {
 	// scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
 	//
-	// +kubebuilder:validation:Required
-	Scope PreemptionConfigPreemptionQueueScope `json:"scope"`
+	// +required
+	Scope PreemptionConfigPreemptionQueueScope `json:"scope,omitempty"`
 
 	// clusterQueueSelector defines label selector constraints on candidate ClusterQueues.
 	// Accepts all if not set.
@@ -270,6 +290,7 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	//
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=32
 	NumericLabels []PreemptionConfigNumericLabelConstraint `json:"numericLabels,omitempty"`
 
 	// priority defines the requirements for the priority of candidates.
@@ -278,22 +299,141 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	//
 	// +optional
 	Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
+
+	// priorityClassSelector filters candidate workloads by their priority class
+	// (matched against spec.priorityClassRef).
+	// Accepts all if not set.
+	//
+	// +optional
+	PriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"priorityClassSelector,omitempty"`
 }
 
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 type PreemptionConfigPriorityConstraint struct {
 	// mode specifies whether priority comparison uses base or boosted (effective) priority.
 	//
-	// +kubebuilder:validation:Required
-	Mode PreemptionConfigPriorityMode `json:"mode"`
+	// +required
+	Mode PreemptionConfigPriorityMode `json:"mode,omitempty"`
 
 	// comparison defines how the candidate's priority compares to the preemptor's priority.
 	// For example, "LessThan" means that only workloads with lower
 	// priority will be allowed as preemption candidates.
 	//
-	// +kubebuilder:validation:Required
-	Comparison NumericComparison `json:"comparison"`
+	// +required
+	Comparison NumericComparison `json:"comparison,omitempty"`
 }
+
+// PreemptionConfigPriorityClassSelector filters workloads by their priority class
+// (matched against the Workload's spec.priorityClassRef, which is populated by Kueue
+// for both WorkloadPriorityClass and Pod PriorityClass).
+// When both sourceRef and nameExpressions are specified, a workload must satisfy both (logical AND).
+// When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
+// or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
+// in nameExpressions to match or exclude workloads that do not explicitly specify a priority class.
+type PreemptionConfigPriorityClassSelector struct {
+	// sourceRef filters workloads by the API group and kind of their priority class
+	// (matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+	// workloads without a priorityClassRef do not match when sourceRef is set).
+	// If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.
+	//
+	// +optional
+	SourceRef *PriorityClassSourceRef `json:"sourceRef,omitempty"`
+
+	// nameExpressions is a list of priority class name selector requirements
+	// (matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+	// If omitted, no priority class name restrictions are enforced.
+	// When set, nameExpressions must contain at least one requirement.
+	//
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	NameExpressions []PriorityClassSelectorRequirement `json:"nameExpressions,omitempty"`
+}
+
+// PriorityClassGroup indicates the API group of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=kueue.x-k8s.io;scheduling.k8s.io
+type PriorityClassGroup string
+
+const (
+	// PodPriorityClassGroup represents the core Kubernetes scheduling group.
+	PodPriorityClassGroup PriorityClassGroup = "scheduling.k8s.io"
+
+	// WorkloadPriorityClassGroup represents the Kueue-specific priority group.
+	WorkloadPriorityClassGroup PriorityClassGroup = "kueue.x-k8s.io"
+)
+
+// PriorityClassKind is the kind of the PriorityClass object.
+//
+// +enum
+// +kubebuilder:validation:Enum=WorkloadPriorityClass;PriorityClass
+type PriorityClassKind string
+
+const (
+	// PodPriorityClassKind represents the core Kubernetes PriorityClass kind.
+	PodPriorityClassKind PriorityClassKind = "PriorityClass"
+
+	// WorkloadPriorityClassKind represents the Kueue WorkloadPriorityClass kind.
+	WorkloadPriorityClassKind PriorityClassKind = "WorkloadPriorityClass"
+)
+
+// PriorityClassSourceRef identifies the API group and kind of a priority class source.
+//
+// +kubebuilder:validation:XValidation:rule="(self.group == 'scheduling.k8s.io') ? self.kind == 'PriorityClass' : true",message="only the PriorityClass kind is allowed for the scheduling.k8s.io group"
+// +kubebuilder:validation:XValidation:rule="(self.group == 'kueue.x-k8s.io') ? self.kind == 'WorkloadPriorityClass' : true",message="only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group"
+type PriorityClassSourceRef struct {
+	// group is the API group of the PriorityClass object.
+	// Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+	// Use "scheduling.k8s.io" for Pod PriorityClass.
+	//
+	// +required
+	Group PriorityClassGroup `json:"group,omitempty"`
+
+	// kind is the kind of the PriorityClass object.
+	// Use "WorkloadPriorityClass" for group "kueue.x-k8s.io".
+	// Use "PriorityClass" for group "scheduling.k8s.io".
+	//
+	// +required
+	Kind PriorityClassKind `json:"kind,omitempty"`
+}
+
+// PriorityClassSelectorRequirement is a selector that contains values and an operator
+// that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.
+type PriorityClassSelectorRequirement struct {
+	// operator represents a priority class name's relationship to a set of values.
+	// Valid operators are In and NotIn.
+	//
+	// +required
+	Operator PriorityClassSelectorOperator `json:"operator,omitempty"`
+
+	// values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+	// For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
+	// (workloads without a priorityClassRef do not match).
+	// For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
+	// in this list (workloads without a priorityClassRef always match).
+	//
+	// +required
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
+	// +kubebuilder:validation:items:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	Values []string `json:"values,omitempty"`
+}
+
+// PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.
+// +kubebuilder:validation:Enum=In;NotIn
+type PriorityClassSelectorOperator string
+
+const (
+	// PriorityClassSelectorOpIn requires the workload's spec.priorityClassRef.name to match one of the specified values.
+	PriorityClassSelectorOpIn PriorityClassSelectorOperator = "In"
+	// PriorityClassSelectorOpNotIn requires the workload's spec.priorityClassRef.name to not match any of the specified values.
+	PriorityClassSelectorOpNotIn PriorityClassSelectorOperator = "NotIn"
+)
 
 // PreemptionConfigPriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
 // Possible values are:

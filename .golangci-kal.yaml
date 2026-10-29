@@ -64,7 +64,7 @@ linters:
     generated: strict
     rules:
     ## KAL should only run on API folders.
-    - path-except: "apis/kueue/v1beta2"
+    - path-except: "apis/kueue/(v1beta2|v1alpha1)/"
       linters:
         - kubeapilinter
 
@@ -75,7 +75,7 @@ linters:
 
     # Spec and Status fields - Kubernetes convention (not pointers, specific omitempty rules)
     - text: "optionalfields: field (Spec|Status) should (be a pointer|have the omitempty tag)."
-      path: "apis/kueue/v1beta2"
+      path: "apis/kueue/"
 
     # Various optional fields intentionally not pointers for API stability
     - text: "optionalfields: field (QueueName|PriorityClassName|PriorityClassSource|ClusterQueue|ParentName|CohortName|QueueingStrategy|LocationType|Description|Policy|WhenCanBorrow|WhenCanPreempt|ReclaimWithinCohort|WithinClusterQueue|Borrowed|Total|PendingWorkloads|ReservingWorkloads|AdmittedWorkloads) should (be a pointer|have the omitempty tag)."
@@ -83,7 +83,7 @@ linters:
 
     # Name and Count fields - intentional design decisions
     - text: "(optionalfields|requiredfields): field (Name|Count) should (be a pointer|have the omitempty tag)."
-      path: "apis/kueue/v1beta2"
+      path: "apis/kueue/"
 
     # PodSetAssignments intentionally excludes omitempty
     - text: "optionalfields: field PodSetAssignments should have the omitempty tag."
@@ -91,15 +91,15 @@ linters:
 
     # Required fields with valid zero values - validation is intentionally incomplete
     - text: "requiredfields: field .* has a valid zero value.*should be a pointer"
-      path: "apis/kueue/v1beta2"
+      path: "apis/kueue/"
 
     # Required fields that intentionally exclude omitempty
-    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location|ResourceGroups) should have the omitempty tag."
-      path: "apis/kueue/v1beta2"
+    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location|ResourceGroups|Resources) should have the omitempty tag."
+      path: "apis/kueue/"
 
     # ResourceList fields (map types required for Kubernetes compatibility)
     - text: "(nomaps|optionalfields): (field )?(ResourceUsage|Resources|ConsumedResources) should (not use a map type|be a pointer)"
-      path: "apis/kueue/v1beta2"
+      path: "apis/kueue/"
 
     # Bool fields for API compatibility (Active mirrors Job.Suspend, Unconstrained is existing API)
     - text: "(nobools|optionalorrequired): field (Active|Unconstrained) .*(should not use a bool|must be marked as optional or required)"

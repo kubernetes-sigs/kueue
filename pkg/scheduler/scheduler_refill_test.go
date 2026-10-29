@@ -1645,7 +1645,7 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 				budget:    0,
 			}
 			e := &entry{
-				Head:   qcache.Head{Info: workload.Info{Obj: admitted.Obj(), ClusterQueue: "stop-cq"}},
+				Obj: admitted.Obj(), ClusterQueue: "stop-cq",
 				status: tc.entryStatus,
 			}
 

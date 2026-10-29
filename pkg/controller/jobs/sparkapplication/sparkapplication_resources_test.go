@@ -23,15 +23,12 @@ import (
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func executorPod(containerName string) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				sparkcommon.LabelSparkRole: sparkcommon.SparkRoleExecutor,
-			},
+		Labels: map[string]string{
+			sparkcommon.LabelSparkRole: sparkcommon.SparkRoleExecutor,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
@@ -74,7 +71,7 @@ func TestSparkPodResources(t *testing.T) {
 		"cores is used as the CPU request when coreRequest is unset": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Cores: new(int32(4))},
+				Cores: new(int32(4)),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantCPU:    "4",
 			wantMemory: "1408Mi",
@@ -82,8 +79,8 @@ func TestSparkPodResources(t *testing.T) {
 		"coreRequest takes precedence over cores": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Cores: new(int32(4))},
-				CoreRequest:  new("500m"),
+				Cores:       new(int32(4)),
+				CoreRequest: new("500m"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantCPU:    "500m",
 			wantMemory: "1408Mi",
@@ -92,7 +89,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Cores: new(int32(4))},
+					Cores: new(int32(4)),
 				})
 				app.Spec.SparkConf = map[string]string{
 					sparkcommon.SparkKubernetesExecutorRequestCores: "2500m",
@@ -130,7 +127,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Cores: new(int32(4))},
+					Cores: new(int32(4)),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.SparkConf = map[string]string{sparkcommon.SparkDriverCores: "3"}
 				return app
@@ -152,7 +149,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("1g")},
+					Memory: new("1g"),
 				})
 				app.Spec.SparkConf = map[string]string{sparkcommon.SparkExecutorMemory: "8g"}
 				return app
@@ -164,7 +161,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("4g")},
+					Memory: new("4g"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.SparkConf = map[string]string{sparkcommon.SparkDriverMemoryOverhead: "1g"}
 				return app
@@ -176,10 +173,8 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{
-						Memory:         new("4g"),
-						MemoryOverhead: new("512m"),
-					},
+					Memory:         new("4g"),
+					MemoryOverhead: new("512m"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.SparkConf = map[string]string{sparkcommon.SparkDriverMemoryOverhead: "1g"}
 				return app
@@ -190,10 +185,8 @@ func TestSparkPodResources(t *testing.T) {
 		"explicit memoryOverhead is added to memory": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{
-					Memory:         new("4g"),
-					MemoryOverhead: new("1g"),
-				},
+				Memory:         new("4g"),
+				MemoryOverhead: new("1g"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantCPU:    "1",
 			wantMemory: "5Gi",
@@ -201,10 +194,8 @@ func TestSparkPodResources(t *testing.T) {
 		"memoryOverhead without a unit is in MiB": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{
-					Memory:         new("4g"),
-					MemoryOverhead: new("512"),
-				},
+				Memory:         new("4g"),
+				MemoryOverhead: new("512"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantCPU:    "1",
 			wantMemory: "4608Mi",
@@ -212,7 +203,7 @@ func TestSparkPodResources(t *testing.T) {
 		"default overhead is 10% of memory when above the minimum": {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8g")},
+				Memory: new("8g"),
 			}),
 			wantCPU:    "1",
 			wantMemory: "9011Mi", // 8192 + int(8192 * 0.1)
@@ -221,7 +212,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("1g")},
+					Memory: new("1g"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.MemoryOverheadFactor = new("0")
 				return app
@@ -233,7 +224,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.MemoryOverheadFactor = new("0.5")
 				return app
@@ -245,7 +236,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.MemoryOverheadFactor = new("0.5")
 				app.Spec.SparkConf = map[string]string{sparkcommon.SparkKubernetesMemoryOverheadFactor: "0.25"}
@@ -258,7 +249,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				})
 				app.Spec.SparkConf = map[string]string{
 					sparkcommon.SparkKubernetesMemoryOverheadFactor: "0.25",
@@ -273,10 +264,8 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{
-						Memory:         new("2g"),
-						MemoryOverhead: new("100m"),
-					},
+					Memory:         new("2g"),
+					MemoryOverhead: new("100m"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.MemoryOverheadFactor = new("0.5")
 				return app
@@ -342,7 +331,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				})
 				app.Spec.SparkConf = map[string]string{sparkExecutorPysparkMemory: "512m"}
 				return app
@@ -368,7 +357,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				})
 				app.Spec.SparkConf = map[string]string{
 					sparkMemoryOffHeapEnabled: "true",
@@ -383,7 +372,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				})
 				app.Spec.SparkConf = map[string]string{
 					sparkMemoryOffHeapEnabled: "true",
@@ -398,7 +387,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: executorPod(sparkcommon.Spark3DefaultExecutorContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{}, sparkv1beta2.ExecutorSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("2g")},
+					Memory: new("2g"),
 				})
 				app.Spec.SparkConf = map[string]string{sparkMemoryOffHeapSize: "1g"}
 				return app
@@ -409,21 +398,21 @@ func TestSparkPodResources(t *testing.T) {
 		"invalid memory string": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("512Mi")},
+				Memory: new("512Mi"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantErr: true,
 		},
 		"memory string that overflows": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8589934592p")},
+				Memory: new("8589934592p"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantErr: true,
 		},
 		"memory and memoryOverhead that overflow together": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: scalaApp(sparkv1beta2.DriverSpec{
-				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8191p"), MemoryOverhead: new("8191p")},
+				Memory: new("8191p"), MemoryOverhead: new("8191p"),
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantErr: true,
 		},
@@ -431,7 +420,7 @@ func TestSparkPodResources(t *testing.T) {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
 				app := scalaApp(sparkv1beta2.DriverSpec{
-					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8191p")},
+					Memory: new("8191p"),
 				}, sparkv1beta2.ExecutorSpec{})
 				app.Spec.MemoryOverheadFactor = new("1e30")
 				return app

@@ -21,26 +21,50 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 )
 
-// SchedulingSimulator acts as a factory for SimulatorSnapshots.
-// It also tracks all existing Pods (even those not managed by Kueue),
-// to ensure they're included in the snapshots.
-// This interface is purposed to control Kueue-WAS integration.
-// The "default" (non-WAS) implementation may trivialize some methods.
-type SchedulingSimulator interface {
-	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
-	// TrackPod notifies the simulator that a pod is running on a node.
-	TrackPod(ctx context.Context, pod *corev1.Pod)
-	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+type simulatorOptions struct {
+	assumedWorkloads []*kueue.Workload
 }
 
-// SimulatorSnapshot allows running simulations on a snapshotted cluster state.
+type Option func(*simulatorOptions)
+
+// WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
+func WithAssumedWorkloads(wls []*kueue.Workload) Option {
+	return func(o *simulatorOptions) {
+		o.assumedWorkloads = wls
+	}
+}
+
+// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
+func AssumedWorkloads(options ...Option) []*kueue.Workload {
+	opts := &simulatorOptions{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts.assumedWorkloads
+}
+
+// Factory allows building instances of SchedulerSimulator
+// based on a snapshot of its internal state.
+// This interface is purposed to control Kueue-WAS integration.
+// The "default" (non-WAS) implementation may trivialize some methods.
+type Factory interface {
+	NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...Option) (SchedulerSimulator, error)
+}
+
+// SchedulerSimulator allows running simulations on a snapshotted cluster state.
 // This interface is purposed to control Kueue-WAS integration.
 // The default (non-WAS) implementation may trivialize some methods.
-type SimulatorSnapshot interface {
+type SchedulerSimulator interface {
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
 	// via its built-in methods will be reverted.
@@ -54,6 +78,21 @@ type SimulatorSnapshot interface {
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.
 	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
+	// ScheduleWorkload simulates how the given workload,
+	// represented by the list of its pods, would be scheduled.
+	// Returns:
+	// - the mapping of input pods to their placements
+	//   (including failed placements), OR
+	// - an error and an empty placements mapping, if the call fails completely.
+	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
+	// AddPodGroup adds a PodGroup to the snapshot
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// RemovePodGroup removes a PodGroup from the snapshot
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// AddCompositePodGroup adds a CompositePodGroup to the snapshot
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+	// RemoveCompositePodGroup removes a CompositePodGroup from the snapshot
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

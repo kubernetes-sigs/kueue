@@ -43,12 +43,10 @@ func newPendingWorkload(wlInfo *workload.Info, positionInLq int32, positionInCq 
 		})
 	}
 	return &visibility.PendingWorkload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              wlInfo.Obj.Name,
-			Namespace:         wlInfo.Obj.Namespace,
-			OwnerReferences:   ownerReferences,
-			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
-		},
+		Name:                   wlInfo.Obj.Name,
+		Namespace:              wlInfo.Obj.Namespace,
+		OwnerReferences:        ownerReferences,
+		CreationTimestamp:      wlInfo.Obj.CreationTimestamp,
 		PositionInClusterQueue: int32(positionInCq),
 		Priority:               priority.Priority(wlInfo.Obj),
 		LocalQueueName:         wlInfo.Obj.Spec.QueueName,

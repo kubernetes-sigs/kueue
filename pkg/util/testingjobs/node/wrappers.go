@@ -34,9 +34,7 @@ type NodeWrapper struct {
 // MakeNode creates a wrapper for a Node
 func MakeNode(name string) *NodeWrapper {
 	return &NodeWrapper{corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name: name,
 	},
 	}
 }

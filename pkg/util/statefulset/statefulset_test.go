@@ -21,97 +21,59 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
 
 func TestUngatePod(t *testing.T) {
-	currentStatefulSet := statefulsettesting.MakeStatefulSet("sts", "ns").
-		CurrentRevision("current").
-		UpdateRevision("current").
-		Obj()
-	updatingStatefulSet := statefulsettesting.MakeStatefulSet("sts", "ns").
-		CurrentRevision("current").
-		UpdateRevision("update").
-		Obj()
-
 	testCases := map[string]struct {
-		statefulSet *appsv1.StatefulSet
 		pod         *corev1.Pod
-		force       bool
 		wantChanged bool
 		wantGates   []corev1.PodSchedulingGate
 	}{
-		"current revision is unchanged": {
-			statefulSet: currentStatefulSet,
+		"both gates are removed": {
 			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "current").
-				KueueSchedulingGate().
-				KueueFinalizer().
-				Obj(),
-			wantGates: []corev1.PodSchedulingGate{{Name: podconstants.SchedulingGateName}},
-		},
-		"current revision during rollout is ungated": {
-			statefulSet: updatingStatefulSet,
-			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "current").
-				KueueSchedulingGate().
-				KueueFinalizer().
-				Obj(),
-			wantChanged: true,
-		},
-		"current revision topology gate is removed during rollout": {
-			statefulSet: updatingStatefulSet,
-			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "current").
-				TopologySchedulingGate().
-				KueueFinalizer().
-				Obj(),
-			wantChanged: true,
-		},
-		"all current revision gates are removed during rollout": {
-			statefulSet: updatingStatefulSet,
-			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "current").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
 			wantChanged: true,
 		},
-		"update revision during rollout keeps gates": {
-			statefulSet: updatingStatefulSet,
+		"the scheduling gate alone is removed": {
 			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "update").
 				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
+			wantChanged: true,
+		},
+		"the topology gate alone is removed": {
+			pod: testingjobspod.MakePod("pod", "ns").
 				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
-			wantGates: []corev1.PodSchedulingGate{
-				{Name: podconstants.SchedulingGateName},
-				{Name: kueue.TopologySchedulingGate},
-			},
+			wantChanged: true,
 		},
-		"force ungates current revision": {
-			statefulSet: currentStatefulSet,
+		"gates Kueue does not own are kept": {
 			pod: testingjobspod.MakePod("pod", "ns").
-				Label(appsv1.ControllerRevisionHashLabelKey, "current").
 				KueueSchedulingGate().
+				Gate("example.com/gate").
 				KueueFinalizer().
 				Obj(),
-			force:       true,
 			wantChanged: true,
+			wantGates:   []corev1.PodSchedulingGate{{Name: "example.com/gate"}},
+		},
+		"an ungated pod is unchanged": {
+			pod: testingjobspod.MakePod("pod", "ns").
+				KueueFinalizer().
+				Obj(),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if changed := UngatePod(tc.statefulSet, tc.pod, tc.force); changed != tc.wantChanged {
+			if changed := UngatePod(tc.pod); changed != tc.wantChanged {
 				t.Errorf("UngatePod() changed = %t, want %t", changed, tc.wantChanged)
 			}
 			if diff := cmp.Diff(tc.wantGates, tc.pod.Spec.SchedulingGates, cmpopts.EquateEmpty()); diff != "" {

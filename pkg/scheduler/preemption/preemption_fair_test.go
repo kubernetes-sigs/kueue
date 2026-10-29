@@ -101,6 +101,7 @@ func TestFairPreemptions(t *testing.T) {
 		cohorts          []*kueue.Cohort
 		flavors          []*kueue.ResourceFlavor
 		assignmentFlavor kueue.ResourceFlavorReference
+		assignment       flavorassigner.Assignment
 		strategies       []config.PreemptionStrategy
 		admitted         []kueue.Workload
 		incoming         *kueue.Workload
@@ -890,7 +891,7 @@ func TestFairPreemptions(t *testing.T) {
 			incoming: unitWl.Clone().Name("a1").Obj(),
 			targetCQ: "a",
 			wantPreempted: sets.New(
-				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b1", kueue.InCohortReclamationReason),
 			),
 		},
 		// CQ "a": 3 CPU nominal on premium, 0 on cheap.
@@ -1196,6 +1197,535 @@ func TestFairPreemptions(t *testing.T) {
 			),
 			featureGates: map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
 		},
+		"do not preempt workloads within nominal quota when CQ is borrowing on an uncontested flavor": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("contested").Obj(),
+				utiltestingapi.MakeResourceFlavor("uncontested").Obj(),
+			},
+			assignmentFlavor: "contested",
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor").
+					Cohort("all").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("contested").Resource(corev1.ResourceCPU, "4").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("uncontested").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("victim").
+					Cohort("all").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("contested").Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("uncontested").Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("all").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("contested").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("uncontested").Resource(corev1.ResourceCPU, "8").Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("v_contested1").SimpleReserveQuota("victim", "contested", now).Obj(),
+				*unitWl.Clone().Name("v_contested2").SimpleReserveQuota("victim", "contested", now).Obj(),
+				*unitWl.Clone().Name("v_contested3").SimpleReserveQuota("victim", "contested", now).Obj(),
+				*utiltestingapi.MakeWorkload("v_uncontested", "").Request(corev1.ResourceCPU, "10").SimpleReserveQuota("victim", "uncontested", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_incoming", "").Request(corev1.ResourceCPU, "5").Obj(),
+			targetCQ:      "preemptor",
+			wantPreempted: sets.New[string](),
+		},
+		"hierarchical cohort borrowing internally does not allow preemption on non-borrowed contested resource (issue #16666)": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a-train").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "8").
+							Resource(corev1.ResourceName("gpu-y"), "8").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b-owner").
+					Cohort("cohort-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "8").
+							Resource(corev1.ResourceName("gpu-y"), "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b-inf").
+					Cohort("cohort-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "0").
+							Resource(corev1.ResourceName("gpu-y"), "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("b-owner-wl", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-y"), "6").
+					SimpleReserveQuota("b-owner", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b-inf-wl1", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "4").
+					SimpleReserveQuota("b-inf", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b-inf-wl2", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "4").
+					SimpleReserveQuota("b-inf", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a-train-wl", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "6").
+					SimpleReserveQuota("a-train", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a-incoming", "").
+				Priority(100).
+				Request(corev1.ResourceName("gpu-x"), "4").Obj(),
+			targetCQ: "a-train",
+			assignment: singlePodSetAssignment(
+				flavorassigner.ResourceAssignment{
+					corev1.ResourceName("gpu-x"): &flavorassigner.FlavorAssignment{
+						Name: "default", Mode: flavorassigner.Preempt,
+					},
+				},
+			),
+			wantPreempted: nil,
+		},
+		// During candidate selection, removing p_small (30 CPU in qp) drops qp's
+		// simulated usage from 90 to 60 (DRS 0.1), which makes t_hero (70 CPU in qt,
+		// DRS 0.2) pass LessThanInitialShare. Once t_hero is removed, p_hero (60 CPU)
+		// fits even with p_small restored by fillBackWorkloads. In the resulting state
+		// (p_small + p_hero = 90 CPU, DRS 0.4), preempting t_hero (oldShare 0.2,
+		// newShare 0) violates both FairSharing strategies and must be discarded.
+		"intra-CQ candidate restored by fillBackWorkloads invalidates cross-CQ LessThanInitialShare preemption": {
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "30").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t_hero", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "60").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: nil,
+		},
+		// With FairSharingReevaluatePreemptionCandidates enabled and only
+		// LessThanOrEqualToFinalShare configured:
+		// 1. Initially qp (20+50=70 CPU, DRS 0.2) preempts t1 (10 CPU in qt,
+		//    reducing qt from 80 to 70 CPU, DRS 0.2). t2 (70 CPU) fails S2-a
+		//    because removing it drops qt to 0 CPU (DRS 0 < 0.2).
+		// 2. Next, p_small (20 CPU in qp) is removed (in-CQ), dropping qp to
+		//    50 CPU (DRS 0).
+		// 3. On re-evaluation, t2 (70 CPU in qt) now passes S2-a (0 <= 0).
+		// 4. fillBackWorkloads restores both p_small and t1 because p_hero (50 CPU)
+		//    fits alongside them once t2 (70 CPU) is removed.
+		// 5. Against the final state (qp at 70 CPU, DRS 0.2; qt at 10 CPU, DRS 0),
+		//    t2 no longer satisfies LessThanOrEqualToFinalShare and must be discarded.
+		"intra-CQ candidate restored by fillBackWorkloads invalidates re-evaluated LessThanOrEqualToFinalShare preemption": {
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "20").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "ns").Request(corev1.ResourceCPU, "10").Priority(0).Creation(now.Add(time.Minute)).SimpleReserveQuota("qt", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t2", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "50").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: nil,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
+		},
+		// Positive own-deflation case:
+		// 1. Initially qp (30+60=90 CPU, DRS 0.4) cannot preempt from qt (40+30=70 CPU, DRS 0.2).
+		// 2. Evicting p_small (30 CPU, in-CQ) lowers qp's simulated usage to 60 CPU (DRS 0.1).
+		// 3. Under LessThanInitialShare, qp (DRS 0.1) can now fairly preempt t_small (30 CPU)
+		//    from qt (initial DRS 0.2).
+		// 4. Unlike the loop scenario, fillBackWorkloads cannot restore p_small (30 CPU) because
+		//    t_keep (40 CPU) + p_hero (60 CPU) = 100 CPU leaves no spare capacity.
+		// 5. In the final state, qp is at 60 CPU (DRS 0.1) and qt was at 70 CPU (DRS 0.2), so
+		//    verifyFairSharingTargets confirms the preemption is fair.
+		"intra-CQ eviction that stays evicted legitimately lowers preemptor DRS for cross-CQ preemption": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "30").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t_keep", "ns").Request(corev1.ResourceCPU, "40").Priority(5).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t_small", "ns").Request(corev1.ResourceCPU, "30").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "60").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ: "qp",
+			wantPreempted: sets.New(
+				targetKeyReason("ns/p_small", kueue.InClusterQueueReason),
+				targetKeyReason("ns/t_small", kueue.InCohortFairSharingReason),
+			),
+		},
+		// Nested cohort hierarchy where AlmostLCAs(qp, qt) are CohortSnapshots (cohort-p, cohort-t)
+		// under a shared root cohort rather than the ClusterQueueSnapshots directly.
+		"nested cohorts: intra-CQ candidate restored by fillBackWorkloads invalidates cross-cohort preemption": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-p").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-t").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("cohort-p").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("cohort-t").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "30").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t_hero", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "60").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: nil,
+		},
+		"intra-CQ candidate restored by fillBackWorkloads invalidates re-evaluated LessThanOrEqualToFinalShare preemption (feature gate disabled preserves legacy preemption)": {
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "20").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "ns").Request(corev1.ResourceCPU, "10").Priority(0).Creation(now.Add(time.Minute)).SimpleReserveQuota("qt", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t2", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "50").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: sets.New(targetKeyReason("ns/t2", kueue.InCohortReclamationReason)),
+			featureGates: map[featuregate.Feature]bool{
+				features.FairSharingReevaluatePreemptionCandidates: true,
+				features.FairSharingVerifyFinalTargets:             false,
+			},
+		},
+		//                 ROOT
+		//             /          \
+		//  cohort-a (3 premium)   b (0 premium, 6 cheap)
+		//           |
+		//           a (0 premium, 0 cheap)
+		//
+		// Admitted state:
+		//   a: 2 premium + 5 cheap (a borrows both flavors; cohort-a only
+		//      borrows cheap)
+		//   b: 1 premium (borrowed from cohort-a's lendable premium quota)
+		//
+		// Incoming: a wants 1 premium CPU. Although a itself borrows premium,
+		// cohort-a remains within its 3 premium CPUs. It can therefore reclaim
+		// that premium CPU from b regardless of cohort-a's cheap-resource DRS.
+		"nominal first: cohort nominal quota can preempt despite high aggregate DRS": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("premium").Obj(),
+				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+			},
+			assignmentFlavor: "premium",
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.MayStopSearch,
+						WhenCanPreempt: kueue.MayStopSearch,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "6").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-a").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a_prem1").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_prem2").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_cheap1").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap2").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap3").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap4").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap5").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("b_prem1").SimpleReserveQuota("b", "premium", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/b_prem1", kueue.InCohortReclamationReason)),
+		},
+		//                 ROOT (1 premium)
+		//             /          \
+		//  cohort-a (3 premium)   b (0 premium, 6 cheap)
+		//           |
+		//           a (0 premium, 0 cheap)
+		//
+		// The boundary counterpart of the case above. Admitted state:
+		//   a: 3 premium (cohort-a exactly at its nominal) + 5 cheap
+		//      (borrowed, inflating cohort-a's DRS)
+		//   b: 1 premium (borrowed from ROOT's own premium quota)
+		//
+		// Incoming: a wants 1 more premium CPU. cohort-a, a's AlmostLCA with
+		// b, would be at 4 against a nominal of 3, so a has no nominal claim.
+		// The preemption must fall back to the DRS strategies, which
+		// cohort-a's cheap borrowing loses, so nothing is preempted.
+		"nominal first: preemptor exceeding cohort nominal quota cannot preempt on DRS alone": {
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("premium").Obj(),
+				utiltestingapi.MakeResourceFlavor("cheap").Obj(),
+			},
+			assignmentFlavor: "premium",
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.MayStopSearch,
+						WhenCanPreempt: kueue.MayStopSearch,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "6").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "1").Obj(),
+					).Obj(),
+				utiltestingapi.MakeCohort("cohort-a").
+					Parent("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("premium").Resource(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("cheap").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a_prem1").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_prem2").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_prem3").SimpleReserveQuota("a", "premium", now).Obj(),
+				*unitWl.Clone().Name("a_cheap1").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap2").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap3").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap4").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("a_cheap5").SimpleReserveQuota("a", "cheap", now).Obj(),
+				*unitWl.Clone().Name("b_prem1").SimpleReserveQuota("b", "premium", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New[string](),
+		},
+		// cohort-l is within its nominal quota with p_incoming, but the tournament
+		// compares cohort-ap (a's AlmostLCA with b) against b, and both borrow with
+		// cohort-ap at the higher DRS. Preempting b_wl would only see it
+		// re-admitted ahead of p_incoming in the next cycle.
+		"nominal first: no claim when the AlmostLCA borrows, even if a lower cohort is within nominal": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-l").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-ap").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-ap").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-l").
+					Parent("cohort-ap").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("s_wl", "").Request(corev1.ResourceCPU, "3").Priority(100).SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b_wl", "").Request(corev1.ResourceCPU, "5").Priority(0).SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_incoming", "").Request(corev1.ResourceCPU, "3").Priority(50).Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New[string](),
+		},
+		// Same loop with the quota on the ClusterQueue: a is within its own
+		// nominal quota, but cohort-ap (a's AlmostLCA with b) borrows.
+		"nominal first: ClusterQueue within nominal has no claim when its AlmostLCA borrows": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-ap").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-ap").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-ap").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("s_wl", "").Request(corev1.ResourceCPU, "3").Priority(100).SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b_wl", "").Request(corev1.ResourceCPU, "5").Priority(0).SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_incoming", "").Request(corev1.ResourceCPU, "3").Priority(50).Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New[string](),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1247,13 +1777,18 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(log, tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+			assignment := singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: flavorName, Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshotWorkingCopy)
+			)
+			if len(tc.assignment.PodSets) > 0 {
+				assignment = tc.assignment
+			}
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment)
+			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 			gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
@@ -1375,13 +1910,14 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 			wlInfo := workload.NewInfo(setupLog, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshot)
+			))
+			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 			// The preemptor's share is at or above the target's either way, so
 			// no candidate wins and nothing is preempted.

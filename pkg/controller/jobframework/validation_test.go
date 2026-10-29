@@ -17,8 +17,10 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,11 +28,15 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -43,6 +49,78 @@ import (
 var (
 	testPath = field.NewPath("spec")
 )
+
+func TestValidateQueueNameUpdate(t *testing.T) {
+	lookupErr := errors.New("quota lookup failed")
+	queuePath := field.NewPath("metadata", "labels").Key(constants.QueueLabel)
+	testCases := map[string]struct {
+		oldQueueName    kueue.LocalQueueName
+		newQueueName    kueue.LocalQueueName
+		isSuspended     bool
+		reserved        bool
+		lookupErr       error
+		wantLookupCalls int
+		wantErrs        field.ErrorList
+	}{
+		"unchanged queue while suspended": {
+			oldQueueName: "old", newQueueName: "old", isSuspended: true, reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged queue while running": {
+			oldQueueName: "old", newQueueName: "old", reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged empty queue": {
+			isSuspended: true, lookupErr: lookupErr,
+		},
+		"ready replicas prevent change": {
+			oldQueueName: "old", newQueueName: "new", lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"removing queue is forbidden": {
+			oldQueueName: "old", isSuspended: true, lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"unreserved workload permits change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"reserved workload prevents change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"setting queue without quota reservation": {
+			newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"setting queue with quota reservation": {
+			newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"lookup error is returned": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, lookupErr: lookupErr, wantLookupCalls: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			lookupCalls := 0
+			gotErrs, err := jobframework.ValidateQueueNameUpdate(tc.oldQueueName, tc.newQueueName, tc.isSuspended, func() (bool, error) {
+				lookupCalls++
+				return tc.reserved, tc.lookupErr
+			})
+			var wantErr error
+			if tc.wantLookupCalls > 0 {
+				wantErr = tc.lookupErr
+			}
+			if !errors.Is(err, wantErr) {
+				t.Errorf("Unexpected lookup error: got %v, want %v", err, wantErr)
+			}
+			if lookupCalls != tc.wantLookupCalls {
+				t.Errorf("Unexpected lookup calls: got %d, want %d", lookupCalls, tc.wantLookupCalls)
+			}
+			if diff := cmp.Diff(tc.wantErrs, gotErrs); diff != "" {
+				t.Errorf("Unexpected validation errors (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
@@ -257,11 +335,12 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 func TestValidateJobOnUpdate(t *testing.T) {
 	fieldString := field.NewPath("metadata").Child("labels").Key(constants.QueueLabel).String()
 	testCases := map[string]struct {
-		oldJob            *batchv1.Job
-		newJob            *batchv1.Job
-		nsHasDefaultQueue bool
-		featureGates      map[featuregate.Feature]bool
-		wantErr           field.ErrorList
+		oldJob               *batchv1.Job
+		newJob               *batchv1.Job
+		nsHasDefaultQueue    bool
+		featureGates         map[featuregate.Feature]bool
+		wantErr              field.ErrorList
+		maxTimeoutOnWorkload *metav1.Duration
 	}{
 		"local queue cannot be changed if job is not suspended": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -279,6 +358,34 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
 			nsHasDefaultQueue: true,
+		},
+		"local queue cannot be changed to an invalid name": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: fieldString,
+				},
+			},
+		},
+		"local queue cannot be added with an invalid name": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: fieldString,
+				},
+			},
+		},
+		"unchanged invalid local queue name is allowed": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+		},
+		"local queue label can be deleted if default queue does not exist": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Obj(),
 		},
 		"local queue can be changed from default": {
 			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -401,6 +508,50 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name-new").Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"do not treat JSON blocks with same content but different formatting as a change in WaitForPodsReady annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 20,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 20, "recoveryTimeoutSeconds":40}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 10 * time.Second},
+		},
+		"invalid new value is caught in WaitForPodsReady annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 20,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 0,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
+				},
+			},
+		},
+		"update annotation when old object has invalid annotation and new has correct formatting": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": "20"}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 20}`).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr:      nil,
+		},
+		"update annotation when old object has invalid annotation and new has no annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": "20"}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr:      nil,
+		},
 	}
 
 	for tcName, tc := range testCases {
@@ -420,7 +571,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			oldMJ := newMockJob(tc.oldJob)
 			newMJ := newMockJob(tc.newJob)
 
-			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue })
+			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue }, tc.maxTimeoutOnWorkload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
@@ -572,8 +723,106 @@ func TestValidateJobOnCreate(t *testing.T) {
 			mj.EXPECT().Object().Return(tc.job).AnyTimes()
 			mj.EXPECT().GVK().Return(tc.gvk).AnyTimes()
 
-			gotErr := jobframework.ValidateJobOnCreate(mj)
+			gotErr := jobframework.ValidateJobOnCreate(mj, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
+	maxTimeout := &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload}
+	annotationPath := field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation)
+
+	testCases := map[string]struct {
+		annotation string
+		wantErr    field.ErrorList
+	}{
+		"valid timeout only": {
+			annotation: `{"timeoutSeconds": 10}`,
+		},
+		"valid timeout and recoveryTimeout": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 20}`,
+		},
+		"only recoveryTimeout without timeout is rejected": {
+			annotation: `{"recoveryTimeoutSeconds": 20}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be greater than 0",
+				},
+			},
+		},
+		"zero timeout is rejected": {
+			annotation: `{"timeoutSeconds": 0}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be greater than 0",
+				},
+			},
+		},
+		"zero recoveryTimeoutSeconds is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be greater than 0 seconds",
+				},
+			},
+		},
+		"timeout exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"timeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"timeoutSeconds set to string is rejected at admission time": {
+			annotation: `{"timeoutSeconds": "foo"}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
+				},
+			},
+		},
+	}
+
+	for tcName, tc := range testCases {
+		t.Run(tcName, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			})
+			job := utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, tc.annotation).
+				Obj()
+
+			mockctrl := gomock.NewController(t)
+			mj := mocks.NewMockGenericJob(mockctrl)
+			mj.EXPECT().Object().Return(job).AnyTimes()
+			mj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+
+			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})

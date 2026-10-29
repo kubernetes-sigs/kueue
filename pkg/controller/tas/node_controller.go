@@ -58,6 +58,7 @@ import (
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -69,6 +70,9 @@ import (
 const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	reconcileBatchPeriod                      = 100 * time.Millisecond
+
+	// Matches the API limit on Workload.Status.UnhealthyNodes.
+	maxUnhealthyNodes = 8
 
 	podTerminatedByKueueConditionType    = "TerminatedByKueue"
 	podTerminatedByKueueConditionReason  = "UnschedulableOnAssignedNode"
@@ -298,7 +302,7 @@ func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configur
 			mgr.GetCache(),
 			&corev1.Node{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, node *corev1.Node) []reconcile.Request {
-				return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: utiltas.NodeHostname(node)}}}
+				return []reconcile.Request{{Name: utiltas.NodeHostname(node)}}
 			}),
 			r,
 		)).
@@ -429,7 +433,7 @@ func (r *nodeReconciler) getWorkloadStatus(
 
 func hasSchedulingTaints(taints []corev1.Taint) bool {
 	return slices.ContainsFunc(taints, func(taint corev1.Taint) bool {
-		return taint.Effect == corev1.TaintEffectNoExecute || taint.Effect == corev1.TaintEffectNoSchedule
+		return utiltaints.IsSchedulingTaint(&taint)
 	})
 }
 
@@ -501,9 +505,16 @@ func (r *nodeReconciler) checkPodsOnNode(
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
-// It returns whether the node was evicted, and whether an error was encountered.
+// It returns whether the workload was evicted, and whether an error was encountered.
+//
+// TASReplaceMultipleFailedNodes allows up to eight unhealthy nodes to wait for replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
+		if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) < maxUnhealthyNodes {
+			log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", maxUnhealthyNodes)
+			return false, nil
+		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")
@@ -775,7 +786,7 @@ func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []ku
 func classifyTaints(ctx context.Context, taints []corev1.Taint, podSets []kueue.PodSet) (untolerated, temporarilyTolerated []corev1.Taint) {
 	logger := ctrl.LoggerFrom(ctx)
 	for _, taint := range taints {
-		if taint.Effect != corev1.TaintEffectNoExecute && taint.Effect != corev1.TaintEffectNoSchedule {
+		if !utiltaints.IsSchedulingTaint(&taint) {
 			continue
 		}
 
@@ -824,9 +835,7 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 	// queue for potential stuck pending pods
 	if len(pod.Spec.NodeName) == 0 && pod.Spec.NodeSelector != nil && len(pod.Spec.NodeSelector[corev1.LabelHostname]) > 0 {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: pod.Spec.NodeSelector[corev1.LabelHostname],
-			},
+			Name: pod.Spec.NodeSelector[corev1.LabelHostname],
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
 	}
@@ -838,9 +847,7 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 			hostname = pod.Spec.NodeName
 		}
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: hostname,
-			},
+			Name: hostname,
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
 	}

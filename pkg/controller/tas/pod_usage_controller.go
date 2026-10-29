@@ -18,7 +18,6 @@ package tas
 
 import (
 	"context"
-	"maps"
 	"sync"
 	"time"
 
@@ -131,14 +130,18 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
 			r.notifyFreedNode(removedNode)
 		}
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		if removedNode := r.cache.UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 		return ctrl.Result{}, nil
 	}
 
 	if isScheduledAndRunning(&pod) {
-		r.cache.TASCache().TrackPod(ctx, &pod)
+		r.cache.TrackPod(ctx, &pod)
 	} else {
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		if removedNode := r.cache.UntrackPod(ctx, req.NamespacedName); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 	}
 
 	if belongsToNonTASCache(&pod) {
@@ -259,9 +262,9 @@ func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
 	if oldPod.Generation == newPod.Generation {
 		return false
 	}
-	return !maps.Equal(
-		resources.ToMap(resources.NewRequestsFromPodSpec(&oldPod.Spec)),
-		resources.ToMap(resources.NewRequestsFromPodSpec(&newPod.Spec)),
+	return !resources.Equal(
+		resources.NewRequestsFromPodSpec(&oldPod.Spec),
+		resources.NewRequestsFromPodSpec(&newPod.Spec),
 	)
 }
 

@@ -14,30 +14,41 @@
 
 package fairsharing
 
-import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+import (
+	"slices"
 
-// almostLCA is defined on two ClusterQueues, as the two nodes before
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
+)
+
+// AlmostLCA is defined on two ClusterQueues, as the two nodes before
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
-// is always a Cohort, almostLCA may be a ClusterQueue or a Cohort.
-type almostLCA interface {
+// is always a Cohort, AlmostLCA may be a ClusterQueue or a Cohort.
+type AlmostLCA interface {
 	DominantResourceShare() schdcache.DRS
+	// BorrowingWith reports whether usage of the flavor-resource, plus
+	// the given amount, exceeds the node's nominal quota (SubtreeQuota
+	// for a Cohort).
+	BorrowingWith(resources.FlavorResource, resources.Amount) bool
 }
 
-// getAlmostLCAs returns almostLCAs of (preemptor, target).
-func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
-	lca := getLCA(t)
-	return getAlmostLCA(t.ordering.preemptorCq, lca), getAlmostLCA(t.targetCq, lca)
+// AlmostLCAs returns AlmostLCAs of (preemptor, target).
+func AlmostLCAs(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot) (AlmostLCA, AlmostLCA) {
+	lca := getLCA(preemptorCq, targetCq)
+	return getAlmostLCA(preemptorCq, lca), getAlmostLCA(targetCq, lca)
 }
 
 // getLCA traverses from a ClusterQueue towards the root Cohort,
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
-func getLCA(t *TargetClusterQueue) *schdcache.CohortSnapshot {
-	for ancestor := range t.targetCq.PathParentToRoot() {
-		if t.ordering.onPathFromRootToPreemptorCQ(ancestor) {
+func getLCA(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot) *schdcache.CohortSnapshot {
+	preemptorAncestors := slices.Collect(preemptorCq.PathParentToRoot())
+	for ancestor := range targetCq.PathParentToRoot() {
+		if slices.Contains(preemptorAncestors, ancestor) {
 			return ancestor
 		}
 	}
+
 	// to make the compiler happy
 	panic("serious bug: could not find LeastCommonAncestor")
 }
@@ -45,8 +56,8 @@ func getLCA(t *TargetClusterQueue) *schdcache.CohortSnapshot {
 // getAlmostLCA traverses from a ClusterQueue towards the root,
 // returning the first Cohort or ClusterQueue that has the
 // LeastCommonAncestor as its parent.
-func getAlmostLCA(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot) almostLCA {
-	var aLca almostLCA = cq
+func getAlmostLCA(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot) AlmostLCA {
+	var aLca AlmostLCA = cq
 	for ancestor := range cq.PathParentToRoot() {
 		if ancestor == lca {
 			return aLca

@@ -39,11 +39,11 @@ func TestTASRequestCarriesEffectivePodTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := resources.NewRequestsFromPodSpec(&req.PodSet.Template.Spec).ResourceValue(corev1.ResourceCPU); got != 2000 {
-		t.Errorf("simulator template CPU = %d, want 2000", got)
+	if got := resources.NewRequestsFromPodSpec(&req.PodSet.Template.Spec).ResourceValue(corev1.ResourceCPU); got.CmpInt64(2000) != 0 {
+		t.Errorf("simulator template CPU = %s, want 2000", got)
 	}
-	if got := req.SinglePodRequests.ResourceValue(corev1.ResourceCPU); got != 2000 {
-		t.Errorf("TAS placement CPU = %d, want 2000", got)
+	if got := req.SinglePodRequests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(2000) != 0 {
+		t.Errorf("TAS placement CPU = %s, want 2000", got)
 	}
 	if len(wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests) != 0 {
 		t.Fatal("effective simulation template overwrote raw Workload")

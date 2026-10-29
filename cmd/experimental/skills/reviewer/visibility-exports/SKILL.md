@@ -22,3 +22,6 @@ grep -rn ".FunctionName()" ./ --include="*.go"
 
 Note: test files in the same package (`package foo`) can access unexported symbols, so
 there's no need to export just for tests.
+
+See [Writing tests](../../../../../site/content/en/community/contribution_guidelines/writing_tests.md)
+for when to test unexported functions directly.

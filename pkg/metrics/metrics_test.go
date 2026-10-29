@@ -26,6 +26,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -549,6 +551,15 @@ func TestReportAndCleanupPreemptionTargetRecomputations(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupReplacedWorkloadSlices(t *testing.T) {
+	ReportReplacedWorkloadSlices("cluster_queue1", nil, nil)
+
+	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 1, "cluster_queue", "cluster_queue1")
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil, nil)
@@ -669,25 +680,27 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueMetrics("cq_follower")
 }
 
-func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *testing.T) {
-	const cqName = "cq-label-change"
+func TestRegisterExposesReplacedWorkloadSlicesTotal(t *testing.T) {
+	const cqName = "cq-registered"
 
-	ReportPendingWorkloads(cqName, PendingStatusActive, 3, nil, nil)
-	ReportPendingWorkloads(cqName, PendingStatusInadmissible, 1, nil, nil)
-	ReportClusterQueueWeightedShare(cqName, "cohort", 7, nil, nil)
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() {
+		ctrlmetrics.Registry = originalRegistry
+		ClearClusterQueueMetrics(cqName)
+	})
+
+	Register()
 	ReportReplacedWorkloadSlices(cqName, nil, nil)
 
-	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
-	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 1, "cluster_queue", cqName)
-	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 1, "cluster_queue", cqName)
-
-	ClearClusterQueueMetricsOnLabelChange(cqName)
-
-	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
-	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 0, "cluster_queue", cqName)
-	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 0, "cluster_queue", cqName)
-
-	ClearClusterQueueMetrics(cqName)
+	count, err := testutil.GatherAndCount(registry, "kueue_replaced_workload_slices_total")
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Unexpected number of kueue_replaced_workload_slices_total series in the registry: got %d, want 1", count)
+	}
 }
 
 func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
@@ -725,6 +738,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	ReportClusterQueueResourceReservations("cohort", cqName, "flavor", "cpu", 7, nil, nil)
 	ReportClusterQueueResourceUsage("cohort", cqName, "flavor", "cpu", 6, nil, nil)
 	ReportClusterQueueResourcePending(cqName, "cpu", 4, nil, nil)
+	ReportClusterQueueWeightedShare(cqName, "cohort", 7, nil, nil)
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
@@ -733,6 +747,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearClusterQueueResourceMetrics(cqName)
@@ -743,6 +758,7 @@ func TestClearClusterQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testi
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 
 	ClearCacheMetrics(cqName)
@@ -859,4 +875,51 @@ func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
 
 	ClearLocalQueueMetrics(lqRef)
 	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 0, "name", "lq-recovery-test", "namespace", "default")
+}
+
+func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	wlType := ptr.To(configapi.SourceKindWorkload)
+	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{
+			Name:           "wl_type",
+			SourceLabelKey: "company.com/wl-type",
+			SourceKind:     wlType,
+			TrackedValues:  []string{"batch", "inference"},
+		},
+	})
+	// NewCustomLabels re-creates all package-global metric vectors with the custom
+	// labels, so restore all of them for subsequent tests.
+	t.Cleanup(func() { InitMetricVectors(nil) })
+
+	const cqName kueue.ClusterQueueReference = "cq-wl-label-test"
+
+	// batch workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-batch", map[string]string{"company.com/wl-type": "batch"}, nil)
+	cqWlVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-batch",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	// inference workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-inference", map[string]string{"company.com/wl-type": "inference"}, nil)
+	cqWlVals = cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-inference",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	// untracked workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-other", map[string]string{"company.com/wl-type": "finetune"}, nil)
+	cqWlVals = cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-other",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "batch")
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "inference")
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", configapi.UntrackedCustomLabelValue)
 }

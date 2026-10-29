@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
@@ -43,15 +44,13 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	ls := &metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{
-				Key:      corev1.LabelMetadataName,
-				Operator: metav1.LabelSelectorOpNotIn,
-				Values:   []string{unmanagedNamespace.Name},
-			},
-		},
-	}
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -173,15 +172,13 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
-	ls := &metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{
-				Key:      corev1.LabelMetadataName,
-				Operator: metav1.LabelSelectorOpNotIn,
-				Values:   []string{unmanagedNamespace.Name},
-			},
-		},
-	}
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -231,21 +228,20 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	unmanagedNsSelector := metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{
-				Key:      corev1.LabelMetadataName,
-				Operator: metav1.LabelSelectorOpNotIn,
-				Values:   []string{unmanagedNamespace.Name},
-			},
-		},
-	}
+	unmanagedNsSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
-		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
-		Value:      100,
+		Name:  constants.DefaultWorkloadPriorityClassName,
+		Value: 100,
 	}
-	boomErr := errors.New("boom")
+	wpcBoomErr := errors.New("boom: workload priority class")
+	nsBoomErr := errors.New("boom: namespace")
 
 	cases := map[string]struct {
 		job          client.Object
@@ -260,28 +256,28 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: constants.DefaultWorkloadPriorityClassName,
 		},
 		"feature gate disabled, no label, default WPC exists": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: false},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, label already set": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).WorkloadPriorityClass("high").Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "high",
 		},
 		"feature gate enabled, no label, default WPC does not exist": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             nil,
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, owner managed by kueue": {
@@ -290,14 +286,14 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 				Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, job in unmanaged namespace": {
 			job:                    utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, no namespace selector configured": {
@@ -310,9 +306,17 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
-			wantErr:                boomErr,
+			wantErr:                wpcBoomErr,
+		},
+		"feature gate enabled, namespace lookup fails": {
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      unmanagedNsSelector,
+			wantPriorityClassLabel: "",
+			wantErr:                nsBoomErr,
 		},
 	}
 
@@ -326,8 +330,10 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			}
 			builder = builder.WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, boomErr) {
-						return boomErr
+					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, wpcBoomErr) {
+						return wpcBoomErr
+					} else if _, isNS := obj.(*corev1.Namespace); isNS && errors.Is(tc.wantErr, nsBoomErr) {
+						return nsBoomErr
 					}
 					return cl.Get(ctx, key, obj, opts...)
 				},

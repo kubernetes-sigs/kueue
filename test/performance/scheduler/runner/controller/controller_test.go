@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func TestCreatePredicate(t *testing.T) {
@@ -73,7 +73,7 @@ func TestCreatePredicate(t *testing.T) {
 	r := &reconciler{
 		admissionTime: map[types.UID]time.Time{},
 		recorder:      rec,
-		clock:         util.RealClock,
+		clock:         behavioral.RealClock,
 	}
 
 	for _, tc := range cases {

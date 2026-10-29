@@ -97,7 +97,7 @@ if [[ "$#" -ne 1 ]]; then
   echo "  Example:"
   echo "    $0 v0.13.2"
   echo
-  echo "  Set the DRY_RUN environment var to skip git push and creating PR."
+  echo "  Set the DRY_RUN environment var to skip git push, PR creation and the release issue update."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
   echo "  Set KUBERNETES_K8S_IO_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_K8S_IO_FORK_REMOTE (default: origin)"
@@ -368,11 +368,6 @@ function prepare_local_branch() {
 # $3 - local branch
 # $4 - pr name
 function push_and_create_pr() {
-  if [[ -n "${DRY_RUN}" ]]; then
-    echo "!!! Skipping git push and PR creation because you set DRY_RUN."
-    return
-  fi
-
   echo
   echo "+++ I'm about to do the following to push to GitHub (and I'm assuming ${KUBERNETES_K8S_IO_FORK_REMOTE} is your personal fork):"
   echo
@@ -382,6 +377,7 @@ function push_and_create_pr() {
   read -p "+++ Proceed (anything other than 'y' aborts it)? [y/N] " -r
   if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
     echo "Aborting." >&2
+    exit 1
   else
     git push "${KUBERNETES_K8S_IO_FORK_REMOTE}" -f "${3}:${2}"
     make_pr "$1" "$2" "$4"
@@ -396,8 +392,13 @@ K8S_IO_PR_NAME="Kueue: Promote ${RELEASE_VERSION}"
 declare -r K8S_IO_PR_NAME
 
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
-push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
+if [[ -n "${DRY_RUN}" ]]; then
+  echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
+  exit 0
+fi
+
+push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
 if [ -n "$K8S_IO_PR_NUMBER" ]; then
   NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}

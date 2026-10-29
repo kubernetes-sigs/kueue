@@ -19,12 +19,11 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -133,12 +132,12 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("cohort_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Cohort{},
 			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Cohort").GroupKind().String()],
@@ -148,9 +147,20 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 		Complete(WithLeadingManager(mgr, r, &kueue.Cohort{}, cfg))
 }
 
+// The event handlers keep the Cohort in the scheduler cache and the queue
+// manager on every replica, as the ClusterQueue, ResourceFlavor, and Topology
+// handlers do. Reconcile runs only on the leader (see WithLeadingManager), so
+// a follower that only updated the cache from Reconcile would take the lease
+// without its explicit Cohorts and their quotas until each one was requeued,
+// which takes up to the lease duration. Reconcile repeats the same update,
+// retries on errors, notifies the ClusterQueues, and writes the status.
+
 func (r *CohortReconciler) Create(e event.TypedCreateEvent[*kueue.Cohort]) bool {
 	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CohortStore(kueue.CohortReference(e.Object.GetName()), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+	if e.Object != nil {
+		r.addOrUpdateCohortInMemory(e.Object)
 	}
 	return true
 }
@@ -173,6 +183,9 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 		return false
 	}
 	log.V(2).Info("Processing Cohort update event")
+	if specOrQuotaUpdated {
+		r.addOrUpdateCohortInMemory(e.ObjectNew)
+	}
 	return true
 }
 
@@ -180,7 +193,38 @@ func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool 
 	if e.Object != nil && features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CohortDelete(kueue.CohortReference(e.Object.GetName()))
 	}
+	if e.Object != nil {
+		log := r.logger().WithValues("cohort", klog.KObj(e.Object))
+		log.V(2).Info("Cohort delete event")
+		r.removeCohortInMemory(log, kueue.CohortReference(e.Object.GetName()))
+	}
 	return true
+}
+
+// addOrUpdateCohortInMemory adds or updates the Cohort in the scheduler cache
+// and the queue manager. Reconcile retries errors and reports a cycle to the
+// ClusterQueues.
+func (r *CohortReconciler) addOrUpdateCohortInMemory(cohort *kueue.Cohort) {
+	log := r.logger().WithValues("cohort", klog.KObj(cohort))
+	err := r.cache.AddOrUpdateCohort(cohort)
+	if err != nil && !errors.Is(err, schdcache.ErrCohortHasCycle) {
+		// Reconcile hits the same error and retries.
+		log.V(2).Info("Skipped the queue manager update for the Cohort in the event handler", "reason", err.Error())
+		return
+	}
+	// The cache keeps the new parent even when it creates a cycle, so the
+	// queue manager records it too, the same way Reconcile does.
+	r.qManager.AddOrUpdateCohort(ctrl.LoggerInto(context.Background(), log), cohort)
+}
+
+// removeCohortInMemory removes the Cohort from the scheduler cache and the
+// queue manager and clears its metrics. Metrics are cleared first because
+// clearing them walks the Cohort's ancestors in the cache.
+func (r *CohortReconciler) removeCohortInMemory(log logr.Logger, name kueue.CohortReference) {
+	r.cache.ClearCohortMetrics(log, name)
+	r.cache.DeleteCohort(name)
+	r.qManager.DeleteCohort(name)
+	metrics.ClearCohortMetrics(name)
 }
 
 func (r *CohortReconciler) Generic(event.TypedGenericEvent[*kueue.Cohort]) bool {
@@ -198,11 +242,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.client.Get(ctx, req.NamespacedName, &cohort); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Cohort is being deleted")
-			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
-			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
-			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
-			r.notifyWatchers(&kueue.Cohort{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}, nil)
-			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
+			r.removeCohortInMemory(log, kueue.CohortReference(req.Name))
+			r.notifyWatchers(&kueue.Cohort{Name: req.Name}, nil)
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
 			}
@@ -223,18 +264,20 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
 	)
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
-	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
-		// Skip consumers that require a valid tree, but notify ClusterQueues so they
-		// can report the cycle as their inactive reason.
-		r.notifyWatchers(nil, &cohort)
-		return ctrl.Result{}, nil
-	}
-	if addErr != nil {
+	if addErr != nil && !errors.Is(addErr, schdcache.ErrCohortHasCycle) {
 		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
 		return ctrl.Result{}, addErr
 	}
+	// Record the new parent in the queue manager even when it creates a cycle: the
+	// queue manager tolerates cycles, so its hierarchy still matches the cache when
+	// another Cohort resolves the cycle. Notified ClusterQueues report a cycle as
+	// their inactive reason.
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 	r.notifyWatchers(nil, &cohort)
+	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
+		// Skip consumers that require a valid tree.
+		return ctrl.Result{}, nil
+	}
 	if labelsUpdated {
 		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))
@@ -260,7 +303,11 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
+		weightedShare := stats.WeightedShare
+		if stats.ZeroWeightBorrows {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), weightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
@@ -311,6 +358,6 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q w
 		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.CohortName)
 	}
 	for _, ancestor := range ancestors {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(ancestor)}})
+		q.Add(reconcile.Request{Name: string(ancestor)})
 	}
 }

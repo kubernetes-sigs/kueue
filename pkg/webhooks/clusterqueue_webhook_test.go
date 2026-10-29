@@ -232,9 +232,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "resources in a flavor in different order",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					ResourceGroups: []kueue.ResourceGroup{
 						{
@@ -295,9 +293,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "valid preemption with borrowWithinCohort",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					Preemption: &kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -312,9 +308,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					Preemption: &kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -416,20 +410,20 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantBadValue: "2",
 		},
 		{
-			name: "ConcurrentAdmissionPolicy with more than 16 flavors",
+			name: "ConcurrentAdmissionPolicy with more than 32 flavors",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
-				ResourceGroup(makeFlavors(17)...).
+				ResourceGroup(makeFlavors(33)...).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
 					specPath.Child("resourceGroups").Index(0).Child("flavors"),
-					17,
-					"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+					33,
+					"cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
 				),
 			},
-			wantDetail:   "cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
-			wantBadValue: "17",
+			wantDetail:   "cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: "33",
 		},
 		{
 			name: "ConcurrentAdmissionPolicy with empty ResourceGroups",

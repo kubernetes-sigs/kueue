@@ -30,7 +30,9 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -38,10 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -57,6 +61,7 @@ var (
 	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
+	waitForPodsReadyAnnotationPath          = annotationsPath.Key(constants.WaitForPodsReadyAnnotation)
 	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
 	supportedElasticJobGVKs                 = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
@@ -82,11 +87,12 @@ var (
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
-func ValidateJobOnCreate(job GenericJob) field.ErrorList {
+func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
+	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(job.Object(), maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -107,13 +113,13 @@ func ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob GenericJob, manageJobsWi
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
-func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
+func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
-
+	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotationOnUpdate(oldJob.Object(), newJob.Object(), maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
 	}
@@ -212,10 +218,35 @@ func ValidateQueueName(obj client.Object) field.ErrorList {
 	return allErrs
 }
 
+// ValidateQueueNameUpdate checks whether a queue change is allowed for a job with existing Workloads.
+// hasQuotaReservation is called only when the queue changes to a nonempty value while the job is suspended.
+// This check is not atomic with quota reservation or subsequent Workload updates.
+func ValidateQueueNameUpdate(oldQueueName, newQueueName kueue.LocalQueueName, isSuspended bool, hasQuotaReservation func() (bool, error)) (field.ErrorList, error) {
+	if newQueueName == oldQueueName {
+		return nil, nil
+	}
+	if !isSuspended || newQueueName == "" {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	reserved, err := hasQuotaReservation()
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	return nil, nil
+}
+
 func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
+	} else if newQueueName := QueueName(newJob); newQueueName != "" && newQueueName != QueueName(oldJob) {
+		// Only a changed value is validated, so jobs already persisted with an invalid
+		// queue-name stay updatable, e.g. for finalizer removal. An empty value removes
+		// the queue and is handled below.
+		allErrs = append(allErrs, ValidateQueueName(newJob.Object())...)
 	}
 	if QueueName(newJob) == "" && QueueName(oldJob) != "" && defaultQueueExist(oldJob.Object().GetNamespace()) {
 		allErrs = append(allErrs, field.Invalid(queueNameLabelPath, "", "queue-name must not be empty in namespace with default queue"))
@@ -251,12 +282,16 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
+// CanSetWorkloadPriorityClassName reports whether an update can leave the
+// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
+// (running) workload that did not have it before the update.
+func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
+}
+
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	// Cannot ADD a priority class to a NON-suspended (running) workload && wpc is empty
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
-		if !IsWorkloadPriorityClassNameEmpty(newObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
-		}
+	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
 	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
 	if IsWorkloadPriorityClassNameEmpty(newObj) {
@@ -296,6 +331,70 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 // to the PodSpec except fields that required for role-hash generation.
 func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+}
+
+// hasWaitForPodsReadyAnnotationChanged reports whether the parsed WaitForPodsReady
+// annotation configuration differs between oldObj and newObj. It compares the
+// raw strings first and parse only when they differ.
+func hasWaitForPodsReadyAnnotationChanged(oldObj, newObj client.Object) bool {
+	oldValue := oldObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	newValue := newObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	if oldValue == newValue {
+		return false
+	}
+	newCfg, err := waitforpodsready.ParseAnnotation(newValue)
+	if err != nil {
+		return true
+	}
+	oldCfg, err := waitforpodsready.ParseAnnotation(oldValue)
+	if err != nil || !apiequality.Semantic.DeepEqual(oldCfg, newCfg) {
+		return true
+	}
+	return false
+}
+
+func ValidateWaitForPodsReadyAnnotationOnUpdate(oldObj, newObj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
+	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
+		return nil
+	}
+	hasChange := hasWaitForPodsReadyAnnotationChanged(oldObj, newObj)
+	if !hasChange {
+		return nil
+	}
+	return ValidateWaitForPodsReadyAnnotation(newObj, maxTimeoutOnWorkload)
+}
+
+func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil
+	}
+	annotationValue, exists := obj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	if !exists || annotationValue == "" {
+		return nil
+	}
+	cfg, err := waitforpodsready.ParseAnnotation(annotationValue)
+	if err != nil {
+		return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, fmt.Sprintf("must be a valid JSON object: %v", err))}
+	}
+	var allErrs field.ErrorList
+	if cfg != nil {
+		if cfg.Timeout <= 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout, "timeoutSeconds must be greater than 0"))
+		}
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, *cfg.RecoveryTimeout, "recoveryTimeoutSeconds must be greater than 0 seconds"))
+		}
+		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout.Seconds(), errMsg))
+		}
+		if maxTimeoutOnWorkload != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > maxTimeoutOnWorkload.Duration {
+			errMsg := fmt.Sprintf("recoveryTimeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.RecoveryTimeout.Seconds(), errMsg))
+		}
+	}
+
+	return allErrs
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {

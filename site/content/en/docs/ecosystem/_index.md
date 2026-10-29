@@ -59,6 +59,7 @@ Documentation:
 - [Best practices for running batch workloads on GKE](https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/batch-platform-on-gke) — platform-level guidance with Kueue at the center of the queueing story.
 - [Best practices for GKE AI/ML workload prioritization](https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/optimize-ai-utilization) — priorities and preemption for AI workloads.
 - [Orchestrate Multislice workloads using JobSet and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/tpu-multislice-kueue) — TPU Multislice with JobSet + Kueue.
+- [Schedule dynamic slices with Kueue and TAS](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/use-gke-dynamic-slicing) — Ironwood (TPU7x) dynamic slicing on GKE, using Kueue TAS together with a dedicated slice AdmissionCheck controller that creates the Slice custom resources and holds admission until GKE activates the Slice.
 - [Run a large-scale workload with flex-start with queued provisioning](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/provisioningrequest) — Kueue-managed ProvisioningRequests on GKE.
 - [Optimize AI training on TPUs with DWS, Ray and Kueue](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/ray-kueue-dws).
 - [Optimize GKE resource utilization for mixed AI/ML training and inference workloads](https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/mixed-workloads)

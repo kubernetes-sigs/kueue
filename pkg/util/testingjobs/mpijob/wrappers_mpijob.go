@@ -20,7 +20,6 @@ import (
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -35,11 +34,9 @@ type MPIJobWrapper struct{ kfmpi.MPIJob }
 // MakeMPIJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeMPIJob(name, ns string) *MPIJobWrapper {
 	return &MPIJobWrapper{kfmpi.MPIJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: kfmpi.MPIJobSpec{
 			RunPolicy: kfmpi.RunPolicy{
 				Suspend: new(true),
