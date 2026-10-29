@@ -4237,6 +4237,27 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
 		},
+		"shrink to zero clears grouped topology capacity": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 0).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj()).Obj()},
+			pods:                    []corev1.Pod{},
+			wantPods:                []corev1.Pod{},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
+		"reclaiming all Pods clears unified slice topology capacity": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: corev1.LabelHostname, Size: 2}).Obj()).
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 2}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().StatusPhase(corev1.PodSucceeded).Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().StatusPhase(corev1.PodSucceeded).Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
 		"late Pod referencing the origin slice is ungated": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
 			pods: []corev1.Pod{

@@ -358,13 +358,13 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 		if psa.TopologyAssignment == nil {
 			continue
 		}
-		// Retain grouped reservations until elastic placement can preserve partial slices.
-		if slices.ContainsFunc(utiltas.PodSetSliceRequiredTopologyConstraints(psNameToTopologyRequest[psa.Name]),
+		count := counts[psa.Name]
+		// Retain nonempty grouped reservations until elastic placement can preserve partial slices.
+		if count > 0 && slices.ContainsFunc(utiltas.PodSetSliceRequiredTopologyConstraints(psNameToTopologyRequest[psa.Name]),
 			func(constraint kueue.PodsetSliceRequiredTopologyConstraint) bool { return constraint.Size > 1 }) {
 			continue
 		}
 		assignment := utiltas.InternalFrom(psa.TopologyAssignment)
-		count := counts[psa.Name]
 		if count >= utiltas.CountPodsInAssignment(assignment) {
 			continue
 		}
