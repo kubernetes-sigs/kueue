@@ -346,6 +346,7 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 	before := wl
 	wl = wl.DeepCopy()
 	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	if features.Enabled(features.ReclaimablePods) {
 		for name, reclaimed := range workload.ReclaimableCounts(wl) {
 			counts[name] -= min(reclaimed, counts[name])
@@ -355,6 +356,11 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
 		if psa.TopologyAssignment == nil {
+			continue
+		}
+		// Retain grouped reservations until elastic placement can preserve partial slices.
+		if slices.ContainsFunc(utiltas.PodSetSliceRequiredTopologyConstraints(psNameToTopologyRequest[psa.Name]),
+			func(constraint kueue.PodsetSliceRequiredTopologyConstraint) bool { return constraint.Size > 1 }) {
 			continue
 		}
 		assignment := utiltas.InternalFrom(psa.TopologyAssignment)

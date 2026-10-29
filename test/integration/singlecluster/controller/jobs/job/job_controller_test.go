@@ -4994,6 +4994,118 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockedWL)
 	})
 
+	ginkgo.It("should preserve topology slices when a completed worker is followed by elastic growth", func() {
+		// After one completion, growing from eight to nine needs eight slots.
+		// Trimming the old reservation to seven would force fresh placement.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+		job := testingjob.MakeJob("slice-regrowth", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(workloadjob.JobCompletionsEqualParallelismAnnotation, "true").
+			Queue(kueue.LocalQueueName(localQueue.Name)).Indexed(true).Parallelism(8).Completions(8).
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			PodAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, tasBlockLabel).
+			PodAnnotation(kueue.PodSetSliceSizeAnnotation, "4").
+			Request(corev1.ResourceCPU, "250m").Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		origin := behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &origin)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(job.Spec.Suspend, true)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+		originalAssignment := origin.Status.Admission.PodSetAssignments[0].TopologyAssignment.DeepCopy()
+		gomega.Expect(tas.CountPodsInAssignment(tas.InternalFrom(originalAssignment))).To(gomega.Equal(int32(8)))
+
+		ginkgo.By("running two topology slices of four workers")
+		// envtest has no Job controller or kubelet, so bind Pods from the admitted template.
+		pods := make([]*corev1.Pod, 0, 8)
+		ginkgo.DeferCleanup(func() {
+			for _, pod := range pods {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+			}
+		})
+		for i := range 8 {
+			pod := &corev1.Pod{ObjectMeta: *job.Spec.Template.ObjectMeta.DeepCopy(), Spec: *job.Spec.Template.Spec.DeepCopy()}
+			pod.Name, pod.Namespace = fmt.Sprintf("worker-%d", i), ns.Name
+			pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+			pod.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(job, batchv1.SchemeGroupVersion.WithKind("Job"))}
+			metav1.SetMetaDataLabel(&pod.ObjectMeta, batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i))
+			behavioral.MustCreate(ctx, k8sClient, pod)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+				g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.BindPodWithNode(ctx, k8sClient, pod.Spec.NodeSelector[tasBlockLabel], pod)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+			pods = append(pods, pod)
+		}
+
+		ginkgo.By("adding an empty domain that a fresh placement would prefer")
+		spare := testingnode.MakeNode("b0").Label(nodeGroupLabel, "tas").Label(tasBlockLabel, "b0").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).Ready().Obj()
+		nodes = append(nodes, *spare)
+		integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*spare})
+
+		ginkgo.By("completing one worker without changing the surviving Pods' reservation")
+		integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[7])
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Status.Active = 7
+			job.Status.Succeeded = 1
+			job.Status.CompletedIndexes = "7"
+			g.Expect(k8sClient.Status().Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(origin.Status.ReclaimablePods).To(gomega.Equal([]kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}}))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.Equal(originalAssignment))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		// The replacement must include reclaimable Pods before the scheduler sees it.
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+			clusterQueue.Spec.StopPolicy = new(kueue.Hold)
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+			g.Expect(clusterQueue.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.ClusterQueueActive))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("growing to nine completions and retaining the occupied domains on readmission")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = new(int32(9))
+			job.Spec.Completions = new(int32(9))
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		replacement := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, &origin)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), replacement)).To(gomega.Succeed())
+			g.Expect(replacement.Status.ReclaimablePods).To(gomega.Equal([]kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}}))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.UnholdClusterQueue(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), replacement)).To(gomega.Succeed())
+		gomega.Expect(replacement.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.Equal(originalAssignment))
+		for _, pod := range pods[:7] {
+			var survivor corev1.Pod
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &survivor)).To(gomega.Succeed())
+			gomega.Expect(survivor.UID).To(gomega.Equal(pod.UID))
+			gomega.Expect(survivor.Spec.NodeName).To(gomega.Equal(pod.Spec.NodeName))
+			gomega.Expect(survivor.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+		}
+	})
+
 	ginkgo.It("should release topology capacity at zero and readmit an elastic job on regrowth", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		job := testingjob.MakeJob("scale-to-zero", ns.Name).

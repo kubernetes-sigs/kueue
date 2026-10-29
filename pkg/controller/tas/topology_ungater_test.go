@@ -4115,6 +4115,37 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 1).Obj()).Obj()},
 		},
+		"shrink retains slice topology capacity after a survivor is reclaimed": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj()).
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink retains capacity for unified slice topology constraints": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: corev1.LabelHostname, Size: 2}).Obj()).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink releases capacity for single-Pod topology slices": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(1).Obj()).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
 		"shrink retains capacity when reclaiming is disabled": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
 				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
