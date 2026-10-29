@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue
 go 1.27.0
 
 require (
-	github.com/cert-manager/cert-manager v1.21.2
+	github.com/cert-manager/cert-manager v1.21.3
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0

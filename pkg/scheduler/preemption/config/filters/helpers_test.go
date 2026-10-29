@@ -28,8 +28,6 @@ import (
 func TestMatchesComparison(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 
-	unsupported := kueuealpha.NumericComparison("Unsupported")
-
 	cases := map[string]struct {
 		comparison   *kueuealpha.NumericComparison
 		candidateVal int64
@@ -115,7 +113,7 @@ func TestMatchesComparison(t *testing.T) {
 			wantMatch:    false,
 		},
 		"unsupported comparison returns false": {
-			comparison:   &unsupported,
+			comparison:   new(kueuealpha.NumericComparison("Unsupported")),
 			candidateVal: 10,
 			preemptorVal: 10,
 			wantMatch:    false,

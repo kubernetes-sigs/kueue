@@ -392,8 +392,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	ns := corev1.Namespace{}
 	if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
-			return ctrl.Result{}, nil
+			log.V(2).Info("Namespace not found in cache; requeueing", "namespace", req.Namespace)
+			return ctrl.Result{}, err
 		}
 		log.Error(err, "failed to get namespace for selector check")
 		return ctrl.Result{}, err
@@ -2045,8 +2045,7 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// predecessor's live grant while it's still around (see getInitialAssignments).
 			// Capped at the new Count in case this PodSet shrank while another grew.
 			if prevPodSet != nil && prevPodSet.MinCount != nil {
-				minCount := min(*prevPodSet.MinCount, podSets[i].Count)
-				podSets[i].MinCount = &minCount
+				podSets[i].MinCount = new(min(*prevPodSet.MinCount, podSets[i].Count))
 			}
 		}
 		if extra != "" {
@@ -2311,10 +2310,36 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-// reconcilePodsReadyCondition sets the PodsReady condition on wl and records the readiness metrics.
+// podsReadyWorkload returns the workload that receives the PodsReady condition.
+// While a replacement slice is pending, it returns the latest admitted slice,
+// because the workload controller evaluates the PodsReady timeout there.
+// This assumes that job.PodsReady() reflects the readiness of the admitted Pods.
+// If job.PodsReady() also waits for the Pods of the pending scale-up, such as
+// scheduling-gated Pods, the admitted slice still gets PodsReady=False and can
+// be evicted on PodsReady timeout.
+func (r *JobReconciler) podsReadyWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) (*kueue.Workload, error) {
+	if !WorkloadSliceEnabled(job) || workload.IsAdmitted(wl) {
+		return wl, nil
+	}
+	admittedWl, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, true)
+	if err != nil {
+		return nil, fmt.Errorf("finding the admitted workload slice for PodsReady: %w", err)
+	}
+	if admittedWl == nil {
+		return wl, nil
+	}
+	return admittedWl, nil
+}
+
+// reconcilePodsReadyCondition sets the PodsReady condition on the workload
+// returned by podsReadyWorkload and records the readiness metrics.
 // It returns true if the workload was updated.
 func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
+	wl, err := r.podsReadyWorkload(ctx, job, wl)
+	if err != nil {
+		return false, err
+	}
 	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 	if workload.HasConditionWithTypeAndReason(wl, &condition) {
 		log.V(3).Info("No update for PodsReady condition")
@@ -2327,7 +2352,7 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 		prevPodsReadyReason = prevCond.Reason
 		prevPodsReadyTransitionTime = prevCond.LastTransitionTime.Time
 	}
-	err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
+	err = workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 	if err != nil {
 		log.Error(err, "Updating workload status")
 		return false, err
@@ -2382,7 +2407,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 	}
 
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
-	podsReady := job.PodsReady(ctx, c)
+	podsReady := job.PodsReady(ctx, c, WithWorkload(wl))
 	log.V(3).Info("Generating PodsReady condition",
 		"Current PodsReady condition", podsReadyCond,
 		"Pods are ready", podsReady)

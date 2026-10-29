@@ -289,13 +289,15 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
+// AssignFlavors assigns flavors to the Workload's PodSets. A PodSet present in counts is
+// scaled to that count; one that is not keeps its current count.
 func (a *FlavorAssigner) AssignFlavors(
 	ctx context.Context,
 	log logr.Logger,
-	counts []int32,
+	counts workload.PodSetsCounts,
 ) Assignment {
-	// Second-pass requests follow admission order, while counts and flavor scan state
-	// follow spec order. Use the request's spec index for the lookups below.
+	// Second-pass requests follow admission order, while flavor scan state follows
+	// spec order. Use the request's spec index for the lookups below.
 	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
 		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
 	for i := range specIndexes {
@@ -304,16 +306,14 @@ func (a *FlavorAssigner) AssignFlavors(
 		}
 	}
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
-	if len(counts) == 0 {
-		for i, ps := range a.wl.TotalRequests {
-			requests[i] = ps
-			if ps.Requests != nil {
-				requests[i].Requests = ps.Requests.Clone()
-			}
+	for i, ps := range a.wl.TotalRequests {
+		if c, ok := counts[ps.Name]; ok {
+			requests[i] = *ps.ScaledTo(c)
+			continue
 		}
-	} else {
-		for i := range a.wl.TotalRequests {
-			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[specIndexes[i]])
+		requests[i] = ps
+		if ps.Requests != nil {
+			requests[i].Requests = ps.Requests.Clone()
 		}
 	}
 	assignment := Assignment{
@@ -432,7 +432,7 @@ func (a *FlavorAssigner) AssignFlavors(
 					continue
 				}
 				if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
-					log.V(3).Info("Skipping resource not declared in the ClusterQueue", "res", resName)
+					log.V(5).Info("Skipping resource not declared in the ClusterQueue", "resource", resName)
 					continue
 				}
 			}
@@ -519,15 +519,9 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return
 	}
-	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
-		// Elastic placement accounts for the previous assignment itself.
-		// Remove its cached usage during the search to avoid counting it twice.
-		restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
-		defer restore()
-	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 	if assignment.RepresentativeMode() == Fit {
-		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
+		result := assignment.FindTopologyAssignments(ctx, a.cq, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
 			assignment.ResolvePodSetFailure(
@@ -542,8 +536,9 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 	}
 	if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 		// Don't preempt other workloads if looking for a failed node replacement
-		result := a.cq.FindTopologyAssignmentsForWorkload(
+		result := assignment.FindTopologyAssignments(
 			ctx,
+			a.cq,
 			tasRequests,
 			schdcache.WithSimulateEmpty(true),
 			schdcache.WithWorkloadInfo(a.wl),
@@ -995,7 +990,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 
 	flavor, exist := a.resourceFlavors[flavorName]
 	if !exist {
-		log.Error(nil, "Flavor not found", "Flavor", flavorName)
+		log.Error(nil, "Flavor not found", "resourceFlavor", flavorName)
 		status.appendf("flavor %s not found", flavorName)
 		return status
 	}
@@ -1009,7 +1004,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, a.wl.TopologySpreading, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
-				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
+				log.V(5).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status
 			}
@@ -1229,10 +1224,10 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	for _, psID := range psIDs {
 		psName := a.wl.Obj.Spec.PodSets[psID].Name
 		if fName == a.wl.NominationMapping[psName][resName] {
-			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
+			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "podSet", psName, "resource", resName, "resourceFlavor", fName)
 			return false
 		}
 	}
-	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
+	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resource", resName, "resourceFlavor", fName)
 	return true
 }

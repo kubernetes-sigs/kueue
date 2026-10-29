@@ -17,6 +17,7 @@ aliases:
   - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
   - [Add API Priority and Fairness configuration for the visibility API](#add-api-priority-and-fairness-configuration-for-the-visibility-api)
   - [Upgrade policy](#upgrade-policy)
+  - [Before you uninstall](#before-you-uninstall)
   - [Uninstall](#uninstall)
 - [Install a custom-configured released version](#install-a-custom-configured-released-version)
 - [Install the latest development version](#install-the-latest-development-version)
@@ -36,7 +37,7 @@ aliases:
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster is running; Version 1.34 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+- A Kubernetes cluster is running; Version 1.35 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The kubectl command-line tool has communication with your cluster.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
@@ -117,6 +118,28 @@ When upgrading Kueue, review the following release notes:
 **Note:** You do not need to review patch notes from previous minor versions, as those changes are covered in the next `.0` release notes.
 
 {{< upgrade-policy-example >}}
+
+### Before you uninstall
+
+Kueue adds the `kueue.x-k8s.io/resource-in-use` finalizer to Workloads, ClusterQueues,
+ResourceFlavors, AdmissionChecks and Topologies, and the `kueue.x-k8s.io/managed`
+finalizer to the Pods it manages. Only the Kueue controller removes these finalizers.
+If you uninstall Kueue while these objects exist, the controller is removed with them,
+and the objects and their CustomResourceDefinitions stay in `Terminating`.
+
+To avoid this, delete the Kueue objects while the controller is still running, in this
+order:
+
+1. Jobs submitted to Kueue, of any kind (Jobs, JobSets, Pods and so on).
+2. Workloads. Most are deleted with their jobs; delete any that `kubectl get workloads -A`
+   still lists, such as a prebuilt Workload that no job adopted.
+3. LocalQueues and ClusterQueues.
+4. Cohorts, ResourceFlavors and AdmissionChecks.
+5. Topologies.
+
+The [quick start](/docs/getting-started/quick-start/#4-clean-up) cleans up in the same order.
+
+If an uninstall is stuck, see [What if Kueue was uninstalled first?](/docs/tasks/troubleshooting/troubleshooting_delete_clusterqueue/#what-if-kueue-was-uninstalled-first).
 
 ### Uninstall
 
@@ -211,6 +234,7 @@ The controller runs in the `kueue-system` namespace.
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```shell
@@ -239,6 +263,7 @@ make prometheus
 
 ### Uninstall
 
+Delete the Kueue objects first; see [Before you uninstall](#before-you-uninstall).
 To uninstall Kueue, run the following command:
 
 ```sh
