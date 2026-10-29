@@ -335,7 +335,7 @@ func TestReportAndCleanupClusterQueueMultiKueueWorkloads(t *testing.T) {
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 4, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 4, "cluster_queue", "cleanup-cq1")
 
-	ClearClusterQueueMetrics("cleanup-cq1")
+	ClearDeletedClusterQueueMetrics("cleanup-cq1")
 
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 0, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 0, "cluster_queue", "cleanup-cq1")
