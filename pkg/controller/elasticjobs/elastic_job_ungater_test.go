@@ -367,7 +367,7 @@ func TestReconcile(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					ControllerReference(batchJobGVK, "job", "job-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).

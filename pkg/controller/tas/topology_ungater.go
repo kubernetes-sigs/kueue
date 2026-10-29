@@ -19,7 +19,6 @@ package tas
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -54,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltasranks "sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -64,7 +64,6 @@ import (
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
-	errInvalidSubGroupCount  = errors.New("invalid subgroup count for podset with subgroup index label")
 )
 
 type topologyUngaterOptions struct {
@@ -211,7 +210,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
-	rankOffsets := utiltas.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
+	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
@@ -527,12 +526,12 @@ func readRanksIfAvailable(log logr.Logger,
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	result, err := ReadRanksForLabels(psa, pods, psReq, offset)
+	result, err := utiltasranks.ReadRanksForLabels(psa, pods, psReq, offset)
 	if err != nil {
 		switch {
 		case errors.Is(err, utilpod.ErrLabelNotFound):
 			log.V(5).Info("pods missing index label for rank ordering", "error", err)
-		case errors.Is(err, errInvalidSubGroupCount):
+		case errors.Is(err, utiltasranks.ErrInvalidSubGroupCount):
 			log.V(3).Info("invalid subGroupCount, falling back to greedy assignment", "error", err)
 		default:
 			log.Error(err, "failed to read rank information from pods")
@@ -571,56 +570,6 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 
 	return result, true
-}
-
-// readRanksForLabels does not check the ranks against the PodSet count or the
-// number of pods the topology assignment covers; the caller does that, because
-// whether a rank without a domain is allowed depends on the workload.
-func ReadRanksForLabels(
-	psa *kueue.PodSetAssignment,
-	pods []*corev1.Pod,
-	psReq *kueue.PodSetTopologyRequest,
-	offset int32) (map[int]*corev1.Pod, error) {
-	result := make(map[int]*corev1.Pod)
-	podSetSize := int(*psa.Count)
-	singleJobSize := podSetSize
-	if psReq.SubGroupIndexLabel != nil {
-		if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
-			return nil, fmt.Errorf("%w %q: must be set and greater than 0", errInvalidSubGroupCount, *psReq.SubGroupIndexLabel)
-		}
-		singleJobSize = podSetSize / int(*psReq.SubGroupCount)
-	}
-
-	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabel(pod, *psReq.PodIndexLabel)
-		if err != nil {
-			// the Pod has no rank information - ranks cannot be used
-			return nil, err
-		}
-		rank := *podIndex - int(offset)
-		if psReq.SubGroupIndexLabel != nil {
-			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
-			if err != nil {
-				// the Pod has no Job index information - ranks cannot be used
-				return nil, err
-			}
-			if *podIndex >= singleJobSize {
-				// the pod index exceeds size, this scenario is not
-				// supported by the rank-based ordering of pods.
-				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
-			}
-			rank = *podIndex + *jobIndex*singleJobSize - int(offset)
-		}
-		if rank < 0 {
-			return nil, fmt.Errorf("rank %v of Pod %q is below 0", rank, klog.KObj(pod))
-		}
-		if _, found := result[rank]; found {
-			// there is a conflict in ranks, they cannot be used
-			return nil, fmt.Errorf("conflicting rank %v found for pod %q", rank, klog.KObj(pod))
-		}
-		result[rank] = pod
-	}
-	return result, nil
 }
 
 func rankToDomainID(ta *kueue.TopologyAssignment) []utiltas.TopologyDomainID {

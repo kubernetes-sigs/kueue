@@ -45,7 +45,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -54,7 +53,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltasranks "sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -361,10 +360,16 @@ func readRanksFromCandidatesIfAvailable(log logr.Logger, candidates []*corev1.Po
 		return nil, false
 	}
 
-	rankOffsets := utiltas.PodSetRankOffsets(psas, psNameToTopologyRequest)
-	rankToPod, err := tas.ReadRanksForLabels(&psas[psaIdx], candidates, psReq, rankOffsets[ps])
+	rankOffsets := utiltasranks.PodSetRankOffsets(psas, psNameToTopologyRequest)
+	rankToPod, err := utiltasranks.ReadRanksForLabels(&psas[psaIdx], candidates, psReq, rankOffsets[ps])
 	if err != nil {
-		log.Error(err, "failed to read rank information from pods")
+		// A missing index label is expected, e.g. for a NonIndexed Job, whose PodSet
+		// carries a PodIndexLabel but whose pods never have the label set.
+		if errors.Is(err, utilpod.ErrLabelNotFound) {
+			log.V(5).Info("pods missing index label for rank ordering", "error", err)
+		} else {
+			log.Error(err, "failed to read rank information from pods")
+		}
 		return nil, false
 	}
 	return rankToPod, true
@@ -372,7 +377,11 @@ func readRanksFromCandidatesIfAvailable(log logr.Logger, candidates []*corev1.Po
 
 // podSetAssignmentsWithSpecCounts returns copies of the assignments with Count set to the
 // PodSet's spec count: pod indexes span the whole Job, not just the admitted part.
+// It returns nil when the Workload has no admission.
 func podSetAssignmentsWithSpecCounts(wl *kueue.Workload) []kueue.PodSetAssignment {
+	if wl.Status.Admission == nil {
+		return nil
+	}
 	specCounts := workload.ExtractPodSetCounts(wl.Spec.PodSets)
 	psas := make([]kueue.PodSetAssignment, len(wl.Status.Admission.PodSetAssignments))
 	for i, psa := range wl.Status.Admission.PodSetAssignments {
