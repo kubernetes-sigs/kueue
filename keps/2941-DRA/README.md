@@ -425,7 +425,9 @@ mapping, not the request, decides which devices share a budget.
 - DRA resource preprocessing is not scoped by ResourceFlavor node constraints. Counter
   charges and device matching are computed globally before flavor assignment.
 - AdminAccess requests are skipped in quota counting (zero charge) since they provide
-  shared read-only access to already-allocated devices. `firstAvailable` quota under source-less
+  shared read-only access to already-allocated devices. They are also excluded from the
+  CEL device availability check, so pairing an admin request with an ordinary request in
+  the same claim does not require an extra device. `firstAvailable` quota under source-less
   mappings is supported behind `KueueDRAIntegrationPrioritizedList`.
   DRADeviceTaints does not change quota; see [Device taints](#device-taints).
 - **Single-node partitionable devices (e.g., MIG) are supported** via counter-based

@@ -798,6 +798,59 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should not let an AdminAccess request take a device from another request", framework.SlowSpec, func() {
+			ginkgo.By("Adding admin-access label to namespace")
+			var namespace corev1.Namespace
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: ns.Name}, &namespace)).To(gomega.Succeed())
+			if namespace.Labels == nil {
+				namespace.Labels = make(map[string]string)
+			}
+			namespace.Labels["resource.kubernetes.io/admin-access"] = "true"
+			gomega.Expect(k8sClient.Update(ctx, &namespace)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a ResourceSlice with a single device")
+			slice := testingdra.MakeResourceSlice("admin-shared-slice", "test-driver").
+				Pool("test-pool", 1, 1).
+				Device("dev-0").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, slice)
+			resourceSlices = append(resourceSlices, slice)
+
+			ginkgo.By("Creating a ResourceClaimTemplate with an AdminAccess request and an ordinary request")
+			rct := utiltesting.MakeResourceClaimTemplate("admin-shared-template", ns.Name).
+				DeviceRequest("monitor", "foo.example.com", 1).
+				WithCELSelectors("device.driver == \"test-driver\"").
+				WithAdminAccess(true).
+				DeviceRequest("work", "foo.example.com", 1).
+				WithCELSelectors("device.driver == \"test-driver\"").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload using the template")
+			wl := utiltestingapi.MakeWorkload("test-wl-admin-shared", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "admin-shared-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Verifying the workload is admitted and charged for the ordinary request only")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				usage := updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage
+				g.Expect(usage).To(gomega.HaveKey(corev1.ResourceName("foo")))
+				g.Expect(usage["foo"]).To(gomega.Equal(resource.MustParse("1")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should admit workload with device config", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate with device config")
 			rct := utiltesting.MakeResourceClaimTemplate("device-config-template", ns.Name).

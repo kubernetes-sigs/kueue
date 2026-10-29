@@ -735,6 +735,33 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "AdminAccess request does not take a device from another request",
+			extraObjects: []runtime.Object{
+				// An admin request and an ordinary request both select the only
+				// device in the cluster. AdminAccess allocations are shared with
+				// other claims, so the ordinary request still has a device.
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
+					DeviceRequest("monitor", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					WithAdminAccess(true).
+					DeviceRequest("work", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-admin", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-admin", ResourceClaimTemplateName: new("claim-tmpl-admin")},
+				}
+			},
+			lookup: defaultLookup,
+			want:   map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("1")}},
+		},
+		{
 			name: "Invalid CEL selector returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").

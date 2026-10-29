@@ -411,8 +411,11 @@ The following limitations apply:
   alpha and off by default; see the note below for what it covers.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
-- **No AdminAccess**: Device requests with `adminAccess: true` are not
-  supported.
+- **AdminAccess requests are charged no quota**: a request with
+  `adminAccess: true` is accepted in namespaces labeled
+  `resource.kubernetes.io/admin-access`, consumes no quota, and is excluded
+  from the device availability check so it cannot make another request in the
+  same claim look unsatisfiable.
 - **TAS does not see devices**: without
   [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra), TAS may
   place a Pod on a node without the devices its `ResourceClaimTemplate` requests, and

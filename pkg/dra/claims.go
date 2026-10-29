@@ -337,6 +337,9 @@ func validateCELSelectors(selectors []resourcev1.DeviceSelector, fldPath *field.
 }
 
 // extractCELRequests returns the device requests from a claim spec that have CEL selectors.
+// AdminAccess requests are left out: they are charged no quota and the devices they
+// allocate are not tracked as allocated, so they must not take a device away from the
+// other requests of the same claim.
 func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequest {
 	if claimSpec == nil {
 		return nil
@@ -344,6 +347,9 @@ func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequ
 	var result []celDeviceRequest
 	for i, req := range claimSpec.Devices.Requests {
 		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 {
+			continue
+		}
+		if isAdminAccessRequest(req.Exactly) {
 			continue
 		}
 		if slices.ContainsFunc(req.Exactly.Selectors, func(sel resourcev1.DeviceSelector) bool {
@@ -524,7 +530,7 @@ func countMatchingDevices(ctx context.Context, devices []dracel.Device, classSel
 // CEL selectors. This avoids running CEL against devices that belong to
 // unrelated drivers or classes.
 // If fewer devices match than requested, it returns field errors indicating the
-// workload is unsatisfiable, preventing quota from being matchedDevices by workloads
+// workload is unsatisfiable, preventing quota from being consumed by workloads
 // whose pods can never be scheduled.
 func validateCELSelectorsAgainstDevices(
 	ctx context.Context,
