@@ -146,11 +146,32 @@ func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testcases := map[string]struct {
-		job          *rayv1.RayJob
-		manageAll    bool
-		wantErr      error
-		featureGates map[featuregate.Feature]bool
+		job             *rayv1.RayJob
+		manageAll       bool
+		wantErr         error
+		featureGates    map[featuregate.Feature]bool
+		multiKueueQueue bool
 	}{
+		"invalid existing cluster - submitter inherits MultiKueue queue": {
+			job:             testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			multiKueueQueue: true,
+			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+		},
+		"invalid existing cluster - submitter template uses MultiKueue queue": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("local-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{constants.QueueLabel: "multi-queue"}}}).Obj(),
+			multiKueueQueue: true,
+			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("spec", "submitterPodTemplate", "metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+		},
+		"valid existing cluster - local template queue overrides MultiKueue parent queue": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{constants.QueueLabel: "local-queue"}}}).Obj(),
+			multiKueueQueue: true,
+		},
+		"valid existing cluster - HTTPMode has no submitter Job": {
+			job:             testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.HTTPMode).Obj(),
+			multiKueueQueue: true,
+		},
 		"invalid unmanaged": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
@@ -679,11 +700,26 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			cli := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cli)
+			queues := qcache.NewManagerForUnitTests(cli, cache)
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queues,
+				cache:                      cache,
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
+			if tc.multiKueueQueue {
+				check := utiltestingapi.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+				cache.AddOrUpdateAdmissionCheck(log, check)
+				if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("multi-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()); err != nil {
+					t.Fatal(err)
+				}
+				if err := queues.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("multi-queue", "ns").ClusterQueue("multi-cq").Obj()); err != nil {
+					t.Fatal(err)
+				}
+			}
 			warns, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() errors mismatch (-want +got):\n%s", diff)
@@ -704,7 +740,19 @@ func TestValidateUpdate(t *testing.T) {
 		featureGates         map[featuregate.Feature]bool
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
+		multiKueueQueue      bool
 	}{
+		"invalid existing cluster - submitter changes to MultiKueue queue": {
+			oldJob:          testingrayutil.MakeJob("job", "ns").Queue("local-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			newJob:          testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			multiKueueQueue: true,
+			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+		},
+		"valid existing cluster - unchanged unsupported queue does not block cleanup": {
+			oldJob:          testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			newJob:          testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			multiKueueQueue: true,
+		},
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(true).
@@ -907,10 +955,20 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cli := utiltesting.NewClientBuilder().Build()
 			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
+			if tc.multiKueueQueue {
+				check := utiltestingapi.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+				cqCache.AddOrUpdateAdmissionCheck(log, check)
+				if err := cqCache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("multi-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()); err != nil {
+					t.Fatal(err)
+				}
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("multi-queue", "ns").ClusterQueue("multi-cq").Obj()); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.defaultLqExist {
 				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue(
 					string(constants.DefaultLocalQueueName), "ns").ClusterQueue("cluster-queue").Obj()); err != nil {

@@ -18,12 +18,15 @@ package rayjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,7 +61,10 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		NewReconciler: NewReconciler,
 		SetupWebhook:  SetupRayJobWebhook,
 		JobType:       &rayv1.RayJob{},
-		AddToScheme:   rayv1.AddToScheme,
+		IsManagingObjectsOwner: func(obj client.Object) bool {
+			return len(obj.(*rayv1.RayJob).Spec.ClusterSelector) == 0
+		},
+		AddToScheme: rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 			ray.WithElasticReplicaSync(elasticRuntimeSync()),
 		),
@@ -127,6 +133,23 @@ func (j *RayJob) Skip(ctx context.Context) bool {
 	// Skip reconciliation for RayJobs that use clusterSelector to reference existing clusters.
 	// These jobs are not managed by Kueue.
 	return len(j.Spec.ClusterSelector) > 0
+}
+
+// GetSubmitterOwner returns the RayJob owner when its submitter needs a separate
+// Workload because the RayJob uses an existing cluster.
+func GetSubmitterOwner(ctx context.Context, c client.Client, job *batchv1.Job) (*rayv1.RayJob, error) {
+	owner := metav1.GetControllerOf(job)
+	if owner == nil || owner.Kind != gvk.Kind || owner.APIVersion != gvk.GroupVersion().String() {
+		return nil, nil
+	}
+	parent := &rayv1.RayJob{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: owner.Name}, parent); err != nil {
+		return nil, errors.Join(jobframework.ErrWorkloadOwnerNotFound, err)
+	}
+	if parent.UID != owner.UID || len(parent.Spec.ClusterSelector) == 0 {
+		return nil, nil
+	}
+	return parent, nil
 }
 
 func (j *RayJob) GVK() schema.GroupVersionKind {

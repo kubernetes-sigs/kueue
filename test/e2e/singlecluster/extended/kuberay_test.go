@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -701,23 +700,12 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 	ginkgo.It("Should admit the submitter Job for a RayJob using an existing cluster", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := e2e.GetKuberayTestImage()
-		defaultQueue := utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(cq.Name).Obj()
-		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, defaultQueue)
-
-		setCPUQuota := func(quota string) {
-			ginkgo.GinkgoHelper()
-			gomega.Expect(retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq); err != nil {
-					return err
-				}
-				behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, quota)
-				return k8sClient.Update(ctx, cq)
-			})).To(gomega.Succeed())
-		}
 
 		ginkgo.By("Reserving all CPU quota for the existing RayCluster")
 		// The head and worker need 1400m CPU; the submitter needs another 300m.
-		setCPUQuota("1400m")
+		quotaPatch := client.MergeFrom(cq.DeepCopy())
+		behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, "1400m")
+		gomega.Expect(k8sClient.Patch(ctx, cq, quotaPatch)).To(gomega.Succeed())
 		rayCluster := testingraycluster.MakeCluster("shared-cluster", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
@@ -742,7 +730,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Submitting a RayJob to the admitted cluster using a separate Kubernetes Job")
 		rayJob := testingrayjob.MakeJob("rayjob-selector", ns.Name).
-			Queue(defaultQueue.Name).
+			Queue(localQueueName).
 			ClusterSelector(map[string]string{rayutils.RayJobClusterSelectorKey: rayCluster.Name}).
 			RayClusterSpec(nil).
 			Suspend(false).
@@ -765,7 +753,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			}).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, rayJob)
-		gomega.Expect(rayJob.Spec.Suspend).To(gomega.BeFalse())
 
 		submitterJob := &batchv1.Job{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -788,7 +775,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(submitterJob), submitterJob)).To(gomega.Succeed())
 			g.Expect(k8sClient.Get(ctx, submitterWorkloadKey, submitterWorkload)).To(gomega.Succeed())
 			g.Expect(metav1.IsControlledBy(submitterWorkload, submitterJob)).To(gomega.BeTrue())
-			g.Expect(submitterWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(defaultQueue.Name)))
+			g.Expect(submitterWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(localQueueName)))
 		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg[client.Object]("Submitter Job did not get its own Workload", submitterJob, submitterWorkload))
 		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, submitterWorkloadKey)
 
@@ -804,7 +791,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Adding quota for the submitter and waiting for successful job submission")
-		setCPUQuota("1700m")
+		quotaPatch = client.MergeFrom(cq.DeepCopy())
+		behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, "1700m")
+		gomega.Expect(k8sClient.Patch(ctx, cq, quotaPatch)).To(gomega.Succeed())
 		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, submitterWorkloadKey)
 		e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, submitterWorkloadKey, corev1.ResourceCPU, "300m")
 		e2e.ExpectJobToBeCompletedWithTimeout(ctx, k8sClient, submitterJob, behavioral.VeryLongTimeout)

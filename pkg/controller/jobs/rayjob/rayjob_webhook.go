@@ -27,8 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -114,7 +116,31 @@ func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (
 	if err != nil {
 		return nil, err
 	}
+	validationErrs = append(validationErrs, w.validateSubmitterQueue(obj)...)
 	return nil, validationErrs.ToAggregate()
+}
+
+func (w *RayJobWebhook) validateSubmitterQueue(job *rayv1.RayJob) field.ErrorList {
+	if len(job.Spec.ClusterSelector) == 0 || (job.Spec.SubmissionMode != "" && job.Spec.SubmissionMode != rayv1.K8sJobMode) {
+		return nil
+	}
+	if !jobframework.IsMultiKueueQueue(job.Namespace, submitterQueueName(job), w.queues, w.cache) {
+		return nil
+	}
+	queuePath := field.NewPath("metadata", "labels").Key(constants.QueueLabel)
+	if template := job.Spec.SubmitterPodTemplate; template != nil && template.Labels[constants.QueueLabel] != "" {
+		queuePath = field.NewPath("spec", "submitterPodTemplate", "metadata", "labels").Key(constants.QueueLabel)
+	}
+	return field.ErrorList{field.Forbidden(queuePath, "RayJob submitters using an existing cluster cannot use MultiKueue")}
+}
+
+func submitterQueueName(job *rayv1.RayJob) kueue.LocalQueueName {
+	if template := job.Spec.SubmitterPodTemplate; template != nil {
+		if queue := kueue.LocalQueueName(template.Labels[constants.QueueLabel]); queue != "" {
+			return queue
+		}
+	}
+	return jobframework.QueueNameForObject(job)
 }
 
 func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
@@ -182,12 +208,16 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayJob) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
+	var allErrors field.ErrorList
+	if len(oldObj.Spec.ClusterSelector) == 0 || oldObj.Spec.SubmissionMode != newObj.Spec.SubmissionMode || submitterQueueName(oldObj) != submitterQueueName(newObj) {
+		allErrors = append(allErrors, w.validateSubmitterQueue(newObj)...)
+	}
 	if !jobframework.ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob, w.manageJobsWithoutQueueName) {
-		return nil, nil
+		return nil, allErrors.ToAggregate()
 	}
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Validating update")
-	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
+	allErrors = append(allErrors, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	validationErrs, err := w.validateCreate(ctx, newObj, nil)
 	if err != nil {
 		return nil, err

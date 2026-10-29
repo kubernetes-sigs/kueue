@@ -1088,6 +1088,12 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 			)
 			return topLevelJob, nil
 		}
+		if managed {
+			integration, _ := m.GetIntegrationByGVK(schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+			if integration.IsManagingObjectsOwner != nil && !integration.IsManagingObjectsOwner(parentObj) {
+				return topLevelJob, nil
+			}
+		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}

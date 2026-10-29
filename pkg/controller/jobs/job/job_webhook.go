@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -34,7 +35,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -109,6 +112,10 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults")
 
+	if err := w.defaultRayJobSubmitterQueue(ctx, obj); err != nil {
+		return err
+	}
+
 	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -122,6 +129,37 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 
 	applyWorkloadSliceSchedulingGate(job)
 
+	return nil
+}
+
+func (w *JobWebhook) defaultRayJobSubmitterQueue(ctx context.Context, obj *batchv1.Job) error {
+	if jobframework.QueueNameForObject(obj) != "" {
+		return nil
+	}
+	parent, err := rayjob.GetSubmitterOwner(ctx, w.client, obj)
+	if err != nil || parent == nil {
+		return err
+	}
+	queue := kueue.LocalQueueName(obj.Spec.Template.Labels[constants.QueueLabel])
+	if queue == "" {
+		queue = jobframework.QueueNameForObject(parent)
+	}
+	if queue == "" {
+		return nil
+	}
+	if w.managedJobsNamespaceSelector != nil {
+		ns := &corev1.Namespace{}
+		if err := w.client.Get(ctx, client.ObjectKey{Name: obj.Namespace}, ns); err != nil {
+			return err
+		}
+		if !w.managedJobsNamespaceSelector.Matches(labels.Set(ns.Labels)) {
+			return nil
+		}
+	}
+	if obj.Labels == nil {
+		obj.Labels = make(map[string]string)
+	}
+	obj.Labels[constants.QueueLabel] = string(queue)
 	return nil
 }
 
@@ -143,6 +181,11 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj *batchv1.Job) (admi
 
 func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
+	submitterErrs, err := w.validateRayJobSubmitter(ctx, job)
+	if err != nil {
+		return nil, err
+	}
+	allErrs = append(allErrs, submitterErrs...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
@@ -213,6 +256,13 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1
 
 func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
+	if jobframework.QueueName(oldJob) != jobframework.QueueName(newJob) || ptr.Deref(oldJob.Spec.ManagedBy, "") != ptr.Deref(newJob.Spec.ManagedBy, "") {
+		submitterErrs, err := w.validateRayJobSubmitter(ctx, newJob)
+		if err != nil {
+			return nil, err
+		}
+		allErrs = append(allErrs, submitterErrs...)
+	}
 	// Pass a nil maxTimeoutOnWorkload so the create-path validation does not re-reject an
 	// unchanged wait-for-pods-ready annotation that now exceeds a lowered maxTimeoutOnWorkload
 	// (that would block eviction from suspending the Job). The bound is still enforced for a
@@ -232,6 +282,20 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 		allErrs = append(allErrs, validationErrs...)
 	}
 	return allErrs, nil
+}
+
+func (w *JobWebhook) validateRayJobSubmitter(ctx context.Context, job *Job) (field.ErrorList, error) {
+	parent, err := rayjob.GetSubmitterOwner(ctx, w.client, (*batchv1.Job)(job))
+	if err != nil || parent == nil {
+		return nil, err
+	}
+	if jobframework.IsMultiKueueQueue(job.Namespace, jobframework.QueueName(job), w.queues, w.cache) {
+		return field.ErrorList{field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}, nil
+	}
+	if ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName {
+		return field.ErrorList{field.Forbidden(field.NewPath("spec", "managedBy"), "RayJob submitters using an existing cluster cannot use MultiKueue")}, nil
+	}
+	return nil, nil
 }
 
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {

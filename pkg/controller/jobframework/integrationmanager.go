@@ -69,6 +69,9 @@ type IntegrationCallbacks struct {
 	SetupWebhook func(mgr ctrl.Manager, opts ...Option) error
 	// JobType holds an object of the type managed by the integration's webhook
 	JobType runtime.Object
+	// IsManagingObjectsOwner optionally excludes owners whose children need their
+	// own Workloads. An excluded owner is a boundary for ancestor traversal.
+	IsManagingObjectsOwner func(client.Object) bool
 	// SetupIndexes registers any additional indexes with the controllers manager
 	// (this callback is optional)
 	SetupIndexes func(ctx context.Context, indexer client.FieldIndexer) error
@@ -196,13 +199,35 @@ func (m *IntegrationManager) HasImplicitlyEnabledFramework(gvk schema.GroupVersi
 	return found && m.implicitlyEnabledIntegrations.Has(name)
 }
 
-// IsOwnerManagedByKueueForObject returns true if the provided object's owner
-// can be managed by Kueue through this manager.
+// IsOwnerManagedByKueueForObject reports whether the owner's integration is enabled.
+// It checks the owner reference without reading the owner's configuration.
 func (m *IntegrationManager) IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	if owner := metav1.GetControllerOf(obj); owner != nil {
 		return m.getJobTypeForOwner(owner) != nil
 	}
 	return false
+}
+
+// shouldDeferToOwner reports whether defaulting should leave management to the
+// owner integration. Owners excluded by that integration need independent children.
+func (m *IntegrationManager) shouldDeferToOwner(ctx context.Context, c client.Client, obj client.Object) (bool, error) {
+	owner := metav1.GetControllerOf(obj)
+	if owner == nil {
+		return false, nil
+	}
+	jobType := m.getJobTypeForOwner(owner)
+	if jobType == nil {
+		return false, nil
+	}
+	integration, _ := m.GetIntegrationByGVK(schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+	if integration.IsManagingObjectsOwner == nil {
+		return true, nil
+	}
+	parent := jobType.DeepCopyObject().(client.Object)
+	if err := c.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: owner.Name}, parent); err != nil {
+		return false, errors.Join(ErrWorkloadOwnerNotFound, err)
+	}
+	return parent.GetUID() == owner.UID && integration.IsManagingObjectsOwner(parent), nil
 }
 
 // GetEmptyOwnerObject returns an empty object for owner when this manager can manage it.
