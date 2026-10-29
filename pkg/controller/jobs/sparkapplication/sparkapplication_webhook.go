@@ -128,7 +128,8 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	}
 	// The workload-slice path follows ElasticJobsViaWorkloadSlices only, so reject the
 	// annotation, otherwise the job would be sliced while not being elastic. This is checked
-	// on create only, so that Kueue can still update a job created while the gate was on.
+	// on create only, so that updates to a job created while the gate was on are not rejected
+	// for the annotation; they are still rejected if the job uses dynamic allocation.
 	if workloadslicing.Enabled(obj) && !features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) {
 		validationErrs = append(validationErrs, field.Forbidden(elasticJobAnnotationPath,
 			"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate"))
