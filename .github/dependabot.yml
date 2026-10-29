@@ -1,11 +1,14 @@
 version: 2
 updates:
 
+  # Weekly ecosystems run on different days, so their PRs don't start presubmits together.
+
   # Maintain Python dependencies and hashes for release scripts.
   - package-ecosystem: "pip"
     directory: "/hack/releasing"
     schedule:
       interval: "weekly"
+      day: "wednesday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -22,6 +25,7 @@ updates:
       - "/cmd/experimental/kueue-populator"
     schedule:
       interval: "weekly"
+      day: "tuesday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -75,12 +79,12 @@ updates:
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
-      - "/hack/testing/secretreader"
       - "/hack/testing/shellcheck"
       - "/hack/testing/skillsaw"
       - "/hack/testing/spark"
     schedule:
       interval: "weekly"
+      day: "monday"
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -101,6 +105,7 @@ updates:
       - /test/e2e/kueueviz
     schedule:
       interval: "weekly"
+      day: "wednesday"
     labels:
       - "ok-to-test"
       - "release-note-none"

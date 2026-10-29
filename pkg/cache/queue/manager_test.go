@@ -110,12 +110,11 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
-	tmplName := "claim-tmpl"
 	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
 		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
 			ResourceClaims: []corev1.PodResourceClaim{{
 				Name:                      "rc",
-				ResourceClaimTemplateName: &tmplName,
+				ResourceClaimTemplateName: new("claim-tmpl"),
 			}},
 		}).Obj(),
 	).Obj()
@@ -1024,6 +1023,58 @@ func TestDeleteLocalQueue(t *testing.T) {
 	wantActiveWorkloads = nil
 	if diff := gocmp.Diff(wantActiveWorkloads, manager.Dump(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected workloads after deleting LocalQueue (-want,+got):\n%s", diff)
+	}
+}
+
+func TestClusterQueueForWorkload(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		wl         *kueue.Workload
+		wantCQName kueue.ClusterQueueReference
+		wantOK     bool
+	}{
+		"pending workload in an existing LocalQueue": {
+			wl:         utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj(),
+			wantCQName: "cq",
+			wantOK:     true,
+		},
+		"pending workload in a missing LocalQueue": {
+			wl: utiltestingapi.MakeWorkload("a", "").Queue("missing").Obj(),
+		},
+		"workload with quota reserved in a missing LocalQueue": {
+			wl: utiltestingapi.MakeWorkload("a", "").Queue("missing").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj(),
+			wantCQName: "cq",
+			wantOK:     true,
+		},
+		"workload with quota reserved in a missing ClusterQueue": {
+			wl: utiltestingapi.MakeWorkload("a", "").Queue("foo").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("missing-cq").Obj(), now).Obj(),
+			wantCQName: "missing-cq",
+		},
+		"workload with the QuotaReserved condition but no admission": {
+			wl: utiltestingapi.MakeWorkload("a", "").Queue("foo").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue}).Obj(),
+			wantCQName: "cq",
+			wantOK:     true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Could not create ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Could not create LocalQueue: %v", err)
+			}
+
+			gotCQName, gotOK := manager.ClusterQueueForWorkload(tc.wl)
+			if gotCQName != tc.wantCQName || gotOK != tc.wantOK {
+				t.Errorf("Unexpected result: got (%q, %t), want (%q, %t)", gotCQName, gotOK, tc.wantCQName, tc.wantOK)
+			}
+		})
 	}
 }
 

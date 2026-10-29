@@ -123,6 +123,7 @@ type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
+	skipSchedulingHash       bool
 	dra
 }
 
@@ -150,6 +151,16 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 func WithPreserveTotalRequests() InfoOption {
 	return func(o *InfoOptions) {
 		o.preserveTotalRequests = true
+	}
+}
+
+// WithSkipSchedulingHash skips computing the scheduling hash.
+// Use it only for Infos kept in the scheduler cache or for checks that do not
+// need the hash. Before adding an Info to the queue manager, create or update
+// it without this option.
+func WithSkipSchedulingHash() InfoOption {
+	return func(o *InfoOptions) {
+		o.skipSchedulingHash = true
 	}
 }
 
@@ -301,11 +312,16 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// updateDerivedFields recomputes the scheduling hash and the parsed
-// topology-spreading annotation from i.Obj and i.TotalRequests, using the
-// provided contextual logger. Called internally by Update.
-func (i *Info) updateDerivedFields(log logr.Logger) {
-	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+// updateDerivedFields recomputes the scheduling hash, unless
+// skipSchedulingHash is set, and the parsed topology-spreading annotation from
+// i.Obj and i.TotalRequests, using the provided contextual logger. Called
+// internally by Update.
+func (i *Info) updateDerivedFields(log logr.Logger, skipSchedulingHash bool) {
+	if skipSchedulingHash {
+		i.SchedulingHash = ""
+	} else {
+		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+	}
 	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
 }
 
@@ -313,11 +329,15 @@ func (i *Info) updateDerivedFields(log logr.Logger) {
 // recomputes the derived fields. Pass WithPreserveTotalRequests to skip
 // the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
-	i.rebuildTotalRequests(opts...)
+	i.rebuildTotalRequests(&options)
 	if i.shouldUpdateDerivedFields(prev) {
-		i.updateDerivedFields(log)
+		i.updateDerivedFields(log, options.skipSchedulingHash)
 	}
 }
 
@@ -375,11 +395,7 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
 // from the current workload state. When WithPreserveTotalRequests is set,
 // only TotalRequests recomputation is skipped.
-func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func (i *Info) rebuildTotalRequests(options *InfoOptions) {
 	if options.effectivePodSpecs != nil {
 		i.EffectivePodSpecs = *options.effectivePodSpecs
 	} else {
@@ -395,7 +411,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 		if admitted {
 			i.TotalRequests = totalRequestsFromAdmission(i)
 		} else {
-			i.TotalRequests = totalRequestsFromPodSets(i, &options)
+			i.TotalRequests = totalRequestsFromPodSets(i, options)
 		}
 	}
 }
@@ -446,6 +462,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if features.Enabled(features.ConcurrentAdmission) {
 		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
 			shape["allowedFlavors"] = val
+		}
+	}
+	// The replaced slice key is unique per job, so each replacement gets its own class.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
+			shape["replacementFor"] = val
 		}
 	}
 	shapeJSON, err := json.Marshal(shape)
@@ -722,20 +744,14 @@ func Key(w *kueue.Workload) Reference {
 }
 
 // ReclaimableCounts returns the reported reclaimable count for each PodSet.
-func ReclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+func ReclaimableCounts(wl *kueue.Workload) PodSetsCounts {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
-		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
-	})
-}
-
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	totalCounts := podSetsCounts(wl)
+func podSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
 	}
@@ -825,7 +841,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
-	totalCounts := podSetsCounts(wl)
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
 			Name:     psa.Name,

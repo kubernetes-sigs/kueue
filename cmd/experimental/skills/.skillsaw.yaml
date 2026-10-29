@@ -98,12 +98,6 @@ rules:
     enabled: auto
     severity: warning
 
-  # Detect critical instructions in the middle of files where LLM attention is lowest
-  content-critical-position:
-    enabled: auto
-    severity: warning
-    min-lines: 50
-
   # Detect instructions that duplicate .editorconfig, ESLint, Prettier, or tsconfig settings
   content-redundant-with-tooling:
     enabled: auto
@@ -129,11 +123,6 @@ rules:
   content-contradiction:
     enabled: auto
     severity: warning
-
-  # Score instruction files on actionability (verb density, commands, file references)
-  content-actionability-score:
-    enabled: auto
-    severity: info
 
   # Check that instruction files are organized into cognitive chunks with headings
   content-cognitive-chunks:
@@ -181,13 +170,14 @@ custom-rules: []
 # Exclude patterns (glob format)
 # Use exclude: [] to disable all excludes including defaults
 exclude:
+    - ".claude/worktrees/**"
     # - "**/template/**"
     # - "**/templates/**"
     # - "**/_template/**"
 
 # Additional markdown files to run content rules on (glob format)
 content-paths:
-  - cmd/experimental/skills/**
+  - cmd/experimental/skills/**/*.md
 
 # Treat warnings as errors
 strict: true

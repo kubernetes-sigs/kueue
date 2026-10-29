@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftrainerruntime "github.com/kubeflow/trainer/v2/pkg/runtime"
@@ -227,10 +228,12 @@ func (t *TrainJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet
 		return nil, err
 	}
 
-	// Run a dry-run patch of a throwaway workload to set the podset defaults
+	// Run a dry-run create of a throwaway workload to set the podset defaults
 	// Podsets must be defaulted because Kueue later uses them to match workloads.
 	// Workloads coming from the API server are already defaulted, so without defaulting these podsets, matching would fail.
-	wl := jobframework.NewWorkload(t.Name, t.Object(), podsets, nil, nil)
+	// Use a generated name, because a dry-run create still fails if a Workload with the same name exists.
+	wl := jobframework.NewWorkload("", t.Object(), podsets, nil, nil)
+	wl.GenerateName = t.Name + "-"
 	if err := c.Create(ctx, wl, &client.CreateOptions{DryRun: []string{metav1.DryRunAll}}); err != nil {
 		return nil, err
 	}
@@ -278,6 +281,14 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 			// with the admission additions.
 			tolerations = utiltolerations.Merge(replicatedJob.Template.Spec.Template.Spec.Tolerations, info.Tolerations)
 		}
+		annotations := info.Annotations
+		// Pod indexes start from 0 in each replicated job of the JobSet. The PodSet
+		// group comes from the runtime or a user RuntimePatch, so check it on the
+		// resolved Pod template and add the offset to the Kueue RuntimePatch.
+		if jobframework.NeedsDefaultPodIndexOffset(&replicatedJob.Template.Spec.Template.ObjectMeta) {
+			annotations = map[string]string{kueue.PodIndexOffsetAnnotation: "0"}
+			maps.Copy(annotations, info.Annotations)
+		}
 		replicatedJobPatches = append(replicatedJobPatches,
 			kftrainer.ReplicatedJobPatch{
 				Name: string(info.Name),
@@ -285,7 +296,7 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 					Spec: &kftrainer.JobSpecPatch{
 						Template: &kftrainer.PodTemplatePatch{
 							Metadata: &metav1.ObjectMeta{
-								Annotations: info.Annotations,
+								Annotations: annotations,
 								Labels:      info.Labels,
 							},
 							Spec: &kftrainer.PodSpecPatch{
@@ -391,7 +402,7 @@ func (t *TrainJob) Finished(ctx context.Context) (message string, success, finis
 	return message, success, false
 }
 
-func (t *TrainJob) PodsReady(ctx context.Context, c client.Client) bool {
+func (t *TrainJob) PodsReady(ctx context.Context, c client.Client, _ ...jobframework.PodsReadyOption) bool {
 	jobset, err := getChildJobSet(ctx, c, t)
 	if err != nil {
 		return false

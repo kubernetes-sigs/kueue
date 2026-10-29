@@ -1,1 +1,1 @@
-FROM cypress/base:24.21.0@sha256:e59ad7ce20271bde2cf6ddcfe1f935c974293086de62bddf8a332ff3ee45b988
+FROM cypress/base:24.22.1@sha256:74da4956a3da5a3c1782a88b328931c5ad54ebfd0b21e1cc5328c68e9170dd5f

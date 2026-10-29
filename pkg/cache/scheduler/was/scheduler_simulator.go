@@ -26,11 +26,13 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -39,15 +41,25 @@ const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
+var (
+	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
+)
+
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
-	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
-	// is the only set PreemptWorkload can release.
-	podsByWorkload podsByWorkload
+	// pods is this cycle's tracker, including unmanaged and virtual Pods.
+	// PreemptWorkload only releases Pods indexed by Workload.
+	pods *podtracker.Tracker
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.
 	emptyCluster lazyCluster
+	// podGroups and compositePodGroups track groups added via AddPodGroup and
+	// AddCompositePodGroup so they can be replayed onto emptyCluster when it is
+	// lazily initialized.
+	podGroups          map[client.ObjectKey]*schedulingv1beta1.PodGroup
+	compositePodGroups map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
 }
 
 // lazyCluster builds its cluster on first use, so cycles that never ask do not
@@ -61,11 +73,28 @@ type lazyCluster struct {
 	err   error
 }
 
-func (l *lazyCluster) get(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
-	l.once.Do(func() {
-		l.value, l.err = l.build(ctx)
+func (s *wasSimulator) getEmptyCluster(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
+	s.emptyCluster.once.Do(func() {
+		cluster, err := s.emptyCluster.build(ctx)
+		if err != nil {
+			s.emptyCluster.err = err
+			return
+		}
+		for _, cpg := range s.compositePodGroups {
+			if err := cluster.AddCompositePodGroup(ctx, cpg); err != nil {
+				s.emptyCluster.err = err
+				return
+			}
+		}
+		for _, pg := range s.podGroups {
+			if err := cluster.AddPodGroup(ctx, pg); err != nil {
+				s.emptyCluster.err = err
+				return
+			}
+		}
+		s.emptyCluster.value = cluster
 	})
-	return l.value, l.err
+	return s.emptyCluster.value, s.emptyCluster.err
 }
 
 func (s *wasSimulator) FindFeasibleNodes(
@@ -75,7 +104,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil, errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+		return nil, errFindFeasibleNodesNotAllowed
 	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
@@ -102,7 +131,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	cluster := s.wasSnapshot
 	if requirements.SimulateEmpty {
 		var err error
-		if cluster, err = s.emptyCluster.get(ctx); err != nil {
+		if cluster, err = s.getEmptyCluster(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -129,10 +158,10 @@ func (s *wasSimulator) FindFeasibleNodes(
 }
 
 func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
-	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
+	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
-	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.pods.PodsForWorkload(wlKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
@@ -150,22 +179,52 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 	})
 }
 
-func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return simulator.SchedulingResult{
-			Error: errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled"),
-		}
+		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
-	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
 	if err != nil {
 		return simulator.SchedulingResult{Error: err}
 	}
 
+	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
+	return toSchedulingResult(workloadPods, wasResult)
+}
+
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+	if scheduleOpts.SimulateEmpty {
+		return s.getEmptyCluster(ctx)
+	}
+	return s.wasSnapshot, nil
+}
+
+func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
+	var schedlibFilter schedlib.PreemptionFilter
+	if scheduleOpts.PreemptionFilter != nil {
+		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
+	}
+	var potentialVictims iter.Seq[schedlib.PreemptionVictim]
+	if !scheduleOpts.SimulateEmpty {
+		potentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+	}
+	return schedlib.ScheduleWorkloadOptions{
+		DryRun:           true,
+		PotentialVictims: potentialVictims,
+		PreemptionFilter: schedlibFilter,
+	}
+}
+
+func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
+	if wasResult.Status.IsError() {
+		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
+	}
+
 	// Parse scheduler-library results
 	placements := make(simulator.PodPlacements, len(workloadPods))
-	for _, podResult := range wasResults {
+	for _, podResult := range wasResult.PodResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
 		status := podResult.Status
 		if status.IsSuccess() {
@@ -186,11 +245,62 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		}
 	}
 
-	return simulator.SchedulingResult{PodPlacements: placements}
+	return simulator.SchedulingResult{
+		PodPlacements:     placements,
+		PreemptionVictims: toPreemptionVictims(wasResult.PreemptionVictims),
+	}
 }
 
 func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.wasSnapshot.AddPodGroup(ctx, pg)
+	if err := s.wasSnapshot.AddPodGroup(ctx, pg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.AddPodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	s.podGroups[client.ObjectKeyFromObject(pg)] = pg
+	return nil
+}
+
+func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	if err := s.wasSnapshot.RemovePodGroup(ctx, pg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.RemovePodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	delete(s.podGroups, client.ObjectKeyFromObject(pg))
+	return nil
+}
+
+func (s *wasSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	if err := s.wasSnapshot.AddCompositePodGroup(ctx, cpg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.AddCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	s.compositePodGroups[client.ObjectKeyFromObject(cpg)] = cpg
+	return nil
+}
+
+func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	if err := s.wasSnapshot.RemoveCompositePodGroup(ctx, cpg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.RemoveCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	delete(s.compositePodGroups, client.ObjectKeyFromObject(cpg))
+	return nil
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {

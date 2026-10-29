@@ -19,102 +19,117 @@ package queue
 import (
 	"sync"
 
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// localQueueCounts holds the number of pending workloads per LocalQueue, so
-// the LocalQueue metrics don't scan every pending workload of the
-// ClusterQueue. The calls sit next to the schedulingHashCounts calls in the
-// PendingWorkloads helpers.
+// localQueueCounts tracks the pending workloads per LocalQueue, so the
+// LocalQueue metrics don't scan every pending workload of the ClusterQueue.
+// Like the ClusterQueue trackers in PendingWorkloads, each LocalQueue has a
+// LabelValsTracker per status, keyed by the Workload custom label values, and
+// its Total is the plain count. The calls sit next to the schedulingHashCounts
+// calls in the PendingWorkloads helpers.
 //
 // Like schedulingHashCounts, the struct carries its own lock so it stays
 // consistent without relying on the callers' locks, and the metric read path
 // doesn't take the ClusterQueue-wide lock.
 type localQueueCounts struct {
-	rwm sync.RWMutex
-	// active counts workloads in the heap and inflight workloads, matching
+	rwm          sync.RWMutex
+	customLabels *metrics.CustomLabels
+	// active tracks workloads in the heap and inflight workloads, matching
 	// the active pending status of the LocalQueue metrics.
-	active map[utilqueue.LocalQueueReference]int
-	// inadmissible counts workloads in inadmissibleWorkloads.
-	inadmissible map[utilqueue.LocalQueueReference]int
+	active map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker
+	// inadmissible tracks workloads in inadmissibleWorkloads.
+	inadmissible map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker
 }
 
-func newLocalQueueCounts() *localQueueCounts {
+func newLocalQueueCounts(cl *metrics.CustomLabels) *localQueueCounts {
 	return &localQueueCounts{
-		active:       make(map[utilqueue.LocalQueueReference]int),
-		inadmissible: make(map[utilqueue.LocalQueueReference]int),
+		customLabels: cl,
+		active:       make(map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker),
+		inadmissible: make(map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker),
 	}
 }
 
-func addLocalQueueCount(counts map[utilqueue.LocalQueueReference]int, wInfo *workload.Info) {
-	counts[utilqueue.KeyFromWorkload(wInfo.Obj)]++
+func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, wInfo *workload.Info) {
+	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
+	tracker, ok := trackers[lqRef]
+	if !ok {
+		tracker = metrics.NewLabelValsTracker()
+		trackers[lqRef] = tracker
+	}
+	metrics.TrackWorkload(c.customLabels, tracker, wInfo.Obj)
 }
 
-func removeLocalQueueCount(counts map[utilqueue.LocalQueueReference]int, wInfo *workload.Info) {
+func (c *localQueueCounts) untrack(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, wInfo *workload.Info) {
 	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
-	counts[lqRef]--
-	if counts[lqRef] <= 0 {
-		delete(counts, lqRef)
+	tracker, ok := trackers[lqRef]
+	if !ok {
+		return
+	}
+	metrics.UntrackWorkload(c.customLabels, tracker, wInfo.Obj)
+	if tracker.Total() == 0 {
+		delete(trackers, lqRef)
 	}
 }
 
 func (c *localQueueCounts) addActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	addLocalQueueCount(c.active, wInfo)
+	c.track(c.active, wInfo)
 }
 
 func (c *localQueueCounts) removeActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	removeLocalQueueCount(c.active, wInfo)
+	c.untrack(c.active, wInfo)
 }
 
 func (c *localQueueCounts) addInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	addLocalQueueCount(c.inadmissible, wInfo)
+	c.track(c.inadmissible, wInfo)
 }
 
 func (c *localQueueCounts) removeInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	removeLocalQueueCount(c.inadmissible, wInfo)
+	c.untrack(c.inadmissible, wInfo)
 }
 
 // updateActive replaces oldInfo with newInfo in the active counts; oldInfo may
-// be nil when there was no previous heap copy. The LocalQueue of the two
-// copies can differ.
+// be nil when there was no previous heap copy. The LocalQueue and the custom
+// label values of the two copies can differ.
 func (c *localQueueCounts) updateActive(oldInfo, newInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	if oldInfo != nil {
-		removeLocalQueueCount(c.active, oldInfo)
+		c.untrack(c.active, oldInfo)
 	}
-	addLocalQueueCount(c.active, newInfo)
+	c.track(c.active, newInfo)
 }
 
 // updateInadmissible replaces oldInfo with newInfo in the inadmissible counts.
 func (c *localQueueCounts) updateInadmissible(oldInfo, newInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	removeLocalQueueCount(c.inadmissible, oldInfo)
-	addLocalQueueCount(c.inadmissible, newInfo)
+	c.untrack(c.inadmissible, oldInfo)
+	c.track(c.inadmissible, newInfo)
 }
 
 func (c *localQueueCounts) moveToActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	removeLocalQueueCount(c.inadmissible, wInfo)
-	addLocalQueueCount(c.active, wInfo)
+	c.untrack(c.inadmissible, wInfo)
+	c.track(c.active, wInfo)
 }
 
 func (c *localQueueCounts) moveToInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	removeLocalQueueCount(c.active, wInfo)
-	addLocalQueueCount(c.inadmissible, wInfo)
+	c.untrack(c.active, wInfo)
+	c.track(c.inadmissible, wInfo)
 }
 
 // pendingInLocalQueue returns the number of active and inadmissible pending
@@ -122,5 +137,35 @@ func (c *localQueueCounts) moveToInadmissible(wInfo *workload.Info) {
 func (c *localQueueCounts) pendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.active[lqRef], c.inadmissible[lqRef]
+	var active, inadmissible int
+	if tracker, ok := c.active[lqRef]; ok {
+		active = tracker.Total()
+	}
+	if tracker, ok := c.inadmissible[lqRef]; ok {
+		inadmissible = tracker.Total()
+	}
+	return active, inadmissible
+}
+
+// pendingBreakdownInLocalQueue returns copies of the active and inadmissible
+// trackers of the LocalQueue. Active includes inflight workloads.
+func (c *localQueueCounts) pendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return copyNonZero(c.active[lqRef]), copyNonZero(c.inadmissible[lqRef])
+}
+
+// copyNonZero copies the tracker without the label values whose count dropped
+// to zero, so the result matches a fresh count of the pending workloads.
+func copyNonZero(tracker *metrics.LabelValsTracker) *metrics.LabelValsTracker {
+	result := metrics.NewLabelValsTracker()
+	if tracker == nil {
+		return result
+	}
+	for labelVals, count := range tracker.Iter() {
+		if count > 0 {
+			result.Add(labelVals, count)
+		}
+	}
+	return result
 }

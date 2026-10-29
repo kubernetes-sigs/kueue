@@ -51,30 +51,50 @@ func SetFlavorResourceNominalQuota(cq *kueue.ClusterQueue, flavorName string, re
 	return cq
 }
 
-func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+func setClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, policy *kueue.StopPolicy) {
 	ginkgo.GinkgoHelper()
 	var cqCopy kueue.ClusterQueue
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
-		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+		if ptr.Equal(cqCopy.Spec.StopPolicy, policy) {
 			return
 		}
-		cqCopy.Spec.StopPolicy = new(kueue.None)
+		cqCopy.Spec.StopPolicy = policy
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
+	}, Timeout, ShortInterval).Should(gomega.Succeed(), AssertMsg("Failed to set cluster queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &cqCopy))
 }
 
-func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+func SetClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, policy kueue.StopPolicy) {
+	ginkgo.GinkgoHelper()
+	setClusterQueueStopPolicy(ctx, k8sClient, cq, new(policy))
+}
+
+func UnsetClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+	ginkgo.GinkgoHelper()
+	setClusterQueueStopPolicy(ctx, k8sClient, cq, nil)
+}
+
+func SetLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue, policy kueue.StopPolicy) {
+	ginkgo.GinkgoHelper()
+	setLocalQueueStopPolicy(ctx, k8sClient, lq, &policy)
+}
+
+func UnsetLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	ginkgo.GinkgoHelper()
+	setLocalQueueStopPolicy(ctx, k8sClient, lq, nil)
+}
+
+func setLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue, policy *kueue.StopPolicy) {
 	ginkgo.GinkgoHelper()
 	var lqCopy kueue.LocalQueue
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
-		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+		if ptr.Equal(lqCopy.Spec.StopPolicy, policy) {
 			return
 		}
-		lqCopy.Spec.StopPolicy = new(kueue.None)
+		lqCopy.Spec.StopPolicy = policy
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
+	}, Timeout, ShortInterval).Should(gomega.Succeed(), AssertMsg("Failed to set local queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &lqCopy))
 }
 
 func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {

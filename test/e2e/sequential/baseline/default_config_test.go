@@ -144,12 +144,12 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("wait for the webhooks to accept requests", func() {
+				e2e.WaitForWebhookDataPath(ctx, k8sClient)
+			})
+
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-					localQueue.Spec.StopPolicy = new(kueue.Hold)
-					g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
-				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, localQueue, kueue.Hold)
 			})
 
 			ginkgo.By("verify the LocalQueue status is updated", func() {

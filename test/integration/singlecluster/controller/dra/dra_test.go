@@ -1060,6 +1060,27 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should use deviceClassMappings logical name as quota key for the implicit DeviceClass name", func() {
+			ginkgo.By("Creating a workload requesting the DeviceClass by its implicit extended resource name")
+			wl := utiltestingapi.MakeWorkload("implicit-wl", ns.Name).
+				Queue("unified-lq").
+				Request(corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix+deviceClass.Name), "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload is admitted with the logical name as quota key")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(logicalName)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should leave pod overhead under the original extended resource name", func() {
 			ginkgo.By("Creating a workload whose overhead names the DRA-backed resource")
 			wl := utiltestingapi.MakeWorkload("overhead-wl", ns.Name).
@@ -1445,6 +1466,44 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should requeue inadmissible workload with LimitRange defaults when DeviceClass is created", func() {
+			implicitResource := corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + deviceClassName)
+			ginkgo.By("Defaulting container device requests before the DeviceClass exists")
+			limitRange := utiltesting.MakeLimitRange("device-defaults", ns.Name).
+				WithValue("Default", implicitResource, "2").
+				WithValue("DefaultRequest", implicitResource, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
+
+			wl := utiltestingapi.MakeWorkload("dc-defaulted-wl", ns.Name).
+				Queue("dc-tracking-lq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Waiting until the defaulted resource request is inadmissible")
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+
+			ginkgo.By("Creating the DeviceClass to resolve the implicit resource")
+			deviceClass := testingdra.MakeDeviceClass(deviceClassName).Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Reserving logical quota for the defaulted request without changing the template")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName(logicalName), resource.MustParse("2")))
+				g.Expect(assignment.ResourceUsage).NotTo(gomega.HaveKey(implicitResource))
+				g.Expect(updatedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests).To(gomega.BeEmpty())
+				g.Expect(updatedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Limits).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should requeue inadmissible limits-only workload when DeviceClass is created", func() {
 			ginkgo.By("Creating limits-only workload before DeviceClass exists")
 			wl := utiltestingapi.MakeWorkload("dc-create-wl", ns.Name).
@@ -1517,7 +1576,8 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 		})
 
-		ginkgo.It("Should requeue inadmissible workload when DeviceClass is deleted", func() {
+		verifyRequeueOnDeviceClassDelete := func(resourceName corev1.ResourceName, useDefaults bool) {
+			ginkgo.GinkgoHelper()
 			ginkgo.By("Creating DeviceClass")
 			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
@@ -1538,13 +1598,26 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating second workload that is pending due to quota")
-			wl2 := utiltestingapi.MakeWorkload("dc-delete-pending", ns.Name).
-				Queue("dc-tracking-lq").
-				Request(corev1.ResourceName(extendedResourceName), "2").
-				Obj()
+			wl2Builder := utiltestingapi.MakeWorkload("dc-delete-pending", ns.Name).Queue("dc-tracking-lq")
+			if useDefaults {
+				limitRange := utiltesting.MakeLimitRange("device-defaults", ns.Name).
+					WithValue("Default", resourceName, "2").
+					WithValue("DefaultRequest", resourceName, "2").Obj()
+				gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
+			} else {
+				wl2Builder.Request(resourceName, "2")
+			}
+			wl2 := wl2Builder.Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
-			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring(logicalName))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Deleting DeviceClass")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
@@ -1556,8 +1629,21 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
 				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
 				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Message).To(gomega.ContainSubstring(string(extendedResourceName)))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+				g.Expect(cond.Message).To(gomega.ContainSubstring(string(resourceName)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("Should requeue inadmissible workload when DeviceClass is deleted", func() {
+			verifyRequeueOnDeviceClassDelete(corev1.ResourceName(extendedResourceName), false)
+		})
+
+		ginkgo.It("Should requeue inadmissible workload with defaulted configured resource when DeviceClass is deleted", func() {
+			verifyRequeueOnDeviceClassDelete(corev1.ResourceName(extendedResourceName), true)
+		})
+
+		ginkgo.It("Should requeue inadmissible workload with defaulted implicit resource when DeviceClass is deleted", func() {
+			verifyRequeueOnDeviceClassDelete(corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix+deviceClassName), true)
 		})
 
 		ginkgo.It("Should clear stale DRA TotalRequests when admitted workload is requeued after DeviceClass deletion", func() {

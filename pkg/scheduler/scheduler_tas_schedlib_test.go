@@ -27,6 +27,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -511,6 +513,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 		"a simulator that will not release the victim does not stop the cycle": {
 			// A simulator that cannot release the victim leaves the cycle stricter
 			// than reality, which is safe. It must not stop the cycle.
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration: true,
+			},
 			failSimulatorPreemption:  true,
 			wantSimulatorPreemptions: []workload.Reference{"default/low-priority-admitted"},
 			nodes:                    defaultSingleNode,
@@ -642,6 +647,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			//
 			// The simulated cluster has to lose the victim's Pods too, or a host
 			// port it holds keeps the node looking unusable.
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration: true,
+			},
 			wantSimulatorPreemptions: []workload.Reference{"default/low-priority-admitted"},
 			nodes:                    defaultSingleNode,
 			topologies:               []kueue.Topology{defaultSingleLevelTopology},
@@ -767,17 +775,20 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			},
 		},
 		"the overlap recompute takes the other preemption's victim out of the simulator": {
-			// The same cluster as the case above, with a simulator installed. The
+			// The same cluster as the "preempting workload recomputes both overlapping
+			// preemption targets and TAS topology assignment; both features enabled"
+			// case in TestScheduleForTASPreemption, with a simulator installed. The
 			// recompute projects the other preemption's victim out of quota and TAS
 			// usage, and has to project it out of the simulator too, or the simulator
 			// keeps reporting the host ports and devices that victim holds as taken.
 			//
-			// Kept apart from the case above rather than folded into it: setting
-			// wantSimulatorPreemptions turns SchedulerLibraryIntegration on, and that
-			// case is the only cover for the recompute with the gate off.
+			// Kept apart from that case rather than folded into it: this case turns
+			// SchedulerLibraryIntegration on, and that case is the only cover for the
+			// recompute with SchedulerLibraryIntegration off.
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
+				features.SchedulerLibraryIntegration:                     true,
 			},
 			nodes:           defaultTwoNodes,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
@@ -1293,7 +1304,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonAssignmentError,
-						Message:            `failed to virtualize workload: failed to get TAS flavor for PodSet "main": no TAS flavor assigned`,
+						Message:            `virtualization error: unable to build virtual pods: failed to get TAS flavor for PodSet "main": no TAS flavor assigned`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1520,4 +1531,20 @@ func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods
 		placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{Node: s.placementNode}
 	}
 	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func (s *mockWorkloadScheduler) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *mockWorkloadScheduler) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *mockWorkloadScheduler) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (s *mockWorkloadScheduler) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
 }

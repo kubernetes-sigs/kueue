@@ -266,7 +266,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
 		}
-		matches, err := workloadMatchesSelector(rule.PreemptorSelector, p.preemptor)
+		matches, err := matchesPreemptor(&rule, p.preemptor)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q: %w", p.config.Name, rule.Name, err))
 			continue
@@ -359,6 +359,29 @@ func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
 		}
 	}
 	return true
+}
+
+func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {
+	matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
+	if err != nil || !matches {
+		return false, err
+	}
+	return workloadMatchesPriorityClassSelector(rule.PreemptorPriorityClassSelector, preemptor)
+}
+
+func workloadMatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector, wlInfo *workload.Info) (bool, *filters.FilterBuildError) {
+	if selector == nil {
+		return true, nil
+	}
+	filter, err := filters.NewPriorityClassFilter(*selector)
+	if err != nil {
+		return false, &filters.FilterBuildError{
+			Filter: filters.FilterPreemptorPriorityClassSelector,
+			Reason: err.Reason,
+			Err:    err.Err,
+		}
+	}
+	return filter.Matches(wlInfo), nil
 }
 
 // workloadMatchesSelector returns whether the labels of the workload match the

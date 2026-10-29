@@ -235,7 +235,9 @@ Edit a resource on the server
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
 * [kueuectl edit clusterqueue](kueuectl_edit_clusterqueue/)	 - Pass-through &#34;edit clusterqueue&#34; to kubectl
+* [kueuectl edit cohort](kueuectl_edit_cohort/)	 - Pass-through &#34;edit cohort&#34; to kubectl
 * [kueuectl edit localqueue](kueuectl_edit_localqueue/)	 - Pass-through &#34;edit localqueue&#34; to kubectl
 * [kueuectl edit resourceflavor](kueuectl_edit_resourceflavor/)	 - Pass-through &#34;edit resourceflavor&#34; to kubectl
+* [kueuectl edit topology](kueuectl_edit_topology/)	 - Pass-through &#34;edit topology&#34; to kubectl
 * [kueuectl edit workload](kueuectl_edit_workload/)	 - Pass-through &#34;edit workload&#34; to kubectl
 

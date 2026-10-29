@@ -29,6 +29,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -73,18 +75,79 @@ const (
 	incomingPriority = 50
 )
 
+var errSimulator = errors.New("simulator failure")
+
 type testSimulator struct {
 	simulator.SchedulerSimulator
 
-	result simulator.SchedulingResult
-	calls  int
+	result                    simulator.SchedulingResult
+	calls                     int
+	scheduledPods             []*corev1.Pod
+	addedPGs                  []*schedulingv1beta1.PodGroup
+	removedPGs                []*schedulingv1beta1.PodGroup
+	addedCPGs                 []*schedulingv1alpha3.CompositePodGroup
+	removedCPGs               []*schedulingv1alpha3.CompositePodGroup
+	failAddPGAt, failAddCPGAt int
+	addPGCalls, addCPGCalls   int
+	removeErr                 error
 }
 
 var _ simulator.SchedulerSimulator = (*testSimulator)(nil)
 
 func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	f.calls++
+	f.scheduledPods = append(f.scheduledPods, pods...)
 	return f.result
+}
+
+func (f *testSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	f.addPGCalls++
+	if f.addPGCalls == f.failAddPGAt {
+		return errSimulator
+	}
+	if f.SchedulerSimulator != nil {
+		if err := f.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	f.addedPGs = append(f.addedPGs, pg)
+	return nil
+}
+
+func (f *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	f.removedPGs = append(f.removedPGs, pg)
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.RemovePodGroup(ctx, pg)
+	}
+	return nil
+}
+
+func (f *testSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	f.addCPGCalls++
+	if f.addCPGCalls == f.failAddCPGAt {
+		return errSimulator
+	}
+	if f.SchedulerSimulator != nil {
+		if err := f.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	f.addedCPGs = append(f.addedCPGs, cpg)
+	return nil
+}
+
+func (f *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	f.removedCPGs = append(f.removedCPGs, cpg)
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg)
+	}
+	return nil
 }
 
 // podKey returns the key of the virtual Pod which the planner builds for the
@@ -199,6 +262,7 @@ type testPodSet struct {
 	// requiredLevel is the required topology level of the PodSet.
 	// Defaults to hostname.
 	requiredLevel string
+	podSetGroup   string
 }
 
 func podFailure(psName kueue.PodSetReference, replicaIdx int, reason string) string {
@@ -231,6 +295,18 @@ func TestPlan(t *testing.T) {
 	errInsufficientCPU := errors.New("Insufficient cpu")
 	errNodeAffinity := errors.New("node(s) didn't match Pod's node affinity")
 
+	type addedPodGroups struct{ cpgs, pgs int }
+	groupedPodSets := []testPodSet{
+		{name: "psA1", count: 2, cpu: "1", podSetGroup: "group1"},
+		{name: "psA2", count: 2, cpu: "1", podSetGroup: "group1"},
+		{name: "psB", count: 1, cpu: "1"},
+	}
+	groupedPodSetsUnchanged := []flavorassigner.PodSetAssignment{
+		{Name: "psA1", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+		{Name: "psA2", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+		{Name: "psB", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+	}
+
 	cases := map[string]struct {
 		// flavorQuotas are the ClusterQueue's flavors, in order. See newTestSnapshot.
 		flavorQuotas []kueue.FlavorQuotas
@@ -239,10 +315,13 @@ func TestPlan(t *testing.T) {
 		initialMode flavorassigner.FlavorAssignmentMode
 		// When set as Nil, ScheduleWorkload is expected not to be called.
 		schedulingResult *simulator.SchedulingResult
+		// failAddCPGAt and failAddPGAt make the N-th Add call fail, counting from 1. 0 means no failure.
+		failAddCPGAt, failAddPGAt int
+		removeErr                 error
 
 		wantMode        flavorassigner.FlavorAssignmentMode
 		wantFit         bool
-		wantErr         string
+		wantErrs        []string
 		wantNoFitReason string
 		// wantResolvedNoFitReason configures what should be the NoFitReason
 		// the Assignemtn resolves to when the UnadmittedWorkloadsObservability
@@ -250,6 +329,7 @@ func TestPlan(t *testing.T) {
 		// When set the UnadmittedWorkloadsObservability feature will be enabled in the test.
 		wantResolvedNoFitReason string
 		wantPodSets             []flavorassigner.PodSetAssignment
+		wantAdded               *addedPodGroups
 	}{
 		"initial assignment does not fit the quota: returned as is, without scheduling": {
 			flavorQuotas:            []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
@@ -273,7 +353,7 @@ func TestPlan(t *testing.T) {
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Preempt,
 			wantMode:     flavorassigner.Preempt,
-			wantErr:      "WAS Planner does not support preemptions",
+			wantErrs:     []string{"WAS Planner does not support preemptions"},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:   kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
@@ -290,7 +370,7 @@ func TestPlan(t *testing.T) {
 			initialMode:      flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{Error: errSchedule},
 			wantMode:         flavorassigner.Fit,
-			wantErr:          "failed to schedule workload: " + errSchedule.Error(),
+			wantErrs:         []string{"failed to schedule workload: " + errSchedule.Error()},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:                     kueue.DefaultPodSetName,
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
@@ -408,6 +488,7 @@ func TestPlan(t *testing.T) {
 					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 				},
 			},
+			wantAdded: &addedPodGroups{cpgs: 1, pgs: 2},
 		},
 		"multiple PodSets, one fails: the workload does not fit": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
@@ -505,6 +586,107 @@ func TestPlan(t *testing.T) {
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},
+		"first CompositePodGroup fails to be added: planning error, nothing to clean up": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 1,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add composite pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{},
+		},
+		"second CompositePodGroup fails to be added: planning error, the added one is removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 2,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add composite pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 1},
+		},
+		"first PodGroup fails to be added: planning error, all CompositePodGroups removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  1,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 2},
+		},
+		"last PodGroup fails to be added: planning error, all added groups removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  3,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 2, pgs: 2},
+		},
+		"PodGroup fails to be added and the groups fail to be removed: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  3,
+			removeErr:    errSimulator,
+			wantMode:     flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to add pod group",
+				"unable to remove pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: groupedPodSetsUnchanged,
+			wantAdded:   &addedPodGroups{cpgs: 2, pgs: 2},
+		},
+		"second CompositePodGroup fails to be added and the added one fails to be removed: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 2,
+			removeErr:    errSimulator,
+			wantMode:     flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to add composite pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: groupedPodSetsUnchanged,
+			wantAdded:   &addedPodGroups{cpgs: 1},
+		},
+		"groups fail to be removed after scheduling: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets: []testPodSet{
+				{name: "leader", count: 1, cpu: "1"},
+				{name: "workers", count: 2, cpu: "1"},
+			},
+			initialMode: flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey("leader", 0):  {Node: testNode2},
+				podKey("workers", 0): {Node: testNode1},
+				podKey("workers", 1): {Node: testNode1},
+			}},
+			removeErr: errSimulator,
+			wantMode:  flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to remove pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{
+					Name:                     "leader",
+					TopologyAssignment:       onNodes(domain(testNode2, 1)),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+				},
+				{
+					Name:                     "workers",
+					TopologyAssignment:       onNodes(domain(testNode1, 2)),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+				},
+			},
+			wantAdded: &addedPodGroups{cpgs: 1, pgs: 2},
+		},
 	}
 
 	for name, tc := range cases {
@@ -523,7 +705,12 @@ func TestPlan(t *testing.T) {
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
 			snapshot := newTestSnapshot(ctx, t, log, tc.flavorQuotas...)
-			testSim := &testSimulator{SchedulerSimulator: snapshot.SchedulerSimulator}
+			testSim := &testSimulator{
+				SchedulerSimulator: snapshot.SchedulerSimulator,
+				failAddCPGAt:       tc.failAddCPGAt,
+				failAddPGAt:        tc.failAddPGAt,
+				removeErr:          tc.removeErr,
+			}
 			if tc.schedulingResult != nil {
 				testSim.result = *tc.schedulingResult
 			}
@@ -535,10 +722,13 @@ func TestPlan(t *testing.T) {
 				if requiredLevel == "" {
 					requiredLevel = corev1.LabelHostname
 				}
-				podSets = append(podSets, *utiltestingapi.MakePodSet(ps.name, ps.count).
+				psWrapper := utiltestingapi.MakePodSet(ps.name, ps.count).
 					RequiredTopologyRequest(requiredLevel).
-					Request(corev1.ResourceCPU, ps.cpu).
-					Obj())
+					Request(corev1.ResourceCPU, ps.cpu)
+				if ps.podSetGroup != "" {
+					psWrapper.PodSetGroup(ps.podSetGroup)
+				}
+				podSets = append(podSets, *psWrapper.Obj())
 			}
 			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
 				Priority(incomingPriority).
@@ -577,15 +767,34 @@ func TestPlan(t *testing.T) {
 				t.Errorf("Plan() called ScheduleWorkload unexpected number of times: want %d, got %d", wantCalls, testSim.calls)
 			}
 			switch {
-			case tc.wantErr == "" && gotPlan.Error != nil:
+			case len(tc.wantErrs) == 0 && gotPlan.Error != nil:
 				t.Errorf("Plan() returned unexpected error: %v", gotPlan.Error)
-			case tc.wantErr != "" && gotPlan.Error == nil:
-				t.Errorf("Plan() did not return the expected error %q", tc.wantErr)
-			case tc.wantErr != "" && !strings.Contains(gotPlan.Error.Error(), tc.wantErr):
-				t.Errorf("Plan() error mismatch: want it to contain %q, got %q", tc.wantErr, gotPlan.Error.Error())
+			case len(tc.wantErrs) != 0 && gotPlan.Error == nil:
+				t.Errorf("Plan() did not return the expected errors %q", tc.wantErrs)
+			default:
+				for _, wantErr := range tc.wantErrs {
+					if !strings.Contains(gotPlan.Error.Error(), wantErr) {
+						t.Errorf("Plan() error mismatch: want it to contain %q, got %q", wantErr, gotPlan.Error.Error())
+					}
+				}
 			}
 			if tc.schedulingResult != nil && tc.schedulingResult.Error != nil && !errors.Is(gotPlan.Error, tc.schedulingResult.Error) {
 				t.Errorf("Plan() error does not wrap the ScheduleWorkload error: want %v, got %v", tc.schedulingResult.Error, gotPlan.Error)
+			}
+			if (tc.failAddCPGAt != 0 || tc.failAddPGAt != 0 || tc.removeErr != nil) && !errors.Is(gotPlan.Error, errSimulator) {
+				t.Errorf("Plan() error does not wrap the simulator error: want %v, got %v", errSimulator, gotPlan.Error)
+			}
+			if tc.wantAdded != nil {
+				gotAdded := addedPodGroups{cpgs: len(testSim.addedCPGs), pgs: len(testSim.addedPGs)}
+				if diff := cmp.Diff(*tc.wantAdded, gotAdded, cmp.AllowUnexported(addedPodGroups{})); diff != "" {
+					t.Errorf("Plan() added group mismatch (-want +got):\n%s", diff)
+				}
+			}
+			if diff := cmp.Diff(testSim.addedPGs, testSim.removedPGs); diff != "" {
+				t.Errorf("Plan() removed PodGroups mismatch (-added +removed):\n%s", diff)
+			}
+			if diff := cmp.Diff(testSim.addedCPGs, testSim.removedCPGs); diff != "" {
+				t.Errorf("Plan() removed CompositePodGroups mismatch (-added +removed):\n%s", diff)
 			}
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() assignment mode mismatch: want %v, got %v", tc.wantMode, gotMode)
@@ -615,5 +824,75 @@ func TestPlan(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TopologyAwareScheduling:         true,
+		features.SchedulerLibraryDeepIntegration: true,
+	})
+
+	log := testr.New(t)
+	ctx := ctrllog.IntoContext(t.Context(), log)
+	snapshot := newTestSnapshot(ctx, t, log, cpuQuota(testFlavor, "20"))
+	testSim := &testSimulator{SchedulerSimulator: snapshot.SchedulerSimulator}
+	snapshot.SchedulerSimulator = testSim
+
+	podSetGroup := "group1"
+	wlObj := utiltestingapi.MakeWorkload(incomingName, testNamespace).
+		PodSets(
+			*utiltestingapi.MakePodSet("ps1", 2).
+				PodSetGroup(podSetGroup).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			*utiltestingapi.MakePodSet("ps2", 2).
+				PodSetGroup(podSetGroup).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		).
+		Obj()
+	wl := workload.NewInfo(log, wlObj)
+	wl.ClusterQueue = testCQ
+
+	assigner := flavorassigner.New(
+		wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
+		nil, nil,
+		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+	)
+	assignment := assigner.AssignFlavors(ctx, log, nil)
+
+	planner := NewPlanner(wl, snapshot)
+	plan := planner.Plan(ctx, &assignment)
+	if plan.Error != nil {
+		t.Fatalf("Plan() unexpected error: %v", plan.Error)
+	}
+
+	// Verify CompositePodGroup was added and cleaned up
+	if len(testSim.addedCPGs) != 1 {
+		t.Errorf("expected 1 CompositePodGroup added, got %d", len(testSim.addedCPGs))
+	}
+	if len(testSim.removedCPGs) != 1 {
+		t.Errorf("expected 1 CompositePodGroup removed, got %d", len(testSim.removedCPGs))
+	}
+
+	// Verify PodGroups were added and cleaned up
+	if len(testSim.addedPGs) != 2 {
+		t.Errorf("expected 2 PodGroups added, got %d", len(testSim.addedPGs))
+	}
+	if len(testSim.removedPGs) != 2 {
+		t.Errorf("expected 2 PodGroups removed, got %d", len(testSim.removedPGs))
+	}
+
+	// Verify virtual pods were scheduled with leaf PodGroup references
+	if len(testSim.scheduledPods) != 4 {
+		t.Fatalf("expected 4 scheduled pods, got %d", len(testSim.scheduledPods))
+	}
+	for _, pod := range testSim.scheduledPods {
+		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil {
+			t.Errorf("pod %s has no SchedulingGroup.PodGroupName", pod.Name)
+		}
 	}
 }

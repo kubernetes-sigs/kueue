@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -75,6 +76,24 @@ type Assignment struct {
 	// ZeroCountFlavorFallback records why zero-count PodSets needed a flavor
 	// assignment without the capacity probe, for a warning after quota reservation.
 	ZeroCountFlavorFallback string
+}
+
+// FindTopologyAssignments accounts for the predecessor exactly once when placing
+// an elastic replacement. Its cached reservation must not also be counted by
+// elastic placement through PreviousAssignment.
+func (a *Assignment) FindTopologyAssignments(
+	ctx context.Context,
+	cq *schdcache.ClusterQueueSnapshot,
+	tasRequests schdcache.WorkloadTASRequests,
+	opts ...schdcache.FindTopologyAssignmentsOption,
+) schdcache.TASAssignmentsResult {
+	if features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) &&
+		cq.WorkloadUsageIsAccounted(a.replaceWorkloadSlice) {
+		predecessor := cq.Workloads[workload.Key(a.replaceWorkloadSlice.Obj)]
+		restore := cq.SimulateUsageRemoval(workload.Usage{TAS: predecessor.TASUsage()})
+		defer restore()
+	}
+	return cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, opts...)
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
@@ -262,7 +281,17 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
+func (a *Assignment) ToAPI(log logr.Logger, wl *kueue.Workload) []kueue.PodSetAssignment {
+	if workload.NeedsSecondPass(wl) {
+		result := wl.Status.Admission.DeepCopy().PodSetAssignments
+		for i := range result {
+			if psa := a.PodSetAssignmentByName(result[i].Name); psa != nil {
+				result[i].TopologyAssignment = tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log))
+				result[i].DelayedTopologyRequest = psa.DelayedTopologyRequest
+			}
+		}
+		return result
+	}
 	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
 		psFlavors[i] = a.PodSets[i].toAPI(log)
@@ -310,7 +339,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 				return
 			}
 			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && psAssignment.Flavors[res] == nil {
-				log.V(3).Info("Skipping usage count for resource with undefined flavor", "res", res)
+				log.V(5).Info("Skipping usage count for resource with undefined flavor", "resource", res)
 				return
 			}
 			flv := psAssignment.Flavors[res].Name
