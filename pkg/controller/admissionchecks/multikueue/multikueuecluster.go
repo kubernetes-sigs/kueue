@@ -282,7 +282,7 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 		return nil, err
 	}
 
-	if !features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	if !features.Enabled(features.MultiKueueCapacityProvider) {
 		return NewNeverCachingClient(directClient), nil
 	}
 
@@ -412,7 +412,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	if features.Enabled(features.MultiKueueCapacityProvider) {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
 			return rc.increaseFailedConnAttempt(), err
 		}
@@ -571,7 +571,9 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		UpdateFunc: func(oldObj, newObj any) {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
-			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
+			// The MultiKueue CapacityProvider reads status.effectiveQuotas of the worker ClusterQueues when it is present.
+			if ok1 && ok2 && (!equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) ||
+				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},
