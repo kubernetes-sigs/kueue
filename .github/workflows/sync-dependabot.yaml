@@ -1,4 +1,6 @@
-# This workflow syncs dependency versions for Dependabot PRs
+  # This workflow regenerates files that depend on versions bumped by Dependabot.
+  # It runs the PR's code, so it has no write access: the generated changes are
+  # uploaded as patches and pushed by sync-dependabot-push.yaml.
 name: Dependabot Version Sync
 
 on:
@@ -18,38 +20,38 @@ jobs:
 
         concurrency:
           group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+          cancel-in-progress: true
 
         # Permission required to edit a PR
         permissions:
-          contents: write
+          contents: read
 
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with: 
-                ref: ${{github.head_ref}}
-            - name: Set git user from last commit
-              run: |
-                git config user.name "$(git log -1 --pretty=%an)"
-                git config user.email "$(git log -1 --pretty=%ae)"
+                ref: ${{ github.event.pull_request.head.sha }}
+                persist-credentials: false
+            - name: Create patch directory
+              run: mkdir -p "$RUNNER_TEMP/patches"
             - name: Sync hugo version
               if: ${{ contains(github.event.pull_request.title, 'hugo') }}
               run: |
                 make sync-hugo-version
-                if ! git diff --exit-code; then
-                  git add .
-                  git commit -m "Sync hugo version"
-                  git push
-                else
-                  echo "No changes to commit"
-                fi
+                git add -A
+                git diff --cached --no-ext-diff --no-textconv > "$RUNNER_TEMP/patches/hugo.patch"
+                git reset -q --hard
             - name: Sync controller-tools version
               if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
               run: |
                 make manifests update-helm
-                if ! git diff --exit-code; then
-                  git add .
-                  git commit -m "Sync controller-tools version"
-                  git push
-                else
-                  echo "No changes to commit"
-                fi
+                git add -A
+                git diff --cached --no-ext-diff --no-textconv > "$RUNNER_TEMP/patches/controller-tools.patch"
+                git reset -q --hard
+            - name: Drop empty patches
+              run: find "$RUNNER_TEMP/patches" -type f -empty -delete
+            - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                name: dependabot-sync-patches
+                path: ${{ runner.temp }}/patches
+                if-no-files-found: ignore
+                retention-days: 1
