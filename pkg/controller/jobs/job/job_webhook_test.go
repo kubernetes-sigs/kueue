@@ -1359,6 +1359,7 @@ func TestDefault(t *testing.T) {
 		featureGates               map[featuregate.Feature]bool
 		defaultLqExist             bool
 		enableIntegrations         []string
+		externalFrameworks         []string
 		namespaceExcluded          bool
 		want                       *batchv1.Job
 		wantErr                    error
@@ -1411,6 +1412,18 @@ func TestDefault(t *testing.T) {
 			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").Queue("parent-queue").Obj()},
 			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
 			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+		},
+		"submitter of an externally managed RayJob remains a child job": {
+			enableIntegrations: []string{FrameworkName},
+			externalFrameworks: []string{"RayJob.v1.ray.io"},
+			defaultLqExist:     true,
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			objs: []runtime.Object{
+				testingrayjob.MakeJob("owner", "default").UID("owner").Queue("parent-queue").Obj(),
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			job:  testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
 		},
 		"update the suspend field 'manageJobsWithoutQueueName=true'": {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
@@ -1565,6 +1578,7 @@ func TestDefault(t *testing.T) {
 			}
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			t.Cleanup(integrationManager.EnableExternalIntegrationsForTest(t, tc.externalFrameworks...))
 			w := &JobWebhook{
 				integrationManager:           integrationManager,
 				client:                       cl,

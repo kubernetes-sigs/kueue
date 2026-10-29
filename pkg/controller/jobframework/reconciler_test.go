@@ -1640,6 +1640,19 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			job:          testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
 			wantManaged:  testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").Obj(),
 		},
+		"Job -> RayJob (external framework, queue-name) => RayJob": {
+			externalFrameworks: []string{"RayJob.v1.ray.io"},
+			ancestors:          []client.Object{testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").Obj()},
+			job:                testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+			wantManaged: &metav1.PartialObjectMetadata{
+				APIVersion: rayv1.GroupVersion.String(),
+				Kind:       "RayJob",
+				Name:       "rayjob",
+				Namespace:  jobNamespace,
+				UID:        "rayjob",
+				Labels:     map[string]string{constants.QueueLabel: "test-q"},
+			},
+		},
 		"child job has ownerReference with unmanaged workload owner that has a queue-name": {
 			ancestors: []client.Object{cronJobWithQueueNameLabel.DeepCopy()},
 			job: testingjob.MakeJob(childJobName, jobNamespace).

@@ -1067,7 +1067,11 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := m.GetEmptyOwnerObject(owner)
+		integration := m.getIntegrationForOwner(owner)
+		var parentObj client.Object
+		if integration.JobType != nil {
+			parentObj = integration.JobType.DeepCopyObject().(client.Object)
+		}
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
@@ -1088,11 +1092,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 			)
 			return topLevelJob, nil
 		}
-		if managed {
-			integration, _ := m.GetIntegrationByGVK(schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
-			if integration.IsManagingObjectsOwner != nil && !integration.IsManagingObjectsOwner(parentObj) {
-				return topLevelJob, nil
-			}
+		if managed && integration.IsManagingObjectsOwner != nil && !integration.IsManagingObjectsOwner(parentObj) {
+			return topLevelJob, nil
 		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
