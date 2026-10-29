@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -767,6 +768,147 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 				if diff := cmp.Diff(*tc.wantWeightedShareMetric, dps[0].Value, cmpopts.EquateNaNs()); diff != "" {
 					t.Errorf("unexpected CohortWeightedShare metric value (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+type cohortUpdateRecorder struct {
+	updates []*kueue.Cohort
+}
+
+func (w *cohortUpdateRecorder) NotifyCohortUpdate(_, newCohort *kueue.Cohort) {
+	w.updates = append(w.updates, newCohort)
+}
+
+// The Cohort reconciler notifies its ClusterQueues when the Cohort changes
+// spec or quotas, and, with fair sharing, when a ClusterQueue under it is
+// created, deleted or changes spec or quotas. It does not when a ClusterQueue
+// only wrote its status: the ClusterQueues' own status writes would otherwise
+// requeue the Cohort and the Cohort would reconcile them all again, forever.
+func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
+	// Notifications after each step, with fair sharing off and on.
+	steps := []struct {
+		name    string
+		wantOff int
+		wantOn  int
+	}{
+		{"cohort created", 1, 1},
+		{"cohort requeued", 1, 1},
+		{"clusterqueue status write", 1, 1},
+		{"clusterqueue quota change", 1, 2},
+		{"clusterqueue created", 1, 3},
+		{"clusterqueue deleted", 1, 4},
+		{"clusterqueue moved", 1, 5},
+		{"cohort status write", 1, 5},
+		{"cohort quota change", 2, 6},
+		{"cohort deleted", 3, 7},
+	}
+	for name, fairSharing := range map[string]bool{"fair sharing off": false, "fair sharing on": true} {
+		t.Run(name, func(t *testing.T) {
+			cohort := utiltestingapi.MakeCohort("cohort").Parent("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(cohort, cq).WithStatusSubresource(cohort).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("unexpected error adding ClusterQueue to cache: %v", err)
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("other").Parent("root").Obj()); err != nil {
+				t.Fatalf("unexpected error adding Cohort to cache: %v", err)
+			}
+			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithFairSharing(fairSharing))
+			recorder := &cohortUpdateRecorder{}
+			reconciler.AddUpdateWatcher(recorder)
+			cqHandler := &cohortCqHandler{reconciler: reconciler}
+			queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
+
+			want := func(step string) int {
+				t.Helper()
+				for _, s := range steps {
+					if s.name == step {
+						if fairSharing {
+							return s.wantOn
+						}
+						return s.wantOff
+					}
+				}
+				t.Fatalf("unknown step %q", step)
+				return 0
+			}
+			runReconcile := func(step string) {
+				t.Helper()
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+					t.Fatalf("%s: unexpected error reconciling cohort: %v", step, err)
+				}
+				if got := len(recorder.updates); got != want(step) {
+					t.Fatalf("%s: ClusterQueues notified %d times, want %d", step, got, want(step))
+				}
+			}
+			forwardClusterQueue := func(step string, oldCQ, newCQ *kueue.ClusterQueue, wantRequeued ...kueue.CohortReference) {
+				t.Helper()
+				cqHandler.Generic(ctx, event.TypedGenericEvent[clusterQueueUpdate]{Object: clusterQueueUpdate{oldCQ: oldCQ, newCQ: newCQ}}, queue)
+				requeued := make([]kueue.CohortReference, 0, queue.Len())
+				for queue.Len() > 0 {
+					item, _ := queue.Get()
+					queue.Done(item)
+					requeued = append(requeued, kueue.CohortReference(item.Name))
+				}
+				if diff := cmp.Diff(wantRequeued, requeued, cmpopts.SortSlices(func(a, b kueue.CohortReference) bool { return a < b })); diff != "" {
+					t.Fatalf("%s: unexpected Cohorts requeued (-want/+got)\n%s", step, diff)
+				}
+			}
+
+			if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
+				t.Fatal("cohort create event was filtered out")
+			}
+			runReconcile("cohort created")
+			runReconcile("cohort requeued")
+
+			cqWithStatus := cq.DeepCopy()
+			cqWithStatus.Status.AdmittedWorkloads = 1
+			forwardClusterQueue("clusterqueue status write", cq, cqWithStatus, "cohort")
+			runReconcile("clusterqueue status write")
+
+			cqWithQuota := cq.DeepCopy()
+			cqWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+			forwardClusterQueue("clusterqueue quota change", cq, cqWithQuota, "cohort")
+			runReconcile("clusterqueue quota change")
+
+			forwardClusterQueue("clusterqueue created", nil, cq, "cohort")
+			runReconcile("clusterqueue created")
+			forwardClusterQueue("clusterqueue deleted", cq, nil, "cohort")
+			runReconcile("clusterqueue deleted")
+
+			cqMoved := cq.DeepCopy()
+			cqMoved.Spec.CohortName = "other"
+			forwardClusterQueue("clusterqueue moved", cq, cqMoved, "other", "cohort")
+			runReconcile("clusterqueue moved")
+
+			cohortWithStatus := cohort.DeepCopy()
+			cohortWithStatus.Status.FairSharing = &kueue.FairSharingStatus{WeightedShare: 1}
+			if reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithStatus}) {
+				t.Fatal("cohort status-only update event was not filtered out")
+			}
+			runReconcile("cohort status write")
+
+			cohortWithQuota := cohort.DeepCopy()
+			cohortWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("20")
+			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithQuota}) {
+				t.Fatal("cohort quota update event was filtered out")
+			}
+			runReconcile("cohort quota change")
+
+			if err := cl.Delete(ctx, cohort); err != nil {
+				t.Fatalf("unexpected error deleting cohort: %v", err)
+			}
+			runReconcile("cohort deleted")
+			if recorder.updates[len(recorder.updates)-1] != nil {
+				t.Fatal("cohort deletion was not notified as a deletion")
 			}
 		})
 	}
