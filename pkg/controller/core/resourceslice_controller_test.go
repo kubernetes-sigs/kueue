@@ -25,6 +25,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -219,7 +220,7 @@ func TestResourceSliceReconcileRetriesOnlyAffectedDriver(t *testing.T) {
 			}
 			for _, head := range heads {
 				if !queues.RequeueWorkload(ctx, &head.Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota) {
-					t.Fatalf("could not make workload %s inadmissible", head.Obj.Name)
+					t.Fatalf("could not make workload %s inadmissible", head.Info.Obj.Name)
 				}
 			}
 
