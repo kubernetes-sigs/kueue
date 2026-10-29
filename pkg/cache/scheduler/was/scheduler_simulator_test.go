@@ -45,6 +45,7 @@ import (
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
+	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1872,5 +1873,50 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 	wantErr = errors.New("composite pod group compositepodgroup/default/cpg not found in snapshot")
 	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
 		t.Errorf("second RemoveCompositePodGroup() unexpected error (-want,+got):\n%s", diff)
+	}
+}
+
+func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	kubeClient := fake.NewSimpleClientset()
+	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
+	_ = informerFactory.Core().V1().Nodes().Informer()
+	_ = informerFactory.Core().V1().Pods().Informer()
+	cfg := newWASSchedulerConfig()
+	comps, err := upstreamsync.NewFrameworkComponents(ctx, kubeClient, informerFactory,
+		upstreamsync.WithProfiles(cfg.Profiles...))
+	if err != nil {
+		t.Fatalf("NewFrameworkComponents failed: %v", err)
+	}
+	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, cache.NewEmptySnapshot())
+	if err != nil {
+		t.Fatalf("NewFrameworkMap failed: %v", err)
+	}
+
+	pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+	schedFwk, err := profiles.FrameworkForPod(pod)
+	if err != nil {
+		t.Fatalf("FrameworkForPod failed: %v", err)
+	}
+
+	pgInfo := &k8sframework.PodGroupInfo{
+		PodGroup: &schedulingv1beta1.PodGroup{
+			Spec: schedulingv1beta1.PodGroupSpec{
+				SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+					Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 2},
+				},
+			},
+		},
+	}
+
+	// Fewer pods than MinCount (1 < 2) must be rejected
+	status := schedFwk.RunPlacementFeasiblePlugins(ctx, k8sframework.NewCycleState(), pgInfo, k8sframework.PlacementProgress{
+		Remaining: 1,
+		Scheduled: 0,
+	})
+	if status.Code() != fwk.Unschedulable {
+		t.Errorf("RunPlacementFeasiblePlugins status = %v, want %v", status.Code(), fwk.Unschedulable)
 	}
 }
