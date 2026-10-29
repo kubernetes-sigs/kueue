@@ -40,11 +40,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -1915,7 +1917,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController))
+		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -1959,6 +1961,97 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 	ginkgo.AfterEach(func() {
 		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("A StatefulSet mounts a volumeClaimTemplate", func() {
+		ginkgo.It("Should create the ProvisioningRequest although the pod template has no volume for the mount", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			ginkgo.By("submit a StatefulSet whose container mounts a volumeClaimTemplate", func() {
+				// The API server accepts the mount without a matching volume in the pod template:
+				// StatefulSet validation adds the volumeClaimTemplate volumes only to a copy, and
+				// the StatefulSet controller adds them to each Pod it creates.
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+					Queue(lq.Name).
+					Replicas(1).
+					Request(corev1.ResourceCPU, "500m").
+					VolumeMount(corev1.VolumeMount{Name: "state", MountPath: "/state"}).
+					VolumeClaimTemplate(corev1.PersistentVolumeClaim{
+						Name: "state",
+						Spec: corev1.PersistentVolumeClaimSpec{
+							AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+							Resources: corev1.VolumeResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					}).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sts, true)
+				})
+				wl1Key = types.NamespacedName{Name: workloadstatefulset.GetWorkloadName(sts.UID, sts.Name), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for the workload to have QuotaReserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the PodTemplate has a placeholder volume while the Workload does not", func() {
+				stateMount := gomega.HaveField("VolumeMounts", gomega.ConsistOf(gomega.And(
+					gomega.HaveField("Name", "state"),
+					gomega.HaveField("MountPath", "/state"),
+				)))
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				createdTemplate := &corev1.PodTemplate{}
+				templateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}
+				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
+				gomega.Expect(createdTemplate.Template.Spec.Volumes).To(gomega.ConsistOf(
+					gomega.And(
+						gomega.HaveField("Name", "state"),
+						gomega.HaveField("EmptyDir", gomega.Not(gomega.BeNil())),
+					),
+				))
+
+				gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+				gomega.Expect(wlObj.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Volumes).To(gomega.BeEmpty())
+			})
+		})
 	})
 
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
