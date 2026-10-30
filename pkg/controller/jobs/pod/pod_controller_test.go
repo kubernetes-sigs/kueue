@@ -1559,11 +1559,10 @@ func podWithSidecar(name, roleHash, cpu string) *corev1.Pod {
 		Request(corev1.ResourceCPU, "1").
 		RoleHash(roleHash).
 		Obj()
-	always := corev1.ContainerRestartPolicyAlways
 	pod.Spec.InitContainers = []corev1.Container{{
 		Name:          "sidecar",
 		Image:         pod.Spec.Containers[0].Image,
-		RestartPolicy: &always,
+		RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)},
 		},
@@ -7069,8 +7068,7 @@ func TestReconciler(t *testing.T) {
 			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
 			initObjects: []client.Object{func() *appsv1.StatefulSet {
 				owner := emptyGroupOwner.DeepCopy()
-				deletionTimestamp := metav1.NewTime(now)
-				owner.DeletionTimestamp = &deletionTimestamp
+				owner.DeletionTimestamp = new(metav1.NewTime(now))
 				owner.Finalizers = []string{"test-finalizer"}
 				return owner
 			}()},

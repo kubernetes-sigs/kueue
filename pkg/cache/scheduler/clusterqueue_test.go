@@ -113,7 +113,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	newClusterQueue :=
-		*utiltestingapi.MakeClusterQueue("eng-alpha").
+		utiltestingapi.MakeClusterQueue("eng-alpha").
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
@@ -142,7 +142,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 		{
 			name:                              "RGs changed",
 			cq:                                &clusterQueue,
-			newcq:                             &newClusterQueue,
+			newcq:                             newClusterQueue,
 			wantAllocatableResourceGeneration: 2,
 		},
 	}

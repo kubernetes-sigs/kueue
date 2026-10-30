@@ -137,8 +137,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		ginkgo.By("adding a second worker group")
 		secondWorker := testRayCluster.Spec.WorkerGroupSpecs[0].DeepCopy()
 		secondWorker.GroupName = "workers-group-1"
-		secondWorkerReplicas := int32(2)
-		secondWorker.Replicas = &secondWorkerReplicas
+		secondWorker.Replicas = new(int32(2))
 		testRayCluster.Spec.WorkerGroupSpecs = append(testRayCluster.Spec.WorkerGroupSpecs, *secondWorker)
 
 		ginkgo.By("creating the elastic RayCluster with the partial scale-up strategy")
