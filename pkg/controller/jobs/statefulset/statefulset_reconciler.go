@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -359,17 +360,32 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	if waitForPodsReadyUpdated {
 		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
 	}
+
+	var priorityErr error
+	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; !isMultiKueueRemote {
+		priorityErr = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl)
+	}
+
+	// Putting the workload on hold at scale-down is independent of the priority
+	// result: the workload is leaving admission either way.
 	if shouldPutOnHold {
 		hasActivePods, recheckAfter, err := r.hasActiveOwnedPods(ctx, sts, time.Now())
 		if err != nil {
-			return 0, err
+			return 0, errors.Join(priorityErr, err)
 		}
 		if hasActivePods {
 			ctrl.LoggerFrom(ctx).V(4).Info("Waiting for active StatefulSet Pods before putting Workload on hold",
 				"statefulSet", klog.KObj(sts), "workload", klog.KObj(wl))
-			return recheckAfter, nil
+			return recheckAfter, priorityErr
 		}
-		return 0, r.putWorkloadOnHold(ctx, wl)
+		return 0, errors.Join(priorityErr, r.putWorkloadOnHold(ctx, wl))
+	}
+
+	// Scale-up must wait: clearing OnHold after a failed priority sync would
+	// send the workload back into admission carrying the old priority, and the
+	// retry cannot repair it because the hold is already gone.
+	if priorityErr != nil {
+		return 0, priorityErr
 	}
 
 	if shouldClearOnHold {
