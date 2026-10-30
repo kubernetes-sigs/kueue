@@ -42,8 +42,6 @@ const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
-var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
-
 var (
 	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
 	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
@@ -187,7 +185,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
-	scheduleOpts, err := simulator.BuildScheduleOptions(opts)
+	scheduleOpts, err := simulator.BuildScheduleOptions(opts...)
 	if err != nil {
 		return simulator.SchedulingResult{Error: fmt.Errorf("ScheduleWorkload() error when processing ScheduleOptions: %w", err)}
 	}

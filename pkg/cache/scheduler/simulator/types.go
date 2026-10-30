@@ -17,13 +17,11 @@ limitations under the License.
 package simulator
 
 import (
-	"fmt"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -111,15 +109,12 @@ type ScheduleOptions struct {
 type ScheduleOption func(*ScheduleOptions)
 
 // BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
-func BuildScheduleOptions(options []ScheduleOption) (*ScheduleOptions, error) {
+func BuildScheduleOptions(options ...ScheduleOption) (*ScheduleOptions, error) {
 	opts := &ScheduleOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(opts)
 		}
-	}
-	if err := validateCommittedVictims(opts); err != nil {
-		return nil, err
 	}
 	return opts, nil
 }
@@ -149,24 +144,14 @@ func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 	}
 }
 
+// WithCommittedPreemptionVictims configures the simulator to recognize Pods that
+// are still running on the cluster but are meant for preemption.
+// Takes the ObjectKeys representing Victim Workloads as input.
+// All Workloads listed as input must be absent from the ScheduleSimulator's cache.
 func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
 	return func(opts *ScheduleOptions) {
 		opts.CommittedPreemptionVictims = targets
 	}
-}
-
-func validateCommittedVictims(o *ScheduleOptions) error {
-	if len(o.CommittedPreemptionVictims) == 0 {
-		return nil
-	}
-	present := sets.New[client.ObjectKey]()
-	for _, t := range o.CommittedPreemptionVictims {
-		if present.Has(t) {
-			return fmt.Errorf("committed preemption target listed twice: %s", t)
-		}
-		present.Insert(t)
-	}
-	return nil
 }
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.

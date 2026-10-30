@@ -1328,6 +1328,93 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
 		},
+		"duplicate names are de-duplicated": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("victim1-pod", ns).
+					UID("victim1-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+				testingpod.MakePod("victim2-pod", ns).
+					UID("victim2-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim2").
+					NodeName("node2").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
+			pods: []*corev1.Pod{
+				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
+				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
+			},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("victim2"), key("victim1"), key("no-pod-workload")}),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node1"},
+				key("p2"): {Node: "node2"},
+			},
+			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
+		},
+		"committed victims are used before potential victims": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("victim1-pod", ns).
+					UID("victim1-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("victim2-pod", ns).
+					UID("victim2-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim2").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("candidate1-pod", ns).
+					UID("candidate1-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "candidate1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("candidate2-pod", ns).
+					UID("candidate2-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "candidate2").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("blocker-pod", ns).
+					UID("blocker-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "blocker").
+					NodeName("node2").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", ns).
+					UID("p1-uid").
+					Request(corev1.ResourceCPU, "3").
+					SchedulingGroup("pg").
+					NodeSelector(corev1.LabelHostname, "node1").
+					Obj(),
+			},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("no-pod-workload")}),
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("candidate1"), key("candidate2")})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node1"},
+			},
+			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2"), key("candidate1")},
+		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("blocker", ns).
@@ -1374,17 +1461,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Reasons: []string{FailedReasonSkipped}},
 				key("p2"): {Reasons: []string{FailedReasonSkipped}},
 			},
-		},
-		"error on misconfigured options": {
-			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
-			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
-			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("duplicate-name"), key("duplicate-name")}),
-			},
-			wantError: fmt.Errorf(
-				"ScheduleWorkload() error when processing ScheduleOptions: %w",
-				errors.New("committed preemption target listed twice: default/duplicate-name"),
-			),
 		},
 		"preemption: pod fits on node after preempting candidate workload": {
 			existingPods: []*corev1.Pod{
@@ -1645,7 +1721,7 @@ func TestScheduleWorkload(t *testing.T) {
 			// the first call must not leave its Pods on the nodes, nor keep the
 			// committed targets released.
 			for attempt := range 2 {
-				if opts, _ := simulator.BuildScheduleOptions(tc.scheduleOpts); opts != nil && opts.PreemptionFilter != nil {
+				if opts, _ := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
 					opts.PreemptionFilter.(*fakePreemptionFilter).preempted.Clear()
 				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)

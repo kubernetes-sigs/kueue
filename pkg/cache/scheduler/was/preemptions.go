@@ -19,9 +19,7 @@ limitations under the License.
 package was
 
 import (
-	"cmp"
 	"iter"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -68,24 +66,24 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey], c
 }
 
 func (s *wasSimulator) committedVictims(victimWorkloads []client.ObjectKey) []schedlib.PreemptionVictim {
-	cv := make([]*preemptionVictim, 0)
+	if len(victimWorkloads) == 0 {
+		return nil
+	}
+	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
+	present := sets.New[client.ObjectKey]()
 	for _, preemptedWlKey := range victimWorkloads {
-		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); victimPods != nil {
+		if present.Has(preemptedWlKey) {
+			continue
+		}
+		present.Insert(preemptedWlKey)
+		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
 				wlKey: preemptedWlKey,
 				pods:  victimPods,
 			})
 		}
 	}
-	slices.SortFunc(cv, func(a, b *preemptionVictim) int {
-		return cmp.Compare(a.wlKey.String(), b.wlKey.String())
-	})
-
-	pv := make([]schedlib.PreemptionVictim, len(cv))
-	for i, v := range cv {
-		pv[i] = v
-	}
-	return pv
+	return cv
 }
 
 func toPreemptionVictims(victims []schedlib.PreemptionVictim) []client.ObjectKey {
