@@ -40,10 +40,12 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
@@ -525,6 +527,124 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(remotePointer(g, rayClusterKey)).To(gomega.Equal(replacementSliceKey.Name))
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should stop a remote RayCluster when its replacement slice is evicted before the worker admits it", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
+
+		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
+			return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+				utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+				utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(workerCount).Obj(),
+			)
+		}
+
+		rayCluster := testingraycluster.MakeCluster("autoscaling-raycluster-evicted", f.managerNs.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(f.managerLq.Name).
+			WithEnableAutoscaling(new(true)).
+			FirstWorkerGroupReplicas(1, 1, 5).
+			Obj()
+		rayClusterKey := client.ObjectKeyFromObject(rayCluster)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayCluster)
+
+		var originWorkload *kueue.Workload
+		var originSliceKey types.NamespacedName
+		ginkgo.By("admitting the initial RayCluster slice on worker2", func() {
+			originWorkload = &behavioral.ExpectWorkloadsInNamespace(managerTestCluster.ctx, managerTestCluster.client, rayCluster.Namespace, 1)[0]
+			originSliceKey = client.ObjectKeyFromObject(originWorkload)
+			admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, originSliceKey, admission(1))
+		})
+
+		// This suite does not run KubeRay, so the RayCluster state is emulated. A ready
+		// manager RayCluster is active, so the manager keeps the quota of an evicted slice
+		// until the worker stops the RayCluster.
+		setRemoteState := func(state rayv1.ClusterState) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remote := &rayv1.RayCluster{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, remote)).To(gomega.Succeed())
+				remote.Status.State = state
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, remote)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		ginkgo.By("marking the RayCluster ready on worker2", func() {
+			setRemoteState(rayv1.Ready)
+			gomega.Eventually(func(g gomega.Gomega) {
+				local := &rayv1.RayCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, rayClusterKey, local)).To(gomega.Succeed())
+				g.Expect(local.Status.State).To(gomega.Equal(rayv1.Ready))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("autoscaling the RayCluster on worker2 to create a replacement slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remote := &rayv1.RayCluster{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, remote)).To(gomega.Succeed())
+				remote.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, remote)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// The replacement slice is not admitted on worker2, as when the worker ClusterQueue
+		// lacks quota for it.
+		var replacementSliceKey types.NamespacedName
+		ginkgo.By("emulating the scheduler admitting the replacement slice on the manager cluster only", func() {
+			replacementSliceKey = client.ObjectKeyFromObject(behavioral.ExpectNewWorkloadSlice(managerTestCluster.ctx, managerTestCluster.client, originWorkload))
+			originSlice := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, originSliceKey, originSlice)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				replacement.Status.ClusterName = originSlice.Status.ClusterName
+				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, replacement)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey, admission(2).Obj())
+		})
+
+		ginkgo.By("observing the replacement slice pending on worker2 and the origin slice finished on the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(replacement.Status.Admission).To(gomega.BeNil())
+				originSlice := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, originSliceKey, originSlice)).To(gomega.Succeed())
+				g.Expect(workloadslicing.IsReplaced(originSlice.Status)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evicting the replacement slice on the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(workload.SetConditionAndUpdate(managerTestCluster.ctx, managerTestCluster.client, replacement, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", behavioral.RealClock)).
+					To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observing the replacement slice deactivated and the RayCluster repointed onto it and suspended on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(replacement.Spec.Active).To(gomega.Equal(new(false)))
+				g.Expect(replacement.Status.Admission).To(gomega.BeNil())
+				remote := &rayv1.RayCluster{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, remote)).To(gomega.Succeed())
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remote)).To(gomega.Equal(replacementSliceKey.Name))
+				g.Expect(remote.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("marking the RayCluster suspended on worker2, the manager releases the quota and removes the remote objects", func() {
+			setRemoteState(rayv1.Suspended)
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(replacement)).To(gomega.BeFalse())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, rayClusterKey, &rayv1.RayCluster{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
