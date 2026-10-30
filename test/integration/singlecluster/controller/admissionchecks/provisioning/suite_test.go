@@ -19,9 +19,11 @@ package provisioning
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -80,6 +82,7 @@ type managerSetupOpts struct {
 	runJobController         bool
 	runStatefulSetController bool
 	runPodController         bool
+	objectRetentionPolicies  *config.ObjectRetentionPolicies
 }
 
 type managerSetupOption func(*managerSetupOpts)
@@ -100,6 +103,16 @@ func runStatefulSetController(opts *managerSetupOpts) {
 	opts.runStatefulSetController = true
 }
 
+func withWorkloadRetention(afterFinished time.Duration) managerSetupOption {
+	return func(opts *managerSetupOpts) {
+		opts.objectRetentionPolicies = &config.ObjectRetentionPolicies{
+			Workloads: &config.WorkloadRetentionPolicy{
+				AfterFinished: &metav1.Duration{Duration: afterFinished},
+			},
+		}
+	}
+}
+
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
@@ -118,7 +131,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-		controllersCfg := &config.Configuration{}
+		controllersCfg := &config.Configuration{ObjectRetentionPolicies: opts.objectRetentionPolicies}
 		mgr.GetScheme().Default(controllersCfg)
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true

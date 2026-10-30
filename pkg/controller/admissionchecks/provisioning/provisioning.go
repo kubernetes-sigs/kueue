@@ -52,11 +52,11 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityRevoked)
 }
 
-// hasLiveBooking reports whether the autoscaler still honours the request's
+// HasLiveBooking reports whether the autoscaler still honours the request's
 // booking: it is Provisioned and not Failed, BookingExpired or CapacityRevoked.
 // Only such a request can have pods bound to it that are still waiting for
 // the capacity it triggered.
-func hasLiveBooking(pr *autoscaling.ProvisioningRequest) bool {
+func HasLiveBooking(pr *autoscaling.ProvisioningRequest) bool {
 	return isProvisioned(pr) && !isFailed(pr) && !isBookingExpired(pr) && !isCapacityRevoked(pr)
 }
 
