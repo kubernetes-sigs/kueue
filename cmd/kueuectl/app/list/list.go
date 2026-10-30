@@ -26,9 +26,9 @@ import (
 )
 
 var (
-	listLong = templates.LongDesc(`
+	listLong = listLongDesc(`
 		List Kueue resources and Pods.
-	`) + "\n\n" + listRequestLimitDescription
+	`)
 	listExample = templates.Examples(`
 		# List LocalQueue
   		kueuectl list localqueue

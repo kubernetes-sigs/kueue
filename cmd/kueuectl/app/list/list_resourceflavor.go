@@ -34,9 +34,9 @@ import (
 )
 
 var (
-	rfLong = templates.LongDesc(`
+	rfLong = listLongDesc(`
 		Lists ResourceFlavors that match the given criteria.
-	`) + "\n\n" + listRequestLimitDescription
+	`)
 	rfExample = templates.Examples(`
 		# List ResourceFlavor
 		kueuectl list resourceflavor
