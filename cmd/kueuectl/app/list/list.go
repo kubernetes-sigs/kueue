@@ -26,6 +26,9 @@ import (
 )
 
 var (
+	listLong = templates.LongDesc(`
+		List Kueue resources and Pods.
+	`) + "\n\n" + listRequestLimitDescription
 	listExample = templates.Examples(`
 		# List LocalQueue
   		kueuectl list localqueue
@@ -36,6 +39,7 @@ func NewListCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions
 	cmd := &cobra.Command{
 		Use:        "list",
 		Short:      "Display resources",
+		Long:       listLong,
 		Example:    listExample,
 		SuggestFor: []string{"ps"},
 	}
