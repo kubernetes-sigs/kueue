@@ -106,9 +106,9 @@ const Workloads = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {Object.entries(workloadsByNamespace).map(([namespace, workloads]) => (
+              {Object.entries(workloadsByNamespace).flatMap(([namespace, workloads]) => (
                 workloads.map((workload, index) => (
-                  <TableRow key={workload.metadata.name}>
+                  <TableRow key={`${namespace}/${workload.metadata.name}`}>
                     {index === 0 && (
                       <TableCell rowSpan={workloads.length}>
                         {namespace}
