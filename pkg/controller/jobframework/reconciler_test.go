@@ -119,7 +119,7 @@ func TestReconcileGenericJob(t *testing.T) {
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
 	runningPrebuiltJobWithRuntimeClass := baseJob.Clone().Suspend(false).Active(1).PrebuiltWorkloadLabel("job-test-job-1")
-	runningPrebuiltJobWithRuntimeClass.Spec.Template.Spec.RuntimeClassName = ptr.To("kata")
+	runningPrebuiltJobWithRuntimeClass.Spec.Template.Spec.RuntimeClassName = new("kata")
 	runningAdmittedPrebuiltWorkload := baseWl.Clone().Name("job-test-job-1").
 		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("default-cq").
@@ -1483,14 +1483,14 @@ func TestEquivalentToWorkload(t *testing.T) {
 		).Obj(), time.Now().Truncate(time.Hour)).
 		AdmittedAt(true, time.Now().Truncate(time.Hour))
 	runtimeClassJob := baseJob()
-	runtimeClassJob.Spec.Template.Spec.RuntimeClassName = ptr.To("kata")
-	runtimeClassJob.Spec.Suspend = ptr.To(true)
+	runtimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runtimeClassJob.Spec.Suspend = new(true)
 	runningRuntimeClassJob := baseJob()
-	runningRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = ptr.To("kata")
-	runningRuntimeClassJob.Spec.Suspend = ptr.To(false)
+	runningRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runningRuntimeClassJob.Spec.Suspend = new(false)
 	stoppingRuntimeClassJob := baseJob()
-	stoppingRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = ptr.To("kata")
-	stoppingRuntimeClassJob.Spec.Suspend = ptr.To(true)
+	stoppingRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	stoppingRuntimeClassJob.Spec.Suspend = new(true)
 	stoppingRuntimeClassJob.Status.Active = 1
 
 	testCases := map[string]struct {
