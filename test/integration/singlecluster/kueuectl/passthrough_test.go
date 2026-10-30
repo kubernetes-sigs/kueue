@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {
+// setupEnv configures environment variables including PATH, KUBECONFIG, and any additional variables for the command.
+func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string, extraEnv ...string) {
 	c.Env = os.Environ()
 	cmdPath := os.Getenv("PATH")
 	if cmdPath == "" {
@@ -43,12 +44,18 @@ func setupEnv(c *exec.Cmd, kassetsPath string, kubeconfigPath string) {
 
 	c.Env = append(c.Env, "PATH="+cmdPath)
 	c.Env = append(c.Env, "KUBECONFIG="+kubeconfigPath)
+	c.Env = append(c.Env, extraEnv...)
 }
 
 func runKueuectl(args ...string) string {
 	ginkgo.GinkgoHelper()
+	return runKueuectlWithEnv(nil, args...)
+}
+
+func runKueuectlWithEnv(extraEnv []string, args ...string) string {
+	ginkgo.GinkgoHelper()
 	cmd := exec.Command(kueuectlPath, args...)
-	setupEnv(cmd, kassetsPath, kubeconfigPath)
+	setupEnv(cmd, kassetsPath, kubeconfigPath, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%q", string(out))
 	return string(out)
@@ -66,7 +73,7 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should get, patch and delete a Workload", framework.SlowSpec, func() {
+	ginkgo.It("Should get, describe, patch, edit and delete a Workload", framework.SlowSpec, func() {
 		wl := utiltestingapi.MakeWorkload("pass-through-wl", ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, wl)
 		ginkgo.DeferCleanup(func() {
@@ -76,13 +83,16 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		for _, name := range []string{"workload", "kwl", "kueueworkload", "kueueworkloads"} {
 			gomega.Expect(runKueuectl("get", name, wl.Name, "-n", wl.Namespace, "-o=jsonpath={.spec.active}")).To(gomega.Equal("true"))
 		}
+		gomega.Expect(runKueuectl("describe", "workload", wl.Name, "-n", wl.Namespace)).To(gomega.MatchRegexp(`Active:\s+true`))
 		runKueuectl("patch", "workload", wl.Name, "-n", wl.Namespace, "--type=merge", "-p", `{"spec":{"active":false}}`)
 		gomega.Expect(runKueuectl("get", "workload", wl.Name, "-n", wl.Namespace, "-o=jsonpath={.spec.active}")).To(gomega.Equal("false"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/active: false/active: true/'`}, "edit", "workload", wl.Name, "-n", wl.Namespace)
+		gomega.Expect(runKueuectl("get", "workload", wl.Name, "-n", wl.Namespace, "-o=jsonpath={.spec.active}")).To(gomega.Equal("true"))
 		runKueuectl("delete", "kwl", wl.Name, "-n", wl.Namespace, "--yes")
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
 	})
 
-	ginkgo.It("Should get, patch and delete a LocalQueue", func() {
+	ginkgo.It("Should get, describe, patch, edit and delete a LocalQueue", func() {
 		lq := utiltestingapi.MakeLocalQueue("pass-through-lq", ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lq)
 		ginkgo.DeferCleanup(func() {
@@ -92,13 +102,16 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		for _, name := range []string{"localqueue", "lq"} {
 			gomega.Expect(runKueuectl("get", name, lq.Name, "-n", lq.Namespace, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("None"))
 		}
+		gomega.Expect(runKueuectl("describe", "localqueue", lq.Name, "-n", lq.Namespace)).To(gomega.MatchRegexp(`Stop Policy:\s+None`))
 		runKueuectl("patch", "localqueue", lq.Name, "-n", lq.Namespace, "--type=merge", "-p", `{"spec":{"stopPolicy":"Hold"}}`)
 		gomega.Expect(runKueuectl("get", "localqueue", lq.Name, "-n", lq.Namespace, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("Hold"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/stopPolicy: Hold/stopPolicy: None/'`}, "edit", "localqueue", lq.Name, "-n", lq.Namespace)
+		gomega.Expect(runKueuectl("get", "localqueue", lq.Name, "-n", lq.Namespace, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("None"))
 		runKueuectl("delete", "localqueue", lq.Name, "-n", lq.Namespace)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, false)
 	})
 
-	ginkgo.It("Should get, patch and delete a ClusterQueue", func() {
+	ginkgo.It("Should get, describe, patch, edit and delete a ClusterQueue", func() {
 		cq := utiltestingapi.MakeClusterQueue("pass-through-cq").Obj()
 		behavioral.MustCreate(ctx, k8sClient, cq)
 		ginkgo.DeferCleanup(func() {
@@ -108,13 +121,16 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		for _, name := range []string{"clusterqueue", "cq"} {
 			gomega.Expect(runKueuectl("get", name, cq.Name, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("None"))
 		}
+		gomega.Expect(runKueuectl("describe", "clusterqueue", cq.Name)).To(gomega.MatchRegexp(`Stop Policy:\s+None`))
 		runKueuectl("patch", "clusterqueue", cq.Name, "--type=merge", "-p", `{"spec":{"stopPolicy":"Hold"}}`)
 		gomega.Expect(runKueuectl("get", "clusterqueue", cq.Name, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("Hold"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/stopPolicy: Hold/stopPolicy: None/'`}, "edit", "clusterqueue", cq.Name)
+		gomega.Expect(runKueuectl("get", "clusterqueue", cq.Name, "-o=jsonpath={.spec.stopPolicy}")).To(gomega.Equal("None"))
 		runKueuectl("delete", "clusterqueue", cq.Name)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
 	})
 
-	ginkgo.It("Should get, patch and delete a ResourceFlavor", func() {
+	ginkgo.It("Should get, describe, patch, edit and delete a ResourceFlavor", func() {
 		rf := utiltestingapi.MakeResourceFlavor("pass-through-resource-flavor").NodeLabel("type", "small").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
 		ginkgo.DeferCleanup(func() {
@@ -124,8 +140,11 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		for _, name := range []string{"resourceflavor", "rf"} {
 			gomega.Expect(runKueuectl("get", name, rf.Name, "-o=jsonpath={.spec.nodeLabels.type}")).To(gomega.Equal("small"))
 		}
+		gomega.Expect(runKueuectl("describe", "resourceflavor", rf.Name)).To(gomega.MatchRegexp(`Type:\s+small`))
 		runKueuectl("patch", "resourceflavor", rf.Name, "--type=merge", "-p", `{"spec":{"nodeLabels":{"type":"large"}}}`)
 		gomega.Expect(runKueuectl("get", "resourceflavor", rf.Name, "-o=jsonpath={.spec.nodeLabels.type}")).To(gomega.Equal("large"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/type: large/type: small/'`}, "edit", "resourceflavor", rf.Name)
+		gomega.Expect(runKueuectl("get", "resourceflavor", rf.Name, "-o=jsonpath={.spec.nodeLabels.type}")).To(gomega.Equal("small"))
 		runKueuectl("delete", "resourceflavor", rf.Name)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, false)
 	})
