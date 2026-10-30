@@ -130,14 +130,14 @@ in its ClusterQueues.
 ### Workloads admitted before TAS
 
 Workloads admitted before the change keep running where they are, and their
-Pods are not bound to TAS assignments. TAS accounts for these Pods only while
-they are scheduled and not terminated. If such a Pod terminates and is being
+Pods are not bound to TAS assignments. TAS counts the usage of these Pods only
+while they are scheduled and not terminated. When such a Pod terminates and is
 replaced by a new Pod (for example, in a Job with `restartPolicy: Never`), TAS
-sees its node as free while the replacement Pod is unscheduled and can assign
-that node to a TAS workload, while kube-scheduler, which does not know about TAS
-assignments, can place the replacement Pod on a node that TAS has assigned to
-someone else. The TAS workload's Pods then stay `Pending` until the node frees
-up or `waitForPodsReady` evicts the workload.
+treats its node as free until the replacement is scheduled, and can assign that
+node to a TAS workload. kube-scheduler does not know about TAS assignments, so
+it can place the replacement Pod on a node that TAS has already assigned to
+another workload. The Pods of that TAS workload then stay `Pending` until the
+node frees up or `waitForPodsReady` evicts the workload.
 
 This lasts until every workload admitted before TAS has finished or been
 re-admitted. To shorten it, re-admit workloads whose Pods are failing and being
