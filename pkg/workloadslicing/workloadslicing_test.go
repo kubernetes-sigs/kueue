@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1761,6 +1762,193 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEnsureWorkloadSlicesScaleDownMinCount(t *testing.T) {
+	testCases := map[string]struct {
+		reserveQuota    bool
+		additionalSlice bool
+	}{
+		"one admitted slice": {
+			reserveQuota: true,
+		},
+		"one pending slice": {},
+		"multiple slices": {
+			reserveQuota:    true,
+			additionalSlice: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			wl := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+				Creation(now).
+				PodSets(*utiltestingapi.MakePodSet("workers", 4).
+					SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj())
+			if tc.reserveQuota {
+				wl.SimpleReserveQuota("default", "default", now).AdmittedAt(true, now)
+			}
+			objects := []client.Object{wl.Obj()}
+			if tc.additionalSlice {
+				objects = append(objects, utiltestingapi.MakeWorkload(testJobObject.Name+"-old", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj())
+			}
+			clnt := testWorkloadClientBuilder().WithObjects(objects...).Build()
+			wantPodSets := []kueue.PodSet{
+				*utiltestingapi.MakePodSet("workers", 1).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj(),
+			}
+			ctx, log := utiltesting.ContextWithLog(t)
+			manager := Manager{Client: clnt, Clock: testingclock.NewFakeClock(now)}
+			got, compatible, err := manager.EnsureWorkloadSlices(ctx, wantPodSets, testJobObject, testJobGVK)
+			if err != nil {
+				t.Fatalf("EnsureWorkloadSlices() error: %v", err)
+			}
+			if !compatible || got == nil || got.Name != wl.Obj().Name {
+				t.Fatalf("EnsureWorkloadSlices() workload = %v, compatible = %v", got, compatible)
+			}
+			if diff := cmp.Diff(wantPodSets, got.Spec.PodSets); diff != "" {
+				t.Errorf("EnsureWorkloadSlices() podSets (-want,+got):\n%s", diff)
+			}
+			var updated kueue.Workload
+			if err := clnt.Get(ctx, client.ObjectKeyFromObject(wl.Obj()), &updated); err != nil {
+				t.Fatalf("Failed to get workload: %v", err)
+			}
+			if diff := cmp.Diff(wantPodSets, updated.Spec.PodSets); diff != "" {
+				t.Errorf("Persisted workload podSets (-want,+got):\n%s", diff)
+			}
+			info := workload.NewInfo(log, &updated)
+			if len(info.TotalRequests) != 1 {
+				t.Fatalf("Expected one PodSet's resource usage, got %d", len(info.TotalRequests))
+			}
+			if got := info.TotalRequests[0].Count; got != 1 {
+				t.Errorf("Quota usage count = %d, want 1", got)
+			}
+			if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); !got.Equal(resources.NewAmount(1000)) {
+				t.Errorf("Quota CPU usage = %v millicores, want 1000", got)
+			}
+		})
+	}
+}
+
+func TestEnsureWorkloadSlicesPendingMinCount(t *testing.T) {
+	testCases := map[string]struct {
+		additionalSlice bool
+		replacement     bool
+		readmission     bool
+		staleAdmitted   bool
+		atomic          bool
+		wantMinCount    *int32
+	}{
+		"initial pending slice": {
+			wantMinCount: new(int32(5)),
+		},
+		"multiple initial pending slices": {
+			additionalSlice: true,
+			wantMinCount:    new(int32(5)),
+		},
+		"pending replacement": {
+			replacement:  true,
+			wantMinCount: new(int32(1)),
+		},
+		"multiple slices with pending replacement": {
+			additionalSlice: true,
+			replacement:     true,
+			wantMinCount:    new(int32(1)),
+		},
+		"evicted slice awaiting readmission": {
+			readmission:  true,
+			wantMinCount: new(int32(1)),
+		},
+		"quota released before admitted condition updates": {
+			staleAdmitted: true,
+			wantMinCount:  new(int32(1)),
+		},
+		"initial atomic slice": {
+			atomic: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			head := utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj()
+			workers := utiltestingapi.MakePodSet("workers", 4).Request(corev1.ResourceCPU, "1").Obj()
+			if !tc.atomic {
+				workers.MinCount = new(int32(4))
+			}
+			wl := utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+				Creation(now).
+				PodSets(*head, *workers)
+			old := wl.Clone().Name(testJobObject.Name + "-old").Creation(now.Add(-time.Minute))
+			if tc.replacement {
+				wl.Annotation(WorkloadSliceReplacementFor, string(workload.Key(old.Obj())))
+				old.SimpleReserveQuota("default", "default", now).AdmittedAt(true, now)
+			}
+			if tc.readmission || tc.staleAdmitted {
+				wl.SimpleReserveQuota("default", "default", now).AdmittedAt(true, now)
+				if tc.readmission {
+					workload.UnsetQuotaReservationWithCondition(wl.Obj(), "Pending", "Quota released", now)
+					wl.EvictedAt(now)
+				} else {
+					wl.Status.Admission = nil
+					wl.Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					})
+				}
+			}
+			objects := []client.Object{wl.Obj()}
+			if tc.additionalSlice {
+				objects = append(objects, old.Obj())
+			}
+			clnt := testWorkloadClientBuilder().WithObjects(objects...).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			manager := Manager{Client: clnt, Clock: testingclock.NewFakeClock(now)}
+			for _, count := range []int32{1, 5} {
+				if count == 5 && tc.additionalSlice && !tc.replacement {
+					if err := clnt.Create(ctx, old.Clone().Name(old.Obj().Name+"-2").ResourceVersion("").Obj()); err != nil {
+						t.Fatalf("Failed to create additional pending slice: %v", err)
+					}
+				}
+				jobWorkers := workers.DeepCopy()
+				jobWorkers.Count = count
+				if !tc.atomic {
+					jobWorkers.MinCount = new(count)
+				}
+				jobPodSets := []kueue.PodSet{*jobWorkers, *head}
+				got, compatible, err := manager.EnsureWorkloadSlices(ctx, jobPodSets, testJobObject, testJobGVK)
+				if err != nil {
+					t.Fatalf("EnsureWorkloadSlices() error: %v", err)
+				}
+				if !compatible || got == nil || got.Name != wl.Obj().Name {
+					t.Fatalf("EnsureWorkloadSlices() workload = %v, compatible = %v", got, compatible)
+				}
+				wantPodSets := []kueue.PodSet{*head, *jobWorkers.DeepCopy()}
+				if count == 5 {
+					wantPodSets[1].MinCount = tc.wantMinCount
+				}
+				if diff := cmp.Diff(wantPodSets, got.Spec.PodSets); diff != "" {
+					t.Errorf("EnsureWorkloadSlices() at count %d (-want,+got):\n%s", count, diff)
+				}
+				var updated kueue.Workload
+				if err := clnt.Get(ctx, client.ObjectKeyFromObject(wl.Obj()), &updated); err != nil {
+					t.Fatalf("Failed to get workload: %v", err)
+				}
+				if diff := cmp.Diff(wantPodSets, updated.Spec.PodSets); diff != "" {
+					t.Errorf("Persisted podSets at count %d (-want,+got):\n%s", count, diff)
+				}
+				wantPartialAdmission := count > ptr.Deref(wantPodSets[1].MinCount, count)
+				if got := workload.CanBePartiallyAdmitted(&updated); got != wantPartialAdmission {
+					t.Errorf("CanBePartiallyAdmitted() at count %d = %v, want %v", count, got, wantPartialAdmission)
+				}
 			}
 		})
 	}
