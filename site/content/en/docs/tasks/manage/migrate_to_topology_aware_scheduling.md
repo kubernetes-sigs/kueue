@@ -113,8 +113,10 @@ Apply the changes in this order:
 1. **Create the Topology.** If a ResourceFlavor references a Topology that does
    not exist, the ClusterQueues that use the flavor become inactive with
    `TopologyNotFound` until it does.
-2. **Set `topologyName` on the ResourceFlavor.** On a TAS-only ClusterQueue,
-   new workloads use implicit TAS from then on.
+2. **Set `topologyName` on the ResourceFlavor.** The flavor must have at least
+   one entry in `.spec.nodeLabels` (which you can add in the same update if it
+   is empty), or the API rejects the update. On a TAS-only ClusterQueue, new
+   workloads use implicit TAS from then on.
 3. **Add TAS annotations to workloads**, if you need them. Do this together with
    step 2 or after it, never before. A workload with an explicit TAS annotation
    is refused by a flavor without `topologyName`
