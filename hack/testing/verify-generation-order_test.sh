@@ -30,7 +30,7 @@ cat > "$ORDER_STEP" <<'EOF'
 set -o errexit
 set -o nounset
 case "$1" in
-  lint | artifacts)
+  lint | artifacts | cli)
     touch "$ORDER_STATE/$1-started"
     ;;
 esac
@@ -56,6 +56,11 @@ case "$1" in
     ;;
   lint)
     for step in generate-code generate-mocks gomod gomod-verified; do
+      test -f "$ORDER_STATE/$step"
+    done
+    ;;
+  cli)
+    for step in generate-code generate-mocks gomod gomod-verified verify-git-tag; do
       test -f "$ORDER_STATE/$step"
     done
     ;;
@@ -90,9 +95,10 @@ TESTING_DIR := $(PROJECT_DIR)/hack/testing
 GO_CMD := $(dir $(ORDER_STEP))go
 include $(PROJECT_DIR)/hack/make/verify.mk
 _ci_lint_recipe = bash "$(ORDER_STEP)" lint
-_helm_chart_package_recipe = true
-_prepare_manifests_recipe = true
+_helm_chart_package_recipe = bash "$(ORDER_STEP)" helm-package
+_prepare_manifests_recipe = bash "$(ORDER_STEP)" prepare-manifests
 _artifacts_recipe = bash "$(ORDER_STEP)" artifacts
+_cli_artifacts_recipe = bash "$(ORDER_STEP)" cli
 .PHONY: all generate-code generate-mocks generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update compile-crd-manifests update-helm prepare-release-branch golangci-lint verify-git-tag clean-artifacts kustomize helm yq helm-docs
 all: verify-ci-lint verify-artifacts verify-tree-prereqs
 prepare-release-branch: helm-docs
@@ -104,12 +110,13 @@ for fail_stage in '' generate-code update-helm gomod gomod-verified; do
   export ORDER_FAIL_STAGE="$fail_stage"
   export ORDER_STATE="$TEST_DIR/state-${fail_stage:-success}"
   mkdir -p "$ORDER_STATE"
-  if make --no-print-directory -s -k -j 8 -f "$TEST_DIR/Makefile" all > "$TEST_DIR/make.log" 2>&1; then
+  if make --no-print-directory -s -k -j 8 -f "$TEST_DIR/Makefile" all VERIFY_CLI_ARTIFACTS=1 > "$TEST_DIR/make.log" 2>&1; then
     if [[ -n "$fail_stage" ]]; then
       echo "Generation failure was not propagated: $fail_stage" >&2
       exit 1
     fi
     test -f "$ORDER_STATE/generate-apiref"
+    test -f "$ORDER_STATE/cli"
   elif [[ -z "$fail_stage" ]]; then
     cat "$TEST_DIR/make.log" >&2
     exit 1
@@ -120,6 +127,38 @@ for fail_stage in '' generate-code update-helm gomod gomod-verified; do
       test ! -f "$ORDER_STATE/lint-started"
     fi
   fi
+done
+
+# Skipping CLI builds must retain Helm and manifest packaging.
+export ORDER_FAIL_STAGE=''
+export ORDER_STATE="$TEST_DIR/state-without-cli"
+mkdir -p "$ORDER_STATE"
+make --no-print-directory -s -j 8 -f "$TEST_DIR/Makefile" all VERIFY_CLI_ARTIFACTS=0 > "$TEST_DIR/make.log" 2>&1
+for step in helm-package prepare-manifests artifacts generate-apiref; do
+  test -f "$ORDER_STATE/$step"
+done
+test ! -f "$ORDER_STATE/cli-started"
+
+# Standalone CLI builds must wait for Go writers and propagate prerequisite/build failures.
+for fail_stage in '' generate-code generate-mocks gomod gomod-verified verify-git-tag cli; do
+  export ORDER_FAIL_STAGE="$fail_stage"
+  export ORDER_STATE="$TEST_DIR/state-cli-${fail_stage:-success}"
+  mkdir -p "$ORDER_STATE"
+  if make --no-print-directory -s -k -j 8 -f "$TEST_DIR/Makefile" verify-cli-artifacts VERIFY_CLI_ARTIFACTS=0 > "$TEST_DIR/make.log" 2>&1; then
+    if [[ -n "$fail_stage" ]]; then
+      echo "CLI verification failure was not propagated: $fail_stage" >&2
+      exit 1
+    fi
+    test -f "$ORDER_STATE/cli"
+  elif [[ -z "$fail_stage" ]]; then
+    cat "$TEST_DIR/make.log" >&2
+    exit 1
+  fi
+  if [[ -n "$fail_stage" && "$fail_stage" != cli ]]; then
+    test ! -f "$ORDER_STATE/cli-started"
+  fi
+  test ! -f "$ORDER_STATE/helm-package"
+  test ! -f "$ORDER_STATE/generate-apiref"
 done
 
 echo "Generation barriers and independent check overlap passed."
