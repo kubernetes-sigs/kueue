@@ -54,22 +54,10 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		localQueue     *kueue.LocalQueue
 	)
 
-	// expectPodsUsage asserts the ClusterQueue's usage of "pods", the only constrained resource in
-	// these specs. Looked up by resource name rather than by index, since the resource group
-	// declares more than one resource.
+	// expectPodsUsage asserts the ClusterQueue's usage of "pods", the only constrained resource in these specs.
 	expectPodsUsage := func(pods int64) {
 		ginkgo.GinkgoHelper()
-		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-			resources := cq.Status.FlavorsUsage[0].Resources
-			idx := slices.IndexFunc(resources, func(r kueue.ResourceUsage) bool {
-				return r.Name == corev1.ResourcePods
-			})
-			g.Expect(idx).ShouldNot(gomega.Equal(-1), "ClusterQueue reports no pods usage, only %v", resources)
-			g.Expect(resources[idx].Total.Value()).Should(gomega.Equal(pods))
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, pods, behavioral.Timeout)
 	}
 	// scaleFirstWorkerGroup emulates the KubeRay controller, which is what updates .replicas in
 	// production. envtest runs no KubeRay operator, so the spec drives the scale event itself,

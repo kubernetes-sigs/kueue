@@ -173,6 +173,9 @@ func ExpectClusterQueueResourceUsageWithTimeout(ctx context.Context, k8sClient c
 	cq := &kueue.ClusterQueue{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, cqKey, cq)).To(gomega.Succeed())
+		g.Expect(cq.Status.FlavorsUsage).To(
+			gomega.ContainElement(gomega.HaveField("Resources", gomega.ContainElement(gomega.HaveField("Name", resourceName)))),
+			"ClusterQueue does not report %s usage", resourceName)
 		g.Expect(ClusterQueueResourceUsage(cq, resourceName)).To(gomega.Equal(want))
 	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue "+string(resourceName)+" usage did not settle", cq))
 }
