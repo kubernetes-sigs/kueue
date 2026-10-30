@@ -177,9 +177,10 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	sliceCache := dra.NewResourceSliceCache(r.client)
+	skipDeviceCheck := r.hasMultiKueueAdmissionCheck(wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
-	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
+	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
 	if len(fieldErrs) > 0 {
 		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
 		return done, result, nil, err
@@ -243,6 +244,22 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
+}
+
+func (r *WorkloadReconciler) hasMultiKueueAdmissionCheck(wl *kueue.Workload) bool {
+	if wl.Spec.QueueName == "" {
+		return false
+	}
+	cqName, ok := r.queues.ClusterQueueFromLocalQueue(qutil.KeyFromWorkload(wl))
+	if !ok {
+		return false
+	}
+	for _, ac := range r.cache.AdmissionChecksForClusterQueue(cqName) {
+		if ac.Controller == kueue.MultiKueueControllerName {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
@@ -818,8 +835,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					quotaReservedWaitTime.Seconds(),
 				)
 				priorityClassName := workloadpatching.PriorityClassName(&wl)
+				// The workload label values are derived on the fly instead of being stored in
+				// the custom labels storage, since these metrics are not gauges and nothing
+				// would clear the stored entry afterwards.
+				wlLabelVals := r.customLabels.MakeValsSet(config.SourceKindWorkload, wl.Labels, wl.Annotations)
+				cqWlCustomLabels := r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+					config.SourceKindClusterQueue: r.customLabels.CQGet(cqName),
+					config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+				})
 				r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
-				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
 				metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
 					lqRef := metrics.LQRefFromWorkload(&wl)
@@ -829,9 +854,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 						lqRef,
 						priorityClassName,
 						queuedWaitTime,
-						r.customLabels.GetFor(map[config.SourceKind]string{
-							config.SourceKindLocalQueue: string(lqKey),
-							config.SourceKindWorkload:   string(workload.Key(&wl)),
+						r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+							config.SourceKindLocalQueue: r.customLabels.LQGet(lqKey),
+							config.SourceKindWorkload:   wlLabelVals.OrderedList(),
 						}),
 						r.roleTracker,
 					)
@@ -2222,6 +2247,42 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			}, time.Second)
 		}
 	}
+
+	// LimitRange defaults are absent from the raw Workload resource index.
+	// Refresh pending workloads in namespaces whose defaults use an affected resource.
+	namespaces, err := h.namespacesWithDefaultedResources(ctx, resourceNames...)
+	if err != nil {
+		log.Error(err, "Could not list LimitRanges for extended resources", "resources", resourceNames)
+		return
+	}
+	resourceHandler := &resourceUpdatesHandler{r: h.r}
+	for namespace := range namespaces {
+		resourceHandler.queueReconcileForPending(ctx, q, client.InNamespace(namespace))
+	}
+}
+
+func (h *deviceClassHandler) namespacesWithDefaultedResources(ctx context.Context, resourceNames ...string) (sets.Set[string], error) {
+	limitRanges := corev1.LimitRangeList{}
+	if err := h.r.client.List(ctx, &limitRanges,
+		client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+		return nil, err
+	}
+	namespaces := sets.New[string]()
+	for _, lr := range limitRanges.Items {
+		for _, limit := range lr.Spec.Limits {
+			if limit.Type != corev1.LimitTypeContainer {
+				continue
+			}
+			for _, name := range resourceNames {
+				defaultRequest := limit.DefaultRequest[corev1.ResourceName(name)]
+				defaultLimit := limit.Default[corev1.ResourceName(name)]
+				if !defaultRequest.IsZero() || !defaultLimit.IsZero() {
+					namespaces.Insert(lr.Namespace)
+				}
+			}
+		}
+	}
+	return namespaces, nil
 }
 
 func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(

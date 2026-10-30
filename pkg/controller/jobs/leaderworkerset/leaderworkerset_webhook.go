@@ -309,8 +309,7 @@ func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
-	podSets, podSetsErr := podSets(&lwsv1)
+	podSets, podSetsErr := podSets(new(leaderworkersetv1.LeaderWorkerSet(*lws)))
 
 	defaultPodSetName := kueue.DefaultPodSetName
 

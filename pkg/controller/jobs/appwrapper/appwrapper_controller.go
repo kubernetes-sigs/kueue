@@ -19,17 +19,21 @@ package appwrapper
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	awutils "github.com/project-codeflare/appwrapper/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -175,7 +179,63 @@ func (j *AppWrapper) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 	if err := awutils.SetPodSetInfos((*awv1beta2.AppWrapper)(j), awPodSetsInfo); err != nil {
 		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
 	}
+
+	if err := j.defaultPodIndexOffsets(); err != nil {
+		return fmt.Errorf("%w: %w", podset.ErrInvalidPodsetInfo, err)
+	}
+
 	j.Spec.Suspend = false
+	return nil
+}
+
+// defaultPodIndexOffsets defaults grouped PyTorchJob and JobSet Pod index offsets
+// through PodSetInfos because child jobs bypass their integrations' job-start paths.
+func (j *AppWrapper) defaultPodIndexOffsets() error {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	for idx := range j.Spec.Components {
+		component := &j.Spec.Components[idx]
+		obj := &unstructured.Unstructured{}
+		if err := obj.UnmarshalJSON(component.Template.Raw); err != nil {
+			return err
+		}
+		if !supportsDefaultPodIndexOffset(obj.GroupVersionKind()) {
+			continue
+		}
+		for psIndex, ps := range j.Status.ComponentStatus[idx].PodSets {
+			if err := defaultPodSetIndexOffset(obj, ps.Path, &component.PodSetInfos[psIndex]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func supportsDefaultPodIndexOffset(gvk schema.GroupVersionKind) bool {
+	switch gvk {
+	case kftraining.SchemeGroupVersion.WithKind(kftraining.PyTorchJobKind),
+		jobsetapi.SchemeGroupVersion.WithKind("JobSet"):
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultPodSetIndexOffset(obj *unstructured.Unstructured, path string, info *awv1beta2.AppWrapperPodSetInfo) error {
+	template, err := awutils.GetPodTemplateSpec(obj, path)
+	if err != nil {
+		return err
+	}
+	if _, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		return nil
+	}
+	jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
+	if offset, found := template.Annotations[kueue.PodIndexOffsetAnnotation]; found {
+		annotations := map[string]string{kueue.PodIndexOffsetAnnotation: offset}
+		maps.Copy(annotations, info.Annotations)
+		info.Annotations = annotations
+	}
 	return nil
 }
 

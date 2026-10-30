@@ -2045,8 +2045,7 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// predecessor's live grant while it's still around (see getInitialAssignments).
 			// Capped at the new Count in case this PodSet shrank while another grew.
 			if prevPodSet != nil && prevPodSet.MinCount != nil {
-				minCount := min(*prevPodSet.MinCount, podSets[i].Count)
-				podSets[i].MinCount = &minCount
+				podSets[i].MinCount = new(min(*prevPodSet.MinCount, podSets[i].Count))
 			}
 		}
 		if extra != "" {

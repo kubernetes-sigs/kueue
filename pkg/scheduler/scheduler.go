@@ -1337,24 +1337,31 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
-	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
+	// The workload label values are derived on the fly instead of being stored in
+	// the custom labels storage, since these metrics are not gauges and nothing
+	// would clear the stored entry afterwards.
+	wlLabelVals := s.customLabels.MakeValsSet(config.SourceKindWorkload, newWorkload.Labels, newWorkload.Annotations)
+	cqWlCustomLabels := s.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+		config.SourceKindClusterQueue: s.customLabels.CQGet(admission.ClusterQueue),
+		config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+	})
 	s.cache.ReportCohortSubtreeAdmittedWorkload(log, newWorkload)
-	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqCustomLabels, s.roleTracker)
+	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqWlCustomLabels, s.roleTracker)
 	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
 	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
-		if features.Enabled(features.CustomMetricLabels) {
-			s.customLabels.Store(config.SourceKindWorkload, string(workload.Key(newWorkload)), newWorkload.Labels, newWorkload.Annotations)
-		}
-		lqCustomLabelsValues := s.customLabels.GetFor(map[config.SourceKind]string{
-			config.SourceKindLocalQueue: string(utilqueue.KeyFromWorkload(newWorkload)),
-			config.SourceKindWorkload:   string(workload.Key(newWorkload)),
+		// Derive the Workload values from the admitted Workload: the stored ones
+		// belong to the cache, and a later event may have changed or removed them.
+		wlLabelVals := s.customLabels.MakeValsSet(config.SourceKindWorkload, newWorkload.Labels, newWorkload.Annotations)
+		lqCustomLabelsValues := s.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindLocalQueue: s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)),
+			config.SourceKindWorkload:   wlLabelVals.OrderedList(),
 		})
 		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabelsValues, s.roleTracker)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqCustomLabels, s.roleTracker)
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
 		if shouldExposeLqMetrics {
 			lqRef := metrics.LQRefFromWorkload(newWorkload)
 			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
@@ -1580,7 +1587,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		planner = wasplanner.NewPlanner(wl, snap)
+		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}

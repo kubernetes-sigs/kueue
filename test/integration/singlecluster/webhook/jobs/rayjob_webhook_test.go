@@ -25,7 +25,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -111,54 +110,24 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		})
 
-		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, true)
-			})
+		ginkgo.It("should reject removing the queue name from an unsuspended RayJob", func() {
+			job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
 
-			ginkgo.It("should reject removing the queue name from an unsuspended RayJob", func() {
-				job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
-				behavioral.MustCreate(ctx, k8sClient, job)
+			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+			createdJob := &rayv1.RayJob{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-				lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
-				createdJob := &rayv1.RayJob{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			// Simulate an unsuspended job updating other fields while retaining the queue name.
+			createdJob.Spec.Suspend = false
+			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 
-				// Simulate an unsuspended job updating other fields while retaining the queue name.
-				createdJob.Spec.Suspend = false
-				gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended job dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-				delete(createdJob.Labels, constants.QueueLabel)
-				err := k8sClient.Update(ctx, createdJob)
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
-			})
-		})
-
-		ginkgo.When("ValidateRayAndSparkJobUpdates is disabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, false)
-			})
-
-			ginkgo.It("should allow removing the queue name from an unsuspended RayJob", func() {
-				job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
-				behavioral.MustCreate(ctx, k8sClient, job)
-
-				lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
-				createdJob := &rayv1.RayJob{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended job updating other fields while retaining the queue name.
-				createdJob.Spec.Suspend = false
-				gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended job dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-				delete(createdJob.Labels, constants.QueueLabel)
-				gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-			})
+			// Simulate an unsuspended job dropping its queue name to become unmanaged.
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			delete(createdJob.Labels, constants.QueueLabel)
+			err := k8sClient.Update(ctx, createdJob)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 })
