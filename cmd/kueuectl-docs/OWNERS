@@ -2,3 +2,5 @@
 
 approvers:
 - kueuectl-approvers
+reviewers:
+- kueuectl-reviewers
