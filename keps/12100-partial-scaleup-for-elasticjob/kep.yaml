@@ -15,7 +15,7 @@ see-also:
   - "/keps/420-partial-admission"
 
 stage: alpha
-latest-milestone: "v0.20"
+latest-milestone: "v0.21"
 milestone:
   alpha: "v0.20"
 
