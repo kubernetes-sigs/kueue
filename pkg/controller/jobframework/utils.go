@@ -293,10 +293,7 @@ var ErrMultiKueueOriginEmpty = errors.New("multikueue origin is empty")
 // Returns (false, nil) if the object does not exist.
 // Returns (false, err) if there is a retrieval error or if the object is not owned by this MultiKueue origin.
 func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Client, key types.NamespacedName, gvk schema.GroupVersionKind, origin string) (bool, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "objectType", gvk, "origin", origin)
-
 	if origin == "" {
-		log.Error(ErrMultiKueueOriginEmpty, "Remote object ownership validation failed because origin is empty")
 		return false, ErrMultiKueueOriginEmpty
 	}
 
@@ -324,20 +321,19 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
 
 	if origin == "" {
-		log.Error(ErrMultiKueueOriginEmpty, "Skipping remote object deletion because origin is empty")
 		return ErrMultiKueueOriginEmpty
 	}
 
 	found, err := ValidateRemoteObjectOwnership(ctx, remoteClient, key, adapter.GVK(), origin)
 	if err != nil {
 		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
-			log.V(2).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
+			log.V(3).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
 			return nil
 		}
 		return err
 	}
 	if !found {
-		log.V(2).Info("Skipping remote object deletion because object was not found")
+		log.V(3).Info("Skipping remote object deletion because object was not found")
 		return nil
 	}
 
