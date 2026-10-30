@@ -121,3 +121,9 @@ go tool cover -html=artifacts/cover.out
 # Print a per-function summary
 go tool cover -func=artifacts/cover.out
 ```
+
+`make test` also writes `artifacts/filtered.cov`, the same profile without generated, client-go, mock, and kueuectl test helper code, and `artifacts/filtered.html`, an HTML report of that profile.
+
+### Coverage on pull requests
+
+Prow runs the unit tests in shards, as the `pull-kueue-test-unit-shard-*` jobs. Each job shows the coverage reached by the tests in its own shard. Each shard's percentage counts only that shard's tests against all packages, so it is a lower bound rather than the project's overall coverage. To view it, open the job's **Details** link from the pull request status checks and scroll to the coverage section of the job page. The coverage of the shards is not merged.
