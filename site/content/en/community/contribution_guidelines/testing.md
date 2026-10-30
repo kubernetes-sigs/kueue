@@ -93,6 +93,13 @@ stress ./preemption.test -test.run TestPreemption
 make test-integration
 ```
 
+Specs within each single-cluster suite run in six Ginkgo processes by default,
+with an independent envtest API server per process. Set `INTEGRATION_NPROCS` to
+use fewer processes on machines with limited resources; for example,
+`INTEGRATION_NPROCS=1 make test-integration` runs specs without parallelism.
+Suites run sequentially. The MultiKueue process count is configured separately
+with `INTEGRATION_NPROCS_MULTIKUEUE`.
+
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
 ## Running e2e tests

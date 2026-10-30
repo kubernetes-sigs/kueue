@@ -30,9 +30,10 @@ KUBEBUILDER_ASSETS = $(or \
 TEST_LOG_LEVEL ?= -3
 
 # Number of processes to use during integration tests to run specs within a
-# suite in parallel. Suites still run sequentially. User may set this value to 1
+# suite in parallel. Six workers balance spec parallelism with API server work in
+# the seven-CPU CI jobs. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+INTEGRATION_NPROCS ?= 6
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
 ifdef INTEGRATION_TOTAL_SHARDS
