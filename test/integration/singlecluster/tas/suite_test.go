@@ -163,18 +163,11 @@ func managerSetupWithClientTransform(
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
-			scheduler.WithFailedTASReplacementRecoveryTimeout(failedTASReplacementRecoveryTimeout(controllersCfg)),
+			scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(controllersCfg.WaitForPodsReady)),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-}
-
-func failedTASReplacementRecoveryTimeout(controllersCfg *config.Configuration) time.Duration {
-	if controllersCfg == nil || !waitforpodsready.Enabled(controllersCfg.WaitForPodsReady) || controllersCfg.WaitForPodsReady.RecoveryTimeout == nil {
-		return 0
-	}
-	return controllersCfg.WaitForPodsReady.RecoveryTimeout.Duration
 }
 
 func managerSetup(

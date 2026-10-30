@@ -40,6 +40,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -232,7 +233,7 @@ func newTryDeferFailedTASReplacementFixture(t *testing.T) (context.Context, logr
 		t.Fatalf("Taking snapshot: %v", err)
 	}
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(time.Minute))
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(ptr.To(time.Minute)))
 	e := &entry{
 		Info:                 *workload.NewInfo(log, &foo),
 		clusterQueueSnapshot: snapshot.ClusterQueue("tas-main"),
@@ -5615,7 +5616,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
 					if recoveryTimeout > 0 {
-						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(recoveryTimeout))
+						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(new(recoveryTimeout)))
 					}
 					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}

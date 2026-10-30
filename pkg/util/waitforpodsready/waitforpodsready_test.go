@@ -99,6 +99,64 @@ func TestPodsScheduledTrackingEnabled(t *testing.T) {
 	}
 }
 
+func TestRecoveryTimeout(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		cfg          *configapi.WaitForPodsReady
+		want         *time.Duration
+	}{
+		"nil config": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+		},
+		"waitForPodsReady disabled by feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+		},
+		"recovery timeout unset": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"recovery timeout zero": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+		},
+		"recovery timeout positive": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+			want: ptr.To(2 * time.Minute),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if got := RecoveryTimeout(tc.cfg); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("RecoveryTimeout() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseAnnotation(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string

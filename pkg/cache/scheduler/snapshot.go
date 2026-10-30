@@ -543,3 +543,15 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 		s.forgetSimulatedFeasibility()
 	}
 }
+
+// SimulateRemovals projects the workloads and their Pods out of the snapshot and
+// returns the single undo. Freeing their quota is not enough: until the simulator
+// is told, it still reports their Pods and the nodes they occupy.
+func (s *Snapshot) SimulateRemovals(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
+	revertUsage := s.SimulateWorkloadRemoval(workloads)
+	revertPods := s.SimulatePodRemoval(ctx, log, workloads)
+	return func() {
+		revertPods()
+		revertUsage()
+	}
+}

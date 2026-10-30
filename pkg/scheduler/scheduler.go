@@ -195,11 +195,13 @@ func WithRefillBudget(budget int) Option {
 }
 
 // WithFailedTASReplacementRecoveryTimeout sets the recovery timeout that
-// bounds deferral of a failed TAS replacement. A non-positive value disables
-// deferral so the scheduler falls back to fail-fast eviction.
-func WithFailedTASReplacementRecoveryTimeout(timeout time.Duration) Option {
+// bounds deferral of a failed TAS replacement. A nil or non-positive timeout
+// disables deferral so the scheduler falls back to fail-fast eviction.
+func WithFailedTASReplacementRecoveryTimeout(timeout *time.Duration) Option {
 	return func(o *options) {
-		o.failedTASReplacementRecoveryTimeout = timeout
+		if timeout != nil {
+			o.failedTASReplacementRecoveryTimeout = *timeout
+		}
 	}
 }
 
@@ -656,16 +658,9 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	}
 	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
 	// To get the projected cluster state after the in-flight evictions complete,
-	// simulate the removal of their workloads and their Pods: freeing the quota
-	// alone would leave the scheduling simulator still reporting the Pods and
-	// host ports they hold. The simulation is reverted below as the snapshot is
-	// shared across the scheduling cycle.
-	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
-	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
-	revertRemoval := func() {
-		revertPods()
-		revertUsage()
-	}
+	// simulate the removal of their workloads and their Pods. The simulation is
+	// reverted below as the snapshot is shared across the scheduling cycle.
+	revertRemoval := snapshot.SimulateRemovals(ctx, log, victims)
 	// Clear the flavor scan state so that the recomputation starts from the
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
@@ -697,7 +692,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// the victims still hold their usage, and a workload that can only fit by
 	// taking them as its own preemption targets is left waiting for those
 	// evictions instead of being admitted in the same cycle.
-	log.V(2).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
+	log.V(3).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
 	return true
 }
 
@@ -1096,16 +1091,9 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 }
 
 // simulateOtherPreemptions projects the victims of preemptions already decided this cycle
-// out of the snapshot and returns the single undo. Freeing their quota is not enough:
-// until the simulator is told, it still reports their Pods and their host ports.
+// out of the snapshot and returns the single undo.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	victims := slices.Collect(maps.Values(preemptedWorkloads))
-	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
-	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
-	return func() {
-		revertPods()
-		revertUsage()
-	}
+	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
