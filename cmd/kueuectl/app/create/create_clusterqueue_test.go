@@ -367,12 +367,19 @@ func TestParseResourceQuotas(t *testing.T) {
 			wantErrMessage: `misconfigured flavor "alpha": flavor is specified more than once in --nominal-quota`,
 		},
 		"should fail to create when one resource is shared by multiple resource groups": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
-			wantErr:   errInvalidResourceGroup,
+			quotaArgs:      []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
+			wantErr:        errInvalidResourceGroup,
+			wantErrMessage: `invalid resource group: flavor "beta" covers [cpu] but flavor "alpha" covers [cpu memory]; flavors that share a resource must cover the same resources`,
 		},
 		"should fail to create when a resource is shared by a later larger resource group": {
-			quotaArgs: []string{"alpha:cpu=1", "beta:cpu=1;memory=1"},
-			wantErr:   errInvalidResourceGroup,
+			quotaArgs:      []string{"alpha:cpu=1", "beta:cpu=1;memory=1"},
+			wantErr:        errInvalidResourceGroup,
+			wantErrMessage: `invalid resource group: flavor "beta" covers [cpu memory] but flavor "alpha" covers [cpu]; flavors that share a resource must cover the same resources`,
+		},
+		"should fail to create when a resource group overlaps two merged resource groups": {
+			quotaArgs:      []string{"alpha:cpu=1", "beta:memory=1", "gamma:cpu=1;memory=1"},
+			wantErr:        errInvalidResourceGroup,
+			wantErrMessage: `invalid resource group: flavor "gamma" covers [cpu memory] but flavor "alpha" covers [cpu]; flavors that share a resource must cover the same resources`,
 		},
 		"should create separate resource groups for resource names with a common substring": {
 			quotaArgs: []string{"alpha:cpu.example=1", "beta:cpu=1"},
