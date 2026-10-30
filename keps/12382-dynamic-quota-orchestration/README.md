@@ -174,8 +174,8 @@ For MultiKueue, DQO builds foundation to decomission the Alpha1 manager-quota co
 described in [KEP-9988](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation).
 The mechanism will no longer update ClusterQueue's `.spec.resourceGroups`.
 
-The integration-specific API and migration are defined by an update to KEP-9988
-for its Alpha2, see the related discussion [here](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#move-the-aggregated-quota-out-of-clusterqueuespec).
+[KEP-17401](../17401-dqo-multikueue-provider/README.md), the Alpha2 stage of KEP-9988,
+defines the integration-specific API and the migration.
 
 ### Risks and Mitigations
 
@@ -657,7 +657,7 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source for the current provider generation. |
-| `False` | `SourceUnavailable` | The provider controller cannot query or reach the backend source (e.g., node API, cloud endpoint, or MultiKueue worker cluster). |
+| `False` | `SourceUnavailable` | The provider controller cannot query or reach the backend source (e.g., node API or cloud endpoint). If the provider can still observe a part of its source, it can keep the condition `True` and report the capacity of that part. For example, the MultiKueue provider sets this reason only when no worker cluster is connected ([KEP-17401](../17401-dqo-multikueue-provider/README.md#capacitysynchronized-condition)). |
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
 

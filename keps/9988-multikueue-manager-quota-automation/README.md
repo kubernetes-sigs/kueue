@@ -54,6 +54,8 @@
 
 This KEP outlines the design for automatic management of ClusterQueue quotas on the manager cluster in a MultiKueue setup, based on aggregation of quotas of worker ClusterQueues.
 
+> **Note**: This KEP is replaced by [KEP-17401: MultiKueue Capacity Provider](../17401-dqo-multikueue-provider/README.md), which removes the Alpha1 mechanism described here and uses [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) instead. KEP-17401 still uses the definitions of related worker ClusterQueues and the treatment of ResourceFlavors from this KEP.
+
 ## Motivation
 
 MultiKueue involves **two layers** of Kueue quota management. A MultiKueue workload must first reserve quota on the **manager** cluster in order to be dispatched to (one or more) workers; then it must reserve quota on a **worker** in order to execute there.
@@ -414,6 +416,8 @@ lastTransitionTime: 2026-01-01T00:00:00Z
 
 #### Planned changes in Alpha2 version
 
+> **Note**: This plan is out of date. [KEP-17401: MultiKueue Capacity Provider](../17401-dqo-multikueue-provider/README.md) replaces it and defines Alpha2 and later stages of this feature. The text below is kept as history.
+
 Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [this future work idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 While this move is mostly independent from the [API for Alpha1](#alpha1-version), it may lead to some slight changes in that API:
@@ -475,6 +479,8 @@ to implement this enhancement.
 
 #### Move the aggregated quota out of ClusterQueueSpec
 
+> **Note**: This plan is out of date. [KEP-17401: MultiKueue Capacity Provider](../17401-dqo-multikueue-provider/README.md) replaces it and defines Alpha2 and later stages of this feature. With KEP-17401, Kueue does not change the ClusterQueue `spec`. Instead, [KEP-12382: Dynamic Quota Orchestration](../12382-dynamic-quota-orchestration/README.md) writes the manager quota to `ClusterQueue.status.effectiveQuotas`. The text below is kept as history.
+
 While the goal of this feature is to automatically control manager-side quotas, which are specified in ClusterQueueSpec per the current Kueue behavior, it may be considered a design smell, as explained in [Drawback 1](#drawbacks).
 
 For the Alpha2 phase, we intend to eliminate this drawback by redesigning the general Kueue contracts of handling ClusterQueue quotas. The general idea is as follows:
@@ -493,8 +499,6 @@ For the Alpha2 phase, we intend to eliminate this drawback by redesigning the ge
 We **postpone** this to Alpha2 in order to earn more time for carefully planning the API changes, and considering risks related to cross-version compatibility.
 
 Yet, we plan to deliver an Alpha1 version even before that happens - because the core functionality (managing quotas and workloads in MultiKueue) is going to be unaffected.
-
-More specifically, the KEP will be adjusted to use the [Dynamic Quota Orchestration (KEP-14104)](https://github.com/kubernetes-sigs/kueue/pull/14104) mechanism.
 
 #### Use cached remote clients for low-volume resource kinds
 
