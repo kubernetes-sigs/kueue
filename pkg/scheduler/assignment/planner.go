@@ -19,6 +19,8 @@ package assignment
 import (
 	"context"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 )
@@ -57,6 +59,27 @@ func (p *Plan) CanFit() bool {
 	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
 }
 
-type options struct{}
+type Options struct {
+	// CommittedPreemptionVictims are the ObjectKeys of workloads marked
+	// for preemption by preemptors (workloads) already processed within
+	// the ongoing scheduler cycle.
+	CommittedPreemptionVictims []client.ObjectKey
+}
 
-type PlannerOption func(*options)
+type PlannerOption func(*Options)
+
+func BuildOptions(options ...PlannerOption) *Options {
+	opts := &Options{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts
+}
+
+func WithCommittedPreemptionVictims(preemptionVictims []client.ObjectKey) PlannerOption {
+	return func(opts *Options) {
+		opts.CommittedPreemptionVictims = preemptionVictims
+	}
+}
