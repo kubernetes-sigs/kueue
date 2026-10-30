@@ -727,6 +727,7 @@ func setupScheduler(
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
+		scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(cfg.WaitForPodsReady)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)

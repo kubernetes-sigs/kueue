@@ -36,6 +36,16 @@ func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
 }
 
+// RecoveryTimeout returns the configured recovery timeout, or nil when no
+// recovery eviction is possible and the regular timeout alone applies.
+func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
+	if !Enabled(cfg) || cfg.RecoveryTimeout == nil || cfg.RecoveryTimeout.Duration <= 0 {
+		return nil
+	}
+	timeout := cfg.RecoveryTimeout.Duration
+	return &timeout
+}
+
 // WorkloadLevelConfig holds the parsed content of the WaitForPodsReadyAnnotation,
 // with integer seconds already converted to time.Duration.
 type WorkloadLevelConfig struct {

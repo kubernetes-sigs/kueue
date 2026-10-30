@@ -95,18 +95,14 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := p.snapshot.SimulateWorkloadRemoval(targetWorkloads)
-			// Freeing the victims' quota is not enough. Until the simulator is told,
-			// it still reports their Pods and their nodes still look occupied.
-			revertPods := p.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
+			revertRemoval := p.snapshot.SimulateRemovals(ctx, log, targetWorkloads)
 			tasResult = asgn.FindTopologyAssignments(
 				ctx,
 				cq,
 				tasRequests,
 				schdcache.WithWorkloadInfo(p.wl),
 			)
-			revertPods()
-			revertUsage()
+			revertRemoval()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
 			// to reserve the TAS resources to avoid the situation when a lower

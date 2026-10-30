@@ -59,6 +59,16 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				TASFailedNodeReplacement:      true,
 			},
 		},
+		"enable TAS replacement deferral sets TAS parents": {
+			input: map[featuregate.Feature]bool{
+				TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+			},
+			wantState: map[featuregate.Feature]bool{
+				TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+				TASFailedNodeReplacement:                                   true,
+				TopologyAwareScheduling:                                    true,
+			},
+		},
 		"disable parent disables child": {
 			input: map[featuregate.Feature]bool{
 				TopologyAwareScheduling: false,
