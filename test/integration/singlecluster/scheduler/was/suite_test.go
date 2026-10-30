@@ -87,9 +87,12 @@ var _ = ginkgo.BeforeSuite(func() {
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
+	// Share a manager within each parallel process; specs clean up their own resources.
+	fwk.StartManager(ctx, cfg, managerSetup())
 })
 
 var _ = ginkgo.AfterSuite(func() {
+	fwk.StopManager(ctx)
 	fwk.Teardown()
 })
 
