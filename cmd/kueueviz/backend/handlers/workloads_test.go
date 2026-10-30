@@ -93,6 +93,12 @@ func TestFetchWorkloadDetails(t *testing.T) {
 		Status: metav1.ConditionTrue,
 		Reason: "InClusterQueue",
 	}
+	admittedWorkload := makeWorkloadObj("ns-1", "wl-1", "lq-1")
+	admittedWorkload.Status.Admission = &kueueapi.Admission{ClusterQueue: "cq-admitted"}
+	workloadWithoutQueue := admittedWorkload.DeepCopy()
+	workloadWithoutQueue.Spec.QueueName = ""
+	workloadWithoutAdmissionClusterQueue := admittedWorkload.DeepCopy()
+	workloadWithoutAdmissionClusterQueue.Status.Admission.ClusterQueue = ""
 
 	tests := map[string]struct {
 		objs                 []ctrlclient.Object
@@ -119,6 +125,44 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-a",
 			wantPreemption:       map[string]any{"preempted": true, "reason": "InClusterQueue"},
+		},
+		"admission takes precedence over the current local queue": {
+			objs: []ctrlclient.Object{
+				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-current"),
+			},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
+		},
+		"admission skips the local queue lookup": {
+			objs: []ctrlclient.Object{admittedWorkload.DeepCopy()},
+			funcs: &interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+					if _, ok := obj.(*kueueapi.LocalQueue); ok {
+						return errors.New("unexpected local queue lookup")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
+		},
+		"empty admission cluster queue falls back to the local queue": {
+			objs: []ctrlclient.Object{
+				workloadWithoutAdmissionClusterQueue.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-current"),
+			},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-current",
+			wantPreemption:       map[string]any{},
+		},
+		"workload without queue name uses the admission": {
+			objs:                 []ctrlclient.Object{workloadWithoutQueue.DeepCopy()},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
 		},
 		"workload without queue name has unknown cluster queue": {
 			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "")},
