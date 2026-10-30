@@ -68,6 +68,16 @@ type Options struct {
 
 type PlannerOption func(*Options)
 
+func BuildOptions(options ...PlannerOption) *Options {
+	opts := &Options{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts
+}
+
 func WithCommittedPreemptionVictims(preemptionVictims []client.ObjectKey) PlannerOption {
 	return func(opts *Options) {
 		opts.CommittedPreemptionVictims = preemptionVictims

@@ -57,7 +57,7 @@ type wasPlanner struct {
 	preemptor *preemption.Preemptor
 }
 
-func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
+func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, options ...assignment.PlannerOption) (plan assignment.Plan) {
 	plan = assignment.Plan{
 		Assignment: initialAssignment,
 	}
@@ -95,7 +95,8 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment)
+	committedVictims := assignment.BuildOptions(options...).CommittedPreemptionVictims
+	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment, committedVictims)
 	if err != nil {
 		plan.Error = err
 		return
@@ -123,9 +124,15 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
+	committedVictims []client.ObjectKey,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
+	schedOpts := []simulator.ScheduleOption{}
+	if len(committedVictims) > 0 {
+		schedOpts = append(schedOpts, simulator.WithCommittedPreemptionVictims(committedVictims))
+	}
+
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		placementSummary, failures, _, err = p.schedule(ctx, pods)
+		placementSummary, failures, _, err = p.schedule(ctx, pods, schedOpts...)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -137,7 +144,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		// Lower any remaining Fit resources to Preempt so candidate selection
 		// considers every resource the workload uses.
 		assignment.DemoteTo(flavorassigner.Preempt)
-		return p.scheduleWithPreemption(ctx, pods, *assignment)
+		return p.scheduleWithPreemption(ctx, pods, *assignment, schedOpts...)
 	}
 	return placementSummary, failures, nil, nil
 }
@@ -175,12 +182,13 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
+	opts ...simulator.ScheduleOption,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
-			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			append(opts, simulator.WithPreemptionCandidates(strategy.Candidates()))...,
 		)
 		strategy.Reset()
 		if err != nil {
@@ -200,7 +208,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	// No preemption targets succeeded. Simulate against an empty cluster to check
 	// if the workload can fit at all and, if so, reserve TAS resources while waiting
 	// for quota so lower-priority workloads do not admit ahead of it.
-	placementSummary, failures, _, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
+	placementSummary, failures, _, err := p.schedule(ctx, pods, append(opts, simulator.WithSimulateEmpty(true))...)
 	if err != nil {
 		return nil, nil, nil, err
 	}
