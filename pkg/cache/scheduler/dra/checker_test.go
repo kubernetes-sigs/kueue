@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -40,6 +39,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testCandidate struct {
@@ -60,7 +60,7 @@ func (p *passthroughChecker) Simulate(_ context.Context, fn func()) error {
 	return nil
 }
 
-func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 

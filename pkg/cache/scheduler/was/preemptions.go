@@ -22,14 +22,14 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type preemptionVictim struct {
-	wlKey client.ObjectKey
+	wlKey workload.Reference
 	pods  []*corev1.Pod
 }
 
@@ -39,7 +39,7 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
@@ -61,11 +61,11 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) i
 	}
 }
 
-func toPreemptionVictims(victims []schedlib.PreemptionVictim) []client.ObjectKey {
+func toPreemptionVictims(victims []schedlib.PreemptionVictim) []workload.Reference {
 	if len(victims) == 0 {
 		return nil
 	}
-	preemptionVictims := make([]client.ObjectKey, 0, len(victims))
+	preemptionVictims := make([]workload.Reference, 0, len(victims))
 	for _, victim := range victims {
 		if wlVictim, ok := victim.(*preemptionVictim); ok {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)

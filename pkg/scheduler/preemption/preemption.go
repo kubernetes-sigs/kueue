@@ -93,7 +93,7 @@ type PreemptionStrategy struct {
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
-	targetsByKey map[client.ObjectKey]*Target
+	targetsByKey map[workload.Reference]*Target
 }
 
 type strategyOption func(*PreemptionStrategy)
@@ -114,7 +114,7 @@ func newPreemptionStrategy(
 		candidates:     candidates,
 		allowBorrowing: allowBorrowing,
 		pCtx:           pCtx,
-		targetsByKey:   make(map[client.ObjectKey]*Target),
+		targetsByKey:   make(map[workload.Reference]*Target),
 	}
 	for _, opt := range opts {
 		opt(&ps)
@@ -124,10 +124,10 @@ func newPreemptionStrategy(
 }
 
 // Candidates returns a lazy sequence of candidate workload keys for this strategy.
-func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
-	return func(yield func(client.ObjectKey) bool) {
+func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
+	return func(yield func(workload.Reference) bool) {
 		for target := range ps.candidates {
-			wlKey := client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+			wlKey := workload.Key(target.WorkloadInfo.Obj)
 			ps.targetsByKey[wlKey] = target
 			if !yield(wlKey) {
 				return
@@ -146,7 +146,7 @@ func (ps *PreemptionStrategy) Reset() {
 }
 
 // GetTargets resolves the given preemptedWorkloads to their corresponding targets.
-func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []client.ObjectKey) ([]*Target, error) {
+func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference) ([]*Target, error) {
 	defer ps.Reset()
 	if len(preemptedWorkloads) == 0 {
 		return nil, nil

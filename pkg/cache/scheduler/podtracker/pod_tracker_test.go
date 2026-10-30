@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestWorkloadMapping(t *testing.T) {
@@ -42,7 +43,7 @@ func TestWorkloadMapping(t *testing.T) {
 				tracker.Track(basicPod)
 			},
 			want: podsByWorkload{
-				types.NamespacedName{Namespace: "ns", Name: "wl"}: podsByKey{
+				workload.NewReference("ns", "wl"): podsByKey{
 					types.NamespacedName{Namespace: "ns", Name: "pod"}: basicPod,
 				},
 			},
@@ -56,10 +57,10 @@ func TestWorkloadMapping(t *testing.T) {
 				tracker.Untrack(types.NamespacedName{Namespace: "ns", Name: "pod1"})
 			},
 			want: podsByWorkload{
-				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+				workload.NewReference("ns", "wl1"): podsByKey{
 					types.NamespacedName{Namespace: "ns", Name: "pod2"}: testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 				},
-				types.NamespacedName{Namespace: "ns", Name: "wl2"}: podsByKey{
+				workload.NewReference("ns", "wl2"): podsByKey{
 					types.NamespacedName{Namespace: "ns", Name: "pod3"}: testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
 					types.NamespacedName{Namespace: "ns", Name: "pod4"}: testingpod.MakePod("pod4", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
 				},
@@ -82,7 +83,7 @@ func TestWorkloadMapping(t *testing.T) {
 				tracker.Track(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
 			},
 			want: podsByWorkload{
-				types.NamespacedName{Namespace: "ns", Name: "wl2"}: podsByKey{
+				workload.NewReference("ns", "wl2"): podsByKey{
 					types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
 				},
 			},
@@ -93,7 +94,7 @@ func TestWorkloadMapping(t *testing.T) {
 				tracker.Track(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
 			},
 			want: podsByWorkload{
-				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+				workload.NewReference("ns", "wl1"): podsByKey{
 					types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 				},
 			},
@@ -123,10 +124,10 @@ func TestWorkloadMapping(t *testing.T) {
 				tracker.Track(testingpod.MakePod("pod", "other").Annotation(kueue.WorkloadAnnotation, "wl").Obj())
 			},
 			want: podsByWorkload{
-				{Namespace: "ns", Name: "wl"}: {
+				workload.NewReference("ns", "wl"): {
 					{Namespace: "ns", Name: "pod"}: basicPod,
 				},
-				{Namespace: "other", Name: "wl"}: {
+				workload.NewReference("other", "wl"): {
 					{Namespace: "other", Name: "pod"}: testingpod.MakePod("pod", "other").Annotation(kueue.WorkloadAnnotation, "wl").Obj(),
 				},
 			},
@@ -149,7 +150,7 @@ func TestTrackerClone(t *testing.T) {
 	pod := testingpod.MakePod("pod", "ns").NodeName("node").Annotation(kueue.WorkloadAnnotation, "wl").Obj()
 	otherPod := testingpod.MakePod("other", "ns").Annotation(kueue.WorkloadAnnotation, "wl").Obj()
 	unmanagedPod := testingpod.MakePod("unmanaged", "ns").Obj()
-	wlKey := types.NamespacedName{Namespace: "ns", Name: "wl"}
+	wlKey := workload.NewReference("ns", "wl")
 	podKey := types.NamespacedName{Namespace: "ns", Name: "pod"}
 	cases := map[string]struct {
 		initialPods []*corev1.Pod
@@ -230,8 +231,9 @@ func TestTrackerConcurrentAccess(t *testing.T) {
 	var workers sync.WaitGroup
 	for i := range 8 {
 		workers.Go(func() {
-			wlKey := types.NamespacedName{Namespace: "ns", Name: fmt.Sprintf("wl-%d", i)}
-			pod := testingpod.MakePod(fmt.Sprintf("pod-%d", i), "ns").Annotation(kueue.WorkloadAnnotation, wlKey.Name).Obj()
+			wlName := fmt.Sprintf("wl-%d", i)
+			wlKey := workload.NewReference("ns", wlName)
+			pod := testingpod.MakePod(fmt.Sprintf("pod-%d", i), "ns").Annotation(kueue.WorkloadAnnotation, wlName).Obj()
 			for range 20 {
 				tracker.Track(pod)
 				tracker.Pods()
@@ -259,7 +261,7 @@ func TestTrackPodDeepCopy(t *testing.T) {
 	pod.Annotations[kueue.WorkloadAnnotation] = "mutated-wl"
 
 	want := podsByWorkload{
-		types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+		workload.NewReference("ns", "wl1"): podsByKey{
 			types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 		},
 	}

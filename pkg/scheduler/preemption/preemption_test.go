@@ -5227,8 +5227,8 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 }
 
 func TestPreemptionStrategy(t *testing.T) {
-	vLowKey := client.ObjectKey{Namespace: "default", Name: "v-low"}
-	vMidKey := client.ObjectKey{Namespace: "default", Name: "v-mid"}
+	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
 
 	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
 		t.Helper()
@@ -5289,20 +5289,20 @@ func TestPreemptionStrategy(t *testing.T) {
 		return PreemptionStrategy{}, nil
 	}
 
-	inSnapshot := func(snapshot *schdcache.Snapshot, wlKey client.ObjectKey) bool {
-		_, ok := snapshot.ClusterQueue("cq").Workloads[workload.NewReference(wlKey.Namespace, wlKey.Name)]
+	inSnapshot := func(snapshot *schdcache.Snapshot, wlKey workload.Reference) bool {
+		_, ok := snapshot.ClusterQueue("cq").Workloads[wlKey]
 		return ok
 	}
 
 	t.Run("Candidates", func(t *testing.T) {
 		t.Run("yields lazily and removes only yielded candidates from snapshot", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 				break
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey}, yielded); diff != "" {
 				t.Errorf("Candidates() first yield mismatch (-want +got):\n%s", diff)
 			}
 			if inSnapshot(snapshot, vLowKey) {
@@ -5315,11 +5315,11 @@ func TestPreemptionStrategy(t *testing.T) {
 
 		t.Run("yields all candidates in priority order", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey, vMidKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey, vMidKey}, yielded); diff != "" {
 				t.Errorf("Candidates() full sequence mismatch (-want +got):\n%s", diff)
 			}
 			if inSnapshot(snapshot, vLowKey) || inSnapshot(snapshot, vMidKey) {
@@ -5350,20 +5350,20 @@ func TestPreemptionStrategy(t *testing.T) {
 
 	t.Run("GetTargets", func(t *testing.T) {
 		cases := map[string]struct {
-			preemptedWorkloads []client.ObjectKey
-			wantTargets        []client.ObjectKey
+			preemptedWorkloads []workload.Reference
+			wantTargets        []workload.Reference
 			wantErr            bool
 		}{
 			"empty preemptedWorkloads": {
 				preemptedWorkloads: nil,
 			},
 			"unyielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vMidKey},
+				preemptedWorkloads: []workload.Reference{vMidKey},
 				wantErr:            true,
 			},
 			"yielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vLowKey},
-				wantTargets:        []client.ObjectKey{vLowKey},
+				preemptedWorkloads: []workload.Reference{vLowKey},
+				wantTargets:        []workload.Reference{vLowKey},
 			},
 		}
 		for name, tc := range cases {
@@ -5376,9 +5376,9 @@ func TestPreemptionStrategy(t *testing.T) {
 				if (err != nil) != tc.wantErr {
 					t.Fatalf("GetTargets(%v) error = %v, wantErr %v", tc.preemptedWorkloads, err, tc.wantErr)
 				}
-				var gotTargets []client.ObjectKey
+				var gotTargets []workload.Reference
 				for _, target := range targets {
-					gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+					gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 				}
 				if diff := cmp.Diff(tc.wantTargets, gotTargets); diff != "" {
 					t.Errorf("GetTargets(%v) targets mismatch (-want +got):\n%s", tc.preemptedWorkloads, diff)

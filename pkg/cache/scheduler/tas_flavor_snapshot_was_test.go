@@ -19,11 +19,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -41,7 +41,7 @@ const wasRackLabel = "cloud.provider.com/topology-rack"
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
 // is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
-func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
+func wasSnapshotWithVictim(t *testing.T, victimKey workload.Reference) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -58,10 +58,11 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
+	ns, name, _ := strings.Cut(string(victimKey), "/")
 	podTracker := &podtracker.Tracker{}
-	podTracker.Track(testingpod.MakePod("victim-pod", victimKey.Namespace).
+	podTracker.Track(testingpod.MakePod("victim-pod", ns).
 		UID("victim-pod").
-		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
+		Annotation(kueue.WorkloadAnnotation, name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
@@ -98,7 +99,7 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+	snapshot, _ := wasSnapshotWithVictim(t, workload.NewReference("default", "victim"))
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
@@ -116,7 +117,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
+	victim := workload.NewReference("default", "victim")
 	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
@@ -155,7 +156,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+	snapshot, _ := wasSnapshotWithVictim(t, workload.NewReference("default", "victim"))
 
 	unconstrained := true
 	groupName := "group"
