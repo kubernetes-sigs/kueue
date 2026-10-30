@@ -4959,9 +4959,8 @@ func (s *recordingSchedulerSimulator) Simulate(ctx context.Context, fn func()) e
 	return s.schedulerSimulator.Simulate(ctx, fn)
 }
 
-func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
-	wlRef := workload.NewReference(wlKey.Namespace, wlKey.Name)
-	s.asked = append(s.asked, wlRef)
+func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
+	s.asked = append(s.asked, wlKey)
 	if s.failPreempt {
 		return nil, errors.New("simulated failure")
 	}
@@ -4970,10 +4969,10 @@ func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey
 		return nil, err
 	}
 	s.released++
-	s.releasedNow.Insert(wlRef)
+	s.releasedNow.Insert(wlKey)
 	return func() error {
 		s.reverted++
-		s.releasedNow.Delete(wlRef)
+		s.releasedNow.Delete(wlKey)
 		return revert()
 	}, nil
 }

@@ -23,7 +23,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -31,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type defaultSimulatorFactory struct{}
@@ -115,7 +115,7 @@ func (s *defaultSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+func (s *defaultSimulator) PreemptWorkload(context.Context, workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
