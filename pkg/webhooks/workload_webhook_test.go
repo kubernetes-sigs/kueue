@@ -480,6 +480,31 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
+		"repeated podSet name in podSetUpdates of one admission check": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{
+					{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "bar"}},
+					{Name: kueue.DefaultPodSetName, Tolerations: []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpExists}}},
+				}},
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(podSetUpdatePath.Index(1).Child("name"), nil),
+			}.ToAggregate(),
+		},
+		"repeated podSet name in podSetUpdates is allowed when WorkloadValidateUniquePodSetUpdates is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateUniquePodSetUpdates: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
+		"same podSet name in podSetUpdates of two admission checks": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(
+				kueue.AdmissionCheckState{Name: "check1", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+				kueue.AdmissionCheckState{Name: "check2", PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}}},
+			).Obj(),
+		},
 		"preferred topology is rejected when WAS deep integration is enabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryDeepIntegration: true,
@@ -1385,6 +1410,42 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"finalizer can be removed from a workload with unchanged repeated podSet names in podSetUpdates": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+		},
+		"repeated podSet name added to podSetUpdates is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStatePending,
+				}).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:          "check",
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+					State:         kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(field.NewPath("status", "admissionChecks").Index(0).Child("podSetUpdates").Index(1).Child("name"), nil),
+			}.ToAggregate(),
 		},
 		"TopologyAssignment can be mutated": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},

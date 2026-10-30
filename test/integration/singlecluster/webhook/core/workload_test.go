@@ -575,6 +575,16 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					State:         kueue.CheckStateReady,
 					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName, Labels: map[string]string{"foo": "@abc"}}}},
 			),
+			ginkgo.Entry("two podSetUpdates for the same PodSet",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						Obj()
+				},
+				kueue.AdmissionCheckState{
+					Name:          "check",
+					State:         kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}}},
+			),
 		)
 
 		ginkgo.It("invalid reclaimablePods", func() {
@@ -1304,6 +1314,53 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					State:              kueue.CheckStateReady,
 				}, behavioral.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should allow two podSetUpdates for the same PodSet when WorkloadValidateUniquePodSetUpdates is disabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateUniquePodSetUpdates, false)
+
+			ginkgo.By("Creating a new Workload")
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Setting admission check state with two podSetUpdates for the same PodSet")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:          "check",
+					State:         kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should allow removing the finalizer from a Workload with unchanged repeated podSetUpdates", func() {
+			ginkgo.By("Creating a new Workload with a finalizer")
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Storing two podSetUpdates for the same PodSet while WorkloadValidateUniquePodSetUpdates is disabled")
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateUniquePodSetUpdates, false)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:          "check",
+					State:         kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: kueue.DefaultPodSetName}, {Name: kueue.DefaultPodSetName}},
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Removing the finalizer while WorkloadValidateUniquePodSetUpdates is enabled")
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateUniquePodSetUpdates, true)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Finalizers = nil
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
