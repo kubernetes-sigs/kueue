@@ -444,6 +444,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
 	}
+	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -467,6 +468,39 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
 	return newPt, nil
+}
+
+// findDanglingVolumeMounts returns the names of volumes that are mounted by containers but missing from spec.Volumes.
+func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
+	volumes := sets.New[string]()
+	for _, v := range spec.Volumes {
+		volumes.Insert(v.Name)
+	}
+	var names []string
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			for _, m := range c.VolumeMounts {
+				if volumes.Has(m.Name) {
+					continue
+				}
+				volumes.Insert(m.Name)
+				names = append(names, m.Name)
+			}
+		}
+	}
+	return names
+}
+
+// addPlaceholderVolumes adds an emptyDir volume for each name. Controllers such as StatefulSet and
+// LeaderWorkerSet (volumeClaimTemplates) and JobSet (volumeClaimPolicies) add those volumes only to the
+// Pods they create, so the API server rejects a PodTemplate whose volumeMounts have no matching volume.
+// The placeholder is optimistic: it does not model the real volume's storage or topology constraints.
+// shortcut: volumeDevices (block-mode claims) are not handled; emptyDir cannot back a device, so they
+// need a PVC/ephemeral placeholder if required.
+func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
+	for _, name := range names {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+	}
 }
 
 // setAdmissionCheckRetry sets the admission check to Retry using the
