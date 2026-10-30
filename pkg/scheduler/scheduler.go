@@ -892,6 +892,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
 		log.V(3).Info("Re-computing the assignment as it doesn't fit for TAS")
+		// TODO (#17795): Once the bug is resolved for native Planner,
+		// unify the code paths and remove this check.
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
+		}
 	default:
 		// Short-circuit, nothing to recompute.
 		return schdcache.FitsCheckOk == fitsCheck, nil
