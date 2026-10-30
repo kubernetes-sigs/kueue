@@ -207,7 +207,10 @@ caveats:
   workloads that will use the new flavor; otherwise the new flavor rejects them
   with `Flavor "<name>" does not support TopologyAwareScheduling`.
 
-Once no ClusterQueue lists the old flavor, you can delete it.
+Once no ClusterQueue lists the old flavor and all workloads admitted on it have
+finished, you can delete the old flavor. Deleting it while workloads admitted on
+it are still running causes Kueue to suspend those jobs on their next
+reconcile.
 
 ## What's next
 
