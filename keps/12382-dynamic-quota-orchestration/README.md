@@ -33,6 +33,11 @@
   - [Effective quota construction](#effective-quota-construction)
   - [Resource transformations and DRA resource mappings](#resource-transformations-and-dra-resource-mappings)
   - [Stale Effective Quota](#stale-effective-quota)
+    - [Expiration with <code>validUntil</code>](#expiration-with-validuntil)
+    - [Renewal](#renewal)
+    - [Condition <code>EffectiveQuotaStale</code>](#condition-effectivequotastale)
+    - [Clock skew](#clock-skew)
+    - [Upgrade and downgrade](#upgrade-and-downgrade)
   - [DQO Discovery-only mode](#dqo-discovery-only-mode)
   - [DQO Distribution mode](#dqo-distribution-mode)
   - [Soft validation of overlapping orchestrators](#soft-validation-of-overlapping-orchestrators)
@@ -50,7 +55,7 @@
 - [Alternatives](#alternatives)
   - [Internal quota transformation pipeline](#internal-quota-transformation-pipeline)
   - [Effective quota override in spec](#effective-quota-override-in-spec)
-  - [Automatic expiration of effective quota](#automatic-expiration-of-effective-quota)
+  - [Clearing expired effective quota](#clearing-expired-effective-quota)
   - [Store all distributed quota in DQO status](#store-all-distributed-quota-in-dqo-status)
   - [Sparse effective quota overrides](#sparse-effective-quota-overrides)
   - [One CRD per capacity provider](#one-crd-per-capacity-provider)
@@ -282,6 +287,17 @@ type CohortStatus struct {
     //
     // +optional
     EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
+
+    // conditions hold the latest available observations of the Cohort
+    // current state. Added for the EffectiveQuotaStale condition.
+    //
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    // +patchStrategy=merge
+    // +patchMergeKey=type
+    // +kubebuilder:validation:MaxItems=16
+    Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type EffectiveQuotaStatus struct {
@@ -297,6 +313,14 @@ type EffectiveQuotaStatus struct {
     // +listType=atomic
     // +kubebuilder:validation:MaxItems=16
     ResourceGroups []ResourceGroup `json:"resourceGroups"`
+
+    // validUntil is the time after which the effective quota is considered
+    // stale. Kueue then ignores resourceGroups and uses spec.resourceGroups.
+    // The managing component extends it while it keeps managing the quota.
+    // When omitted, the effective quota does not expire.
+    //
+    // +optional
+    ValidUntil *metav1.Time `json:"validUntil,omitempty"`
 }
 
 type EffectiveQuotaStatusOrchestratorRef struct {
@@ -379,6 +403,16 @@ type CapacityDistribution struct {
     //
     // +required
     SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef"`
+
+    // effectiveQuotaTTL is how long the effective quota written by this DQO
+    // stays valid without renewal. DQO sets status.effectiveQuotas.validUntil
+    // to the time of a successful distribution plus this value.
+    // Defaults to 10m. The minimum is 1m.
+    //
+    // +optional
+    // +kubebuilder:default="10m"
+    // +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m')",message="effectiveQuotaTTL must be at least 1m"
+    EffectiveQuotaTTL *metav1.Duration `json:"effectiveQuotaTTL,omitempty"`
 }
 
 type SubtreeRootRefKind string
@@ -661,7 +695,7 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
 
-Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not automatically revoked while discovery is not ready.
+Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not revoked immediately while discovery is not ready. They are not renewed either, so they expire at `validUntil` (see [Stale Effective Quota](#stale-effective-quota)).
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
@@ -675,13 +709,16 @@ in particular for:
 1. registration and start of the `DynamicQuotaOrchestration` controller
 2. effectiveness of the `status.effectiveQuotas` field. When the FG is disabled
 the field is inactive even if populated.
+3. expiration of effective quota, including the `EffectiveQuotaStale` condition
+(see [Stale Effective Quota](#stale-effective-quota)). No separate feature gate is added.
 
 ### Source of Truth for Quotas
 
 The source of truth for quotas in Kueue components, such as scheduler or metric reporters,
 is defined as follows:
 1. when `DynamicQuotaOrchestration` feature gate is enabled and `status.effectiveQuotas` is
-  defined, then use `status.effectiveQuotas.resourceGroups`
+  defined, and the object does not have the `EffectiveQuotaStale=True` condition,
+  then use `status.effectiveQuotas.resourceGroups`
 2. otherwise use `spec.resourceGroups`
 
 An update to the effective quotas refreshes the scheduler cache
@@ -766,15 +803,100 @@ when evaluating and admitting workloads against `status.effectiveQuotas`.
 Effective quota may become stale in multiple scenarios, for example:
 1. DQO is deleted, deactivated or unpinned.
 2. DQO has capacityDistribution disabled.
-3. Another external controller managing the field no longer does that.
+3. DQO cannot compute the effective capacity, for example a `CapacityProvider`
+   stops reporting (`Distributed=False` with reason `EffectiveCapacityNotComputed`).
+4. Another external controller managing the field no longer does that.
 
-In all these cases we consider the stale effective quota, represented as
-`status.effectiveQuotas` to remain effective, leaving it for administrator
-intervention.
+Currently, a stale effective quota stays in effect until an administrator
+clears it. With this KEP, the effective quota expires unless its manager keeps
+renewing it. After expiry, Kueue falls back to `spec.resourceGroups`.
 
-This behavior is subject to be re-evaluated in the later releases based on
-user feedback. In particular, one potential idea is to use
-[automatic expiration of effective quota](#automatic-expiration-of-effective-quota).
+#### Expiration with `validUntil`
+
+`status.effectiveQuotas.validUntil` is an absolute timestamp set by the manager
+of the effective quota. We prefer a single absolute timestamp over a heartbeat
+(a renew time plus a duration, as in the `Lease` API), because:
+- the writer picks the validity period, so external controllers can use their
+  own period without Kueue knowing it.
+- the check needs only one field, and the value is easy to read in `kubectl get -o yaml`.
+
+When `validUntil` is omitted, the effective quota never expires. This keeps
+the alpha behavior for external controllers that do not set the field.
+
+#### Renewal
+
+The DQO sets `validUntil` to `now + spec.capacityDistribution.effectiveQuotaTTL`
+for every ClusterQueue and Cohort in its subtree, only when the distribution
+succeeds (`Distributed=True`, reason `QuotasDistributed`). In all scenarios
+listed above the DQO stops renewing, so the effective quota expires within the TTL.
+
+To bound the number of writes, the DQO renews `validUntil` only when less
+than half of the TTL remains, or when the effective quota changes. Since DQO
+reconciles are event-driven, the DQO also requeues itself for the time when
+half of the TTL remains. This results in about two status writes per TTL for
+each ClusterQueue and Cohort in the subtree.
+
+#### Condition `EffectiveQuotaStale`
+
+The ClusterQueue and Cohort controllers own the `EffectiveQuotaStale` condition,
+set on `ClusterQueue.status.conditions` and `Cohort.status.conditions`
+(the latter is added by this KEP). When `validUntil` is in the future, they
+requeue the object for `validUntil`.
+
+| Status | Reason | Description |
+| --- | --- | --- |
+| `True` | `Expired` | `validUntil` has passed. Kueue ignores `status.effectiveQuotas` and uses `spec.resourceGroups`. |
+| `False` | `Valid` | `validUntil` is in the future. `status.effectiveQuotas` is in effect. |
+
+```
+                  DQO distributes
+(no condition) ---------------------> EffectiveQuotaStale=False (Valid)
+                                          |                 ^
+                        validUntil passes |                 | DQO distributes again
+                                          v                 |
+                                      EffectiveQuotaStale=True (Expired)
+```
+
+The condition is absent when `status.effectiveQuotas` or `validUntil` is not
+set, or when the feature gate is disabled.
+
+The scheduler, queue manager and metrics ignore `status.effectiveQuotas`
+when the object has `EffectiveQuotaStale=True`. They do not compare `validUntil`
+with the current time, because nothing triggers an update when that time passes.
+Setting the condition is an update, so they see the expiry right away.
+The Cohort controller also reacts when only `validUntil` changes, so it
+requeues for the new time, for example when the DQO adds `validUntil` after an
+upgrade without changing the quota.
+
+As a result, an effective quota stays in effect at most for the TTL plus the
+controller reaction time after the last successful distribution.
+
+Falling back to `spec.resourceGroups` may increase the quota above the
+capacity which was last reported, for example when the capacity was reduced.
+Administrators who prefer to keep the last distributed quota during an outage
+can set a longer `effectiveQuotaTTL`.
+
+#### Clock skew
+
+The DQO writes `validUntil` and the ClusterQueue and Cohort controllers check it.
+In the default deployment they run in the same kueue-controller-manager leader,
+so they use the same clock. After a leader change, the skew between the nodes
+is expected to be small compared to the minimum TTL of 1m. Renewal at half of the
+TTL also gives margin for slow reconciles. External controllers setting
+`validUntil` must keep their clock skew small compared to their validity period.
+Kueue does not add a grace period.
+
+#### Upgrade and downgrade
+
+On upgrade, existing `status.effectiveQuotas` without `validUntil` do not expire.
+An active DQO adds `validUntil` on its first successful reconcile after the
+upgrade. An effective quota left by a DQO deleted before the upgrade still
+requires administrator intervention.
+
+On downgrade, older Kueue versions ignore `validUntil` and the
+`EffectiveQuotaStale` condition, so an expired effective quota becomes
+effective again. Administrators should clear expired `status.effectiveQuotas`
+before downgrading.
 
 ### DQO Discovery-only mode
 
@@ -792,7 +914,7 @@ When `spec.capacityDistribution` is present, the controller:
 1. resolves the referenced quota subtree;
 2. aggregates capacity from the referenced providers;
 3. computes proportional quota for ClusterQueues and Cohorts in the subtree;
-4. writes `status.effectiveQuotas`, including an `orchestratorRef` to the DQO; and
+4. writes `status.effectiveQuotas`, including an `orchestratorRef` to the DQO and `validUntil`; and
 5. updates the DQO status and conditions.
 
 ### Soft validation of overlapping orchestrators
@@ -908,6 +1030,13 @@ Unit tests will cover:
 - application of `effectiveCapacityMultiplier` and its default;
 - scheduling based on `status.effectiveQuotas`
 - `DynamicQuotaOrchestrator` reconcile (discovery, distribution)
+- renewal of `validUntil`: set on successful distribution, renewed only when
+  less than half of the TTL remains, not renewed when discovery or distribution fails,
+  and the requeue time (with a fake clock)
+- the ClusterQueue and Cohort controllers setting and clearing `EffectiveQuotaStale`,
+  and the requeue for `validUntil` (with a fake clock)
+- the source of truth helpers ignoring `status.effectiveQuotas` with
+  `EffectiveQuotaStale=True`, and never expiring it without `validUntil`
 
 #### Integration Tests
 
@@ -918,6 +1047,11 @@ Integration tests will cover:
 - CapacityProvider update propagating to DQO aggregated capacity;
 - Discovery-only DQO not writing effective quota;
 - Conflicting pointers by two different DQO instances disable the lower one (soft validation)
+- Effective quota expiring and the scheduler falling back to `spec.resourceGroups`
+  after the DQO is deleted, its `capacityDistribution` is removed, or its
+  `CapacityProvider` stops being ready
+- Expired effective quota becoming effective again after the DQO resumes distribution
+- Effective quota without `validUntil` (external controller) not expiring
 
 ### Graduation Criteria
 
@@ -936,7 +1070,8 @@ Integration tests will cover:
 - Demonstrate the mechanism with supported capacity-provider integrations.
 - Document operational behavior, observability, and upgrade expectations.
 - Introduce the `DynamicQuotaOrchestration` feature gate (enabled by default).
-- Re-evaluate the idea for [automatic expiration of effective quota](#automatic-expiration-of-effective-quota).
+- Implement expiration of effective quota using `validUntil` and the `EffectiveQuotaStale`
+  condition, see [Stale Effective Quota](#stale-effective-quota).
 - Re-evaluate the idea for DQO scaling borrowing or lending limit.
 - Revisit and refine the condition types, reasons, and state transitions across `CapacityProvider` and `DynamicQuotaOrchestrator` (and evaluate introducing dedicated `ClusterQueue`/`Cohort` status conditions) based on operational feedback.
 
@@ -950,6 +1085,7 @@ Integration tests will cover:
 ## Implementation History
 
 - 2026 Aug 09: Initial KEP draft.
+- 2026 Oct 30: Move automatic expiration of effective quota from Alternatives to the design, for Beta.
 
 ## Drawbacks
 
@@ -980,21 +1116,17 @@ This was not selected because it requires write access to administrator-owned
 spec, conflicts with GitOps reconciliation, and causes frequent desired-state
 changes.
 
-### Automatic expiration of effective quota
+### Clearing expired effective quota
 
-EffectiveQuotaStatus could include a `validUntil` timestamp that the managing
-DQO periodically extends as a heartbeat. After the timestamp expires, Kueue would
-mark the effective quota as stale, for example with an `EffectiveQuotaStale=True` 
-condition, and the scheduler would ignore `status.effectiveQuotas` and fall back
-to `spec.resourceGroups`. This would prevent an effective quota from remaining
-active indefinitely when the managing DQO is deleted, becomes unavailable, or
-stops distributing capacity.
+When `validUntil` passes, the ClusterQueue and Cohort controllers could remove
+`status.effectiveQuotas` instead of setting a condition.
 
 **Reasons for deferring/rejecting**:
 
-The proposal is reasonable, but deferred from the first iteration of Alpha
-to derisk delivery, and reduce the overall complexity of the solution. We will
-re-evaluate the approach based on user feedback before Beta.
+This was not selected because it removes the last distributed values and the
+`orchestratorRef`, which administrators use for troubleshooting and which DQO
+uses to detect ownership conflicts. It would also make the expiry indistinguishable
+from a DQO which never distributed.
 
 ### Store all distributed quota in DQO status
 
