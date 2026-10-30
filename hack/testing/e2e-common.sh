@@ -419,7 +419,8 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
-    export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
+    export DRA_EXAMPLE_DRIVER_IMAGE=registry.k8s.io/dra-example-driver/dra-example-driver:${DRA_EXAMPLE_DRIVER_VERSION}
+    export DRA_EXAMPLE_DRIVER_HELM_CHART=oci://registry.k8s.io/dra-example-driver/charts/dra-example-driver
 fi
 
 if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
@@ -803,6 +804,9 @@ function prepare_docker_images {
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+    fi
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${DRA_EXAMPLE_DRIVER_IMAGE}"
     fi
 }
 
@@ -1605,38 +1609,14 @@ function install_dra_example_driver {
         fi
     fi
 
-    local dra_driver_temp_dir
-    dra_driver_temp_dir=$(mktemp -d)
+    local dra_chart_dir
+    dra_chart_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
-    trap "rm -rf '$dra_driver_temp_dir'" RETURN
+    trap "rm -rf '$dra_chart_dir'" RETURN
     "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
-        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
-        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+        -- "$HELM" pull "${DRA_EXAMPLE_DRIVER_HELM_CHART}" --version "${expected_version#v}" --untar --untardir "$dra_chart_dir"
 
-    local dra_image_repo="dra-example-driver"
-    local dra_image_tag="${expected_version#v}"
-    dra_image_tag="${dra_image_tag//\//-}"
-    if [[ -z "${dra_image_tag}" ]]; then
-        dra_image_tag="local"
-    fi
-
-    local go_version
-    go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
-
-    echo "Building dra-example-driver image from source (Go ${go_version})..."
-    # Patch Makefile to ensure static build with CGO_ENABLED=0
-    sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
-        && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
-        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
-        --build-arg GO_VERSION="${go_version}" \
-        --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
-        -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
-        "$dra_driver_temp_dir"
-
-    cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
+    cluster_kind_load_image "${name}" "${DRA_EXAMPLE_DRIVER_IMAGE}"
 
     local -a extra_helm_args=()
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
@@ -1650,13 +1630,11 @@ function install_dra_example_driver {
       --create-namespace \
       --namespace dra-example-driver \
       --kubeconfig="${kubeconfig}" \
-      --set image.repository="${dra_image_repo}" \
-      --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
       "${extra_helm_args[@]}" \
       --wait \
       dra-example-driver \
-      "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
+      "$dra_chart_dir/dra-example-driver"
 }
 
 
