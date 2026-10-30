@@ -41,6 +41,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -243,6 +244,29 @@ func waitForKueueAvailability(ctx context.Context, k8sClient client.Client, chec
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, checkNoRestarts)
 	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
 	waitForLeaderElection(ctx, k8sClient)
+	waitForGarbageCollectorToWatchWorkloads(ctx, k8sClient)
+}
+
+// waitForGarbageCollectorToWatchWorkloads waits until the garbage collector of
+// kube-controller-manager watches Workloads. It picks up new CRDs only on its
+// periodic discovery resync. Until then, deleting a Job with the Orphan
+// propagation policy keeps the owner reference on its Workload, so the garbage
+// collector deletes the Workload once it starts watching Workloads.
+func waitForGarbageCollectorToWatchWorkloads(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	waitStart := time.Now()
+	ginkgo.By("Waiting for the garbage collector to watch Workloads")
+
+	owner := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{GenerateName: "gc-probe-", Namespace: metav1.NamespaceDefault}}
+	behavioral.MustCreate(ctx, k8sClient, owner)
+	wl := utiltestingapi.MakeWorkloadWithGeneratedName("gc-probe-", owner.Namespace).
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), owner.Name, string(owner.UID)).
+		Obj()
+	behavioral.MustCreate(ctx, k8sClient, wl)
+	gomega.Expect(k8sClient.Delete(ctx, owner)).To(gomega.Succeed())
+	behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, wl, false, behavioral.LongTimeout)
+
+	ginkgo.GinkgoLogr.Info("Garbage collector watches Workloads", "waitingTime", time.Since(waitStart))
 }
 
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
