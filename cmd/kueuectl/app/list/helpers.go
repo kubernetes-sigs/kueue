@@ -18,6 +18,7 @@ package list
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -49,7 +50,7 @@ func listRequestLimit() (int64, error) {
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
 	if err != nil || limit < 0 {
-		return 0, errInvalidListRequestLimit
+		return 0, fmt.Errorf("%w: %s=%q must be a non-negative integer", errInvalidListRequestLimit, KueuectlListRequestLimitEnvName, listRequestLimitEnv)
 	}
 
 	return limit, nil

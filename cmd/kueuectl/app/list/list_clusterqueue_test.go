@@ -206,9 +206,10 @@ metadata: {}
 
 func TestClusterQueueOptionsComplete(t *testing.T) {
 	testCases := map[string]struct {
-		envValue  string
-		wantLimit int64
-		wantErr   error
+		envValue       string
+		wantLimit      int64
+		wantErr        error
+		wantErrMessage string
 	}{
 		"should use the default limit": {
 			wantLimit: defaultListRequestLimit,
@@ -218,16 +219,18 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 			wantLimit: 5,
 		},
 		"should return an error for an invalid limit env var": {
-			envValue: "invalid",
-			wantErr:  errInvalidListRequestLimit,
+			envValue:       "invalid",
+			wantErr:        errInvalidListRequestLimit,
+			wantErrMessage: `invalid list request limit: KUEUECTL_LIST_REQUEST_LIMIT="invalid" must be a non-negative integer`,
 		},
 		"should allow zero limit env var to disable pagination": {
 			envValue:  "0",
 			wantLimit: 0,
 		},
 		"should return an error for a negative limit env var": {
-			envValue: "-1",
-			wantErr:  errInvalidListRequestLimit,
+			envValue:       "-1",
+			wantErr:        errInvalidListRequestLimit,
+			wantErrMessage: `invalid list request limit: KUEUECTL_LIST_REQUEST_LIMIT="-1" must be a non-negative integer`,
 		},
 	}
 	for name, tc := range testCases {
@@ -243,6 +246,9 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 			gotErr := o.Complete(tcg, &cobra.Command{}, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+			if tc.wantErrMessage != "" && (gotErr == nil || gotErr.Error() != tc.wantErrMessage) {
+				t.Errorf("Unexpected error message: got %q, want %q", gotErr, tc.wantErrMessage)
 			}
 
 			if tc.wantErr == nil && o.Limit != tc.wantLimit {
