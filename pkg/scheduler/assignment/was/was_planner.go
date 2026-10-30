@@ -162,7 +162,7 @@ func (p *wasPlanner) schedule(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	opts ...simulator.ScheduleOption,
-) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, error) {
+) (podSetPlacementSummary, podSetFailureSummary, []workload.Reference, error) {
 	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
 	if schedulingResult.Error != nil {
 		return nil, nil, nil, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)

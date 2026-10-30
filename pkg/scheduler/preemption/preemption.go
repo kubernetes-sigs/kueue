@@ -94,7 +94,7 @@ type PreemptionStrategy struct {
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
-	targetsByKey map[client.ObjectKey]*Target
+	targetsByKey map[workload.Reference]*Target
 }
 
 var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
@@ -117,7 +117,7 @@ func newPreemptionStrategy(
 		candidates:     candidates,
 		allowBorrowing: allowBorrowing,
 		pCtx:           pCtx,
-		targetsByKey:   make(map[client.ObjectKey]*Target),
+		targetsByKey:   make(map[workload.Reference]*Target),
 	}
 	for _, opt := range opts {
 		opt(&ps)
@@ -127,10 +127,10 @@ func newPreemptionStrategy(
 }
 
 // Candidates returns a lazy sequence of candidate workload keys for this strategy.
-func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
-	return func(yield func(client.ObjectKey) bool) {
+func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
+	return func(yield func(workload.Reference) bool) {
 		for target := range ps.candidates {
-			wlKey := client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+			wlKey := workload.Key(target.WorkloadInfo.Obj)
 			ps.targetsByKey[wlKey] = target
 			if !yield(wlKey) {
 				return
@@ -139,17 +139,17 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
 	}
 }
 
-func (ps *PreemptionStrategy) PreemptWorkload(wlKey client.ObjectKey) {
+func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
-		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; inSnapshot {
+		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; inSnapshot {
 			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
 		}
 	}
 }
 
-func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey client.ObjectKey) {
+func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
-		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; !inSnapshot {
+		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 		}
 	}
@@ -168,7 +168,7 @@ func (ps *PreemptionStrategy) Reset() {
 
 // GetTargets checks whether the given preemptedWorkloads satisfy quota and strategy
 // verification, and restores the snapshot before returning the corresponding targets.
-func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []client.ObjectKey) ([]*Target, error) {
+func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference) ([]*Target, error) {
 	ps.Reset()
 	if len(preemptedWorkloads) == 0 {
 		ps.pCtx.log.V(5).Info("No workloads preempted during simulation",

@@ -5285,14 +5285,14 @@ func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrate
 	return PreemptionStrategy{}, nil
 }
 
-func workloadInSnapshot(snapshot *schdcache.Snapshot, wlKey client.ObjectKey) bool {
-	_, ok := snapshot.ClusterQueue("cq").Workloads[workload.NewReference(wlKey.Namespace, wlKey.Name)]
+func workloadInSnapshot(snapshot *schdcache.Snapshot, wlKey workload.Reference) bool {
+	_, ok := snapshot.ClusterQueue("cq").Workloads[wlKey]
 	return ok
 }
 
 func TestPreemptionStrategy(t *testing.T) {
-	vLowKey := client.ObjectKey{Namespace: "default", Name: "v-low"}
-	vMidKey := client.ObjectKey{Namespace: "default", Name: "v-mid"}
+	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
 
 	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
 		return setupPreemptionStrategy(t, "2")
@@ -5301,12 +5301,12 @@ func TestPreemptionStrategy(t *testing.T) {
 	t.Run("Candidates", func(t *testing.T) {
 		t.Run("yields lazily and removes only yielded candidates from snapshot", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 				break
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey}, yielded); diff != "" {
 				t.Errorf("Candidates() first yield mismatch (-want +got):\n%s", diff)
 			}
 			if workloadInSnapshot(snapshot, vLowKey) {
@@ -5319,11 +5319,11 @@ func TestPreemptionStrategy(t *testing.T) {
 
 		t.Run("yields all candidates in priority order", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey, vMidKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey, vMidKey}, yielded); diff != "" {
 				t.Errorf("Candidates() full sequence mismatch (-want +got):\n%s", diff)
 			}
 			if workloadInSnapshot(snapshot, vLowKey) || workloadInSnapshot(snapshot, vMidKey) {
@@ -5356,28 +5356,28 @@ func TestPreemptionStrategy(t *testing.T) {
 		cases := map[string]struct {
 			incomingCPU        string
 			verify             func([]*Target) (bool, string)
-			preemptedWorkloads []client.ObjectKey
-			wantTargets        []client.ObjectKey
+			preemptedWorkloads []workload.Reference
+			wantTargets        []workload.Reference
 			wantErr            bool
 		}{
 			"empty preemptedWorkloads": {
 				preemptedWorkloads: nil,
 			},
 			"unyielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vMidKey},
+				preemptedWorkloads: []workload.Reference{vMidKey},
 				wantErr:            true,
 			},
 			"yielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vLowKey},
-				wantTargets:        []client.ObjectKey{vLowKey},
+				preemptedWorkloads: []workload.Reference{vLowKey},
+				wantTargets:        []workload.Reference{vLowKey},
 			},
 			"preempted workloads do not free enough quota": {
 				incomingCPU:        "4",
-				preemptedWorkloads: []client.ObjectKey{vLowKey},
+				preemptedWorkloads: []workload.Reference{vLowKey},
 			},
 			"strategy verification fails": {
 				verify:             func([]*Target) (bool, string) { return false, "DRS violated" },
-				preemptedWorkloads: []client.ObjectKey{vLowKey},
+				preemptedWorkloads: []workload.Reference{vLowKey},
 			},
 		}
 		for name, tc := range cases {
@@ -5397,9 +5397,9 @@ func TestPreemptionStrategy(t *testing.T) {
 				if (err != nil) != tc.wantErr {
 					t.Fatalf("GetTargets(%v) error = %v, wantErr %v", tc.preemptedWorkloads, err, tc.wantErr)
 				}
-				var gotTargets []client.ObjectKey
+				var gotTargets []workload.Reference
 				for _, target := range targets {
-					gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+					gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 				}
 				if diff := cmp.Diff(tc.wantTargets, gotTargets); diff != "" {
 					t.Errorf("GetTargets(%v) targets mismatch (-want +got):\n%s", tc.preemptedWorkloads, diff)
@@ -5413,18 +5413,18 @@ func TestPreemptionStrategy(t *testing.T) {
 }
 
 func TestPreemptionStrategy_PreemptionFilter(t *testing.T) {
-	vLowKey := client.ObjectKey{Namespace: "default", Name: "v-low"}
-	vMidKey := client.ObjectKey{Namespace: "default", Name: "v-mid"}
-	unknownKey := client.ObjectKey{Namespace: "default", Name: "unknown"}
+	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
+	unknownKey := workload.NewReference("default", "unknown")
 
 	cases := map[string]struct {
 		incomingCPU     string
 		yieldCandidates int
-		unpreempt       []client.ObjectKey
-		preempt         []client.ObjectKey
+		unpreempt       []workload.Reference
+		preempt         []workload.Reference
 		reset           bool
 		wantMayFit      bool
-		wantPreempted   []client.ObjectKey
+		wantPreempted   []workload.Reference
 	}{
 		"quota full before yielding candidates": {
 			incomingCPU: "2",
@@ -5434,44 +5434,44 @@ func TestPreemptionStrategy_PreemptionFilter(t *testing.T) {
 			incomingCPU:     "2",
 			yieldCandidates: 1,
 			wantMayFit:      true,
-			wantPreempted:   []client.ObjectKey{vLowKey},
+			wantPreempted:   []workload.Reference{vLowKey},
 		},
 		"yielding one candidate is insufficient for larger workload": {
 			incomingCPU:     "4",
 			yieldCandidates: 1,
 			wantMayFit:      false,
-			wantPreempted:   []client.ObjectKey{vLowKey},
+			wantPreempted:   []workload.Reference{vLowKey},
 		},
 		"yielding both candidates frees enough quota for larger workload": {
 			incomingCPU:     "4",
 			yieldCandidates: 2,
 			wantMayFit:      true,
-			wantPreempted:   []client.ObjectKey{vLowKey, vMidKey},
+			wantPreempted:   []workload.Reference{vLowKey, vMidKey},
 		},
 		"unpreempting yielded candidate restores usage so workload no longer fits": {
 			incomingCPU:     "2",
 			yieldCandidates: 1,
-			unpreempt:       []client.ObjectKey{vLowKey},
+			unpreempt:       []workload.Reference{vLowKey},
 			wantMayFit:      false,
 		},
 		"reprieving unneeded second candidate keeps quota satisfied": {
 			incomingCPU:     "2",
 			yieldCandidates: 2,
-			unpreempt:       []client.ObjectKey{vMidKey},
+			unpreempt:       []workload.Reference{vMidKey},
 			wantMayFit:      true,
-			wantPreempted:   []client.ObjectKey{vLowKey},
+			wantPreempted:   []workload.Reference{vLowKey},
 		},
 		"re-preempting after unpreempt removes candidate again": {
 			incomingCPU:     "2",
 			yieldCandidates: 1,
-			unpreempt:       []client.ObjectKey{vLowKey},
-			preempt:         []client.ObjectKey{vLowKey},
+			unpreempt:       []workload.Reference{vLowKey},
+			preempt:         []workload.Reference{vLowKey},
 			wantMayFit:      true,
-			wantPreempted:   []client.ObjectKey{vLowKey},
+			wantPreempted:   []workload.Reference{vLowKey},
 		},
 		"preempting unyielded or unknown workload is a no-op": {
 			incomingCPU: "2",
-			preempt:     []client.ObjectKey{vLowKey, unknownKey},
+			preempt:     []workload.Reference{vLowKey, unknownKey},
 			wantMayFit:  false,
 		},
 		"reset restores all preempted candidates": {
@@ -5506,8 +5506,8 @@ func TestPreemptionStrategy_PreemptionFilter(t *testing.T) {
 			if got := strategy.MayFit(); got != tc.wantMayFit {
 				t.Errorf("MayFit() = %v, want %v", got, tc.wantMayFit)
 			}
-			var gotPreempted []client.ObjectKey
-			for _, wlKey := range []client.ObjectKey{vLowKey, vMidKey} {
+			var gotPreempted []workload.Reference
+			for _, wlKey := range []workload.Reference{vLowKey, vMidKey} {
 				if !workloadInSnapshot(snapshot, wlKey) {
 					gotPreempted = append(gotPreempted, wlKey)
 				}
