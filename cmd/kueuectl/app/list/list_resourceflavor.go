@@ -34,6 +34,9 @@ import (
 )
 
 var (
+	rfLong = templates.LongDesc(`
+		Lists ResourceFlavors that match the given criteria.
+	`) + "\n\n" + listRequestLimitDescription
 	rfExample = templates.Examples(`
 		# List ResourceFlavor
 		kueuectl list resourceflavor
@@ -69,6 +72,7 @@ func NewResourceFlavorCmd(clientGetter clientgetter.ClientGetter, streams generi
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"rf"},
 		Short:                 "List ResourceFlavor",
+		Long:                  rfLong,
 		Example:               rfExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true

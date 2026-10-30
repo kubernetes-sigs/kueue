@@ -15,6 +15,8 @@ The file is auto-generated from the Go source code of the component using the
 
 Lists all ClusterQueues, potentially limiting output to those that are active/inactive and matching the label selector.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources returned in each request to the Kubernetes API. The default is 100.
+
 ```
 kueuectl list clusterqueue [--selector key1=value1] [--field-selector key1=value1] [--active=true|false]
 ```

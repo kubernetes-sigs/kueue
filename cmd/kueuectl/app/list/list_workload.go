@@ -48,7 +48,7 @@ import (
 )
 
 var (
-	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`)
+	wlLong    = templates.LongDesc(`Lists Workloads that match the provided criteria.`) + "\n\n" + listRequestLimitDescription
 	wlExample = templates.Examples(`
 		# List Workload 
   		kueuectl list kueueworkload

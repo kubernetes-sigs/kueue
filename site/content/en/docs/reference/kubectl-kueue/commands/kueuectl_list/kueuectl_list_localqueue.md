@@ -15,6 +15,8 @@ The file is auto-generated from the Go source code of the component using the
 
 Lists LocalQueues that match the given criteria: point to a specific CQ, being active/inactive, belonging to the specified namespace, matching the label selector or the field selector.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources returned in each request to the Kubernetes API. The default is 100.
+
 ```
 kueuectl list localqueue [--clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--active=true|false] [--all-namespaces]
 ```
