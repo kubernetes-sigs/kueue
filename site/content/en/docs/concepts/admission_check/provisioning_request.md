@@ -167,6 +167,10 @@ Once Kueue creates a ProvisioningRequest for the job you submitted, modifying th
 
 ### Setup
 
+Install the `ProvisioningRequest` CRD before starting `kueue-controller-manager`.
+If you install the CRD while Kueue is running, restart `kueue-controller-manager`
+to register the provisioning controller and its indexes.
+
 {{< include "examples/provisioning/provisioning-setup.yaml" "yaml" >}}
 
 ### Job using a ProvisioningRequest
