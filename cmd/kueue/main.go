@@ -498,9 +498,9 @@ func setupIndexes(
 
 	// setup provision admission check controller indexes
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-		setupLog.Error(
-			err,
+		setupLog.Info(
 			"Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
+			"reason", err.Error(),
 		)
 	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)

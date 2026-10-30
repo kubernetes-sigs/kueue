@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -4531,4 +4533,46 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 
 	close(start)
 	wg.Wait()
+}
+
+func TestLogWorkloadUpdateErr(t *testing.T) {
+	cases := map[string]struct {
+		err       error
+		wantLines int
+		wantError bool
+	}{
+		"no error logs nothing": {},
+		"missing ClusterQueue is not an error": {
+			err:       ErrCqNotFound,
+			wantLines: 1,
+		},
+		"other errors are errors": {
+			err:       errors.New("boom"),
+			wantLines: 1,
+			wantError: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var entries []map[string]any
+			log := funcr.NewJSON(func(obj string) {
+				entry := make(map[string]any)
+				if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+					t.Errorf("Failed to parse log entry %q: %v", obj, err)
+					return
+				}
+				entries = append(entries, entry)
+			}, funcr.Options{Verbosity: 2})
+			logWorkloadUpdateErr(log, tc.err)
+			if len(entries) != tc.wantLines {
+				t.Fatalf("Unexpected log lines (-want,+got): %d, %d: %v", tc.wantLines, len(entries), entries)
+			}
+			for _, e := range entries {
+				_, isError := e["error"]
+				if isError != tc.wantError {
+					t.Errorf("Logged at error level = %v, want %v: %v", isError, tc.wantError, e)
+				}
+			}
+		})
+	}
 }

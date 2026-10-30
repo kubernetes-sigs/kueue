@@ -876,10 +876,22 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
-	if err != nil {
+	logWorkloadUpdateErr(log, err)
+	return updated
+}
+
+// logWorkloadUpdateErr logs a failed cache update of a workload. A missing
+// ClusterQueue is expected while the controller starts: workload events can
+// arrive before their ClusterQueue's, and AddClusterQueue lists and adds the
+// workloads it admits, so that case is not an error.
+func logWorkloadUpdateErr(log logr.Logger, err error) {
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrCqNotFound):
+		log.V(2).Info("Workload not added to cache yet; its ClusterQueue will add it", "reason", err.Error())
+	default:
 		log.Error(err, "Updating workload in cache")
 	}
-	return updated
 }
 
 // UpdateWorkloadIfUnchanged applies w like AddOrUpdateWorkload, but only if the cache holds it with the same resourceVersion.
@@ -891,9 +903,7 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
-	if err != nil {
-		log.Error(err, "Updating workload in cache")
-	}
+	logWorkloadUpdateErr(log, err)
 	return updated
 }
 
