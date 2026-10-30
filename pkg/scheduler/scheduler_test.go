@@ -5725,6 +5725,185 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		// ClusterQueueA uses 20 of its nominal 5 plus borrowing limit 5, so nothing is
+		// reserved for a3-pending, which has no preemption candidates. c1-pending fits
+		// the cohort only by preempting both a1-admitted and a2-admitted.
+		"capacity reserved for a preemptor past the borrowing limit does not block preemption of its ClusterQueue": {
+			// Orders a3-pending before c1-pending.
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("ClusterQueueA").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "5", "5").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+					}).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("ClusterQueueB").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "16").Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("ClusterQueueC").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq", "eng-alpha").ClusterQueue("ClusterQueueA").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq", "eng-beta").ClusterQueue("ClusterQueueC").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a2-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a3-pending", "eng-alpha").
+					Creation(now.Add(-time.Second)).
+					Queue("lq").
+					Request("gpu", "4").
+					Obj(),
+				*utiltestingapi.MakeWorkload("c1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Priority(200).
+					Request("gpu", "21").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a2-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a3-pending", "eng-alpha").
+					Creation(now.Add(-time.Second)).
+					Queue("lq").
+					Request("gpu", "4").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 4 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("c1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Priority(200).
+					Request("gpu", "21").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 20 more needed. Pending the preemption of 2 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("21"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ClusterQueueC": {"eng-beta/c1-pending"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ClusterQueueA": {"eng-alpha/a3-pending"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "10").
+						Obj()).
+					Obj(),
+				"eng-alpha/a2-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "10").
+						Obj()).
+					Obj(),
+			},
+		},
 		//
 		// Denote Cohorts in UPPERCASE, and ClusterQueues in lowercase.
 		// quota is at GUARANTEED cohort
@@ -11576,6 +11755,34 @@ func TestResourcesToReserve(t *testing.T) {
 			wantReserved: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: resources.NewAmount(50),
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   resources.NewAmount(2),
+			},
+		},
+		{
+			name:           "Reserved gpu is what is left under the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(12),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(3),
+			},
+		},
+		{
+			name:           "Reserved gpu is zero when usage is already past the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(20),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(0),
 			},
 		},
 	}
