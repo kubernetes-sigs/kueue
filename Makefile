@@ -396,6 +396,9 @@ $(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue
 $(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
 $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 @$(call set-release-branch-images)
+endef
+
+define _cli_artifacts_recipe
 CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" BUILD_NPROCS="$(CLI_BUILD_NPROCS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 endef
 
@@ -408,6 +411,7 @@ artifacts: verify-git-tag clean-artifacts kustomize helm yq ## Generate local ar
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
+	$(_cli_artifacts_recipe)
 
 .PHONY: release-artifacts
 release-artifacts: ## Generate release artifacts.
