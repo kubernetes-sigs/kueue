@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -302,6 +304,90 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should report the quota reservation failures of the workers in the admission check message", func() {
+			ginkgo.By("creating a ResourceClaimTemplate on manager and worker1 (NOT on worker2)", func() {
+				managerRct := utiltesting.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj()
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerRct)
+
+				worker1Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker1Ns.Name).
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj()
+				behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Rct)
+			})
+
+			job := testingjob.MakeJob("unresolved-dra-job", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				Obj()
+			job.Spec.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "gpu",
+					ResourceClaimTemplateName: new("gpu-template"),
+				},
+			}
+
+			ginkgo.By("creating a job with DRA resources on manager", func() {
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("setting workload reservation in the management cluster", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
+				integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			})
+
+			workerFailures := make(map[string]*metav1.Condition)
+			ginkgo.By("waiting for each worker to fail to reserve quota", func() {
+				for workerName, worker := range map[string]cluster{
+					workerCluster1.Name: worker1TestCluster,
+					workerCluster2.Name: worker2TestCluster,
+				} {
+					gomega.Eventually(func(g gomega.Gomega) {
+						remoteWl := &kueue.Workload{}
+						g.Expect(worker.client.Get(worker.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+						g.Expect(remoteWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved))
+						workerFailures[workerName] = apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+			})
+
+			ginkgo.By("verifying the admission check message reports the failure of each worker", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+					acs := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+					g.Expect(acs).NotTo(gomega.BeNil())
+					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+					for workerName, cond := range workerFailures {
+						g.Expect(acs.Message).To(gomega.ContainSubstring(workerName))
+						g.Expect(acs.Message).To(gomega.ContainSubstring(cond.Reason))
+						g.Expect(acs.Message).To(gomega.ContainSubstring(cond.Message))
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting workload reservation in worker1", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
+				integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			})
+
+			ginkgo.By("verifying the admission check message no longer reports the failures of the workers", func() {
+				behavioral.ExpectAdmissionCheckStateWithMessage(
+					managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+					multiKueueAC.Name,
+					kueue.CheckStateReady,
+					`The workload was admitted on "worker1"`,
+				)
 			})
 		})
 	})
