@@ -841,6 +841,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: WorkloadValidateUniquePodSetUpdates
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: WorkloadValidationForPodSetMetadata
   versionedSpecs:
   - default: true
