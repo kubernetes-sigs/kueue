@@ -911,12 +911,12 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Finishing eviction of the parent workload and confirming quota is released", func() {
+			ginkgo.By("Finishing eviction of the parent workload and verifying it re-admits", func() {
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, parentWl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(parentWl)).To(gomega.BeFalse())
+					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
