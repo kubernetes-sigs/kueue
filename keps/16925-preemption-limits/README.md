@@ -1,21 +1,5 @@
 # KEP-16925: Preemption Limits
 
-<!--
-This is the title of your KEP. Keep it short, simple, and descriptive. A good
-title can help communicate what the KEP is and should be considered as part of
-any review.
--->
-
-<!--
-A table of contents is helpful for quickly jumping to sections of a KEP and for
-highlighting any additional information provided beyond the standard KEP
-template.
-
-Ensure the TOC is wrapped with
-  <code>&lt;!-- toc --&rt;&lt;!-- /toc --&rt;</code>
-tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hack/tools/mdtoc/generate.sh`.
--->
-
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
@@ -66,25 +50,6 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
 <!-- /toc -->
 
 ## Summary
-
-<!--
-This section is incredibly important for producing high-quality, user-focused
-documentation such as release notes or a development roadmap. It should be
-possible to collect this information before implementation begins, in order to
-avoid requiring implementors to split their attention between writing release
-notes and implementing the feature itself. KEP editors and SIG Docs
-should help to ensure that the tone and content of the `Summary` section is
-useful for a wide audience.
-
-A good summary is probably at least a paragraph in length.
-
-Both in this section and below, follow the guidelines of the [documentation
-style guide]. In particular, wrap lines to a reasonable length, to make it
-easier for reviewers to cite specific portions, and to minimize diff churn on
-updates.
-
-[documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
--->
 
 This KEP introduces **Preemption Limits** in Kueue through a new cluster-scoped `PreemptionLimit` Custom Resource Definition (CRD).
 While declarative preemption systems (such as Configurable Preemptions via `PreemptionConfig`, introduced in [KEP-13396](/keps/13396-configurable-preemptions/README.md)) allow expressive candidate selection policies, cluster administrators need rate-limiting guardrails to safely roll out new configurations, control the blast radius of misconfigurations, avoid cascading evictions, and protect workloads and queues from disruptive eviction storms.
@@ -375,7 +340,7 @@ Candidates that are **already** marked as evicted do not consume limits. Because
 #### Greedy Candidate Evaluation
 
 To respect active limits during candidate searching, a **greedy algorithm** is used:
-- When considering each preemption candidate from the ordered candidate stream, Kueue evaluates whether admitting/preempting that candidate is allowed by all applicable active limits. Candidates already marked as evicted do not consume limits and are always considered eligible.
+- When considering each preemption candidate from the ordered candidate stream, Kueue evaluates whether preempting that candidate is allowed by all applicable active limits. Candidates already marked as evicted do not consume limits and are always considered eligible.
 - If it is not allowed, the candidate is skipped and candidate evaluation proceeds to subsequent candidates.
 - If it is allowed, the candidate is selected, and its eviction is accounted for in subsequent candidate evaluations.
 
@@ -401,7 +366,7 @@ To manage this data, Kueue stores a comprehensive preemption map in memory, isol
 
 Because preemption event tracking is maintained strictly in-memory rather than persisted per-event in etcd, several operational caveats apply regarding controller restarts or `PreemptionLimit.spec` changes (see [Caveats](#caveats) for details).
 
-Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
+Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the `counts` list (restricted to the top 1000 counts to fit within CRD size limits, sorted deterministically).
 
 `PreemptionLimitReconciler` will be responsible for updating the in-memory representation of limits:
 - When a `PreemptionLimit` is deleted, it removes recorded preemption event timestamps from memory.
@@ -411,17 +376,17 @@ Furthermore, the status of the PreemptionLimit is refreshed periodically by a de
 
 ### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
 
-In a Kueue scheduling cycle, workloads are evaluated sequentially during the workload evaluation phase. Because limit consumption is recorded only when preemptions are actually issued for an admitted workload, there is no information about previous limits consumption during the nomination and assignments generation for subsequent workloads in the cycle.
+In a Kueue scheduling cycle, workloads are evaluated sequentially during the workload evaluation phase. Because limit consumption is recorded only when preemptions are actually issued during the workload evaluation phase, there is no information about previous limits consumption during the nomination and assignments generation for subsequent workloads in the cycle.
 
-If multiple workloads evaluated in the same cycle consume the same preemption limits (e.g. sharing a Global limit, targeting the same preempted ClusterQueue, or originating from the same preemptor ClusterQueue), each workload independently assumes the full preemption limit budget is available. If left unaddressed, conflicts in preemption limits consumption can cause a workload to fail admission at the point of issuing preemptions, leading to prolonged waiting of the workload for readmission.
+If multiple workloads evaluated in the same cycle consume the same preemption limits (e.g. sharing a Global limit, targeting the same preempted ClusterQueue, or originating from the same preemptor ClusterQueue), each workload independently assumes the full preemption limit budget is available. If left unaddressed, conflicts in preemption limits consumption can cause a workload to fail to issue preemptions during evaluation, leading to prolonged waiting for admission.
 
 To avoid this, if multiple workloads consume the same limits, the preemption targets assignment of the conflicting workload will be recomputed in a similar manner as the [Re-computation of TAS assignments within the workload evaluation phase](/keps/2724-topology-aware-scheduling/README.md#re-computation-of-tas-assignments-within-the-workload-evaluation-phase).
 
 To make this possible:
 1. **Returning Consumed Preemption Limits**: Finding of preemption candidates will also return the consumed preemption limits (and consumed quantities) for the chosen configurable preemption targets alongside the targets themselves.
-2. **Checking for Overlap Overconsuming Limits**: Because Kueue updates the remaining preemption limits during the admission of previous workloads, the in-memory limits are already up to date at this moment. When evaluating a workload that is considered for admission, the entries returned from candidate finding will be used first to check if there is an overlap overconsuming the remaining limits.
+2. **Checking for Overlap Overconsuming Limits**: Because Kueue updates the remaining preemption limits when issuing preemptions for previously evaluated workloads, the in-memory limits are already up to date at this moment. When evaluating a workload that requires preemption, the entries returned from candidate finding will be used first to check if there is an overlap overconsuming the remaining limits.
 3. **Recomputing Preemption Targets Assignment**: If an overlap overconsuming the limits is detected, the workload's preemption targets assignment will be recomputed, now taking into account the previous preemptions.
-4. **Resolution**: If the recomputation successfully identifies alternative preemption targets that fit within the remaining limit budget, the workload can proceed to admission. If no valid preemption candidates remain without exceeding the limits, the workload is not admitted and is deferred and requeued as described in [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available).
+4. **Resolution**: If the recomputation successfully identifies alternative preemption targets that fit within the remaining limit budget, Kueue proceeds to issue those preemptions (and the workload waits for the preempted workloads to finish before being admitted in a subsequent cycle). If no valid preemption candidates remain without exceeding the limits, no preemptions are issued and the workload is deferred and requeued as described in [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available).
 
 
 ### Workload Requeuing When No Candidates Are Available
@@ -443,39 +408,11 @@ Furthermore, when a blocked workload cannot be admitted because candidate select
 
 ### Test Plan
 
-<!--
-**Note:** *Not required until targeted at a release.*
-The goal is to ensure that we don't accept enhancements with inadequate testing.
-
-All code is expected to have adequate tests (eventually with coverage
-expectations). Please adhere to the [Kubernetes testing guidelines][testing-guidelines]
-when drafting this test plan.
-
-[testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
--->
-
 [x] I/we understand the owners of the involved components may require updates to
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
 #### Unit tests
-
-<!--
-In principle every added code should have complete unit test coverage, so providing
-the exact set of tests will not bring additional value.
-However, if complete unit test coverage is not possible, explain the reason of it
-together with explanation why this is acceptable.
--->
-
-<!--
-Additionally, try to enumerate the core package you will be touching
-to implement this enhancement and provide the current unit coverage for those
-in the form of:
-- <package>: <date> - <current test coverage>
-
-This can inform certain test coverage improvements that we want to do before
-extending the production code to implement this enhancement.
--->
 
 The majority of the new code will be introduced as a separate subpackage under `preemption` called `limits`, alongside a dedicated controller handling periodic updates to `PreemptionLimit` status. All public methods across these components will be thoroughly covered by unit tests.
 
