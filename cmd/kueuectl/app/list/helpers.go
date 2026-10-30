@@ -29,15 +29,29 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/util/templates"
 )
 
 const (
 	defaultListRequestLimit         = 100
 	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
-	listRequestLimitDescription     = "KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources returned in each request to the Kubernetes API. The default is 100."
 )
 
-var errMultipleActiveFlags = errors.New("only one active flag can be provided")
+var (
+	listRequestLimitDescription = fmt.Sprintf(
+		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
+			"It does not limit the output: all matching objects are listed. "+
+			"The default is %d; 0 fetches all objects in a single request.",
+		KueuectlListRequestLimitEnvName,
+		defaultListRequestLimit,
+	)
+
+	errMultipleActiveFlags = errors.New("only one active flag can be provided")
+)
+
+func listLongDesc(s string) string {
+	return templates.LongDesc(s) + "\n\n" + listRequestLimitDescription
+}
 
 func listRequestLimit() (int64, error) {
 	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
