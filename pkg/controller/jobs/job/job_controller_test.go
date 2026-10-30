@@ -4280,6 +4280,57 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"when workload is deleted while pods are active, suspend and keep the workload's finalizer": {
+			job: baseJobWrapper.Clone().
+				Suspend(false).
+				StartTime(now).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
+				},
+			},
+		},
+		"when a stopping job's pods are gone and its workload is deleted, restore node affinity and release the workload": {
+			job: baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{},
+		},
 		"when a stopping job's active pods are gone, restore node affinity and clear the stopping annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -5515,6 +5566,7 @@ func TestReconciler(t *testing.T) {
 					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
 				}
 
+				deletedWorkloads := false
 				for _, testWl := range tc.workloads {
 					controller := metav1.GetControllerOfNoCopy(&testWl)
 					if prebuiltWorkload == "" && controller == nil {
@@ -5522,8 +5574,17 @@ func TestReconciler(t *testing.T) {
 							t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 						}
 					}
+					deleted := testWl.DeletionTimestamp != nil
+					testWl.DeletionTimestamp = nil
 					if err := kClient.Create(ctx, &testWl); err != nil {
 						t.Fatalf("Could not create workload: %v", err)
+					}
+					// Create drops the deletionTimestamp; Delete sets it, and the finalizer keeps the Workload.
+					if deleted {
+						if err := kClient.Delete(ctx, &testWl); err != nil {
+							t.Fatalf("Could not delete workload: %v", err)
+						}
+						deletedWorkloads = true
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
@@ -5561,6 +5622,10 @@ func TestReconciler(t *testing.T) {
 				if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
 					t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
 				}
+				// jobCmpOpts ignores annotations, so compare the stopping marker on its own.
+				if want, got := tc.wantJob.Annotations[StoppingAnnotation], gotJob.Annotations[StoppingAnnotation]; want != got {
+					t.Errorf("Job %s annotation after reconcile = %q, want %q", StoppingAnnotation, got, want)
+				}
 				var gotWorkloads kueue.WorkloadList
 				if err := kClient.List(ctx, &gotWorkloads); err != nil {
 					t.Fatalf("Could not get Workloads after reconcile: %v", err)
@@ -5569,6 +5634,10 @@ func TestReconciler(t *testing.T) {
 				wlCheckOpts := workloadCmpOpts
 				if prebuiltWorkload != "" {
 					wlCheckOpts = workloadCmpOptsWithOwner
+				}
+				if deletedWorkloads {
+					// The fake client stamps its own deletion time.
+					wlCheckOpts = append(cmp.Options{cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.DeletionTimestamp")}, wlCheckOpts...)
 				}
 
 				// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
