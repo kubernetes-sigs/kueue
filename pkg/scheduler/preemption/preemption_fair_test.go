@@ -17,6 +17,9 @@ limitations under the License.
 package preemption
 
 import (
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2047,6 +2050,33 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: nil,
 		},
+	}
+	// ReclaimOnly doesn't depend on FairSharingPreemptWithinNominal and
+	// FairSharingVerifyFinalTargets, so every ReclaimOnly case has to give
+	// the same result with those disabled.
+	for name, tc := range maps.Clone(cases) {
+		if !strings.HasPrefix(name, "ReclaimOnly:") {
+			continue
+		}
+		for _, gates := range []map[featuregate.Feature]bool{
+			{features.FairSharingPreemptWithinNominal: false},
+			{features.FairSharingVerifyFinalTargets: false},
+			{features.FairSharingPreemptWithinNominal: false, features.FairSharingVerifyFinalTargets: false},
+		} {
+			variant := tc
+			variant.featureGates = maps.Clone(tc.featureGates)
+			if variant.featureGates == nil {
+				variant.featureGates = map[featuregate.Feature]bool{}
+			}
+			var disabled []string
+			for gate, enabled := range gates {
+				variant.featureGates[gate] = enabled
+				disabled = append(disabled, string(gate))
+			}
+			slices.Sort(disabled)
+			variant.admitted = slices.Clone(tc.admitted)
+			cases[fmt.Sprintf("%s [disabled: %s]", name, strings.Join(disabled, ","))] = variant
+		}
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

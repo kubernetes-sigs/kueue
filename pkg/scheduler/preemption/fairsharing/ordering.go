@@ -181,16 +181,43 @@ func (t *TargetClusterQueueOrdering) iterCohorts(cohorts iter.Seq[*schdcache.Coh
 // exhausted, but not pruned, as it may still hold targets for other
 // LeastCommonAncestors.
 func (t *TargetClusterQueueOrdering) nextTargetAtLCA(lca *schdcache.CohortSnapshot) *TargetClusterQueue {
+	highestCq, highestCqDrs := t.highestChildCq(lca, func(cq *schdcache.ClusterQueueSnapshot) bool {
+		return cq == t.preemptorCq
+	}, func(cq *schdcache.ClusterQueueSnapshot, drs schdcache.DRS) bool {
+		return !t.isBorrowing(drs) || !t.hasWorkload(cq)
+	})
+	highestCohort, highestCohortDrs := t.highestChildCohort(lca, func(cohort *schdcache.CohortSnapshot) bool {
+		return t.onPathFromRootToPreemptorCQ(cohort)
+	})
+	if highestCohort == nil && highestCq == nil {
+		t.exhaustedLCAs.Insert(lca)
+		return nil
+	}
+	return t.selectTarget(highestCohort, highestCohortDrs, highestCq, highestCqDrs)
+}
+
+// highestChildCq returns the child ClusterQueue of cohort with the
+// highest DominantResourceShare, breaking ties with the candidates
+// ordering. Children for which skip returns true are ignored, and the
+// ones for which prune returns true are pruned.
+func (t *TargetClusterQueueOrdering) highestChildCq(
+	cohort *schdcache.CohortSnapshot,
+	skip func(*schdcache.ClusterQueueSnapshot) bool,
+	prune func(*schdcache.ClusterQueueSnapshot, schdcache.DRS) bool,
+) (*schdcache.ClusterQueueSnapshot, schdcache.DRS) {
 	var highestCq *schdcache.ClusterQueueSnapshot
 	highestCqDrs := schdcache.NegativeDRS()
-	for _, cq := range lca.ChildCQs() {
-		if cq == t.preemptorCq || t.prunedClusterQueues.Has(cq) {
+	for _, cq := range cohort.ChildCQs() {
+		if t.prunedClusterQueues.Has(cq) || skip(cq) {
 			continue
 		}
 		drs := cq.DominantResourceShare()
 		switch {
-		case !t.isBorrowing(drs) || !t.hasWorkload(cq):
+		case prune(cq, drs):
 			t.prunedClusterQueues.Insert(cq)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
+			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
@@ -202,28 +229,61 @@ func (t *TargetClusterQueueOrdering) nextTargetAtLCA(lca *schdcache.CohortSnapsh
 			highestCq = cq
 		}
 	}
+	return highestCq, highestCqDrs
+}
 
+// highestChildCohort returns the child Cohort of cohort with the highest
+// DominantResourceShare. Children for which skip returns true are
+// ignored; a child which isn't borrowing is pruned, unless it is on the
+// path to the preemptor ClusterQueue.
+func (t *TargetClusterQueueOrdering) highestChildCohort(
+	cohort *schdcache.CohortSnapshot,
+	skip func(*schdcache.CohortSnapshot) bool,
+) (*schdcache.CohortSnapshot, schdcache.DRS) {
 	var highestCohort *schdcache.CohortSnapshot
 	highestCohortDrs := schdcache.NegativeDRS()
-	for _, cohort := range lca.ChildCohorts() {
-		if t.onPathFromRootToPreemptorCQ(cohort) || t.prunedCohorts.Has(cohort) {
+	for _, child := range cohort.ChildCohorts() {
+		if t.prunedCohorts.Has(child) || skip(child) {
 			continue
 		}
-		drs := cohort.DominantResourceShare()
-		if !t.isBorrowing(drs) {
-			t.prunedCohorts.Insert(cohort)
+		drs := child.DominantResourceShare()
+		// we prune a Cohort when it is no longer borrowing.
+		// Even when not borrowing, we can't prune a
+		// Cohort on path from preemptor ClusterQueue to
+		// root, as there may be imbalance within some
+		// subtree, or a possible preemption within Preemptor
+		// CQ itself.  We will only prune such a Cohort if all
+		// of its children have been pruned.
+		if !t.isBorrowing(drs) && !t.onPathFromRootToPreemptorCQ(child) {
+			t.prunedCohorts.Insert(child)
+			if logV := t.log.V(6); logV.Enabled() {
+				logV.Info("Pruning Cohort during Target ordering", "cohort", child.GetName(), "drs", drs)
+			}
 		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
 			highestCohortDrs = drs
-			highestCohort = cohort
+			highestCohort = child
 		}
 	}
+	return highestCohort, highestCohortDrs
+}
 
-	if highestCohort == nil && highestCq == nil {
-		t.exhaustedLCAs.Insert(lca)
-		return nil
-	}
+// selectTarget descends into highestCohort, or returns highestCq, whichever
+// has the higher DominantResourceShare. At least one of them is set.
+func (t *TargetClusterQueueOrdering) selectTarget(
+	highestCohort *schdcache.CohortSnapshot, highestCohortDrs schdcache.DRS,
+	highestCq *schdcache.ClusterQueueSnapshot, highestCqDrs schdcache.DRS,
+) *TargetClusterQueue {
+	// we use >= because, as a tiebreak, choosing the Cohort seems
+	// slightly more fair, as we can choose the most unfair node
+	// within that Cohort.
 	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Selected Cohort with highest DRS", "cohort", highestCohort.GetName(), "drs", highestCohortDrs)
+		}
 		return t.nextTarget(highestCohort)
+	}
+	if logV := t.log.V(6); logV.Enabled() {
+		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", highestCq.GetName(), "drs", highestCqDrs)
 	}
 	return &TargetClusterQueue{
 		ordering: t,
@@ -304,60 +364,12 @@ func (t *TargetClusterQueueOrdering) isBorrowing(drs schdcache.DRS) bool {
 // are no more candidate ClusterQueues; an iteration may have only
 // pruned nodes from the tree.
 func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot) *TargetClusterQueue {
-	var highestCq *schdcache.ClusterQueueSnapshot
-	highestCqDrs := schdcache.NegativeDRS()
-	for _, cq := range cohort.ChildCQs() {
-		if t.prunedClusterQueues.Has(cq) {
-			continue
-		}
-
-		drs := cq.DominantResourceShare()
-		// we can't prune the preemptor ClusterQueue itself,
-		// until it runs out of candidates.
-		switch {
-		case (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq):
-			t.prunedClusterQueues.Insert(cq)
-			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
-			}
-		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
-			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
-			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
-			if policy.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
-				highestCq = cq
-			}
-		case schdcache.CompareDRS(drs, highestCqDrs) == 1:
-			highestCqDrs = drs
-			highestCq = cq
-		}
-	}
-
-	var highestCohort *schdcache.CohortSnapshot = nil
-	highestCohortDrs := schdcache.NegativeDRS()
-	for _, cohort := range cohort.ChildCohorts() {
-		if t.prunedCohorts.Has(cohort) {
-			continue
-		}
-
-		drs := cohort.DominantResourceShare()
-
-		// we prune a Cohort when it is no longer borrowing.
-		// Even when not borrowing, we can't prune a
-		// Cohort on path from preemptor ClusterQueue to
-		// root, as there may be imbalance within some
-		// subtree, or a possible preemption within Preemptor
-		// CQ itself.  We will only prune such a Cohort if all
-		// of its children have been pruned.
-		if !t.isBorrowing(drs) && !t.onPathFromRootToPreemptorCQ(cohort) {
-			t.prunedCohorts.Insert(cohort)
-			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Pruning Cohort during Target ordering", "cohort", cohort.GetName(), "drs", drs)
-			}
-		} else if schdcache.CompareDRS(drs, highestCohortDrs) >= 0 {
-			highestCohortDrs = drs
-			highestCohort = cohort
-		}
-	}
+	// we can't prune the preemptor ClusterQueue itself,
+	// until it runs out of candidates.
+	highestCq, highestCqDrs := t.highestChildCq(cohort, func(*schdcache.ClusterQueueSnapshot) bool { return false }, func(cq *schdcache.ClusterQueueSnapshot, drs schdcache.DRS) bool {
+		return (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq)
+	})
+	highestCohort, highestCohortDrs := t.highestChildCohort(cohort, func(*schdcache.CohortSnapshot) bool { return false })
 
 	// None of the children are valid candidates (i.e. all
 	// children pruned), so this Cohort is pruned.
@@ -368,21 +380,5 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		}
 		return nil
 	}
-
-	// we use >= because, as a tiebreak, choosing the Cohort seems
-	// slightly more fair, as we can choose the most unfair node
-	// within that Cohort.
-	if schdcache.CompareDRS(highestCohortDrs, highestCqDrs) >= 0 {
-		if logV := t.log.V(6); logV.Enabled() {
-			logV.Info("Selected Cohort with highest DRS", "cohort", highestCohort.GetName(), "drs", highestCohortDrs)
-		}
-		return t.nextTarget(highestCohort)
-	}
-	if logV := t.log.V(6); logV.Enabled() {
-		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", highestCq.GetName(), "drs", highestCqDrs)
-	}
-	return &TargetClusterQueue{
-		ordering: t,
-		targetCq: highestCq,
-	}
+	return t.selectTarget(highestCohort, highestCohortDrs, highestCq, highestCqDrs)
 }

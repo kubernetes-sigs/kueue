@@ -119,7 +119,7 @@ var _ = ginkgo.Describe("Scheduler with the ReclaimOnly FairSharing preemption s
 			createQueue("t", "root", "0")
 		})
 
-		ginkgo.It("should reclaim the nominal quota from the closest ClusterQueue first, then from the further one", func() {
+		ginkgo.It("should reclaim the nominal quota from the farthest ClusterQueue first, then from the closer one", func() {
 			ginkgo.By("Admitting workloads that borrow the quota of a")
 			wlS := createWorkload("s", "4")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlS)

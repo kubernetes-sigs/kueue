@@ -172,7 +172,7 @@ func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, f
 	}
 
 	for _, t := range targets {
-		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, requestedFrs); !passed {
+		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, requestedFrs, reclaimOnly); !passed {
 			return false, reason
 		}
 	}
@@ -188,12 +188,20 @@ func verifyFairSharingTarget(
 	t *Target,
 	strategies []fairsharing.Strategy,
 	requestedFrs sets.Set[resources.FlavorResource],
+	reclaimOnly bool,
 ) (bool, string) {
 	if t.Reason == kueue.InClusterQueueReason ||
 		t.Reason == kueue.ConfigurablePreemptionReason ||
 		(t.Reason == kueue.InCohortReclamationReason && requestedFrs != nil &&
 			fairsharing.PreemptorWithinNominal(preemptionCtx.preemptorCQ, t.WorkloadCq, requestedFrs)) {
 		return true, ""
+	}
+	if reclaimOnly {
+		// ReclaimOnly targets are only justified by reclaiming nominal
+		// quota, so no shares are compared.
+		return false, fmt.Sprintf("target %s in %s doesn't reclaim nominal quota, as the preemptor would borrow at its AlmostLCA",
+			klog.KObj(t.WorkloadInfo.Obj),
+			klog.KRef("", string(t.WorkloadCq.Name)))
 	}
 
 	preemptorNode, targetNode := fairsharing.AlmostLCAs(preemptionCtx.preemptorCQ, t.WorkloadCq)
@@ -276,14 +284,14 @@ func iterateFsStrategies(
 //
 // Reclaiming from a closer subtree lowers the usage of the preemptor's
 // Cohorts, which can bring the preemptor's AlmostLCA with a farther
-// ClusterQueue back within nominal quota. So a LeastCommonAncestor which is
-// skipped because the preemptor would be borrowing at its AlmostLCA is
-// revisited after every pass which found a target, until a pass finds none.
+// ClusterQueue back within nominal quota. So after every target the search
+// restarts from the farthest LeastCommonAncestor, until none of them yields
+// a target.
 //
 // Candidates in the preemptor's own ClusterQueue are considered once the
 // other ClusterQueues yield nothing more, matching the preference of the
 // other strategies for reclaiming borrowed quota first. If any of them is a
-// target, the skipped LeastCommonAncestors are visited once more after
+// target, the search restarts from the farthest LeastCommonAncestor after
 // each of them, as the preemptor's usage went down.
 func iterateReclaimOnly(
 	log logr.Logger,
@@ -309,10 +317,9 @@ func iterateReclaimOnly(
 	lcas := slices.Collect(preemptorCQ.PathParentToRoot())
 	slices.Reverse(lcas)
 
-	// reclaimAtLCA yields the targets whose LeastCommonAncestor with the
-	// preemptor is lca, while the preemptor stays within nominal quota at
-	// its AlmostLCA. All those targets share the same preemptor AlmostLCA,
-	// and removing them doesn't change its usage.
+	// reclaimAtLCA yields the next target whose LeastCommonAncestor with
+	// the preemptor is lca, if the preemptor stays within nominal quota at
+	// its AlmostLCA.
 	reclaimAtLCA := func(lca *schdcache.CohortSnapshot) (found, cont bool) {
 		for candCQ := range ordering.IterAtLCA(lca) {
 			if !candCQ.PreemptorWithinNominal(preemptorFrs) {
@@ -321,7 +328,7 @@ func iterateReclaimOnly(
 						"leastCommonAncestor", lca.GetName(),
 						"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)))
 				}
-				return found, true
+				return false, true
 			}
 			candWl := candCQ.PopWorkload()
 			if logV := log.V(4); logV.Enabled() {
@@ -330,24 +337,27 @@ func iterateReclaimOnly(
 					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
 					"targetWorkload", klog.KObj(candWl.Obj))
 			}
-			found = true
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
-				return found, false
-			}
+			return true, yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()})
 		}
-		return found, true
+		return false, true
 	}
+	// reclaim restarts from the farthest LeastCommonAncestor after every
+	// target, as each target lowers the usage of the preemptor's Cohorts
+	// and can bring a farther AlmostLCA back within nominal quota.
 	reclaim := func() bool {
 		for {
-			progress := false
+			found := false
 			for _, lca := range lcas {
-				found, cont := reclaimAtLCA(lca)
+				var cont bool
+				found, cont = reclaimAtLCA(lca)
 				if !cont {
 					return false
 				}
-				progress = progress || found
+				if found {
+					break
+				}
 			}
-			if !progress {
+			if !found {
 				return true
 			}
 		}
