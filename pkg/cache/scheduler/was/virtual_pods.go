@@ -30,9 +30,11 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -98,7 +100,7 @@ func getVirtualPodHash(wlName, podSetName, indexStr string) string {
 // VirtualPodsForWorkload generates virtual pods for an admitted or quota-reserved
 // workload based on its PodSets and TopologyAssignments.
 func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
-	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) {
+	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) || (features.Enabled(features.SchedulerLibraryDeepIntegration) && workloadevict.IsEvicted(wl)) {
 		return nil
 	}
 

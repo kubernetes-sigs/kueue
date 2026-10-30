@@ -250,7 +250,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 				}
 			}
 
-			podTracker := &podtracker.Tracker{}
+			podTracker := podtracker.NewTracker()
 			if tc.addExistingPod {
 				podTracker.Track(existingPod)
 			}
@@ -317,7 +317,7 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 		}
 
-		podTracker := &podtracker.Tracker{}
+		podTracker := podtracker.NewTracker()
 		schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
 		if err != nil {
 			t.Fatalf("Snapshot failed: %v", err)
@@ -378,7 +378,7 @@ func TestFindFeasibleNodesWithDeepIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator failed: %v", err)
@@ -408,7 +408,7 @@ func TestRepeatedSnapshots(t *testing.T) {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	for i := range 3 {
 		if _, err := simulatorFactory.NewSimulator(ctx, nil, podTracker); err != nil {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
@@ -496,7 +496,7 @@ func TestPreemptWorkload(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 			}
-			podTracker := &podtracker.Tracker{}
+			podTracker := podtracker.NewTracker()
 			tc.setup(podTracker)
 
 			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
@@ -571,7 +571,7 @@ func TestSimulate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	podTracker.Track(existingPod)
 
 	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
@@ -655,7 +655,7 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
@@ -746,7 +746,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		NodeName("node1").
 		StatusPhase(corev1.PodRunning).
 		Obj()
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	podTracker.Track(realPod)
 
 	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
@@ -829,7 +829,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
@@ -901,7 +901,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			podTracker := &podtracker.Tracker{}
+			podTracker := podtracker.NewTracker()
 			victim := client.ObjectKey{Namespace: "default", Name: "victim"}
 			// One Pod per node, each holding the same host port, so every node is
 			// blocked until the whole victim is released.
@@ -1032,7 +1032,7 @@ func newTestSimulatorWithPodGroups(
 	}
 	framework.ApplySimulationNeutralizers(profiles)
 
-	tracker := &podtracker.Tracker{}
+	tracker := podtracker.NewTracker()
 	for _, pod := range existingPods {
 		tracker.Track(pod)
 	}
@@ -1801,7 +1801,7 @@ func TestAddPodGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	sim, err := factory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator failed: %v", err)
@@ -1849,7 +1849,7 @@ func TestRemovePodGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	sim, err := factory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator failed: %v", err)
@@ -1917,7 +1917,7 @@ func TestAddCompositePodGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	sim, err := factory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator failed: %v", err)
@@ -1983,7 +1983,7 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	sim, err := factory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator failed: %v", err)

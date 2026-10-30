@@ -48,7 +48,8 @@ var (
 )
 
 type wasSimulator struct {
-	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
+	// wasSnapshot is the cluster as it stands, with every tracked Pod
+	// (excluding Pods marked as Committed Preemption Victims) on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
 	// pods is this cycle's tracker, including unmanaged and virtual Pods.
 	// PreemptWorkload only releases Pods indexed by Workload.

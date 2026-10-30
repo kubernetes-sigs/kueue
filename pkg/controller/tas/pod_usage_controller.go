@@ -137,7 +137,10 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if isScheduledAndRunning(&pod) {
-		r.cache.TrackPod(ctx, &pod)
+		oldPod := r.cache.TrackPod(ctx, &pod)
+		if oldPod != nil && oldPod.UID != pod.UID && oldPod.Spec.NodeName != "" {
+			r.notifyFreedNode(oldPod.Spec.NodeName)
+		}
 	} else {
 		if removedNode := r.cache.UntrackPod(ctx, req.NamespacedName); removedNode != "" {
 			r.notifyFreedNode(removedNode)

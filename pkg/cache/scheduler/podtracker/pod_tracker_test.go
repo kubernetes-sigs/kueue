@@ -135,10 +135,10 @@ func TestWorkloadMapping(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			var tracker Tracker
-			tc.operation(&tracker)
+			tracker := NewTracker()
+			tc.operation(tracker)
 
-			if diff := cmp.Diff(tc.want, tracker.workloadPods, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.want, tracker.activePodsTracker.workloadPods, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected pod assignments (-want,+got):\n%s", diff)
 			}
 		})
@@ -191,7 +191,7 @@ func TestTrackerClone(t *testing.T) {
 	})}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var tracker Tracker
+			tracker := NewTracker()
 			for _, pod := range tc.initialPods {
 				tracker.Track(pod)
 			}
@@ -214,7 +214,7 @@ func TestTrackerClone(t *testing.T) {
 			// keeps both its Pod map and Workload index intact.
 			snapshot := tracker.Clone()
 			wantWLPods := snapshot.PodsForWorkload(wlKey)
-			tc.operation(&tracker)
+			tc.operation(tracker)
 			if diff := cmp.Diff(tc.initialPods, snapshot.Pods(), cmpOpts...); diff != "" {
 				t.Errorf("Original mutation changed snapshot pods (-want,+got):\n%s", diff)
 			}
@@ -226,7 +226,7 @@ func TestTrackerClone(t *testing.T) {
 }
 
 func TestTrackerConcurrentAccess(t *testing.T) {
-	var tracker Tracker
+	tracker := NewTracker()
 	var workers sync.WaitGroup
 	for i := range 8 {
 		workers.Go(func() {
@@ -250,7 +250,7 @@ func TestTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestTrackPodDeepCopy(t *testing.T) {
-	var tracker Tracker
+	tracker := NewTracker()
 
 	pod := testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
 	tracker.Track(pod)
@@ -264,13 +264,13 @@ func TestTrackPodDeepCopy(t *testing.T) {
 		},
 	}
 
-	if diff := cmp.Diff(want, tracker.workloadPods); diff != "" {
+	if diff := cmp.Diff(want, tracker.activePodsTracker.workloadPods); diff != "" {
 		t.Errorf("TrackPod did not deep copy pod (-want,+got):\n%s", diff)
 	}
 }
 
 func TestUntrackPodReturnsNodeName(t *testing.T) {
-	var tracker Tracker
+	tracker := NewTracker()
 
 	podKey := types.NamespacedName{Namespace: "ns", Name: "pod1"}
 	pod := testingpod.MakePod("pod1", "ns").NodeName("node-a").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
