@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
@@ -64,6 +65,7 @@ type WorkloadOptions struct {
 	AllNamespaces bool
 	Confirmed     bool
 	DeleteAll     bool
+	Limit         int64
 
 	DryRunStrategy dryrun.Strategy
 
@@ -172,6 +174,11 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 		return err
 	}
 
+	o.Limit, err = kueuectlutil.ListRequestLimit()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -234,23 +241,31 @@ func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workloa
 		namespace = o.Namespace
 	}
 
-	list, err := o.Client.Workloads(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, false, err
-	}
-
 	var haveAssociatedWorkloads bool
+	var workloads []*kueue.Workload
 
-	workloads := make([]*kueue.Workload, 0, len(list.Items))
-	for index := range list.Items {
-		wl := &list.Items[index]
-		workloads = append(workloads, wl)
-		if len(wl.OwnerReferences) > 0 {
-			haveAssociatedWorkloads = true
+	// Use the same page size as kueuectl list. Without Limit a real API server
+	// returns the full result in one response and never sets Continue.
+	opts := metav1.ListOptions{Limit: o.Limit}
+	for {
+		list, err := o.Client.Workloads(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, false, err
 		}
-	}
 
-	return workloads, haveAssociatedWorkloads, nil
+		for index := range list.Items {
+			wl := &list.Items[index]
+			workloads = append(workloads, wl)
+			if len(wl.OwnerReferences) > 0 {
+				haveAssociatedWorkloads = true
+			}
+		}
+
+		if list.Continue == "" {
+			return workloads, haveAssociatedWorkloads, nil
+		}
+		opts.Continue = list.Continue
+	}
 }
 
 func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
