@@ -166,6 +166,10 @@ function make-a-pr() {
     done < <(printf '%s\n' "${KIND_LABELS[@]}" | sort -u)
   fi
 
+  if [[ ${#RELEASE_NOTES[@]} -eq 0 ]]; then
+    RELEASE_NOTES=(NONE)
+  fi
+
   prtext=$(cat <<EOF
 Cherry pick of ${PULLSUBJ} on ${rel}.
 
@@ -342,9 +346,13 @@ for pull in "${PULLS[@]}"; do
   # (the per-commit sign-offs are lost on squash).
   printf '%s\n' "${message}" | git commit -s --author="${author}" --file=- # -m fails at 128 KiB
 
-  # set the release note
+  # set the release note, skipping the notes that the release-notes tool
+  # ignores, so a NONE does not end up inside another PR's note
   release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/{f=1;next} /```/{f=0} f')
-  RELEASE_NOTES+=("${release_note}")
+  case "$(tr -d '[:space:]' <<<"${release_note}" | tr '[:upper:]' '[:lower:]')" in
+    ''|none|n/a|na) ;;
+    *) RELEASE_NOTES+=("${release_note}") ;;
+  esac
 
   # collect kind/* labels from the original PR
   while IFS= read -r label; do
