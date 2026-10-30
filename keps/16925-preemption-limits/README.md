@@ -147,13 +147,18 @@ spec:
 
 #### Story 2 - Protecting a workload from too many disruptions
 
-Rate-limit preemptions of each workload in the cluster, so that it can be preempted only once per day to avoid bullying of a particular job by multiple preemptions.
+Rate-limit preemptions of each workload in the cluster, so that it can be preempted only once per day to avoid bullying of a particular job by multiple preemptions. In addition, this limit should not affect preemptor ClusterQueues labeled with `example.com/hero-queue: "true"`, allowing mission-critical hero workloads to preempt without restriction.
 
 ```yaml
 spec:
   scope: "PreemptedWorkload"
   limit: 1
   limitWindowSeconds: 86400
+  preemptorClusterQueueSelector:
+    matchExpressions:
+      - key: example.com/hero-queue
+        operator: NotIn
+        values: ["true"]
 ```
 
 #### Story 3 - Global Preemption Rate Limiting
@@ -330,7 +335,9 @@ type PreemptionLimitStatus struct {
 	// +optional
 	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
 
-	// counts is periodically updated, for reference only.
+	// counts shows number of issued preemptions
+	// for this limit. Periodically updated
+	// and only for informational purposes.
 	// Restricted to the top 1000 counts to fit within CRD size limits.
 	//
 	// +optional
@@ -339,7 +346,7 @@ type PreemptionLimitStatus struct {
 	Counts []PreemptionLimitCount `json:"counts,omitempty"`
 }
 
-// PreemptionLimitCount tracks the number of preemptions for a single scoped entity.
+// PreemptionLimitCount tracks the number of preemptions issued for a single scoped entity.
 type PreemptionLimitCount struct {
 	// name identifies the scoped entity.
 	// For Global scope it is "Global".
@@ -363,10 +370,12 @@ type PreemptionLimitCount struct {
 
 A `PreemptionLimit` limits the number of preemptions that can occur within its configured scope. During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption falls within the scope of multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
 
+Candidates that are **already** marked as evicted do not consume limits. Because their eviction has already occurred and taking them as targets produces no new disruption, they should still be considered and selected by the preemption candidate search even if an applicable limit does not allow any more preemptions (including when a limit is exhausted or configured with `limit: 0`).
+
 #### Greedy Candidate Evaluation
 
 To respect active limits during candidate searching, a **greedy algorithm** is used:
-- When considering each preemption candidate from the ordered candidate stream, Kueue evaluates whether admitting/preempting that candidate is allowed by all applicable active limits.
+- When considering each preemption candidate from the ordered candidate stream, Kueue evaluates whether admitting/preempting that candidate is allowed by all applicable active limits. Candidates already marked as evicted do not consume limits and are always considered eligible.
 - If it is not allowed, the candidate is skipped and candidate evaluation proceeds to subsequent candidates.
 - If it is allowed, the candidate is selected, and its eviction is accounted for in subsequent candidate evaluations.
 
@@ -394,8 +403,10 @@ Because preemption event tracking is maintained strictly in-memory rather than p
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
-`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
-Such reset will also re-queue workloads blocked by the limits, allowing for their reevaluation, see [Workload Requeuing](#workload-requeuing-when-no-candidates-are-available).
+`PreemptionLimitReconciler` will be responsible for updating the in-memory representation of limits:
+- When a `PreemptionLimit` is deleted, it removes recorded preemption event timestamps from memory.
+- When a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes, the recorded in-memory preemption timestamps for that limit are reset.
+- Modifying a `PreemptionLimit`'s `spec`—such as adjusting `limit`, changing `limitWindowSeconds`, or altering its scope and selectors—as well as creating or deleting a limit, will re-queue inadmissible workloads in the affected ClusterQueues so that workloads previously blocked by limits can be promptly re-evaluated (see [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)).
 
 
 ### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
@@ -415,20 +426,20 @@ To make this possible:
 
 ### Workload Requeuing When No Candidates Are Available
 
-If a workload cannot be admitted due to active preemption limits, the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue invokes `NotifyRetryInadmissible` for the workload's ClusterQueue, moving the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
+The workload requeuing mechanism introduced in Configurable Preemptions (see [Workload Requeuing When No Candidates Are Available](/keps/13396-configurable-preemptions/README.md#workload-requeuing-when-no-candidates-are-available)) will be extended to also take into account active preemption limits encountered during candidate searching.
 
-The returned timestamp corresponds to the **minimum from encountered limits** until candidate searching halts, rather than the limit whose expiration would fully unblock the workload. For example if there is a Global limit allowing 5 more preemptions, and candidate search scans 7 not yet-evicted candidates before hitting the 5 limits (2 blocked by other limits), it will use minimum from the encountered limit 2 from candidates and Global one, as timestamp for re-queueing.
+Timestamps indicating when encountered blocking limits will allow further preemptions are included in the minimum timestamp calculation for the workload's retry. For example, if there is a Global limit allowing 5 more preemptions, and candidate search scans 7 not yet-evicted candidates before hitting the 5 limit (2 blocked by other limits), the minimum among the timestamps from the 2 candidate-blocking limits and the Global limit will be used for requeueing.
 
-The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as limits may be consumed by other scheduled workloads.
-
-
-In the edge case when `PreemptionLimit` with `limit` 0 is encountered it will not be treated as a suitable limit for re-queue. If it is a blocking limit and search cannot proceed further - no re-queue will happen at all. If this is just a limit for a subset of candidates, timestamp from other limits will be used for re-queue.
+In the edge case when a `PreemptionLimit` with `limit: 0` is encountered, it will not be treated as a suitable limit for requeue. If it is a blocking limit and search cannot proceed further, no requeue will happen at all. If this is just a limit for a subset of candidates, timestamps from other limits will be used for requeue.
 
 
 ### Observability
 
 When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
+
 Additionally, each preemption operation executed within the scope of active limits is recorded and reported in the periodically updated `PreemptionLimit.status.counts` and `PreemptionLimit.status.lastUpdateTime`.
+
+Furthermore, when a blocked workload cannot be admitted because candidate selection is blocked by active preemption limits, the workload's `QuotaReserved` condition (`Status: False`) message is extended with information about which limit blocked preemptions and when it will elapse, such as: `"preemptions blocked by PreemptionLimit <name> (scope <scope>) until <timestamp>"`.
 
 ### Test Plan
 
@@ -478,6 +489,8 @@ Apart from the new subpackage, the following existing components will receive ad
    - Records each event exactly once upon successful preemption issuance.
 3. **Scheduling**:
    - Recomputes preemption candidates when concurrent workloads encounter conflicting limit constraints (analogous to overlapping preemption targets).
+   - Requeues inadmissible workloads when one of the limits blocking them elapses.
+   - When a workload cannot be admitted because candidate selection is blocked by an active `PreemptionLimit` (e.g. `Global` or `PreemptorClusterQueue` limit budget exhausted), verifies that the workload's `QuotaReserved` condition (`Status: False`) message includes the blocking limit name, scope, and the timestamp when the limit window will elapse.
 
 #### Integration tests
 
@@ -575,6 +588,31 @@ TBD
        4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preempted CQ.
 
    Rejected in favor of greedy candidate evaluation because it prevents valid cross-queue or cross-limit combinations from being discovered when a single queue's candidates satisfy quota first. A future enhancement combining both heuristics via a two-attempt search is discussed in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic).
+
+6. **Extending the existing Visibility Server for real-time status exposition**:
+
+   Expose real-time preemption limit counts and status on demand by extending the existing Kueue visibility server (an aggregated API server extension via `APIService`).
+   - **Advantages**:
+     - Up-to-date data served directly from the in-memory cache without periodic reconciliation delays.
+     - Easy pagination for large numbers of tracked entities.
+   - **Drawbacks**:
+     - Doesn't mix well with future status extensions, such as status conditions.
+     - Not suitable for highly controlled environments where network routing via the Kubernetes API aggregation layer may be blocked by firewalls.
+     - The aggregation layer, due to being an `APIService` extension, can lead to unexpected cluster-wide API errors if the backing extension pod becomes unresponsive (e.g. [cert-manager#1355](https://github.com/cert-manager/cert-manager/issues/1355)).
+
+   Rejected in favor of standard periodic CRD status updates to avoid aggregation layer networking constraints and availability risks.
+
+7. **On-demand status request CRD**:
+
+   Introduce a dedicated CRD for preemption limit status requests on demand, where a user creates a new request resource when they want to inspect current counts. When the controller detects the request resource, it updates the request's status with the current in-memory count of preemptions against the limit.
+   - **Advantages**:
+     - Can easily be extended to support pagination.
+     - Follows standard Kubernetes declarative controller best practices as a CRD- and controller-based solution.
+   - **Drawbacks**:
+     - Requires multiple actions from the user: creating the request resource, waiting for the status update, and cleaning up/deleting no longer needed requests.
+     - More complex implementation requiring additional CRD definitions, lifecycle handling, and cleanup logic.
+
+   Rejected because the multi-step user experience and additional CRD operational complexity outweigh the benefits compared to periodic status reporting in `PreemptionLimit.status`. However, this mechanism could be used as an additional extension to the periodically updated status if a need for on-demand queries arises in the future.
 
 ## Future Work Ideas
 
