@@ -150,7 +150,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 			},
 			wantTolerationsLen: 2,
 		},
-		"returns conflict error when PodSetUpdate conflicts with PodSet nodeSelector": {
+		"PodSet value wins over PodSetUpdate": {
 			workload: conflictInfo,
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -164,7 +164,11 @@ func TestCandidateVirtualPods(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			wantPodsCount: 1,
+			wantNodeSelector: map[string]string{
+				"arch":   "amd64",
+				"flavor": "one",
+			},
 		},
 		"returns error for non-TAS podset": {
 			workload: wlInfo,

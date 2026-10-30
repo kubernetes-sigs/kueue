@@ -19,6 +19,7 @@ package podset
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -65,6 +66,18 @@ func TestFromAssignment(t *testing.T) {
 		NodeLabel("f2l2", "f2v2").
 		Toleration(*toleration3.DeepCopy()).
 		Obj()
+	conflictFlavorA := utiltestingapi.MakeResourceFlavor("conflict-a").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
+	conflictFlavorB := utiltestingapi.MakeResourceFlavor("conflict-b").
+		NodeLabel("topology.kubernetes.io/zone", "zone-b").
+		Obj()
+	sharedFlavorA := utiltestingapi.MakeResourceFlavor("shared-a").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
+	sharedFlavorB := utiltestingapi.MakeResourceFlavor("shared-b").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -95,7 +108,47 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 			},
 		},
-		"multiple flavors": {
+		"duplicate flavor": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+				Count: new(int32(2)),
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 2,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+			},
+		},
+		"conflicting node labels": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(conflictFlavorA.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(conflictFlavorB.Name),
+				},
+				Count: new(int32(2)),
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*conflictFlavorA.DeepCopy(), *conflictFlavorB.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 2,
+				NodeSelector: map[string]string{
+					"topology.kubernetes.io/zone": "zone-a",
+				},
+			},
+		},
+		"stable flavor order": {
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -118,25 +171,23 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy(), *toleration3.DeepCopy()},
 			},
 		},
-		"duplicate flavor": {
+		"shared node label value": {
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
-					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor1.Name),
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(sharedFlavorA.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(sharedFlavorB.Name),
 				},
 				Count: new(int32(2)),
 			},
 			defaultCount: 4,
-			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
+			flavors:      []kueue.ResourceFlavor{*sharedFlavorA.DeepCopy(), *sharedFlavorB.DeepCopy()},
 			wantInfo: PodSetInfo{
 				Name:  "name",
 				Count: 2,
 				NodeSelector: map[string]string{
-					"f1l1": "f1v1",
-					"f1l2": "f1v2",
+					"topology.kubernetes.io/zone": "zone-a",
 				},
-				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 			},
 		},
 		"flavor not found": {
@@ -252,11 +303,108 @@ func TestFromAssignment(t *testing.T) {
 			}
 
 			if tc.wantError == nil {
-				if diff := cmp.Diff(tc.wantInfo, gotInfo, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b corev1.Toleration) bool { return a.Key < b.Key })); diff != "" {
+				if diff := cmp.Diff(tc.wantInfo, gotInfo, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected info (-want/+got):\n%s", diff)
 				}
 			}
 		})
+	}
+}
+
+func TestMergeAdmissionCheckUpdate(t *testing.T) {
+	tests := map[string]struct {
+		base    PodSetInfo
+		updates []PodSetInfo
+		want    PodSetInfo
+	}{
+		"existing node selector value wins": {
+			base: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+			updates: []PodSetInfo{{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+			}},
+			want: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+		},
+		"first admission check wins": {
+			base: PodSetInfo{NodeSelector: map[string]string{}},
+			updates: []PodSetInfo{{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			}, {
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+			}},
+			want: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+		},
+		"non-conflicting values merge": {
+			base: PodSetInfo{
+				Labels:       map[string]string{"app": "worker"},
+				Annotations:  map[string]string{"owner": "team-a"},
+				NodeSelector: map[string]string{"arch": "amd64"},
+			},
+			updates: []PodSetInfo{{
+				Labels:       map[string]string{"injected": "true"},
+				Annotations:  map[string]string{"injected": "true"},
+				NodeSelector: map[string]string{"zone": "zone-a"},
+			}},
+			want: PodSetInfo{
+				Labels:       map[string]string{"app": "worker", "injected": "true"},
+				Annotations:  map[string]string{"owner": "team-a", "injected": "true"},
+				NodeSelector: map[string]string{"arch": "amd64", "zone": "zone-a"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := tc.base
+			for _, update := range tc.updates {
+				got.MergeAdmissionCheckUpdate(logr.Discard(), "check", update)
+			}
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("MergeAdmissionCheckUpdate() mismatch (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestMergeAdmissionCheckUpdateWithBase(t *testing.T) {
+	info := PodSetInfo{
+		Labels:      map[string]string{"app": "worker"},
+		Annotations: map[string]string{"owner": "team-a"},
+	}
+	base := PodSetInfo{
+		Labels:       map[string]string{"label-key": "old-label-value"},
+		Annotations:  map[string]string{"ann-key": "old-ann-value"},
+		NodeSelector: map[string]string{"arch": "amd64"},
+	}
+	update := PodSetInfo{
+		Labels: map[string]string{
+			"label-key": "new-label-value",
+			"injected":  "true",
+		},
+		Annotations: map[string]string{
+			"ann-key":  "new-ann-value",
+			"injected": "true",
+		},
+		NodeSelector: map[string]string{
+			"arch": "arm64",
+			"zone": "zone-a",
+		},
+	}
+
+	info.MergeAdmissionCheckUpdateWithBase(logr.Discard(), "check", update, base)
+
+	want := PodSetInfo{
+		Labels:       map[string]string{"app": "worker", "injected": "true"},
+		Annotations:  map[string]string{"owner": "team-a", "injected": "true"},
+		NodeSelector: map[string]string{"zone": "zone-a"},
+	}
+	if diff := cmp.Diff(want, info, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("MergeAdmissionCheckUpdateWithBase() mismatch (-want/+got):\n%s", diff)
 	}
 }
 

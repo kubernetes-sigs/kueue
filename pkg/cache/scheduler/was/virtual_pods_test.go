@@ -343,20 +343,20 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 				"instance-type": "a2",
 			},
 		},
-		"conflict between PodSet and PodSetUpdate returns error": {
+		"PodSet value wins over PodSetUpdate": {
 			podSetSelector: map[string]string{"arch": "amd64"},
 			updateSelector: map[string]string{"arch": "arm64"},
-			wantErr:        "failed to merge PodSetUpdate",
+			wantSelector:   map[string]string{"arch": "amd64"},
 		},
 		"conflict between PodSet and Flavor returns error": {
 			podSetSelector:   map[string]string{"gpu": "a100"},
 			flavorNodeLabels: map[string]string{"gpu": "t4"},
 			wantErr:          "failed to merge ResourceFlavor",
 		},
-		"conflict between PodSetUpdate and Flavor returns error": {
+		"flavor value wins over PodSetUpdate": {
 			updateSelector:   map[string]string{"tier": "standard"},
 			flavorNodeLabels: map[string]string{"tier": "premium"},
-			wantErr:          "failed to merge PodSetUpdate",
+			wantSelector:     map[string]string{"tier": "premium"},
 		},
 	}
 
