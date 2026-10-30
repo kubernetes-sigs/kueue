@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
 			})
 		})
 
