@@ -366,6 +366,42 @@ func TestApplyPodSetCounts(t *testing.T) {
 				},
 			},
 		},
+		"ApplyCountsWithMinCounts": {
+			args: args{
+				wl: &kueue.Workload{
+					Spec: kueue.WorkloadSpec{
+						PodSets: []kueue.PodSet{
+							{Name: "shrink-below-min", Count: 4, MinCount: new(int32(4))},
+							{Name: "shrink-above-min", Count: 4, MinCount: new(int32(2))},
+							{Name: "shrink-to-zero", Count: 4, MinCount: new(int32(4))},
+							{Name: "grow", Count: 4, MinCount: new(int32(2))},
+							{Name: "no-min", Count: 4},
+							{Name: "not-updated", Count: 4, MinCount: new(int32(4))},
+						},
+					},
+				},
+				counts: PodSetsCounts{
+					"shrink-below-min": 1,
+					"shrink-above-min": 3,
+					"shrink-to-zero":   0,
+					"grow":             6,
+					"no-min":           1,
+					"unknown":          1,
+				},
+			},
+			want: &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{Name: "shrink-below-min", Count: 1, MinCount: new(int32(1))},
+						{Name: "shrink-above-min", Count: 3, MinCount: new(int32(2))},
+						{Name: "shrink-to-zero", Count: 0, MinCount: new(int32(0))},
+						{Name: "grow", Count: 6, MinCount: new(int32(2))},
+						{Name: "no-min", Count: 1},
+						{Name: "not-updated", Count: 4, MinCount: new(int32(4))},
+					},
+				},
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
