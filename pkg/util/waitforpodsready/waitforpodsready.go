@@ -20,7 +20,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -72,4 +76,24 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 func WorkloadLevelWaitForPodsReadyEnabled() bool {
 	return features.Enabled(features.WorkloadLevelWaitForPodsReady) &&
 		!features.Enabled(features.DisableWaitForPodsReady)
+}
+
+// ParseWaitForPodsReady parses the JSON value of the WaitForPodsReadyAnnotation into
+// a WaitForPodsReady.
+func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
+	cfg, err := ParseAnnotation(
+		obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation],
+	)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+
+	result := &kueue.WaitForPodsReady{
+		TimeoutSeconds: int64(cfg.Timeout / time.Second),
+	}
+	if cfg.RecoveryTimeout != nil {
+		result.RecoveryTimeoutSeconds =
+			new(int64(*cfg.RecoveryTimeout / time.Second))
+	}
+	return result, nil
 }

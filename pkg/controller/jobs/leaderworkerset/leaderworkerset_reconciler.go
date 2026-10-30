@@ -358,6 +358,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if err != nil {
 		return nil, err
 	}
+
 	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if createdWorkload.Labels == nil {
@@ -466,12 +467,9 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	var waitForPodsReadyUpdated bool
-	var err error
+	var waitForPodsReadyEvent jobframework.WaitForPodsReadyEvent
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(lws, wl)
-		if err != nil {
-			return err
-		}
+		waitForPodsReadyUpdated, waitForPodsReadyEvent = jobframework.SyncWaitForPodsReady(ctx, lws, wl)
 		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
 	}
 
@@ -484,11 +482,11 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
 	}
-	if waitForPodsReadyUpdated {
-		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws)
+	if waitForPodsReadyEvent != jobframework.WaitForPodsReadyEventNone {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws, wl, waitForPodsReadyEvent)
 	}
 
-	err = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
+	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err

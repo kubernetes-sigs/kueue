@@ -355,6 +355,12 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
+// WaitForPodsReady sets the Spec.WaitForPodsReady configuration.
+func (w *WorkloadWrapper) WaitForPodsReady(cfg *kueue.WaitForPodsReady) *WorkloadWrapper {
+	w.Spec.WaitForPodsReady = cfg
+	return w
+}
+
 func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
 	for _, nodeName := range nodeNames {
 		w.Status.UnhealthyNodes = append(w.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
