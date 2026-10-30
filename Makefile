@@ -273,7 +273,7 @@ image-pushing-periodic:
 
 .PHONY: image-pushing-postsubmit
 image-pushing-postsubmit:
-	$(MAKE) -j3 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+	$(MAKE) -j2 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
