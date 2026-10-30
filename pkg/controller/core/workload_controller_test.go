@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,6 +55,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -65,6 +67,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -1071,6 +1074,7 @@ type reconcileTestCase struct {
 	resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 	patchErr                  error
 	listErr                   error
+	provisioningRequestList   *autoscaling.ProvisioningRequestList
 	wantDRAResourceTotal      *int64
 	wantAbsentDRAResources    []corev1.ResourceName
 	wantWorkloadsInQueue      *int
@@ -1497,7 +1501,194 @@ func TestReconcile(t *testing.T) {
 		Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
 	}).Obj()
 
+	replacedSlice := utiltestingapi.MakeWorkload("wl", "ns").
+		UID("wl-uid").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-time.Hour)).
+		AdmittedAt(true, now.Add(-time.Hour)).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.WorkloadSliceReplaced,
+			LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+		})
+	bookedRequest := &autoscaling.ProvisioningRequest{
+		Name:      "booked-request",
+		Namespace: "ns",
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: kueue.SchemeGroupVersion.String(),
+			Kind:       "Workload",
+			Name:       "wl",
+			UID:        "wl-uid",
+			Controller: new(true),
+		}},
+		Status: autoscaling.ProvisioningRequestStatus{
+			Conditions: []metav1.Condition{{
+				Type:   autoscaling.Provisioned,
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}
+	expiredRequest := bookedRequest.DeepCopy()
+	expiredRequest.Name = "expired-request"
+	expiredRequest.Status.Conditions = append(expiredRequest.Status.Conditions, metav1.Condition{
+		Type:   autoscaling.BookingExpired,
+		Status: metav1.ConditionTrue,
+	})
+	revokedRequest := bookedRequest.DeepCopy()
+	revokedRequest.Status.Conditions = append(revokedRequest.Status.Conditions, metav1.Condition{
+		Type:   autoscaling.CapacityRevoked,
+		Status: metav1.ConditionTrue,
+	})
+	failedRequest := bookedRequest.DeepCopy()
+	failedRequest.Status.Conditions = append(failedRequest.Status.Conditions, metav1.Condition{
+		Type:   autoscaling.Failed,
+		Status: metav1.ConditionTrue,
+	})
+	nonControllerRequest := bookedRequest.DeepCopy()
+	nonControllerRequest.OwnerReferences[0].Controller = new(false)
+	requestWithoutControllerFlag := bookedRequest.DeepCopy()
+	requestWithoutControllerFlag.OwnerReferences[0].Controller = nil
+	foreignRequest := bookedRequest.DeepCopy()
+	foreignRequest.OwnerReferences[0].UID = "other-workload-uid"
+	elasticProvisioningGates := map[featuregate.Feature]bool{
+		features.ElasticJobsViaWorkloadSlices:                        true,
+		features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+	}
+	retentionOpts := []Option{
+		WithWorkloadRetention(&workloadRetentionConfig{afterFinished: new(time.Minute)}),
+	}
+	retentionDeletionEvents := []utiltesting.EventRecord{{
+		Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+		EventType: corev1.EventTypeNormal,
+		Reason:    "Deleted",
+		Message:   "Deleted finished workload due to elapsed retention",
+	}}
+
 	cases := map[string]reconcileTestCase{
+		"should retain replaced admitted slice with a live booking after retention expires": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantWorkload:      replacedSlice.Clone().Obj(),
+		},
+		"should retain replaced admitted slice with a live booking and a non-controller owner reference": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{nonControllerRequest},
+			reconcilerOpts:    retentionOpts,
+			wantWorkload:      replacedSlice.Clone().Obj(),
+		},
+		"should retain replaced admitted slice with a live booking and an unset controller owner flag": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{requestWithoutControllerFlag},
+			reconcilerOpts:    retentionOpts,
+			wantWorkload:      replacedSlice.Clone().Obj(),
+		},
+		"should retain replaced admitted slice with a live booking and zero retention": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts: []Option{
+				WithWorkloadRetention(&workloadRetentionConfig{afterFinished: new(time.Duration)}),
+			},
+			wantWorkload: replacedSlice.Clone().Obj(),
+		},
+		"should retry without deleting a replaced slice when provisioning requests cannot be listed": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts:    retentionOpts,
+			listErr:           errTest,
+			wantError:         errTest,
+			wantWorkload:      replacedSlice.Clone().Obj(),
+		},
+		"should delete replaced slice with an expired booking after retention expires": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{expiredRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should delete replaced slice with a revoked booking after retention expires": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{revokedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should delete replaced slice with a failed booking after retention expires": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{failedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should retain replaced slice when an expired request precedes a live request": {
+			featureGates:   elasticProvisioningGates,
+			workload:       replacedSlice.Clone().Obj(),
+			reconcilerOpts: retentionOpts,
+			provisioningRequestList: &autoscaling.ProvisioningRequestList{
+				Items: []autoscaling.ProvisioningRequest{*expiredRequest, *bookedRequest},
+			},
+			wantWorkload: replacedSlice.Clone().Obj(),
+		},
+		"should not postpone an existing slice deletion for a live booking": {
+			featureGates: elasticProvisioningGates,
+			workload: replacedSlice.Clone().
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").
+				Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantWorkload: replacedSlice.Clone().
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				DeletionTimestamp(now).
+				Finalizers("example.com/finalizer").
+				Obj(),
+		},
+		"should delete admitted elastic slice finished normally despite a live booking": {
+			featureGates: elasticProvisioningGates,
+			workload: replacedSlice.Clone().Condition(metav1.Condition{
+				Type:               kueue.WorkloadFinished,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.WorkloadFinishedReasonSucceeded,
+				LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+			}).Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should not retain replaced slice for a request owned by a different workload UID": {
+			featureGates:      elasticProvisioningGates,
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{foreignRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should delete replaced slice when elastic provisioning is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                        true,
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: false,
+			},
+			workload:          replacedSlice.Clone().Obj(),
+			additionalObjects: []client.Object{bookedRequest},
+			reconcilerOpts:    retentionOpts,
+			wantEvents:        retentionDeletionEvents,
+		},
+		"should delete replaced slice when the ProvisioningRequest API is unavailable": {
+			featureGates:   elasticProvisioningGates,
+			workload:       replacedSlice.Clone().Obj(),
+			reconcilerOpts: retentionOpts,
+			listErr: &apimeta.NoKindMatchError{
+				GroupKind: autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest").GroupKind(),
+			},
+			wantEvents: retentionDeletionEvents,
+		},
 		"on-hold workload preserves its condition when the LocalQueue is missing": {
 			workload:     onHoldWorkload.Clone().Obj(),
 			wantWorkload: wantOnHoldWorkload.DeepCopy(),
@@ -2923,7 +3114,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					})
 				}
 
-				clientBuilder := utiltesting.NewClientBuilder().
+				clientBuilder := utiltesting.NewClientBuilder(autoscaling.AddToScheme).
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
 					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
@@ -2942,13 +3133,21 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						},
 						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 							if tc.listErr != nil {
-								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
+								switch list.(type) {
+								case *resourcev1.ResourceSliceList, *autoscaling.ProvisioningRequestList:
 									return tc.listErr
 								}
+							}
+							if requests, ok := list.(*autoscaling.ProvisioningRequestList); ok && tc.provisioningRequestList != nil {
+								tc.provisioningRequestList.DeepCopyInto(requests)
+								return nil
 							}
 							return c.List(ctx, list, opts...)
 						},
 					})
+				if err := provisioning.SetupIndexer(t.Context(), utiltesting.AsIndexer(clientBuilder)); err != nil {
+					t.Fatal(err)
+				}
 				if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 					clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, utilindexer.DeviceClassExtendedResourceNameIndex, utilindexer.IndexDeviceClassExtendedResourceName)
 				}
