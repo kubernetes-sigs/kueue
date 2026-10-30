@@ -338,10 +338,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// stuckTerminatingOnUnreachableNode reports whether the pod is being deleted on
-// an unreachable node. The kubelet cannot confirm such a deletion, so the pod
-// stays Terminating until the node returns and would otherwise hold its slot,
-// leaving the replacement pod gated even when other nodes have room.
 func (r *elasticJobUngater) stuckTerminatingOnUnreachableNode(ctx context.Context, p *corev1.Pod) (bool, error) {
 	if p.DeletionTimestamp == nil || p.Spec.NodeName == "" {
 		return false, nil
