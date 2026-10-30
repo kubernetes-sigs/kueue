@@ -48,7 +48,7 @@ func listRequestLimit() (int64, error) {
 	}
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil || limit <= 0 {
+	if err != nil || limit < 0 {
 		return 0, errInvalidListRequestLimit
 	}
 

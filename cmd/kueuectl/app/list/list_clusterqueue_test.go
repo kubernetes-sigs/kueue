@@ -221,9 +221,9 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 			envValue: "invalid",
 			wantErr:  errInvalidListRequestLimit,
 		},
-		"should return an error for a zero limit env var": {
-			envValue: "0",
-			wantErr:  errInvalidListRequestLimit,
+		"should allow zero limit env var to disable pagination": {
+			envValue:  "0",
+			wantLimit: 0,
 		},
 		"should return an error for a negative limit env var": {
 			envValue: "-1",
