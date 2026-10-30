@@ -101,11 +101,9 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 	// Get the local queue name from workload's spec
 	localQueueName := string(w.Spec.QueueName)
 
-	// If local queue name is found, fetch the local queue and its cluster queue
-	if localQueueName != "" {
-		if w.Status.Admission != nil {
-			res.ClusterQueueName = string(w.Status.Admission.ClusterQueue)
-		}
+	if w.Status.Admission != nil && w.Status.Admission.ClusterQueue != "" {
+		res.ClusterQueueName = string(w.Status.Admission.ClusterQueue)
+	} else if localQueueName != "" {
 		hasLocalQueueAccess := true
 		if h.authorizer != nil {
 			allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("get", LocalQueuesGVR(), namespace, localQueueName))

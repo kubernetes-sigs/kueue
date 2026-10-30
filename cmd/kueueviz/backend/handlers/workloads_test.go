@@ -106,6 +106,8 @@ func TestFetchWorkloadDetails(t *testing.T) {
 	admittedWorkload.Status.Admission = &kueueapi.Admission{ClusterQueue: "cq-admitted"}
 	workloadWithoutQueue := admittedWorkload.DeepCopy()
 	workloadWithoutQueue.Spec.QueueName = ""
+	workloadWithoutAdmissionClusterQueue := admittedWorkload.DeepCopy()
+	workloadWithoutAdmissionClusterQueue.Status.Admission.ClusterQueue = ""
 
 	tests := map[string]struct {
 		objs                 []ctrlclient.Object
@@ -150,9 +152,19 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantAuthCalls:        1,
 			wantLocalQueueGets:   1,
 		},
-		"authorized local queue takes precedence over the admission": {
+		"admission takes precedence over the local queue": {
 			objs: []ctrlclient.Object{
 				admittedWorkload.DeepCopy(),
+				makeLocalQueue("ns-1", "lq-1", "cq-current"),
+			},
+			authorizer:           stubAuthorizer{allowed: true},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-admitted",
+			wantPreemption:       map[string]any{},
+		},
+		"empty admission cluster queue falls back to the local queue": {
+			objs: []ctrlclient.Object{
+				workloadWithoutAdmissionClusterQueue.DeepCopy(),
 				makeLocalQueue("ns-1", "lq-1", "cq-current"),
 			},
 			authorizer:           stubAuthorizer{allowed: true},
@@ -173,7 +185,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantPreemption:       map[string]any{},
 			wantAuthCalls:        1,
 		},
-		"denied local queue access falls back to the admission": {
+		"admission skips local queue authorization when access would be denied": {
 			objs: []ctrlclient.Object{
 				admittedWorkload.DeepCopy(),
 				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
@@ -182,7 +194,6 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-admitted",
 			wantPreemption:       map[string]any{},
-			wantAuthCalls:        1,
 		},
 		"local queue authorization error does not disclose its cluster queue": {
 			objs: []ctrlclient.Object{
@@ -195,7 +206,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantPreemption:       map[string]any{},
 			wantAuthCalls:        1,
 		},
-		"local queue authorization error falls back to the admission": {
+		"admission skips local queue authorization when it would fail": {
 			objs: []ctrlclient.Object{
 				admittedWorkload.DeepCopy(),
 				makeLocalQueue("ns-1", "lq-1", "cq-hidden"),
@@ -204,7 +215,6 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-admitted",
 			wantPreemption:       map[string]any{},
-			wantAuthCalls:        1,
 		},
 		"workload without queue name has unknown cluster queue": {
 			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "")},
@@ -212,10 +222,10 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantClusterQueueName: "Unknown",
 			wantPreemption:       map[string]any{},
 		},
-		"workload without queue name does not use the admission": {
+		"workload without queue name uses the admission": {
 			objs:                 []ctrlclient.Object{workloadWithoutQueue.DeepCopy()},
 			workloadName:         "wl-1",
-			wantClusterQueueName: "Unknown",
+			wantClusterQueueName: "cq-admitted",
 			wantPreemption:       map[string]any{},
 		},
 		"local queue without cluster queue has unknown cluster queue": {
@@ -228,15 +238,14 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantPreemption:       map[string]any{},
 			wantLocalQueueGets:   1,
 		},
-		"local queue without cluster queue does not use the admission": {
+		"admission is used when the local queue has no cluster queue": {
 			objs: []ctrlclient.Object{
 				admittedWorkload.DeepCopy(),
 				makeLocalQueue("ns-1", "lq-1", ""),
 			},
 			workloadName:         "wl-1",
-			wantClusterQueueName: "Unknown",
+			wantClusterQueueName: "cq-admitted",
 			wantPreemption:       map[string]any{},
-			wantLocalQueueGets:   1,
 		},
 		"missing local queue has unknown cluster queue": {
 			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
@@ -245,7 +254,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantPreemption:       map[string]any{},
 			wantLocalQueueGets:   1,
 		},
-		"missing local queue falls back to the admission": {
+		"admission is used when the local queue is missing": {
 			objs: []ctrlclient.Object{func() ctrlclient.Object {
 				wl := makeWorkloadObj("ns-1", "wl-1", "lq-1")
 				wl.Status.Admission = &kueueapi.Admission{ClusterQueue: "cq-a"}
@@ -254,7 +263,6 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			workloadName:         "wl-1",
 			wantClusterQueueName: "cq-a",
 			wantPreemption:       map[string]any{},
-			wantLocalQueueGets:   1,
 		},
 		"local queue get error is returned": {
 			objs: []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
