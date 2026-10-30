@@ -109,18 +109,13 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 }
 
 // ManageCerts adds the cert rotator to the main manager for ongoing certificate rotation.
-func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan struct{}) error {
-	// Certs are already ready from BootstrapCerts, so we signal immediately
-	// The rotator runs in background for ongoing rotation.
+func ManageCerts(mgr ctrl.Manager, cfg config.Configuration) error {
 	rotatorReady := make(chan struct{})
 	rotatorConfig := buildCertRotatorConfig(cfg, "cert-rotator", rotatorReady)
 
 	if err := cert.AddRotator(mgr, rotatorConfig); err != nil {
 		return fmt.Errorf("unable to add cert rotator to manager: %w", err)
 	}
-
-	// Signal that certs are ready (they were set up by BootstrapCerts).
-	close(setupFinished)
 	return nil
 }
 

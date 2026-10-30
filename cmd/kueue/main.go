@@ -19,10 +19,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -301,15 +299,11 @@ func main() {
 
 	roleTracker := setupRoleTracker(ctx, mgr, &cfg)
 
-	certsReady := make(chan struct{})
-
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
-		if err = cert.ManageCerts(mgr, cfg, certsReady); err != nil {
+		if err = cert.ManageCerts(mgr, cfg); err != nil {
 			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
-	} else {
-		close(certsReady)
 	}
 	resourceFormatter := resources.NewResourceFormatter()
 	cacheOptions := []schdcache.Option{
@@ -423,7 +417,7 @@ func main() {
 		}
 	}
 
-	if err := setupProbeEndpoints(mgr, certsReady); err != nil {
+	if err := setupProbeEndpoints(mgr); err != nil {
 		setupLog.Error(err, "Unable to setup probe endpoints")
 		os.Exit(1)
 	}
@@ -676,7 +670,7 @@ func getLabelsAndAnnotationsToCopy(cfg *configapi.Configuration) (labelKeysToCop
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
+func setupProbeEndpoints(mgr ctrl.Manager) error {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -687,17 +681,7 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) error {
 	// Kueue replica as ready. This allows users to wait with sending the first
 	// requests, requiring webhooks, until the Kueue deployment is available, so
 	// that the early requests are not rejected during the Kueue's startup.
-	// We wrap the call to GetWebhookServer in a closure to delay calling
-	// the function, otherwise a not fully-initialized webhook server (without
-	// ready certs) fails the start of the manager.
-	if err := mgr.AddReadyzCheck("readyz", func(req *http.Request) error {
-		select {
-		case <-certsReady:
-			return mgr.GetWebhookServer().StartedChecker()(req)
-		default:
-			return errors.New("certificates are not ready")
-		}
-	}); err != nil {
+	if err := mgr.AddReadyzCheck("readyz", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		return fmt.Errorf("unable to set up ready check: %w", err)
 	}
 
