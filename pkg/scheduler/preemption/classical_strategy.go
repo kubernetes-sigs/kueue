@@ -107,7 +107,8 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 				return
 			}
 		}
-		if len(preemptionCtx.tasRequests) == 0 {
+		// WAS performs topology preemption in its scheduler simulator.
+		if len(preemptionCtx.tasRequests) == 0 || features.Enabled(features.SchedulerLibraryDeepIntegration) {
 			return
 		}
 		for _, opts := range attemptPossibleOpts {
