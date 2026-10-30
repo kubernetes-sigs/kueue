@@ -153,23 +153,32 @@ func TestValidateCreate(t *testing.T) {
 		multiKueueQueue bool
 	}{
 		"invalid existing cluster - submitter inherits MultiKueue queue": {
-			job:             testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.K8sJobMode).Obj(),
+			job: testingrayutil.MakeJob("job", "ns").Queue("multi-queue").
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.K8sJobMode).Obj(),
 			multiKueueQueue: true,
-			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue"),
+			}.ToAggregate(),
 		},
 		"invalid existing cluster - submitter template uses MultiKueue queue": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("local-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).
-				WithSubmitterPodTemplate(corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{constants.QueueLabel: "multi-queue"}}}).Obj(),
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{Labels: map[string]string{constants.QueueLabel: "multi-queue"}}).Obj(),
 			multiKueueQueue: true,
-			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("spec", "submitterPodTemplate", "metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "submitterPodTemplate", "metadata", "labels").Key(constants.QueueLabel),
+					"RayJob submitters using an existing cluster cannot use MultiKueue",
+				),
+			}.ToAggregate(),
 		},
 		"valid existing cluster - local template queue overrides MultiKueue parent queue": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).
-				WithSubmitterPodTemplate(corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{constants.QueueLabel: "local-queue"}}}).Obj(),
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{Labels: map[string]string{constants.QueueLabel: "local-queue"}}).Obj(),
 			multiKueueQueue: true,
 		},
 		"valid existing cluster - HTTPMode has no submitter Job": {
-			job:             testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.HTTPMode).Obj(),
+			job: testingrayutil.MakeJob("job", "ns").Queue("multi-queue").
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).WithSubmissionMode(rayv1.HTTPMode).Obj(),
 			multiKueueQueue: true,
 		},
 		"invalid unmanaged": {
@@ -746,7 +755,9 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob:          testingrayutil.MakeJob("job", "ns").Queue("local-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
 			newJob:          testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
 			multiKueueQueue: true,
-			wantErr:         field.ErrorList{field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue")}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "RayJob submitters using an existing cluster cannot use MultiKueue"),
+			}.ToAggregate(),
 		},
 		"valid existing cluster - unchanged unsupported queue does not block cleanup": {
 			oldJob:          testingrayutil.MakeJob("job", "ns").Queue("multi-queue").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),

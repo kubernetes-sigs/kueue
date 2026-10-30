@@ -1390,14 +1390,18 @@ func TestDefault(t *testing.T) {
 		"submitter template queue overrides the RayJob queue": {
 			enableIntegrations: []string{rayjob.FrameworkName},
 			objs:               []runtime.Object{selectorParent.DeepCopy()},
-			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).PodLabel(constants.QueueLabel, "template-queue").Suspend(false).Obj(),
-			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).PodLabel(constants.QueueLabel, "template-queue").Queue("template-queue").Obj(),
+			job: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("template-queue").Obj(),
 		},
 		"submitter explicit queue is preserved": {
 			enableIntegrations: []string{rayjob.FrameworkName},
 			objs:               []runtime.Object{selectorParent.DeepCopy()},
-			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Suspend(false).Obj(),
-			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Obj(),
+			job: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Obj(),
 		},
 		"submitter without a queue uses the default LocalQueue": {
 			enableIntegrations: []string{rayjob.FrameworkName},

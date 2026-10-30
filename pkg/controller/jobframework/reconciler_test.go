@@ -1703,8 +1703,11 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 		},
 		"Job -> RayJob (clusterSelector, queue-name) => nil": {
 			integrations: []string{"ray.io/rayjob"},
-			ancestors:    []client.Object{testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
-			job:          testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+			ancestors: []client.Object{
+				testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").
+					ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			},
+			job: testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
 		},
 		"Pod -> Job (queue-name) -> RayJob (clusterSelector, queue-name) => Job": {
 			integrations: []string{"batch/job", "ray.io/rayjob"},
