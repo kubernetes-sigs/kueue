@@ -18,6 +18,7 @@ package list
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -35,10 +36,7 @@ const (
 	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
 )
 
-var (
-	errInvalidListRequestLimit = errors.New("invalid list request limit")
-	errMultipleActiveFlags     = errors.New("only one active flag can be provided")
-)
+var errMultipleActiveFlags = errors.New("only one active flag can be provided")
 
 func listRequestLimit() (int64, error) {
 	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
@@ -48,8 +46,8 @@ func listRequestLimit() (int64, error) {
 	}
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil {
-		return 0, errInvalidListRequestLimit
+	if err != nil || limit < 0 {
+		return 0, fmt.Errorf("invalid list request limit: %s=%q must be a non-negative integer", KueuectlListRequestLimitEnvName, listRequestLimitEnv)
 	}
 
 	return limit, nil
