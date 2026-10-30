@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -57,14 +58,15 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
-	simulatorFactory.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(testingpod.MakePod("victim-pod", victimKey.Namespace).
 		UID("victim-pod").
 		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker)
 	if err != nil {
 		t.Fatalf("NewSimulator() error = %v", err)
 	}
