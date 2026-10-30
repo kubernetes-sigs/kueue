@@ -234,6 +234,158 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"deleting parent workload without variants; does not create them": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(fakeNow).
+				Obj(),
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(fakeNow).
+				Obj(),
+		},
+		"finished parent workload without variants; does not create them": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+		},
+		"finished and deleting parent workload; finishes its variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(fakeNow).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				DeletionTimestamp(fakeNow).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Succeeded",
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+		},
+		"finished parent workload with an evicted variant; finishes the variant without evicting the parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Succeeded",
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+		},
 		"parent workload whose name has no separator creates variants": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl", "default").
 				Queue("lq").
@@ -2480,6 +2632,47 @@ func TestReconcile(t *testing.T) {
 					Status:  metav1.ConditionTrue,
 					Reason:  "Admitted",
 					Message: "The variant wl-variant-on-demand is admitted",
+				}).
+				Obj(),
+			wantVariantWorkloads: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeletedVariant,
+					Message:   `Variant Workload "default/wl-variant-on-demand" deleted; ConcurrentAdmission is no longer enabled for this ClusterQueue`,
+				},
+			},
+		},
+		"ConcurrentAdmissionPolicy removed; finished parent, variant deleted, parent label removed": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Succeeded",
+					Message: "Job finished successfully",
 				}).
 				Obj(),
 			wantVariantWorkloads: nil,

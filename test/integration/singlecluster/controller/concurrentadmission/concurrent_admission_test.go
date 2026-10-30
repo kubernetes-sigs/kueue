@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Concurrent Admission", func() {
@@ -171,6 +172,50 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				g.Expect(apimeta.FindStatusCondition(parentWl.Status.Conditions, kueue.WorkloadPodsScheduled)).
 					To(gomega.HaveValue(gomega.BeComparableTo(observation, behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("does not create a variant for a finished parent when a flavor is added", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-finished", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, parentWl)
+
+			ginkgo.By("Waiting for the parent to be admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing the parent and waiting for both variants to finish")
+			integration.FinishWorkloads(ctx, k8sClient, parentWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for _, f := range []string{flavorReservation.Name, flavorSpot.Name} {
+					v := getVariantByFlavor(list, parentWl.Name, f)
+					g.Expect(v).NotTo(gomega.BeNil())
+					g.Expect(apimeta.IsStatusConditionTrue(v.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Adding a flavor to the ClusterQueue")
+			additionalFlavor = utiltestingapi.MakeResourceFlavor("additional").Obj()
+			behavioral.MustCreate(ctx, k8sClient, additionalFlavor)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+				cq.Spec.ResourceGroups[0].Flavors = append(cq.Spec.ResourceGroups[0].Flavors,
+					*utiltestingapi.MakeFlavorQuotas(additionalFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj())
+				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that no variant is created for the finished parent")
+			gomega.Consistently(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(getVariantByFlavor(list, parentWl.Name, additionalFlavor.Name)).To(gomega.BeNil())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should not count variant workloads in unadmitted workload metrics", func() {
