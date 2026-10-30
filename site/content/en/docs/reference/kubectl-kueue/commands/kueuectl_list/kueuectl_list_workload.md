@@ -15,6 +15,8 @@ The file is auto-generated from the Go source code of the component using the
 
 Lists Workloads that match the provided criteria.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources returned in each request to the Kubernetes API. The default is 100.
+
 ```
 kueuectl list workload [--clusterqueue CLUSTER_QUEUE_NAME] [--localqueue LOCAL_QUEUE_NAME] [--status STATUS] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces] [--for TYPE[.API-GROUP]/NAME]
 ```

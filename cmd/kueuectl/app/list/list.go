@@ -26,12 +26,6 @@ import (
 )
 
 var (
-	listLong = templates.LongDesc(`
-		Display Kueue resources.
-
-		KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources
-		returned in each request to the Kubernetes API. The default is 100.
-	`)
 	listExample = templates.Examples(`
 		# List LocalQueue
   		kueuectl list localqueue
@@ -42,7 +36,6 @@ func NewListCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions
 	cmd := &cobra.Command{
 		Use:        "list",
 		Short:      "Display resources",
-		Long:       listLong,
 		Example:    listExample,
 		SuggestFor: []string{"ps"},
 	}

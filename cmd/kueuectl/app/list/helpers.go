@@ -34,6 +34,7 @@ import (
 const (
 	defaultListRequestLimit         = 100
 	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
+	listRequestLimitDescription     = "KUEUECTL_LIST_REQUEST_LIMIT sets the maximum number of resources returned in each request to the Kubernetes API. The default is 100."
 )
 
 var errMultipleActiveFlags = errors.New("only one active flag can be provided")

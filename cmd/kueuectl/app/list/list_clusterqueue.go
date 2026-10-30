@@ -40,7 +40,7 @@ var (
 	cqLong = templates.LongDesc(`
 		Lists all ClusterQueues, potentially limiting output to those
 		that are active/inactive and matching the label selector.
-	`)
+	`) + "\n\n" + listRequestLimitDescription
 	cqExample = templates.Examples(`
 		# List ClusterQueue
   		kueuectl list clusterqueue
