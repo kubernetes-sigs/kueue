@@ -109,14 +109,14 @@ type ScheduleOptions struct {
 type ScheduleOption func(*ScheduleOptions)
 
 // BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
-func BuildScheduleOptions(options ...ScheduleOption) (*ScheduleOptions, error) {
+func BuildScheduleOptions(options ...ScheduleOption) *ScheduleOptions {
 	opts := &ScheduleOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(opts)
 		}
 	}
-	return opts, nil
+	return opts
 }
 
 // WithPreemptionCandidates configures the ordered sequence of candidate workloads

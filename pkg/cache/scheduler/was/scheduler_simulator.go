@@ -185,10 +185,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
-	scheduleOpts, err := simulator.BuildScheduleOptions(opts...)
-	if err != nil {
-		return simulator.SchedulingResult{Error: fmt.Errorf("ScheduleWorkload() error when processing ScheduleOptions: %w", err)}
-	}
+	scheduleOpts := simulator.BuildScheduleOptions(opts...)
 
 	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
 	if err != nil {

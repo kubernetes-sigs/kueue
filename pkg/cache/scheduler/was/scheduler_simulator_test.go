@@ -1721,7 +1721,7 @@ func TestScheduleWorkload(t *testing.T) {
 			// the first call must not leave its Pods on the nodes, nor keep the
 			// committed targets released.
 			for attempt := range 2 {
-				if opts, _ := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
+				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
 					opts.PreemptionFilter.(*fakePreemptionFilter).preempted.Clear()
 				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)
