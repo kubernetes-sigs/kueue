@@ -1,3 +1,44 @@
+## v0.19.11
+
+Changes since `v0.19.10`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0), [`v0.19.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.19.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.1), [`v0.19.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.2), [`v0.19.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.3), [`v0.19.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.4), [`v0.19.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.5), [`v0.19.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.6), [`v0.19.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.7), [`v0.19.8`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.8), [`v0.19.9`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.9), [`v0.19.10`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.19.10).
+
+- Observability: Updated logging for scheduler, flavor-assignment, and preemption. Scheduler per-Workload messages stay at verbosity level 2 by default and move to level 3 when the `LogLevelForSchedulerMainLoop` feature gate is enabled. The "Workload skipped from admission" message moved from level 0 to level 2, or 3 with the gate.
+  
+  If your dashboards, alerts or log queries depend on Kueue log messages, keys or verbosity levels,
+  review them before upgrading. For the complete list of logging changes, see https://github.com/kubernetes-sigs/kueue/pull/17746. If you enable the `LogLevelForSchedulerMainLoop` feature gate, set the log level to 3 or higher to keep the scheduler's per-Workload messages. (#17839, @mimowo)
+ 
+## Changes by Kind
+
+### Bug or Regression
+
+- CLI: Fixed the usage line of `kueuectl delete workload` to show that it accepts multiple names, that names and `--all` are mutually exclusive, and that `--all-namespaces` works only with `--all`. (#17926, @mbobrovskyi)
+- DRA: Fixed a bug where CEL device availability checks counted devices from stale or incomplete ResourceSlice pools, so a Workload could reserve quota for devices the DRA allocator cannot use. (#17751, @sohankunkerkar)
+- DRA: Fixed a bug where Workloads whose device requests come from LimitRange defaults stayed pending after a matching DeviceClass was created. (#17867, @weizhoublue)
+- ElasticJobsViaWorkloadSlices: Fixed a bug where `WaitForPodsReady` could treat an elastic batch Job as not ready while a replacement Workload slice was pending admission. Kueue now evaluates readiness against the granted replica count in the latest admitted slice. (#17874, @mszadkow)
+- ElasticJobsViaWorkloadSlices: Fixed a bug where an admitted elastic Workload could be evicted with `PodsReadyTimeout` while its scale-up Workload slice waited for quota, even after its Pods became ready. Kueue now updates `PodsReady` on the admitted Workload slice. (#17772, @kevin85421)
+- ElasticJobsViaWorkloadSlices: Fixed a bug where, with `SchedulingEquivalenceHashing` enabled, a replacement workload slice that fits could be deferred because another replacement slice with the same requests did not fit. (#17688, @Narwhal-fish)
+- FairSharing: Fixed a bug where a workload could be blocked from reclaiming its parent Cohort's nominal quota when that Cohort's DominantResourceShare was inflated by borrowing on an unrelated flavor. The nominal-quota preemption claim is now evaluated at the level where the preemptor's and target's subtrees meet, so descendants of a Cohort get preferential access to the Cohort's own nominal quota, and a ClusterQueue within its own nominal quota no longer preempts across a borrowing parent Cohort. (#13307, @amitaekbote)
+- Job integrations: Fixed a bug where a job created right after its namespace could stay suspended without a Workload until the next informer resync. (#17869, @Narwhal-fish)
+- KueueViz: Fixed the workload owner reference always showing "N/A". (#17669, @onkar717)
+- MultiKueue & LeaderWorkerSet: Fixed a bug where finishing, preempting, or scaling down one group of a LeaderWorkerSet deleted the LeaderWorkerSet on the worker cluster, stopping and recreating the other groups still running there. Kueue now deletes the remote LeaderWorkerSet only after its last group is removed from the worker. (#17647, @henry3260)
+- MultiKueue: Immediately resynchronize workloads when a worker watch reconnects instead of waiting for the next polling interval. (#16175, @Kunal241207)
+- RayCluster: Added the Alpha RayClusterHeadPodReady feature gate, disabled by default. Enable it to use head readiness for PodsReady checks so unready workers do not block readiness of a usable head. Enabling this feature requires KubeRay v1.3.0 or later. (#17604, @kevin85421)
+- Scheduler: Fixed a bug where a PodSet total past the largest Quantity was stored in `resourceUsage` as MaxInt64. The cache then under-counted that usage, and an even Pod count made the admission webhook reject the Workload on every retry. Kueue now records a total that fits in a Quantity, and sets `QuotaReserved=False` with reason `UnrecordableResourceUsage` when the total cannot be stored. (#17685, @HarshithaMS005)
+- TAS: Fix feasible elastic Workload slice replacements being rejected during preemption because the predecessor's topology usage was counted twice. (#17797, @gola)
+- TAS: Fixed a bug where Pods of Kubeflow Jobs (v1), such as PyTorchJob, and of MPIJobs without `runLauncherAsWorker` in a `kueue.x-k8s.io/podset-group-name` PodSet group were ungated without rank ordering, and the topology ungater logged an error on every reconcile. Kueue now sets `kueue.x-k8s.io/pod-index-offset: "0"` on their grouped Pod templates when it starts the job. This applies to workloads admitted after the upgrade. (#17731, @henry3260)
+- TAS: Fixed a bug where Pods of a TrainJob in a `kueue.x-k8s.io/podset-group-name` PodSet group were ungated without rank ordering, and the topology ungater logged an error on every reconcile. Kueue now sets `kueue.x-k8s.io/pod-index-offset: "0"` on these Pods when it starts the TrainJob. This applies to workloads admitted after the upgrade. (#17872, @henry3260)
+- TAS: Fixed a bug where a Workload with multiple PodSets reported an empty (Pending) QuotaReserved reason when one PodSet needed preemption for quota and another failed topology placement even on an empty cluster. The topology failure is now reported as TopologyPlacementFailed. (#17620, @mimowo)
+- TAS: Fixed a bug where an MPIJob with `runLauncherAsWorker` that set `kueue.x-k8s.io/pod-index-offset` alongside `kueue.x-k8s.io/podset-group-name` was admitted but never started, while holding quota. Kueue now accepts `"1"`, which matches the offset implied by the PodSet group, and rejects other values; remove the annotation from existing MPIJobs that use another value. (#17672, @henry3260)
+- TAS: Fixed a bug where the `Active` condition message of a ClusterQueue listed TAS flavors without a Topology in a random order, which could cause repeated status updates of the ClusterQueue. The flavors are now listed in name order. (#17914, @spicysharkco)
+- TAS: Fixed a bug where the pending message of a Workload with several PodSets that could not be placed could name a different PodSet in each scheduling cycle. Kueue now reports the first failed PodSet in alphabetical order. (#17623, @henry3260)
+
 ## v0.19.10
 
 Changes since `v0.19.9`:

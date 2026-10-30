@@ -208,14 +208,13 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				// foregroundDeletion finalizer (as the GC would add during teardown).
 				childSTS := testingstatefulset.MakeStatefulSet("child-sts", ns.Name).Obj()
 				childSTS.Finalizers = []string{metav1.FinalizerDeleteDependents}
-				isController := true
 				childSTS.OwnerReferences = []metav1.OwnerReference{
 					{
 						APIVersion: stsGVK.GroupVersion().String(),
 						Kind:       stsGVK.Kind,
 						Name:       parentSTS.Name,
 						UID:        parentSTS.UID,
-						Controller: &isController,
+						Controller: new(true),
 					},
 				}
 				behavioral.MustCreate(ctx, k8sClient, childSTS)
@@ -224,9 +223,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				// finalizers so it disappears from the API server immediately,
 				// simulating the "background delete while foreground chain is active"
 				// scenario described in the bug report.
-				background := metav1.DeletePropagationBackground
 				gomega.Expect(k8sClient.Delete(ctx, parentSTS, &client.DeleteOptions{
-					PropagationPolicy: &background,
+					PropagationPolicy: new(metav1.DeletePropagationBackground),
 				})).To(gomega.Succeed())
 
 				gomega.Eventually(func(g gomega.Gomega) {

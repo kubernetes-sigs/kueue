@@ -32,6 +32,7 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,36 +76,90 @@ const (
 	incomingPriority = 50
 )
 
+var errSimulator = errors.New("simulator failure")
+
+type scheduleWorkloadCall struct {
+	consumedCandidates []client.ObjectKey
+	simulateEmpty      bool
+}
+
 type testSimulator struct {
 	simulator.SchedulerSimulator
 
-	result        simulator.SchedulingResult
-	calls         int
-	scheduledPods []*corev1.Pod
-	addedPGs      []*schedulingv1beta1.PodGroup
-	removedPGs    []*schedulingv1beta1.PodGroup
-	addedCPGs     []*schedulingv1alpha3.CompositePodGroup
-	removedCPGs   []*schedulingv1alpha3.CompositePodGroup
+	results                   []simulator.SchedulingResult
+	receivedCalls             []scheduleWorkloadCall
+	scheduledPods             []*corev1.Pod
+	addedPGs                  []*schedulingv1beta1.PodGroup
+	removedPGs                []*schedulingv1beta1.PodGroup
+	addedCPGs                 []*schedulingv1alpha3.CompositePodGroup
+	removedCPGs               []*schedulingv1alpha3.CompositePodGroup
+	failAddPGAt, failAddCPGAt int
+	addPGCalls, addCPGCalls   int
+	removeErr                 error
 }
 
 var _ simulator.SchedulerSimulator = (*testSimulator)(nil)
 
-func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
-	f.calls++
+func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
+	idx := len(f.receivedCalls)
 	f.scheduledPods = append(f.scheduledPods, pods...)
-	return f.result
+	var res simulator.SchedulingResult
+	switch {
+	case idx < len(f.results):
+		res = f.results[idx]
+	case len(f.results) > 0:
+		res = f.results[len(f.results)-1]
+	}
+	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+	candidates := scheduleOpts.PreemptionCandidates
+	allPlaced := res.Error == nil && len(res.PodPlacements) > 0
+	for _, p := range res.PodPlacements {
+		if !p.IsSuccess() {
+			allPlaced = false
+			break
+		}
+	}
+
+	// Emulate the real SchedulerSimulator's lazy consumption of the PreemptionCandidates
+	// iterator: candidates are pulled one by one (populating PreemptionStrategy's internal
+	// state and mutating the snapshot) until all victims needed to place the pods are seen.
+	var consumedCandidates []client.ObjectKey
+	if candidates != nil {
+		seen := sets.New[client.ObjectKey]()
+		for wlKey := range candidates {
+			consumedCandidates = append(consumedCandidates, wlKey)
+			seen.Insert(wlKey)
+			if allPlaced && seen.HasAll(res.PreemptionVictims...) {
+				break
+			}
+		}
+	}
+	f.receivedCalls = append(f.receivedCalls, scheduleWorkloadCall{
+		consumedCandidates: consumedCandidates,
+		simulateEmpty:      scheduleOpts.SimulateEmpty,
+	})
+	return res
 }
 
 func (f *testSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	f.addedPGs = append(f.addedPGs, pg)
-	if f.SchedulerSimulator != nil {
-		return f.SchedulerSimulator.AddPodGroup(ctx, pg)
+	f.addPGCalls++
+	if f.addPGCalls == f.failAddPGAt {
+		return errSimulator
 	}
+	if f.SchedulerSimulator != nil {
+		if err := f.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	f.addedPGs = append(f.addedPGs, pg)
 	return nil
 }
 
 func (f *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
 	f.removedPGs = append(f.removedPGs, pg)
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	if f.SchedulerSimulator != nil {
 		return f.SchedulerSimulator.RemovePodGroup(ctx, pg)
 	}
@@ -112,15 +167,24 @@ func (f *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta
 }
 
 func (f *testSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	f.addedCPGs = append(f.addedCPGs, cpg)
-	if f.SchedulerSimulator != nil {
-		return f.SchedulerSimulator.AddCompositePodGroup(ctx, cpg)
+	f.addCPGCalls++
+	if f.addCPGCalls == f.failAddCPGAt {
+		return errSimulator
 	}
+	if f.SchedulerSimulator != nil {
+		if err := f.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	f.addedCPGs = append(f.addedCPGs, cpg)
 	return nil
 }
 
 func (f *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
 	f.removedCPGs = append(f.removedCPGs, cpg)
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	if f.SchedulerSimulator != nil {
 		return f.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg)
 	}
@@ -239,6 +303,7 @@ type testPodSet struct {
 	// requiredLevel is the required topology level of the PodSet.
 	// Defaults to hostname.
 	requiredLevel string
+	podSetGroup   string
 }
 
 func podFailure(psName kueue.PodSetReference, replicaIdx int, reason string) string {
@@ -271,25 +336,52 @@ func TestPlan(t *testing.T) {
 	errInsufficientCPU := errors.New("Insufficient cpu")
 	errNodeAffinity := errors.New("node(s) didn't match Pod's node affinity")
 
+	type addedPodGroups struct{ cpgs, pgs int }
+	groupedPodSets := []testPodSet{
+		{name: "psA1", count: 2, cpu: "1", podSetGroup: "group1"},
+		{name: "psA2", count: 2, cpu: "1", podSetGroup: "group1"},
+		{name: "psB", count: 1, cpu: "1"},
+	}
+	groupedPodSetsUnchanged := []flavorassigner.PodSetAssignment{
+		{Name: "psA1", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+		{Name: "psA2", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+		{Name: "psB", FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}}},
+	}
+
 	cases := map[string]struct {
 		// flavorQuotas are the ClusterQueue's flavors, in order. See newTestSnapshot.
-		flavorQuotas []kueue.FlavorQuotas
-		podSets      []testPodSet
+		flavorQuotas   []kueue.FlavorQuotas
+		podSets        []testPodSet
+		unhealthyNodes []string
 		// initialMode documents the quota-based mode computed by the flavor assigner.
 		initialMode flavorassigner.FlavorAssignmentMode
 		// When set as Nil, ScheduleWorkload is expected not to be called.
 		schedulingResult *simulator.SchedulingResult
+		// preemptionResult, when set, is the result returned by the preemption
+		// ScheduleWorkload call after initial Fit simulation fails.
+		preemptionResult *simulator.SchedulingResult
+		// emptyClusterResult, when set, is the result returned by the ScheduleWorkload call
+		// with WithSimulateEmpty(true) after preemption candidate simulation fails.
+		emptyClusterResult *simulator.SchedulingResult
+		// failAddCPGAt and failAddPGAt make the N-th Add call fail, counting from 1. 0 means no failure.
+		failAddCPGAt, failAddPGAt int
+		removeErr                 error
 
 		wantMode        flavorassigner.FlavorAssignmentMode
 		wantFit         bool
-		wantErr         string
+		wantErrs        []string
 		wantNoFitReason string
+		// wantCalls, when set, checks the ScheduleWorkload calls made by Plan.
+		wantCalls []scheduleWorkloadCall
+		// wantPreemptionTargets checks the workload keys of the PreemptionTargets returned in Plan.
+		wantPreemptionTargets []client.ObjectKey
 		// wantResolvedNoFitReason configures what should be the NoFitReason
 		// the Assignemtn resolves to when the UnadmittedWorkloadsObservability
 		// FG ius enabled.
 		// When set the UnadmittedWorkloadsObservability feature will be enabled in the test.
 		wantResolvedNoFitReason string
 		wantPodSets             []flavorassigner.PodSetAssignment
+		wantAdded               *addedPodGroups
 	}{
 		"initial assignment does not fit the quota: returned as is, without scheduling": {
 			flavorQuotas:            []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
@@ -308,12 +400,48 @@ func TestPlan(t *testing.T) {
 				},
 			}},
 		},
-		"initial assignment requires preemption: not supported": {
+		"initial assignment requires preemption and ScheduleWorkload succeeds: fits": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Preempt,
-			wantMode:     flavorassigner.Preempt,
-			wantErr:      "WAS Planner does not support preemptions",
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			},
+			wantMode: flavorassigner.Preempt,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+			},
+			wantPreemptionTargets: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				Status:             *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
+				TopologyAssignment: onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.Preempt,
+					PreemptionPossibility: new(policy.Preempt),
+				}},
+			}},
+		},
+		"initial assignment requires preemption and ScheduleWorkload returns unknown victim: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Preempt,
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: "unknown-victim"}},
+			},
+			wantMode: flavorassigner.Preempt,
+			wantErrs: []string{`preempted workload "default/unknown-victim" is not a candidate in this preemption strategy`},
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:   kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
@@ -324,13 +452,171 @@ func TestPlan(t *testing.T) {
 				}},
 			}},
 		},
+		"initial assignment requires preemption, ScheduleWorkload fails with candidates but succeeds on empty cluster: keeps Preempt mode and reserves topology": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Preempt,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+			}},
+			wantMode: flavorassigner.Preempt,
+			wantFit:  false,
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{simulateEmpty: true},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				Status:             *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
+				TopologyAssignment: onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.Preempt,
+					PreemptionPossibility: new(policy.Preempt),
+				}},
+			}},
+		},
+		"initial assignment requires preemption and ScheduleWorkload fails even on empty cluster: does not fit": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Preempt,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{simulateEmpty: true},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.NoFit,
+					PreemptionPossibility: new(policy.Preempt),
+					NoFitReason:           kueue.WorkloadQuotaReservedReasonSimulationFailed,
+				}},
+			}},
+		},
+		"initial assignment fits quota, ScheduleWorkload fails initially but succeeds with preemption: demotes to Preempt and fits": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			preemptionResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			},
+			wantMode: flavorassigner.Preempt,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{},
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+			},
+			wantPreemptionTargets: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
+				TopologyAssignment: onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor: testFlavor,
+					Mode:   flavorassigner.Fit,
+				}},
+			}},
+		},
+		"initial assignment fits quota, ScheduleWorkload fails initially and with candidates but succeeds on empty cluster: demotes to Preempt and reserves topology": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			preemptionResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			emptyClusterResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+			}},
+			wantMode: flavorassigner.Preempt,
+			wantFit:  false,
+			wantCalls: []scheduleWorkloadCall{
+				{},
+				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{simulateEmpty: true},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
+				TopologyAssignment: onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor: testFlavor,
+					Mode:   flavorassigner.Fit,
+				}},
+			}},
+		},
+		"initial assignment requires preemption and workload has unhealthy nodes: skips preemption simulation": {
+			flavorQuotas:   []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:        []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			unhealthyNodes: []string{testNode1},
+			initialMode:    flavorassigner.Preempt,
+			wantMode:       flavorassigner.Preempt,
+			wantFit:        false,
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:   kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.Preempt,
+					PreemptionPossibility: new(policy.Preempt),
+				}},
+			}},
+		},
+		"initial assignment fits quota, ScheduleWorkload fails and workload has unhealthy nodes: skips preemption and does not fit": {
+			flavorQuotas:   []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:        []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			unhealthyNodes: []string{testNode1},
+			initialMode:    flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+			}},
+			wantMode:                flavorassigner.NoFit,
+			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+			wantCalls:               []scheduleWorkloadCall{{}},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:      testFlavor,
+					Mode:        flavorassigner.NoFit,
+					NoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
+				}},
+			}},
+		},
 		"ScheduleWorkload fails completely: planning error": {
 			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode:      flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{Error: errSchedule},
 			wantMode:         flavorassigner.Fit,
-			wantErr:          "failed to schedule workload: " + errSchedule.Error(),
+			wantErrs:         []string{"failed to schedule workload: " + errSchedule.Error()},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:                     kueue.DefaultPodSetName,
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
@@ -448,6 +734,7 @@ func TestPlan(t *testing.T) {
 					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 				},
 			},
+			wantAdded: &addedPodGroups{cpgs: 1, pgs: 2},
 		},
 		"multiple PodSets, one fails: the workload does not fit": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
@@ -545,6 +832,107 @@ func TestPlan(t *testing.T) {
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},
+		"first CompositePodGroup fails to be added: planning error, nothing to clean up": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 1,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add composite pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{},
+		},
+		"second CompositePodGroup fails to be added: planning error, the added one is removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 2,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add composite pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 1},
+		},
+		"first PodGroup fails to be added: planning error, all CompositePodGroups removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  1,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 2},
+		},
+		"last PodGroup fails to be added: planning error, all added groups removed": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  3,
+			wantMode:     flavorassigner.Fit,
+			wantErrs:     []string{"virtualization error: unable to add pod group"},
+			wantPodSets:  groupedPodSetsUnchanged,
+			wantAdded:    &addedPodGroups{cpgs: 2, pgs: 2},
+		},
+		"PodGroup fails to be added and the groups fail to be removed: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddPGAt:  3,
+			removeErr:    errSimulator,
+			wantMode:     flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to add pod group",
+				"unable to remove pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: groupedPodSetsUnchanged,
+			wantAdded:   &addedPodGroups{cpgs: 2, pgs: 2},
+		},
+		"second CompositePodGroup fails to be added and the added one fails to be removed: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:      groupedPodSets,
+			initialMode:  flavorassigner.Fit,
+			failAddCPGAt: 2,
+			removeErr:    errSimulator,
+			wantMode:     flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to add composite pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: groupedPodSetsUnchanged,
+			wantAdded:   &addedPodGroups{cpgs: 1},
+		},
+		"groups fail to be removed after scheduling: planning error": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets: []testPodSet{
+				{name: "leader", count: 1, cpu: "1"},
+				{name: "workers", count: 2, cpu: "1"},
+			},
+			initialMode: flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+				podKey("leader", 0):  {Node: testNode2},
+				podKey("workers", 0): {Node: testNode1},
+				podKey("workers", 1): {Node: testNode1},
+			}},
+			removeErr: errSimulator,
+			wantMode:  flavorassigner.Fit,
+			wantErrs: []string{
+				"virtualization error: unable to remove pod group",
+				"unable to remove composite pod group",
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{
+					Name:                     "leader",
+					TopologyAssignment:       onNodes(domain(testNode2, 1)),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+				},
+				{
+					Name:                     "workers",
+					TopologyAssignment:       onNodes(domain(testNode1, 2)),
+					FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+				},
+			},
+			wantAdded: &addedPodGroups{cpgs: 1, pgs: 2},
+		},
 	}
 
 	for name, tc := range cases {
@@ -563,9 +951,27 @@ func TestPlan(t *testing.T) {
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
 			snapshot := newTestSnapshot(ctx, t, log, tc.flavorQuotas...)
-			testSim := &testSimulator{SchedulerSimulator: snapshot.SchedulerSimulator}
+			testSim := &testSimulator{
+				SchedulerSimulator: snapshot.SchedulerSimulator,
+				failAddCPGAt:       tc.failAddCPGAt,
+				failAddPGAt:        tc.failAddPGAt,
+				removeErr:          tc.removeErr,
+			}
 			if tc.schedulingResult != nil {
-				testSim.result = *tc.schedulingResult
+				testSim.results = []simulator.SchedulingResult{*tc.schedulingResult}
+				if tc.preemptionResult != nil {
+					testSim.results = append(testSim.results, *tc.preemptionResult)
+				}
+				if tc.emptyClusterResult != nil {
+					testSim.results = append(testSim.results, *tc.emptyClusterResult)
+				}
+				if len(testSim.results) == 1 && tc.initialMode == flavorassigner.Fit && tc.wantMode == flavorassigner.NoFit && len(tc.unhealthyNodes) == 0 {
+					// When initial Fit placement fails, Plan demotes to Preempt and retries
+					// twice (first with preemption candidates, then on an empty cluster).
+					// For failure test cases that only specify a single schedulingResult,
+					// reuse that same failure result for both fallback calls.
+					testSim.results = append(testSim.results, *tc.schedulingResult, *tc.schedulingResult)
+				}
 			}
 			snapshot.SchedulerSimulator = testSim
 
@@ -575,13 +981,17 @@ func TestPlan(t *testing.T) {
 				if requiredLevel == "" {
 					requiredLevel = corev1.LabelHostname
 				}
-				podSets = append(podSets, *utiltestingapi.MakePodSet(ps.name, ps.count).
+				psWrapper := utiltestingapi.MakePodSet(ps.name, ps.count).
 					RequiredTopologyRequest(requiredLevel).
-					Request(corev1.ResourceCPU, ps.cpu).
-					Obj())
+					Request(corev1.ResourceCPU, ps.cpu)
+				if ps.podSetGroup != "" {
+					psWrapper.PodSetGroup(ps.podSetGroup)
+				}
+				podSets = append(podSets, *psWrapper.Obj())
 			}
 			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
 				Priority(incomingPriority).
+				UnhealthyNodes(tc.unhealthyNodes...).
 				PodSets(podSets...).
 				Obj())
 			wl.ClusterQueue = testCQ
@@ -602,30 +1012,51 @@ func TestPlan(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
-			planner := NewPlanner(wl, snapshot)
+			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment)
 
 			// Then
 			if gotPlan.Assignment != &initialAssignment {
 				t.Errorf("Plan() returned a different assignment object than the initial one")
 			}
-			wantCalls := 0
-			if tc.schedulingResult != nil {
-				wantCalls = 1
+			wantCallCount := len(testSim.results)
+			if len(testSim.receivedCalls) != wantCallCount {
+				t.Errorf("Plan() called ScheduleWorkload unexpected number of times: want %d, got %d", wantCallCount, len(testSim.receivedCalls))
 			}
-			if testSim.calls != wantCalls {
-				t.Errorf("Plan() called ScheduleWorkload unexpected number of times: want %d, got %d", wantCalls, testSim.calls)
+			if tc.wantCalls != nil {
+				if diff := cmp.Diff(tc.wantCalls, testSim.receivedCalls, cmp.AllowUnexported(scheduleWorkloadCall{})); diff != "" {
+					t.Errorf("Plan() ScheduleWorkload calls mismatch (-want +got):\n%s", diff)
+				}
 			}
 			switch {
-			case tc.wantErr == "" && gotPlan.Error != nil:
+			case len(tc.wantErrs) == 0 && gotPlan.Error != nil:
 				t.Errorf("Plan() returned unexpected error: %v", gotPlan.Error)
-			case tc.wantErr != "" && gotPlan.Error == nil:
-				t.Errorf("Plan() did not return the expected error %q", tc.wantErr)
-			case tc.wantErr != "" && !strings.Contains(gotPlan.Error.Error(), tc.wantErr):
-				t.Errorf("Plan() error mismatch: want it to contain %q, got %q", tc.wantErr, gotPlan.Error.Error())
+			case len(tc.wantErrs) != 0 && gotPlan.Error == nil:
+				t.Errorf("Plan() did not return the expected errors %q", tc.wantErrs)
+			default:
+				for _, wantErr := range tc.wantErrs {
+					if !strings.Contains(gotPlan.Error.Error(), wantErr) {
+						t.Errorf("Plan() error mismatch: want it to contain %q, got %q", wantErr, gotPlan.Error.Error())
+					}
+				}
 			}
 			if tc.schedulingResult != nil && tc.schedulingResult.Error != nil && !errors.Is(gotPlan.Error, tc.schedulingResult.Error) {
 				t.Errorf("Plan() error does not wrap the ScheduleWorkload error: want %v, got %v", tc.schedulingResult.Error, gotPlan.Error)
+			}
+			if (tc.failAddCPGAt != 0 || tc.failAddPGAt != 0 || tc.removeErr != nil) && !errors.Is(gotPlan.Error, errSimulator) {
+				t.Errorf("Plan() error does not wrap the simulator error: want %v, got %v", errSimulator, gotPlan.Error)
+			}
+			if tc.wantAdded != nil {
+				gotAdded := addedPodGroups{cpgs: len(testSim.addedCPGs), pgs: len(testSim.addedPGs)}
+				if diff := cmp.Diff(*tc.wantAdded, gotAdded, cmp.AllowUnexported(addedPodGroups{})); diff != "" {
+					t.Errorf("Plan() added group mismatch (-want +got):\n%s", diff)
+				}
+			}
+			if diff := cmp.Diff(testSim.addedPGs, testSim.removedPGs); diff != "" {
+				t.Errorf("Plan() removed PodGroups mismatch (-added +removed):\n%s", diff)
+			}
+			if diff := cmp.Diff(testSim.addedCPGs, testSim.removedCPGs); diff != "" {
+				t.Errorf("Plan() removed CompositePodGroups mismatch (-added +removed):\n%s", diff)
 			}
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() assignment mode mismatch: want %v, got %v", tc.wantMode, gotMode)
@@ -633,8 +1064,12 @@ func TestPlan(t *testing.T) {
 			if tc.wantFit != gotPlan.CanFit() {
 				t.Errorf("Plan() returned unexpected verdict - want fit: %v, got: %v", tc.wantFit, gotPlan.CanFit())
 			}
-			if len(gotPlan.PreemptionTargets) != 0 {
-				t.Errorf("Plan() returned unexpected preemption targets: %v", gotPlan.PreemptionTargets)
+			var gotTargets []client.ObjectKey
+			for _, target := range gotPlan.PreemptionTargets {
+				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
 			}
 			if gotPlan.Assignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("Plan() assignment NoFitReason mismatch: want %q, got %q", tc.wantNoFitReason, gotPlan.Assignment.NoFitReason)
@@ -688,14 +1123,18 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 	wl := workload.NewInfo(log, wlObj)
 	wl.ClusterQueue = testCQ
 
+	preemptor := preemption.New(
+		utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
+		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+	)
 	assigner := flavorassigner.New(
 		wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
-		nil, nil,
+		preemption.NewOracle(preemptor, snapshot), nil,
 		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 	)
 	assignment := assigner.AssignFlavors(ctx, log, nil)
 
-	planner := NewPlanner(wl, snapshot)
+	planner := NewPlanner(wl, snapshot, preemptor)
 	plan := planner.Plan(ctx, &assignment)
 	if plan.Error != nil {
 		t.Fatalf("Plan() unexpected error: %v", plan.Error)
@@ -725,5 +1164,257 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil {
 			t.Errorf("pod %s has no SchedulingGroup.PodGroupName", pod.Name)
 		}
+	}
+}
+
+func TestPlan_PreemptionStrategies(t *testing.T) {
+	errInsufficientCPU := errors.New("Insufficient cpu")
+
+	makeAdmittedWorkload := func(name string, cq kueue.ClusterQueueReference, prio int32, cpu string, node string, admitTime time.Time) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, testNamespace).
+			Priority(prio).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, cpu).
+				Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, testFlavor, cpu).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), admitTime).
+			Obj()
+	}
+
+	now := time.Now()
+	cases := map[string]struct {
+		enableFairSharing     bool
+		cqs                   []*kueue.ClusterQueue
+		admittedWorkloads     []*kueue.Workload
+		incomingCPU           string
+		simResults            []simulator.SchedulingResult
+		wantCalls             []scheduleWorkloadCall
+		wantPreemptionTargets []client.ObjectKey
+		wantMode              flavorassigner.FlavorAssignmentMode
+	}{
+		"classical preemption with BorrowWithinCohort: tries borrowing strategy first, falls back to non-borrowing strategy": {
+			enableFairSharing: false,
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue(testCQ).
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+							MaxPriorityThreshold: new(int32(30)),
+						},
+					}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).
+						Resource(corev1.ResourceCPU, "4", "4").
+						Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("borrower-cq").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).
+						Resource(corev1.ResourceCPU, "0", "4").
+						Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender-cq").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).
+						Resource(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj(),
+			},
+			admittedWorkloads: []*kueue.Workload{
+				makeAdmittedWorkload("victim-low", testCQ, 10, "2", testNode1, now),
+				makeAdmittedWorkload("victim-cohort", "borrower-cq", 40, "2", testNode2, now),
+			},
+			incomingCPU: "4",
+			simResults: []simulator.SchedulingResult{
+				{
+					PodPlacements: simulator.PodPlacements{
+						podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+					},
+				},
+				{
+					PodPlacements: simulator.PodPlacements{
+						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+					},
+					PreemptionVictims: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "victim-cohort"},
+						{Namespace: testNamespace, Name: "victim-low"},
+					},
+				},
+			},
+			wantCalls: []scheduleWorkloadCall{
+				{
+					consumedCandidates: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "victim-low"},
+					},
+				},
+				{
+					consumedCandidates: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "victim-cohort"},
+						{Namespace: testNamespace, Name: "victim-low"},
+					},
+				},
+			},
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "victim-cohort"},
+				{Namespace: testNamespace, Name: "victim-low"},
+			},
+			wantMode: flavorassigner.Preempt,
+		},
+		"fair sharing preemption: lazily evaluates cohort candidates and stops once workload fits": {
+			enableFairSharing: true,
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue(testCQ).
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).
+						Resource(corev1.ResourceCPU, "4").
+						Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("borrower-cq").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(testFlavor).
+						Resource(corev1.ResourceCPU, "0", "4").
+						Obj()).
+					Obj(),
+			},
+			admittedWorkloads: []*kueue.Workload{
+				makeAdmittedWorkload("borrower-low", "borrower-cq", 10, "2", testNode1, now),
+				makeAdmittedWorkload("borrower-mid", "borrower-cq", 20, "2", testNode2, now),
+			},
+			incomingCPU: "2",
+			simResults: []simulator.SchedulingResult{
+				{
+					PodPlacements: simulator.PodPlacements{
+						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+					},
+					PreemptionVictims: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "borrower-low"},
+					},
+				},
+			},
+			wantCalls: []scheduleWorkloadCall{
+				{
+					consumedCandidates: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "borrower-low"},
+					},
+				},
+			},
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "borrower-low"},
+			},
+			wantMode: flavorassigner.Preempt,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			})
+
+			log := testr.New(t)
+			ctx := ctrllog.IntoContext(t.Context(), log)
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(testFlavor).
+				NodeLabel("tas", testFlavor).TopologyName("topology").Obj())
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(testBlockLabel, corev1.LabelHostname).Obj())
+			for _, node := range []string{testNode1, testNode2} {
+				cache.TASCache().SyncNode(testingnode.MakeNode(node).
+					Label("tas", testFlavor).
+					Label(testBlockLabel, testBlock).
+					Label(corev1.LabelHostname, node).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse(testNodeCPUs),
+						corev1.ResourcePods: resource.MustParse("32"),
+					}).
+					Ready().
+					Obj())
+			}
+			for _, cq := range tc.cqs {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("adding ClusterQueue %q: %v", cq.Name, err)
+				}
+			}
+			for _, w := range tc.admittedWorkloads {
+				if !cache.AddOrUpdateWorkload(ctx, log, w) {
+					t.Fatalf("adding workload %q to cache", w.Name)
+				}
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("building snapshot: %v", err)
+			}
+
+			testSim := &testSimulator{
+				SchedulerSimulator: snapshot.SchedulerSimulator,
+				results:            tc.simResults,
+			}
+			snapshot.SchedulerSimulator = testSim
+
+			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
+				Priority(incomingPriority).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, tc.incomingCPU).
+					Obj()).
+				Obj())
+			wl.ClusterQueue = testCQ
+
+			var fsConfig *configapi.FairSharing
+			if tc.enableFairSharing {
+				fsConfig = &configapi.FairSharing{}
+			}
+			preemptor := preemption.New(
+				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, false,
+				clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil,
+			)
+			assigner := flavorassigner.New(
+				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, tc.enableFairSharing,
+				preemption.NewOracle(preemptor, snapshot), nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+			)
+			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+			if gotMode := initialAssignment.RepresentativeMode(); gotMode != flavorassigner.Preempt {
+				t.Fatalf("AssignFlavors() mode = %v, want %v", gotMode, flavorassigner.Preempt)
+			}
+			freeCapacityBefore := freeCapacity(t, snapshot)
+
+			planner := NewPlanner(wl, snapshot, preemptor)
+			gotPlan := planner.Plan(ctx, &initialAssignment)
+
+			if gotPlan.Error != nil {
+				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
+			}
+			if diff := cmp.Diff(tc.wantCalls, testSim.receivedCalls, cmp.AllowUnexported(scheduleWorkloadCall{})); diff != "" {
+				t.Errorf("Plan() ScheduleWorkload calls mismatch (-want +got):\n%s", diff)
+			}
+			var gotTargets []client.ObjectKey
+			for _, target := range gotPlan.PreemptionTargets {
+				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
+			}
+			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, tc.wantMode)
+			}
+			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
+				t.Errorf("Plan() modified snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
+			}
+		})
 	}
 }

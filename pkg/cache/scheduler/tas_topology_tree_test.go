@@ -101,12 +101,11 @@ func makeTreeTestNode(name, block, rack string) *corev1.Node {
 }
 
 func treeTestBalancedRequests(name kueue.PodSetReference) FlavorTASRequests {
-	preferredLevel := treeTestRackLabel
 	return FlavorTASRequests{{
 		PodSet: &kueue.PodSet{
 			Name: name,
 			TopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: &preferredLevel,
+				Preferred: new(treeTestRackLabel),
 			},
 		},
 		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),

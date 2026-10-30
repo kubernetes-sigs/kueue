@@ -58,9 +58,10 @@ func (h *Handlers) WorkloadDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Param("namespace")
 		workloadName := c.Param("workload_name")
+		identity, _ := middleware.IdentityFromContext(c)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return h.fetchWorkloadDetails(ctx, namespace, workloadName)
+			return h.fetchWorkloadDetails(ctx, namespace, workloadName, identity)
 		}, WorkloadsGVK())(c)
 	}
 }
@@ -76,7 +77,7 @@ func (h *Handlers) fetchWorkloads(ctx context.Context, namespace string, identit
 	return wl, nil
 }
 
-func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workloadName string) (any, error) {
+func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workloadName string, identity middleware.Identity) (any, error) {
 	// Fetch the workload details
 	w := &kueueapi.Workload{}
 	err := h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: workloadName}, w)
@@ -88,8 +89,9 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 	preempted := apimeta.FindStatusCondition(w.Status.Conditions, kueueapi.WorkloadPreempted)
 
 	res := workloadResult{
-		Workload:   w,
-		Preemption: map[string]any{},
+		Workload:         w,
+		ClusterQueueName: "Unknown",
+		Preemption:       map[string]any{},
 	}
 	if preempted != nil {
 		res.Preemption["preempted"] = preempted.Status == metav1.ConditionTrue
@@ -99,28 +101,26 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 	// Get the local queue name from workload's spec
 	localQueueName := string(w.Spec.QueueName)
 
-	// If local queue name is found, fetch the local queue and its cluster queue
-	if localQueueName != "" {
-		lq := &kueueapi.LocalQueue{}
-		err = h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: localQueueName}, lq)
-		if apierrors.IsNotFound(err) {
-			// The LocalQueue can be deleted while its Workloads remain. Keep
-			// the details page working and fall back to the admission, if any.
-			err = nil
-			if w.Status.Admission != nil {
-				lq.Spec.ClusterQueue = w.Status.Admission.ClusterQueue
+	if w.Status.Admission != nil && w.Status.Admission.ClusterQueue != "" {
+		res.ClusterQueueName = string(w.Status.Admission.ClusterQueue)
+	} else if localQueueName != "" {
+		hasLocalQueueAccess := true
+		if h.authorizer != nil {
+			allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("get", LocalQueuesGVR(), namespace, localQueueName))
+			hasLocalQueueAccess = err == nil && allowed
+		}
+		if hasLocalQueueAccess {
+			lq := &kueueapi.LocalQueue{}
+			err := h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: localQueueName}, lq)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
+			}
+			if err == nil {
+				res.ClusterQueueName = string(lq.Spec.ClusterQueue)
 			}
 		}
-		if err != nil {
-			return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
-		}
-		cqn := string(lq.Spec.ClusterQueue)
-		if cqn != "" {
-			res.ClusterQueueName = cqn
-		} else {
-			res.ClusterQueueName = "Unknown"
-		}
-	} else {
+	}
+	if res.ClusterQueueName == "" {
 		res.ClusterQueueName = "Unknown"
 	}
 

@@ -55,6 +55,11 @@ type wasSimulator struct {
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.
 	emptyCluster lazyCluster
+	// podGroups and compositePodGroups track groups added via AddPodGroup and
+	// AddCompositePodGroup so they can be replayed onto emptyCluster when it is
+	// lazily initialized.
+	podGroups          map[client.ObjectKey]*schedulingv1beta1.PodGroup
+	compositePodGroups map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
 }
 
 // lazyCluster builds its cluster on first use, so cycles that never ask do not
@@ -68,11 +73,28 @@ type lazyCluster struct {
 	err   error
 }
 
-func (l *lazyCluster) get(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
-	l.once.Do(func() {
-		l.value, l.err = l.build(ctx)
+func (s *wasSimulator) getEmptyCluster(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
+	s.emptyCluster.once.Do(func() {
+		cluster, err := s.emptyCluster.build(ctx)
+		if err != nil {
+			s.emptyCluster.err = err
+			return
+		}
+		for _, cpg := range s.compositePodGroups {
+			if err := cluster.AddCompositePodGroup(ctx, cpg); err != nil {
+				s.emptyCluster.err = err
+				return
+			}
+		}
+		for _, pg := range s.podGroups {
+			if err := cluster.AddPodGroup(ctx, pg); err != nil {
+				s.emptyCluster.err = err
+				return
+			}
+		}
+		s.emptyCluster.value = cluster
 	})
-	return l.value, l.err
+	return s.emptyCluster.value, s.emptyCluster.err
 }
 
 func (s *wasSimulator) FindFeasibleNodes(
@@ -109,7 +131,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	cluster := s.wasSnapshot
 	if requirements.SimulateEmpty {
 		var err error
-		if cluster, err = s.emptyCluster.get(ctx); err != nil {
+		if cluster, err = s.getEmptyCluster(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -157,13 +179,45 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 	})
 }
 
-func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
-	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
+	if err != nil {
+		return simulator.SchedulingResult{Error: err}
+	}
+
+	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
+	return toSchedulingResult(workloadPods, wasResult)
+}
+
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+	if scheduleOpts.SimulateEmpty {
+		return s.getEmptyCluster(ctx)
+	}
+	return s.wasSnapshot, nil
+}
+
+func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
+	var schedlibFilter schedlib.PreemptionFilter
+	if scheduleOpts.PreemptionFilter != nil {
+		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
+	}
+	var potentialVictims iter.Seq[schedlib.PreemptionVictim]
+	if !scheduleOpts.SimulateEmpty {
+		potentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+	}
+	return schedlib.ScheduleWorkloadOptions{
+		DryRun:           true,
+		PotentialVictims: potentialVictims,
+		PreemptionFilter: schedlibFilter,
+	}
+}
+
+func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
 	if wasResult.Status.IsError() {
 		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}
@@ -191,23 +245,62 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		}
 	}
 
-	return simulator.SchedulingResult{PodPlacements: placements}
+	return simulator.SchedulingResult{
+		PodPlacements:     placements,
+		PreemptionVictims: toPreemptionVictims(wasResult.PreemptionVictims),
+	}
 }
 
 func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.wasSnapshot.AddPodGroup(ctx, pg)
+	if err := s.wasSnapshot.AddPodGroup(ctx, pg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.AddPodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	s.podGroups[client.ObjectKeyFromObject(pg)] = pg
+	return nil
 }
 
 func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.wasSnapshot.RemovePodGroup(ctx, pg)
+	if err := s.wasSnapshot.RemovePodGroup(ctx, pg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.RemovePodGroup(ctx, pg); err != nil {
+			return err
+		}
+	}
+	delete(s.podGroups, client.ObjectKeyFromObject(pg))
+	return nil
 }
 
 func (s *wasSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	return s.wasSnapshot.AddCompositePodGroup(ctx, cpg)
+	if err := s.wasSnapshot.AddCompositePodGroup(ctx, cpg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.AddCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	s.compositePodGroups[client.ObjectKeyFromObject(cpg)] = cpg
+	return nil
 }
 
 func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	return s.wasSnapshot.RemoveCompositePodGroup(ctx, cpg)
+	if err := s.wasSnapshot.RemoveCompositePodGroup(ctx, cpg); err != nil {
+		return err
+	}
+	if s.emptyCluster.value != nil {
+		if err := s.emptyCluster.value.RemoveCompositePodGroup(ctx, cpg); err != nil {
+			return err
+		}
+	}
+	delete(s.compositePodGroups, client.ObjectKeyFromObject(cpg))
+	return nil
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {

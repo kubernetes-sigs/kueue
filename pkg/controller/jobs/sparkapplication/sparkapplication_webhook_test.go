@@ -149,51 +149,34 @@ func TestValidateUpdate(t *testing.T) {
 			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue-2").Obj(),
 			wantErr:     nil,
 		},
-		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
-			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").Obj(),
-			newSparkApp:  testSparkApp.Clone().Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+		"queue name removal is rejected when the job is unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
-			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").Obj(),
-			newSparkApp:  testSparkApp.Clone().Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:      nil,
-		},
-		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue": {
 			oldSparkApp:    testSparkApp.Clone().Suspend(true).Queue(string(controllerconstants.DefaultLocalQueueName)).Obj(),
 			newSparkApp:    testSparkApp.Clone().Suspend(true).Obj(),
 			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
-			oldSparkApp:    testSparkApp.Clone().Suspend(true).Queue(string(controllerconstants.DefaultLocalQueueName)).Obj(),
-			newSparkApp:    testSparkApp.Clone().Suspend(true).Obj(),
-			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:        nil,
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Obj(),
+			wantErr:     nil,
 		},
-		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
-			oldSparkApp:  testSparkApp.Clone().Suspend(true).Queue("local-queue").Obj(),
-			newSparkApp:  testSparkApp.Clone().Suspend(true).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
-		},
-		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+		"prebuilt workload name change is not validated when the job is unmanaged": {
 			oldSparkApp: testSparkApp.Clone().
 				Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
 				Obj(),
 			newSparkApp: testSparkApp.Clone().
 				Label(controllerconstants.PrebuiltWorkloadLabel, "wl2").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").

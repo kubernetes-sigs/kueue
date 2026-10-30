@@ -40,8 +40,12 @@ INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGR
 ifeq ($(INTEGRATION_TARGET),)
 $(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
 endif
+# Shards list packages explicitly, so only the shard with the kueuectl suite
+# needs the kubectl-kueue binary.
+INTEGRATION_KUEUECTL_DEP := $(if $(findstring /kueuectl,$(INTEGRATION_TARGET)),kueuectl)
 else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_KUEUECTL_DEP := kueuectl
 endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
@@ -145,7 +149,7 @@ test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
 ##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
-test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
+test-integration: compile-crd-manifests envtest ginkgo dep-crds $(INTEGRATION_KUEUECTL_DEP) ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
 
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
@@ -564,7 +568,7 @@ run-test-tas-e2e-deepintegration-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/deepintegration" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi" \
 		E2E_CONFIG_FOLDER="tasapi/deepintegration" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -723,7 +727,7 @@ run-test-e2e-multikueue-sequential-%:
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-main-was
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind

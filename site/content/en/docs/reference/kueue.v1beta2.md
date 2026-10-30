@@ -3071,6 +3071,7 @@ During this time, the workload is taken as an inadmissible and
 other workloads will have a chance to be admitted.
 By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</li>
 </ul>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 3.</p>
 </td>
 </tr>
@@ -3080,6 +3081,7 @@ By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).</
 <td>
    <p>backoffBaseSeconds defines the base for the exponential backoff for
 re-queuing an evicted workload.</p>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 60.</p>
 </td>
 </tr>
@@ -3088,6 +3090,7 @@ re-queuing an evicted workload.</p>
 </td>
 <td>
    <p>backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.</p>
+<p>Must be greater than or equal to 0.</p>
 <p>Defaults to 1800.</p>
 </td>
 </tr>
