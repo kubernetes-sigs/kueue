@@ -47,6 +47,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -4931,20 +4932,14 @@ type recordingSimulatorFactory struct {
 	recorder         recordingSchedulerSimulator
 }
 
-func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, options...)
+func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, pods, options...)
 	if err != nil {
 		return nil, err
 	}
 	s.recorder.schedulerSimulator = schedulerSimulator
 	s.recorder.releasedNow = sets.New[workload.Reference]()
 	return &s.recorder, nil
-}
-func (s *recordingSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	s.simulatorFactory.TrackPod(ctx, pod)
-}
-func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.ObjectKey) string {
-	return s.simulatorFactory.UntrackPod(ctx, key)
 }
 
 type recordingSchedulerSimulator struct {

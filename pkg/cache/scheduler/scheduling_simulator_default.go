@@ -25,9 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
@@ -45,14 +45,8 @@ func newDefaultSimulator() simulator.SchedulerSimulator {
 
 type defaultSimulator struct{}
 
-func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ *podtracker.Tracker, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	return &defaultSimulator{}, nil
-}
-
-func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
-
-func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) string {
-	return ""
 }
 
 func (s *defaultSimulator) FindFeasibleNodes(
