@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -237,7 +238,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 			// A runtime change may produce a replacement slice. Wait for its
 			// reconcile before repointing, but still forward application updates.
 			if !changed {
-				if err := a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob); err != nil {
+				if err := a.repointPrebuiltWorkload(ctx, localClient, remoteClient, workloadName, remoteJob); err != nil {
 					return false, err
 				}
 			}
@@ -316,7 +317,17 @@ func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 // does. This is slice-identity bookkeeping, not a replica sync: after a
 // scale-up replacement slice is admitted, the remote must be repointed onto it
 // or the worker's jobframework would keep looking up the finished slice.
-func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
+// It never repoints backwards onto a slice that the current target replaces.
+func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, localClient, remoteClient client.Client, workloadName string, remoteJob PtrT) error {
+	replaced, err := pointsAtReplacementOf(ctx, localClient, remoteJob, workloadName)
+	if err != nil {
+		return err
+	}
+	if replaced {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping repoint onto a replaced workload slice",
+			"currentWorkload", jobframework.PrebuiltWorkloadNameFor(remoteJob), "replacedWorkload", workloadName)
+		return nil
+	}
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
 		if jobframework.PrebuiltWorkloadNameFor(remoteJob) == workloadName {
 			return false, nil
@@ -327,6 +338,23 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 		return fmt.Errorf("failed to repoint the prebuilt workload of remote %s: %w", a.gvk.Kind, err)
 	}
 	return nil
+}
+
+// pointsAtReplacementOf reports whether the remote's prebuilt workload is a
+// manager slice that replaces workloadName. The scheduler finishes the old
+// slice in a separate write after admitting its replacement, so until then a
+// reconcile of the old slice can still reach SyncJob.
+func pointsAtReplacementOf(ctx context.Context, localClient client.Client, remoteJob client.Object, workloadName string) (bool, error) {
+	current := jobframework.PrebuiltWorkloadNameFor(remoteJob)
+	if current == "" || current == workloadName {
+		return false, nil
+	}
+	wl := &kueue.Workload{}
+	if err := localClient.Get(ctx, types.NamespacedName{Namespace: remoteJob.GetNamespace(), Name: current}, wl); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	key := workloadslicing.ReplacementForKey(wl)
+	return key != nil && *key == workload.NewReference(remoteJob.GetNamespace(), workloadName), nil
 }
 
 // reflectRuntimeState reads the job's runtime worker state from the worker

@@ -34,14 +34,14 @@ import (
 )
 
 // fakeReaderClient adapts a controller-runtime fake client to the Client
-// interface used by the handlers. Informers are not needed by the fetch
-// functions, so GetInformerForKind returns nil.
+// interface used by the handlers.
 type fakeReaderClient struct {
 	ctrlclient.Reader
+	informer ctrlcache.Informer
 }
 
-func (fakeReaderClient) GetInformerForKind(_ context.Context, _ schema.GroupVersionKind, _ ...ctrlcache.InformerGetOption) (ctrlcache.Informer, error) {
-	return nil, nil
+func (c fakeReaderClient) GetInformerForKind(_ context.Context, _ schema.GroupVersionKind, _ ...ctrlcache.InformerGetOption) (ctrlcache.Informer, error) {
+	return c.informer, nil
 }
 
 // newFakeClient returns a Client backed by the controller-runtime fake client,
@@ -61,7 +61,7 @@ func newFakeClient(t *testing.T, funcs *interceptor.Funcs, objs ...ctrlclient.Ob
 	if funcs != nil {
 		builder = builder.WithInterceptorFuncs(*funcs)
 	}
-	return fakeReaderClient{Reader: builder.Build()}
+	return fakeReaderClient{Reader: builder.Build(), informer: newMockInformer()}
 }
 
 // authorizerFunc lets a test decide per request whether access is allowed.
@@ -69,4 +69,10 @@ type authorizerFunc func(attrs authorizationv1.ResourceAttributes) (bool, error)
 
 func (f authorizerFunc) Authorize(_ context.Context, _ middleware.Identity, attrs authorizationv1.ResourceAttributes) (bool, error) {
 	return f(attrs)
+}
+
+type identityAuthorizerFunc func(middleware.Identity, authorizationv1.ResourceAttributes) (bool, error)
+
+func (f identityAuthorizerFunc) Authorize(_ context.Context, identity middleware.Identity, attrs authorizationv1.ResourceAttributes) (bool, error) {
+	return f(identity, attrs)
 }

@@ -46,60 +46,27 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			fwk.StopManager(ctx)
 		})
 
-		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, true)
-			})
+		ginkgo.It("should reject removing the queue name from an unsuspended RayService", func() {
+			service := testingrayservice.MakeService("rayservice", ns.Name).
+				Queue("queue-name").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, service)
 
-			ginkgo.It("should reject removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).
-					Queue("queue-name").
-					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
-					Obj()
-				behavioral.MustCreate(ctx, k8sClient, service)
+			lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
+			createdService := &rayv1.RayService{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
 
-				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
-				createdService := &rayv1.RayService{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
+			// Simulate an unsuspended service updating other fields while retaining the queue name.
+			createdService.Spec.Suspend = false
+			gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
 
-				// Simulate an unsuspended service updating other fields while retaining the queue name.
-				createdService.Spec.Suspend = false
-				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended service dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
-				delete(createdService.Labels, constants.QueueLabel)
-				err := k8sClient.Update(ctx, createdService)
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
-			})
-		})
-
-		ginkgo.When("ValidateRayAndSparkJobUpdates is disabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, false)
-			})
-
-			ginkgo.It("should allow removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).
-					Queue("queue-name").
-					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
-					Obj()
-				behavioral.MustCreate(ctx, k8sClient, service)
-
-				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
-				createdService := &rayv1.RayService{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended service updating other fields while retaining the queue name.
-				createdService.Spec.Suspend = false
-				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended service dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
-				delete(createdService.Labels, constants.QueueLabel)
-				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
-			})
+			// Simulate an unsuspended service dropping its queue name to become unmanaged.
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
+			delete(createdService.Labels, constants.QueueLabel)
+			err := k8sClient.Update(ctx, createdService)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
 		ginkgo.When("ElasticJobsViaWorkloadSlices is disabled", func() {

@@ -32,6 +32,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/gangscheduling"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
@@ -139,6 +140,9 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 				SchedulerName: corev1.DefaultSchedulerName,
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
+					MultiPoint: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{{Name: gangscheduling.Name}},
+					},
 					QueueSort: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
 					},

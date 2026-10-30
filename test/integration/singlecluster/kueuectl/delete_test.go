@@ -68,6 +68,56 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 		})
 
+		ginkgo.It("Should delete a standalone workload using the kueueworkload alias", func() {
+			wlName := "wl-delete-kueueworkload"
+			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).Obj()
+
+			ginkgo.By("Create a standalone workload (no owner references)", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("Run kueuectl delete kueueworkload with --yes", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"delete", "kueueworkload", wlName, "--namespace", ns.Name, "--yes"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
+			})
+		})
+
+		ginkgo.It("Should delete a standalone workload using the kueueworkloads alias", func() {
+			wlName := "wl-delete-kueueworkloads"
+			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).Obj()
+
+			ginkgo.By("Create a standalone workload (no owner references)", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("Run kueuectl delete kueueworkloads with --yes", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"delete", "kueueworkloads", wlName, "--namespace", ns.Name, "--yes"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, false)
+			})
+		})
+
 		ginkgo.It("Should delete the owner Job without orphaning its dependents", func() {
 			jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 			job := testingjob.MakeJob("job-owner", ns.Name).Obj()

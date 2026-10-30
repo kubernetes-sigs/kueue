@@ -9819,7 +9819,7 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not setup indexes: %v", err)
 				}
 
-				// Add namespace to prevent early return when ManagedJobsNamespaceSelectorAlwaysRespected is enabled
+				// The reconciler reads the job's Namespace to evaluate managedJobsNamespaceSelector.
 				namespace := utiltesting.MakeNamespace("ns")
 				kcBuilder := clientBuilder.WithObjects(namespace).WithObjects(tc.initObjects...)
 				for i := range tc.pods {

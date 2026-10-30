@@ -696,7 +696,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is rejected when the job is unsuspended": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
 				Suspend(false).
@@ -704,23 +704,11 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingrayutil.MakeCluster("job", "ns").
 				Suspend(false).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
-			oldJob: testingrayutil.MakeCluster("job", "ns").
-				Queue("queue").
-				Suspend(false).
-				Obj(),
-			newJob: testingrayutil.MakeCluster("job", "ns").
-				Suspend(false).
-				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:      nil,
-		},
-		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue(string(constants.DefaultLocalQueueName)).
 				Suspend(true).
@@ -729,24 +717,11 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(true).
 				Obj(),
 			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
-			oldJob: testingrayutil.MakeCluster("job", "ns").
-				Queue(string(constants.DefaultLocalQueueName)).
-				Suspend(true).
-				Obj(),
-			newJob: testingrayutil.MakeCluster("job", "ns").
-				Suspend(true).
-				Obj(),
-			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:        nil,
-		},
-		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
 				Suspend(true).
@@ -754,10 +729,9 @@ func TestValidateUpdate(t *testing.T) {
 			newJob: testingrayutil.MakeCluster("job", "ns").
 				Suspend(true).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
-		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+		"prebuilt workload name change is not validated when the job is unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl1").
@@ -766,8 +740,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl2").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
 		"priorityClassName is mutable": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
