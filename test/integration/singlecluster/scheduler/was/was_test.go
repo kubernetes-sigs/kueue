@@ -42,15 +42,8 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:scheduler-library"), func() {
+var _ = ginkgo.Describe("WAS Simulator", ginkgo.Label("feature:scheduler-library"), func() {
 	var ns *corev1.Namespace
-
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{}
