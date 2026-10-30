@@ -46,6 +46,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return false, err
 	}
 
+	localJobRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteJob := kfmpi.MPIJob{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
@@ -71,7 +76,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the controller to take over
 	remoteJob.Spec.RunPolicy.ManagedBy = nil
 
-	return false, remoteClient.Create(ctx, &remoteJob)
+	return false, jobframework.CreateWithPreservedSpec(ctx, remoteClient, localJobRaw, &localJob, &remoteJob)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
