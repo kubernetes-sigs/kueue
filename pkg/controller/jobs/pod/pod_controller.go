@@ -319,6 +319,9 @@ func (p *Pod) Suspend() {
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
+	if err := p.restoreLegacyGroupRoles(ctx, c, wl); err != nil {
+		return err
+	}
 
 	var keepGated sets.Set[string]
 	if !p.isGroup {
@@ -1663,6 +1666,9 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
 		return nil, []*kueue.Workload{workload}, nil
 	}
+	if err := p.restoreLegacyGroupRoles(ctx, c, workload); err != nil {
+		return nil, nil, err
+	}
 
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
@@ -1896,6 +1902,9 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
 	if !p.isGroup {
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
+	}
+	if err := p.restoreLegacyGroupRoles(ctx, c, wl); err != nil {
+		return false, err
 	}
 
 	podSets, err := p.constructGroupPodSets(podSetReferenceOrder(wl.Spec.PodSets))
