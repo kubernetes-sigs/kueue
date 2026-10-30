@@ -145,8 +145,26 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantWorkloadNames []string
 		wantPodSets       []podset.PodSetInfo
 		namespaceMissing  bool
+		workloadCreateErr error
 		wantErr           func(error) bool
 	}{
+		"job whose workload the cache has not seen yet is not an error": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-ce737"),
+			wantWorkloads:     []kueue.Workload{},
+		},
+		"elastic job whose workload slice the cache has not seen yet is not an error either": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-3991b"),
+			wantWorkloads:     []kueue.Workload{},
+		},
 		"requeue job when its namespace is not in the cache yet": {
 			req:              baseReq,
 			job:              baseJob.DeepCopy(),
@@ -1099,6 +1117,16 @@ func TestReconcileGenericJob(t *testing.T) {
 			if !tc.namespaceMissing {
 				clBuilder = clBuilder.WithObjects(utiltesting.MakeNamespace(tc.req.Namespace))
 			}
+			if tc.workloadCreateErr != nil {
+				clBuilder = clBuilder.WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							return tc.workloadCreateErr
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				})
+			}
 			cl := clBuilder.
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
@@ -1107,7 +1135,10 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			if tc.workloadCreateErr != nil && tc.wantErr == nil && res != (controllerruntime.Result{}) {
+				t.Errorf("Unexpected requeue %+v: the Workload's own event requeues the Job", res)
+			}
 			if tc.wantErr != nil {
 				if !tc.wantErr(err) {
 					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)

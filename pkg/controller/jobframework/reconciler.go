@@ -570,6 +570,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if wl == nil {
 		log.V(3).Info("The workload is nil, handle job with no workload")
 		if err := r.handleJobWithNoWorkload(ctx, job, object); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				// The informer cache has not yet seen the Workload an earlier
+				// reconcile created for this Job. The Workload's creation event
+				// requeues the Job through the Workload watch, so this is not an
+				// error.
+				log.V(3).Info("Workload already exists but is not in the cache yet")
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, fmt.Errorf("handling job with no Workload: %w", err)
 		}
 		return ctrl.Result{}, nil
