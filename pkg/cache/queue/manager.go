@@ -335,15 +335,17 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if err != nil {
 		return err
 	}
-	m.hm.AddClusterQueue(cqImpl)
-	m.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
-
-	// Iterate through existing queues, as queues corresponding to this cluster
-	// queue might have been added earlier.
+	// List existing LocalQueues before registering the ClusterQueue. A failed
+	// backfill must not leave a partially initialized ClusterQueue in the
+	// hierarchy, where later registration attempts would be rejected.
 	var queues kueue.LocalQueueList
 	if err := m.client.List(ctx, &queues, client.MatchingFields{utilindexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing queues pointing to the cluster queue: %w", err)
 	}
+
+	m.hm.AddClusterQueue(cqImpl)
+	m.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
+
 	addedWorkloads := false
 	for _, q := range queues.Items {
 		qImpl := m.localQueues[queue.Key(&q)]
@@ -490,19 +492,20 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		return nil, fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newLocalQueue(q)
-	m.localQueues[key] = qImpl
 
+	// List existing Workloads before publishing the LocalQueue. A failed
+	// backfill must not register an empty queue and prevent a later retry.
+	var workloads kueue.WorkloadList
+	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
+		return nil, fmt.Errorf("listing workloads that match the queue: %w", err)
+	}
+
+	m.localQueues[key] = qImpl
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
 		cq.addLocalQueue(key, afs.LQWeightAsFloat64(q))
 	}
 
-	// Iterate through existing workloads, as workloads corresponding to this
-	// queue might have been added earlier.
-	var workloads kueue.WorkloadList
-	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
-		return nil, fmt.Errorf("listing workloads that match the queue: %w", err)
-	}
 	var draWorkloads []*kueue.Workload
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
