@@ -522,6 +522,47 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 	}
 }
 
+func TestPodGroupNameFromMeta(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+	cases := map[string]struct {
+		pod  *corev1.Pod
+		want string
+	}{
+		"pod without group name": {
+			pod: testingpod.MakePod("pod", "ns").Obj(),
+		},
+		"label only": {
+			pod:  testingpod.MakePod("pod", "ns").GroupNameLabel("group-1").Obj(),
+			want: "group-1",
+		},
+		"annotation only": {
+			pod:  testingpod.MakePod("pod", "ns").GroupNameAnnotation("group-2").Obj(),
+			want: "group-2",
+		},
+		"annotation takes precedence over label": {
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				GroupNameAnnotation("group-from-annotation").Obj(),
+			want: "group-from-annotation",
+		},
+		"empty annotation falls back to label": {
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				GroupNameAnnotation("").Obj(),
+			want: "group-from-label",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := PodGroupNameFromMeta(tc.pod.Annotations, tc.pod.Labels)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected group name (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestGetPodGroupName(t *testing.T) {
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool

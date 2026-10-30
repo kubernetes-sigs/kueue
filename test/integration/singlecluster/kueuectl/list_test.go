@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -48,6 +49,52 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		os.Unsetenv(list.KueuectlListRequestLimitEnvName)
+	})
+
+	ginkgo.When("List Pods", func() {
+		ginkgo.It("Should list all Pod group members with mixed label and annotation identifiers", func() {
+			oldPod := testingpod.MakePod("train-0", ns.Name).
+				Queue("queue").GroupNameLabel("train").GroupTotalCount("2").Obj()
+			newPod := testingpod.MakePod("train-1", ns.Name).
+				Queue("queue").GroupNameAnnotation("train").GroupTotalCount("2").Obj()
+			otherPod := testingpod.MakePod("other-0", ns.Name).
+				Queue("queue").GroupNameAnnotation("other").GroupTotalCount("1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, oldPod)
+			behavioral.MustCreate(ctx, k8sClient, newPod)
+			behavioral.MustCreate(ctx, k8sClient, otherPod)
+
+			for _, podName := range []string{oldPod.Name, newPod.Name} {
+				for _, outputFormat := range []string{"json", ""} {
+					ginkgo.By(fmt.Sprintf("Listing members for pod/%s with output format %q", podName, outputFormat))
+					streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+
+					args := []string{"list", "pods", "--namespace", ns.Name, "--for", "pod/" + podName}
+					if outputFormat != "" {
+						args = append(args, "-o", outputFormat)
+					}
+					kueuectl.SetArgs(args)
+
+					err := kueuectl.Execute()
+					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", errOutput.String())
+					gomega.Expect(errOutput.String()).To(gomega.BeEmpty())
+
+					if outputFormat == "json" {
+						var pods corev1.PodList
+						gomega.Expect(json.Unmarshal(output.Bytes(), &pods)).To(gomega.Succeed())
+						gomega.Expect(pods.Items).To(gomega.ConsistOf(
+							gomega.HaveField("Name", oldPod.Name),
+							gomega.HaveField("Name", newPod.Name),
+						))
+					} else {
+						gomega.Expect(output.String()).To(gomega.ContainSubstring(oldPod.Name))
+						gomega.Expect(output.String()).To(gomega.ContainSubstring(newPod.Name))
+						gomega.Expect(output.String()).NotTo(gomega.ContainSubstring(otherPod.Name))
+					}
+				}
+			}
+		})
 	})
 
 	ginkgo.When("List LocalQueue", func() {
