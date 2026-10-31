@@ -749,9 +749,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"recoveryTimeoutSeconds": 20}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be greater than 0",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"recoveryTimeoutSeconds": 20}`,
+					Detail:   "timeoutSeconds must be greater than 0",
 				},
 			},
 		},
@@ -759,9 +760,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 0}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be greater than 0",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 0}`,
+					Detail:   "timeoutSeconds must be greater than 0",
 				},
 			},
 		},
@@ -769,9 +771,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "recoveryTimeoutSeconds must be greater than 0 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
+					Detail:   "recoveryTimeoutSeconds must be greater than 0 seconds",
 				},
 			},
 		},
@@ -779,9 +782,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 7201}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 7201}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
@@ -789,9 +793,44 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
+		"timeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 36028797018963969}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"max int64 timeout is rejected as exceeding MaxTimeoutOnWorkload": {
+			annotation: `{"timeoutSeconds": 9223372036854775807}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 9223372036854775807}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
@@ -799,9 +838,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": "foo"}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": "foo"}`,
+					Detail:   "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
 				},
 			},
 		},
@@ -822,7 +862,7 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			mj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 
 			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
