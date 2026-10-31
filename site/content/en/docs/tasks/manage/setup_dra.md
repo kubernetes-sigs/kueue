@@ -2,7 +2,7 @@
 title: "Set Up Dynamic Resource Allocation"
 linkTitle: "Dynamic Resource Allocation"
 date: 2026-03-22
-weight: 7
+weight: 130
 description: >
   Configure Kueue to manage quota for workloads using Kubernetes Dynamic Resource Allocation (DRA).
 ---

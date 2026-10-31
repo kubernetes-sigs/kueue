@@ -1,7 +1,7 @@
 ---
 title: "Setup a MultiKueue environment"
 date: 2024-02-26
-weight: 9
+weight: 150
 description: >
   Additional steps needed to setup the multikueue clusters.
 ---

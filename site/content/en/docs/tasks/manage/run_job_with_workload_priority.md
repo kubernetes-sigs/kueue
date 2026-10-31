@@ -1,7 +1,7 @@
 ---
 title: "Run job with WorkloadPriority"
 date: 2023-10-02
-weight: 4
+weight: 70
 description: >
   Run job with WorkloadPriority, which is independent from Pod's priority
 ---
