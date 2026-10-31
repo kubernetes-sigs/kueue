@@ -4185,6 +4185,49 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 	}
 }
 
+func TestClusterQueuesInCohortTree(t *testing.T) {
+	cohorts := []*kueue.Cohort{
+		utiltestingapi.MakeCohort("root").Obj(),
+		utiltestingapi.MakeCohort("left").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("right").Parent("root").Obj(),
+		utiltestingapi.MakeCohort("other").Obj(),
+		utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+		utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+	}
+	cqs := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq-left").Cohort("left").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-right").Cohort("right").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-root").Cohort("root").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-other").Cohort("other").Obj(),
+		utiltestingapi.MakeClusterQueue("cq-cycle").Cohort("cycle-a").Obj(),
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewClientBuilder().Build())
+	for _, cohort := range cohorts {
+		_ = cache.AddOrUpdateCohort(cohort)
+	}
+	for _, cq := range cqs {
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("adding ClusterQueue %s: %v", cq.Name, err)
+		}
+	}
+	testCases := map[kueue.CohortReference][]kueue.ClusterQueueReference{
+		"left":    {"cq-left", "cq-right", "cq-root"},
+		"root":    {"cq-left", "cq-right", "cq-root"},
+		"other":   {"cq-other"},
+		"cycle-a": {"cq-cycle"},
+		"missing": nil,
+	}
+	for cohort, want := range testCases {
+		t.Run(string(cohort), func(t *testing.T) {
+			got := cache.ClusterQueuesInCohortTree(cohort)
+			if diff := cmp.Diff(want, got, cmpopts.SortSlices(func(a, b kueue.ClusterQueueReference) bool { return a < b })); diff != "" {
+				t.Fatalf("Unexpected ClusterQueues (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClusterQueueAncestors(t *testing.T) {
 	testCases := map[string]struct {
 		cohorts       []*kueue.Cohort
