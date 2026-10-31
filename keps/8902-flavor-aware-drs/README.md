@@ -1,0 +1,392 @@
+# KEP-8902: Flavor-Aware Dominant Resource Share (DRS)
+
+<!-- toc -->
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [Overview](#overview)
+  - [User Stories (Optional)](#user-stories-optional)
+    - [Story 1](#story-1)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [API change](#api-change)
+    - [Why not choose a single cost/weight per flavor instead of having different weights per resource?](#why-not-choose-a-single-costweight-per-flavor-instead-of-having-different-weights-per-resource)
+    - [Relationship with AdmissionFairSharing.ResourceWeights](#relationship-with-admissionfairsharingresourceweights)
+  - [Feature gate](#feature-gate)
+  - [Weighted borrowing and lendable](#weighted-borrowing-and-lendable)
+    - [Effect on dominant resource selection](#effect-on-dominant-resource-selection)
+  - [Validation and defaults](#validation-and-defaults)
+  - [Handling](#handling)
+  - [Interaction with Topology-Aware Scheduling (TAS)](#interaction-with-topology-aware-scheduling-tas)
+  - [Backward compatibility](#backward-compatibility)
+  - [Test Plan](#test-plan)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+  - [Single weight per ResourceFlavor](#single-weight-per-resourceflavor)
+  - [Weighting elsewhere (ClusterQueue, ResourceGroup)](#weighting-elsewhere-clusterqueue-resourcegroup)
+  - [Weighting in the Kueue Configuration (ConfigMap)](#weighting-in-the-kueue-configuration-configmap)
+<!-- /toc -->
+
+## Summary
+
+This KEP proposes extending Fair Sharing to account for heterogeneous ResourceFlavors when computing Dominant Resource Share (DRS). This is done by applying configurable per-(flavor, resource) weights to borrowing/lendable aggregation.
+
+## Motivation
+
+Today, DRS aggregates borrowing by resource type across flavors, so borrowing 500 cheap a10-spot GPUs increases a ClusterQueue’s nvidia.com/gpu DRS the same way as borrowing 500 premium h100-reserved GPUs. As a result, a ClusterQueue that opportunistically borrows spot/cheap GPUs can be deprioritized for admission and lose reclaim/preemption opportunities when it later tries to run within its nominal quota on premium/reserved GPUs (as in User Story 1).
+
+### Goals
+
+- Allow administrators to express relative value/cost differences between flavors for a given resource type.
+- Allow configuring weights per-(flavor, resource) so that only selected resources (for example `nvidia.com/gpu`) are treated as premium while CPU/memory can remain unweighted.
+- Make DRS and Fair Sharing decisions reflect the configured per-(flavor, resource) value differences when comparing resource shares across flavors.
+- Preserve existing behavior when weights are not configured (default multiplier = 1.0).
+- Keep the algorithm deterministic (stable tie-breaking remains unchanged).
+
+### Non-Goals
+
+- Change quota semantics (nominal/borrowing/lending limits) outside of how DRS is computed.
+- Introduce cross-resource-type weighting (for example favoring GPUs over CPU/memory); this KEP only differentiates **flavors within a resource type**.
+
+## Proposal
+
+### Overview
+
+- **API**: Add `ResourceFlavor.spec.fairSharing.resourceWeights`, a map from resource name (for example `nvidia.com/gpu`) to a **scalar multiplier**. This lets admins express that some flavors are more valuable than others for a given resource type (for example `h100-reserved` vs `a10-spot` GPUs).
+- **Behavior**: When the feature is enabled, apply the configured multiplier for each $(ResourceFlavor, resource)$ pair when computing DRS so that borrowing on more valuable flavors contributes more to the computed share than borrowing on cheaper flavors. This affects behavior **wherever DRS is used**, including **admission ordering** and **Fair Sharing preemption**.
+- **Backward compatibility**: When weights are unset, the default multiplier is $1.0$, preserving existing behavior.
+- **Details**: Full API spec change, DRS definitions and formulas are described in **Design Details**.
+
+### User Stories (Optional)
+
+#### Story 1
+
+As a cluster admin managing heterogeneous GPUs, I want borrowing of cheap/opportunistic GPU capacity to contribute less to Fair Sharing DRS than borrowing of scarce/premium GPU capacity.
+
+**Setup**
+
+- A cohort has two ResourceFlavors that provide `nvidia.com/gpu` capacity:
+  - `h100-reserved`: 100 GPUs (premium, scarce)
+  - `a10-spot`: 500 GPUs (cheap, opportunistic)
+- There are two ClusterQueues (CQs), one per team:
+
+| ClusterQueue | `h100-reserved` nominalQuota | `a10-spot` nominalQuota | `a10-spot` flavor & borrowing |
+| --- | ---: | ---: | --- |
+| Team-A | 10 | 0 | Has `a10-spot` flavor; can borrow all available |
+| Team-B | 90 | 0 | No `a10-spot` flavor |
+- Assumptions: Fair Sharing is enabled, `FlavorAwareFairSharing=true`, and cohort preemption is configured to allow reclaiming nominal quota as described below.
+
+**Problem I see with today’s flavor-agnostic DRS**
+
+Team-A can opportunistically borrow many `a10-spot` GPUs, but later wants to schedule within its nominal quota on the premium `h100-reserved` flavor. Because DRS is flavor-agnostic, borrowing cheap/spot GPUs increases the `nvidia.com/gpu` share the same way as borrowing premium/reserved GPUs.
+
+This can (a) deprioritize Team-A in Fair Sharing admission ordering when competing for `h100-reserved`, and (b) reduce its ability to reclaim `h100-reserved` via Fair Sharing preemption even when it is trying to stay within nominal quota.
+
+**Desired outcome**
+
+Borrowing cheap/spot GPU capacity should contribute less to DRS than borrowing premium/reserved GPU capacity, so that opportunistic use of `a10-spot` does not penalize using `h100-reserved` within nominal quota.
+
+
+### Risks and Mitigations
+
+- **Risk**: Misconfiguration (extreme weights) can lead to surprising dominant-resource choices and more aggressive preemption for specific resources.
+  - **Mitigation**: Validate weights are > 0 and expand documentation with configuration guidelines, dominant-resource examples, and recommended starting points.
+- **Risk**: Changing DRS semantics changes preemption ordering when weights are configured.
+  - **Mitigation**: Administrators can use the feature gate to disable flavor weighting, as described in [Handling](#handling).
+
+## Design Details
+
+### API change
+
+Extend `ResourceFlavorSpec` with a new optional `fairSharing` field, consistent with the existing `spec.fairSharing` on ClusterQueue and Cohort:
+
+- `spec.fairSharing.resourceWeights`: a map from resource name (for example `nvidia.com/gpu`) to a multiplier (a positive scalar weight). The name `resourceWeights` is chosen to be consistent with the naming used in Admission Fair Sharing.
+  - **Type**: `map[corev1.ResourceName]float64`, consistent with `AdmissionFairSharing.ResourceWeights`.
+  - Values are treated as **scalar multipliers** (not resource amounts).
+- A missing `fairSharing` field, missing map, or missing entry implies a multiplier of **1.0** for that (flavor, resource) pair.
+
+Example with the feature gate enabled:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: h100-gpu-reserved
+spec:
+  nodeLabels:
+    accelerator: nvidia-h100
+  fairSharing:
+    resourceWeights:
+      nvidia.com/gpu: 8
+      cpu: 1
+      memory: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: a10-gpu-spot
+spec:
+  nodeLabels:
+    accelerator: nvidia-a10
+  fairSharing:
+    resourceWeights:
+      nvidia.com/gpu: 1
+      cpu: 1
+      memory: 1
+```
+
+#### Why not choose a single cost/weight per flavor instead of having different weights per resource?
+
+DRS (and the “dominant resource” choice) is computed **per resource type** (`cpu`, `memory`, `nvidia.com/gpu`, …). A single scalar per flavor would multiply *all* resources in that flavor equally, which can distort fairness for resources whose value does **not** differ across flavors.
+
+For example, a cluster may want to treat *GPUs* as premium/scarce while treating *CPU/memory* as roughly comparable across the same set of flavors. If a flavor had a single weight of 8 to reflect “H100 GPUs are 8× more valuable”, then CPU and memory accounted under that flavor would also be treated as 8× more valuable, incorrectly influencing DRS and potentially changing which resource becomes dominant. Per-resource weights let admins express that GPU and CPU/memory should scale differently, and keep DRS meaningful for each resource type.
+
+#### Relationship with AdmissionFairSharing.ResourceWeights
+
+`AdmissionFairSharing.ResourceWeights` and `ResourceFlavor.spec.fairSharing.resourceWeights` share a similar name but are independent and operate at different levels. `AdmissionFairSharing.ResourceWeights` performs **cross-resource-type** weighting (for example, GPUs matter more than CPU) to order workloads across LocalQueues *within* a ClusterQueue based on historical usage. `ResourceFlavor.spec.fairSharing.resourceWeights` performs **cross-flavor** weighting *within* a resource type (for example, H100 GPUs matter more than A10 GPUs) to compute DRS, which affects both **admission ordering** of ClusterQueues across a cohort and **Fair Sharing preemption** decisions. The two are not multiplicative and do not interact: AdmissionFairSharing selects which workload each CQ puts forward, then DRS selects which CQ's workload gets admitted or preempted.
+
+Similarly, `ClusterQueue.spec.fairSharing.weight` is independent of flavor resource weights. The CQ weight divides the DRS ratio to produce the final weighted share used for comparisons, while flavor weights affect how the DRS ratio itself is computed. They operate at different layers and compose without interaction.
+
+### Feature gate
+
+`FlavorAwareFairSharing` controls flavor-weighted DRS in `kueue-controller-manager`.
+The feature is Alpha and the gate is disabled by default.
+The gate applies to both DRS-based admission ordering and Fair Sharing preemption at every level of the cohort hierarchy.
+
+### Weighted borrowing and lendable
+
+When the feature gate is enabled, let:
+
+- $f$ be a ResourceFlavor
+- $r$ be a resource type (for example `nvidia.com/gpu`)
+- $w(f, r)$ be the configured weight (default 1.0)
+- $borrowed(f, r)$ be the amount borrowed for flavor-resource pair $(f, r)$
+- $lendable(f, r)$ be the lendable amount for $(f, r)$ in the cohort tree
+
+For each resource type $r$, today’s flavor-agnostic aggregation is:
+
+$$borrowed(r) = \sum_{f} \max(0, borrowed(f, r))$$
+
+$$lendable(r) = \sum_{f} lendable(f, r)$$
+
+With flavor-aware weights, we instead compute:
+
+$$weightedBorrowed(r) = \sum_{f} \max(0, borrowed(f, r)) \times w(f, r)$$
+
+$$weightedLendable(r) = \sum_{f} lendable(f, r) \times w(f, r)$$
+
+Then DRS uses the same “dominant resource” concept as today:
+
+- Compute $ratio(r) = weightedBorrowed(r) / weightedLendable(r)$ (if $w(f, r)$ is constant across all flavors $f$ for a given $r$, this reduces to $borrowed(r) / lendable(r)$)
+- Pick the resource $r$ with the maximum ratio as the dominant resource (alphabetical tie-break)
+
+In hierarchical cohorts, DRS is computed at each level via `PathParentToRoot()`. Since flavor weights are defined globally on the ResourceFlavor, they apply uniformly at all levels of the hierarchy.
+
+#### Effect on dominant resource selection
+
+Because weights change $ratio(r)$, they can change which resource has the maximum ratio and therefore becomes dominant. Since DRS comparisons use the dominant resource’s ratio, this can change behavior wherever DRS is used, including admission ordering and Fair Sharing preemption.
+
+**Example A: CPU weights fixed at 1.0, GPU flavor weights differ**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `standard-cpu` | 300 | 1000 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 100 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 0 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| $ratio(cpu)$ | $300/1000 = 0.30$ |
+| Unweighted $ratio(gpu)$ | $(100+0)/(100+1000)=0.091$ |
+| Weighted $ratio(gpu)$ | $(100\times8 + 0\times1)/(100\times8 + 1000\times1)=0.444$ |
+
+Dominant resource changes from `cpu` (unweighted) to `nvidia.com/gpu` (weighted). If GPU weights are constant across GPU flavors (for example both `8.0`), they cancel and GPU ratio does not change.
+
+**Example A2: Same weights as Example A, but borrowing is mostly `a10-spot`**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `standard-cpu` | 300 | 1000 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 10 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 400 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| $ratio(cpu)$ | $300/1000 = 0.30$ |
+| Unweighted $ratio(gpu)$ | $(10+400)/(100+1000)=0.373$ |
+| Weighted $ratio(gpu)$ | $(10\times8 + 400\times1)/(100\times8 + 1000\times1)=0.267$ |
+
+With the same weights, borrowing more `a10-spot` and less `h100-reserved` yields a lower weighted GPU ratio ($0.267$ vs $0.444$ in Example A), which is the intended effect.
+
+**Example B: CPU and GPU flavor weights both vary**
+
+Inputs:
+
+| Resource | Flavor | Borrowed | Lendable | Weight |
+| --- | --- | ---: | ---: | ---: |
+| `cpu` | `cpu-premium` | 250 | 300 | 3.0 |
+| `cpu` | `cpu-standard` | 50 | 700 | 1.0 |
+| `nvidia.com/gpu` | `h100-reserved` | 100 | 100 | 8.0 |
+| `nvidia.com/gpu` | `a10-spot` | 0 | 1000 | 1.0 |
+
+Computed ratios:
+
+| Ratio | Value |
+| --- | ---: |
+| Unweighted $ratio(cpu)$ | $(250+50)/(300+700)=0.30$ |
+| Weighted $ratio(cpu)$ | $(250\times3 + 50\times1)/(300\times3 + 700\times1)=0.50$ |
+| Weighted $ratio(gpu)$ | $(100\times8 + 0\times1)/(100\times8 + 1000\times1)=0.444$ |
+
+With CPU weights, `cpu` becomes dominant again ($0.50 > 0.444$). This is why CPU/memory weights should only be used when their cross-flavor value differences are intentional.
+
+Guidelines:
+
+- Prefer weights that capture relative flavor value for the same resource type (for example `nvidia.com/gpu`).
+- Start with moderate multipliers and validate dominant-resource outcomes in a staging cohort before production rollout.
+- If you set the same multiplier across all flavors for a resource type, that resource's ratio is unchanged (weights cancel).
+- Avoid using CPU/memory weights as a proxy for GPU value unless you intentionally want CPU/memory to influence dominance and Fair Sharing decisions.
+- Document the intent for each configured multiplier (for example reserved vs spot flavors) so outcomes remain interpretable.
+
+
+### Validation and defaults
+
+- Default multiplier is 1.0 (per (flavor, resource) pair).
+- Values must be strictly greater than 0 (reject 0 / negative).
+- When the feature gate is disabled, reject creating a ResourceFlavor with non-empty `fairSharing.resourceWeights`, or adding or changing resource-weight entries on an existing ResourceFlavor.
+  Existing entries may be retained unchanged or removed, so disabling the gate does not prevent unrelated updates or cleanup.
+
+### Handling
+
+When the feature gate is enabled, DRS uses the configured flavor weights in the borrowing and lendable calculations above.
+When disabled, DRS uses a multiplier of 1.0 for every flavor-resource pair, including pairs with stored weights.
+Stored weights are preserved and become effective again when the gate is re-enabled.
+
+Administrators apply a gate change by restarting `kueue-controller-manager` with the updated feature gate configuration.
+Disabling the gate does not itself evict admitted Workloads; subsequent admission and preemption decisions use flavor-agnostic DRS.
+
+### Interaction with Topology-Aware Scheduling (TAS)
+
+The whole-spec immutability restriction for TAS-enabled ResourceFlavors was removed in [PR #9427](https://github.com/kubernetes-sigs/kueue/pull/9427), as noted in [Mukund's review comment](https://github.com/kubernetes-sigs/kueue/pull/9251#discussion_r2858927454).
+Currently, `spec.topologyName` cannot be changed or removed once set.
+When `topologyName` is set, `spec.nodeLabels` must contain at least one entry.
+
+The proposed `spec.fairSharing.resourceWeights` can be updated in place on TAS-enabled ResourceFlavors, subject to [Validation and defaults](#validation-and-defaults).
+Weight updates affect DRS-based ordering while retaining the flavor's topology reference and node-selection settings.
+This proposal requires no further relaxation of TAS validation.
+
+### Backward compatibility
+
+- Existing clusters with the feature gate disabled or with no `fairSharing.resourceWeights` configured observe identical behavior.
+- The field is optional; upgrades do not require changes to existing manifests.
+
+### Test Plan
+
+[x] I/we understand the owners of the involved components may require updates to existing tests to make this code solid enough prior to committing the changes necessary to implement this enhancement.
+
+#### Unit Tests
+
+- Extend unit coverage for weighted DRS in `pkg/cache/scheduler/fair_sharing_test.go` to cover:
+  - multiple flavors for the same resource type with different weights
+  - multi-resource workloads where only a subset of resources are weighted
+  - backward compatibility (no weights => unchanged outcomes)
+  - hierarchical cohort where a CQ has a `borrowingLimit` and flavor weights are configured, verifying DRS accounts for both the capped borrowing and the weighted lendable
+  - setting the same weight across all flavors for a resource type produces the same ratio as no weights (weights cancel in the ratio)
+  - weights shift the dominant resource (e.g. from `cpu` to `nvidia.com/gpu`, as in Example A)
+  - flavor weights compose correctly with `ClusterQueue.spec.fairSharing.weight`
+  - gate-disabled DRS matches the existing calculation even when flavor weights are stored
+- Validation tests:
+  - reject zero and negative weight values
+  - accept missing `fairSharing` / missing map entries (default 1.0)
+  - gate-disabled create and update validation, including retaining unchanged entries and removing entries
+
+#### Integration tests
+
+- With the feature gate enabled, add an integration/e2e scenario where two ClusterQueues (CQs) borrow the same number of GPUs from different flavors and verify:
+  - admission ordering within the cohort prefers the CQ with lower *weighted* DRS
+  - Fair Sharing preemption ordering matches the configured weights
+- User Story 1 scenario: a CQ borrowing many cheap-flavor GPUs has a lower weighted DRS than a CQ borrowing the same amount on a premium flavor
+- With the feature gate enabled, verify that the API server accepts in-place weight updates on TAS-enabled ResourceFlavors while continuing to reject changing or removing an existing `topologyName`.
+- Through the API server, verify that the disabled gate rejects creating non-empty weights and adding or changing entries, while accepting unrelated updates that preserve existing entries and updates that remove entries. Read back accepted updates to verify stored weights are retained or removed as requested.
+- Cover gate rollback with configured weights: restart `kueue-controller-manager` with the gate disabled and then re-enabled, verifying subsequent admission and Fair Sharing preemption decisions use flavor-agnostic and weighted ordering respectively, without rewriting ResourceFlavors.
+
+### Graduation Criteria
+
+#### Alpha
+
+- API field available, documented, and defaulted to no-op (1.0).
+- DRS implementation weighted as described; unit tests added.
+- Integration/e2e coverage for at least one representative heterogeneous-flavor scenario.
+- Feature gate handling and validation are implemented, with coverage for enabling, disabling, and re-enabling the feature with stored weights.
+
+#### Beta
+
+- Enable the feature gate by default after all reported bugs in weighted DRS and rollback handling are fixed.
+- Documentation includes configuration guidance and examples.
+- Additional integration tests:
+  - multi-level hierarchical cohort where weighted DRS is compared at each level
+  - weight update on a ResourceFlavor is reflected in subsequent DRS computations and changes admission/preemption ordering
+  - `FairSharingStatus` reflects the weighted dominant resource after a weight-induced shift
+- Extend the `FairSharingStatus` type with `dominantResource` (and potentially per-flavor ratio details) to improve observability when flavor weights shift the dominant resource. This surfaces on both ClusterQueue and Cohort status, where DRS is computed and used for admission ordering and preemption.
+
+## Implementation History
+
+- 2026-02-15: Initial draft.
+- 2026-02-22: Revised API spec, added alternatives and TAS interaction details based on feedback.
+- 2026-10-08: Continued the proposal from the closed [PR #9251](https://github.com/kubernetes-sigs/kueue/pull/9251) in [PR #16922](https://github.com/kubernetes-sigs/kueue/pull/16922).
+
+## Drawbacks
+
+- Adds additional configuration surface area to ResourceFlavors.
+- DRS becomes slightly more complex to reason about when weights are configured.
+- **Limited observability in Alpha**: `FairSharingStatus` currently only exposes `weightedShare` (an `int64`). It does not include the dominant resource name or a per-flavor breakdown of borrowing/lendable ratios. When flavor weights cause the dominant resource to shift (for example, from `cpu` to `nvidia.com/gpu`), it can be difficult for admins to understand why preemption or admission ordering changed. In Alpha, we accept this limitation. In Beta, we plan to extend `FairSharingStatus` with at least the `dominantResource` name, and potentially per-flavor ratio details, to improve observability.
+
+## Alternatives
+
+### Single weight per ResourceFlavor
+
+A single scalar per flavor cannot express “premium GPU but standard CPU/memory” flavors
+without inflating CPU/memory borrow/lendable calculations. Per-resource weights are needed to avoid distorting dominance for other resources when only a subset (for example GPUs) should be treated as premium.
+
+### Weighting elsewhere (ClusterQueue, ResourceGroup)
+
+Flavor resource weights could be placed under `ClusterQueue.spec.fairSharing`, for example as a per-ResourceGroup or per-flavor weight map within each ClusterQueue. This would allow different ClusterQueues to assign different weights to the same flavor.
+
+However, the weight captures the intrinsic relative cost/value of a flavor (for example, H100 GPUs are 8x more valuable than A10 GPUs), which does not vary by consumer. Having each ClusterQueue define its own weights would introduce redundant configuration that must be kept in sync across all ClusterQueues in a cohort, and disagreements between ClusterQueues would be difficult to reason about. We prefer specifying weights once on the ResourceFlavor so they apply cluster-wide consistently.
+
+### Weighting in the Kueue Configuration (ConfigMap)
+
+Flavor resource weights could be placed under the `FairSharing` construct in ConfigMap, analogous to how `AdmissionFairSharing` defines `resourceWeights`. Definition could look like so:
+
+```yaml
+fairSharing:
+  preemptionStrategies:
+    - LessThanOrEqualToFinalShare
+  flavorResourceWeights:
+    h100-reserved:
+      nvidia.com/gpu: 8
+    a10-spot:
+      nvidia.com/gpu: 1
+```
+
+This centralizes all fair sharing tuning knobs in one place and avoids CRD schema changes to ResourceFlavor.
+
+However, we chose `ResourceFlavor.spec.fairSharing.resourceWeights` over this approach for these reasons:
+
+- **Loose coupling with flavor names**: The ConfigMap would reference flavor names as plain strings with no built-in validation that the flavor exists. If a flavor is renamed or deleted, the ConfigMap silently retains stale entries. On `ResourceFlavor.spec`, the weights are co-located with the flavor definition.
+- **Consistent with existing precedent**: Fair sharing options that are per-object properties are already defined on CRD APIs rather than in the ConfigMap. `ClusterQueue.spec.fairSharing.weight` and `Cohort.spec.fairSharing.weight` define per-CQ/Cohort weights directly on the CRD, while the ConfigMap holds system-wide behavioral settings (preemption strategies, decay half-life, global resource weights). Flavor resource weights follow this same pattern — they are a per-flavor property, not a system-level tuning knob.
