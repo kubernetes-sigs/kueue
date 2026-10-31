@@ -206,11 +206,18 @@ func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueu
 // enabled it first reads the GroupNameAnnotation and then falls back to the label.
 func GetPodGroupName(p *corev1.Pod) string {
 	if features.Enabled(features.WorkloadIdentifierAnnotations) {
-		if name := p.Annotations[podconstants.GroupNameAnnotation]; name != "" {
-			return name
-		}
+		return PodGroupNameFromMeta(p.Annotations, p.Labels)
 	}
 	return p.Labels[podconstants.GroupNameLabel]
+}
+
+// PodGroupNameFromMeta reads the group-name annotation first, then falls back to
+// the label, independently of the WorkloadIdentifierAnnotations feature gate.
+func PodGroupNameFromMeta(annotations, labels map[string]string) string {
+	if name := annotations[podconstants.GroupNameAnnotation]; name != "" {
+		return name
+	}
+	return labels[podconstants.GroupNameLabel]
 }
 
 func IsPodGroup(p *corev1.Pod) bool {
