@@ -1,7 +1,7 @@
 ---
 title: "Setup manageJobsWithoutQueueName"
 date: 2024-06-28
-weight: 10
+weight: 30
 description: >
   Using manageJobsWithoutQueueName and mangedJobsNamespaceSelector to prevent admission of Workloads without assigned LocalQueues.
 ---

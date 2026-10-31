@@ -1,7 +1,7 @@
 ---
 title: "使用工作负载优先级（`WorkloadPriority`）运行作业（Job）"
 date: 2023-10-02
-weight: 4
+weight: 70
 description: >
   使用工作负载优先级运行作业（Job），此优先级（Priority）与 Pod 优先级无关
 ---
