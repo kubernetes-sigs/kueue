@@ -9,10 +9,6 @@ on:
     # Dependabot adds labels after opening the PR, so the "opened" event has none.
     types: [ opened, synchronize, reopened, labeled ]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   generate:
     if: >-
@@ -21,6 +17,11 @@ jobs:
           && github.actor == 'dependabot[bot]'
           && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test') }}
     runs-on: ubuntu-latest
+
+    # The job has no side effects, so a newer run can replace an older one.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
 
     permissions:
       contents: read
