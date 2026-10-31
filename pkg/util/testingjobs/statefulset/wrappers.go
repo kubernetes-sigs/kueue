@@ -264,6 +264,12 @@ func (ss *StatefulSetWrapper) VolumeMount(m corev1.VolumeMount) *StatefulSetWrap
 	return ss
 }
 
+// VolumeDevice adds a volume device to the default container.
+func (ss *StatefulSetWrapper) VolumeDevice(d corev1.VolumeDevice) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].VolumeDevices = append(ss.Spec.Template.Spec.Containers[0].VolumeDevices, d)
+	return ss
+}
+
 // VolumeClaimTemplate adds a volume claim template.
 func (ss *StatefulSetWrapper) VolumeClaimTemplate(pvc corev1.PersistentVolumeClaim) *StatefulSetWrapper {
 	ss.Spec.VolumeClaimTemplates = append(ss.Spec.VolumeClaimTemplates, pvc)
