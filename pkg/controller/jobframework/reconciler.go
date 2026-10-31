@@ -546,11 +546,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("Job is finished")
 		if wl != nil && !workloadfinish.IsFinished(wl) {
+			releasing, err := r.cleanupPending(ctx, job)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if releasing {
+				log.V(3).Info("The job is finished, but its resources are still being released; keeping the workload admitted")
+				return ctrl.Result{}, nil
+			}
 			reason := kueue.WorkloadFinishedReasonSucceeded
 			if !success {
 				reason = kueue.WorkloadFinishedReasonFailed
 			}
-			err := workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock)
+			err = workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -1949,6 +1957,16 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 	}
 
 	return nil
+}
+
+// cleanupPending reports whether the resources of a finished job are still being released
+// by the job's own controller.
+func (r *JobReconciler) cleanupPending(ctx context.Context, job GenericJob) (bool, error) {
+	jpc, implements := job.(JobWithPendingCleanup)
+	if !implements {
+		return false, nil
+	}
+	return jpc.CleanupPending(ctx, r.client)
 }
 
 // constructWorkload will derive a workload from the corresponding job.
