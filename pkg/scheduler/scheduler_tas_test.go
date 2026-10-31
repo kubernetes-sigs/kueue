@@ -128,6 +128,71 @@ func TestShouldFailFastTASReplacement(t *testing.T) {
 	}
 }
 
+func TestUpdateUnhealthyNodesAfterTASReplacement(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	makeWorkload := func(unhealthy []string, podSets ...kueue.PodSetAssignment) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "default").
+			UnhealthyNodes(unhealthy...).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(podSets...).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	hostnameAssignment := func(name string, count int32, nodes ...string) kueue.PodSetAssignment {
+		ta := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname})
+		for _, node := range nodes {
+			ta = ta.Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj())
+		}
+		return utiltestingapi.MakePodSetAssignment(kueue.PodSetReference(name)).
+			Count(count).
+			TopologyAssignment(ta.Obj()).
+			Obj()
+	}
+	cases := map[string]struct {
+		multipleNodes bool
+		wl            *kueue.Workload
+		want          []kueue.UnhealthyNode
+	}{
+		"a re-placed group drops every unhealthy node the new assignment left": {
+			multipleNodes: true,
+			wl: makeWorkload([]string{"x1", "x2"},
+				hostnameAssignment("leader", 1, "x3"),
+				hostnameAssignment("worker", 2, "x4", "x5")),
+			want: nil,
+		},
+		"a node that is still assigned stays queued for a later pass": {
+			multipleNodes: true,
+			wl: makeWorkload([]string{"x1", "x2"},
+				hostnameAssignment("leader", 1, "x3"),
+				hostnameAssignment("worker", 2, "x2", "x4")),
+			want: []kueue.UnhealthyNode{{Name: "x2"}},
+		},
+		"single-node replacement clears the whole field": {
+			wl:   makeWorkload([]string{"x1"}, hostnameAssignment("leader", 1, "x2")),
+			want: nil,
+		},
+		"without a hostname-scoped assignment only the head is dropped": {
+			multipleNodes: true,
+			wl: makeWorkload([]string{"x1", "x2"},
+				utiltestingapi.MakePodSetAssignment("leader").
+					Count(1).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.com/block", "cloud.com/rack"}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+						Obj()).
+					Obj()),
+			want: []kueue.UnhealthyNode{{Name: "x2"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, tc.multipleNodes)
+			updateUnhealthyNodesAfterTASReplacement(logr.Discard(), tc.wl, "x1")
+			if diff := cmp.Diff(tc.want, tc.wl.Status.UnhealthyNodes, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected unhealthy nodes after replacement (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestScheduleForTAS(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	const (
