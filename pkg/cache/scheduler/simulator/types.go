@@ -100,16 +100,20 @@ type ScheduleOptions struct {
 	// SimulateEmpty configures the simulator to schedule the workload against
 	// a cluster snapshot containing only Pods not managed by Kueue.
 	SimulateEmpty bool
+	// CommittedPreemptionVictims lists the ObjectKeys of workloads that have
+	// already been established as preemption targets/victims.
+	// The list should never contain duplicate keys.
+	CommittedPreemptionVictims []client.ObjectKey
 }
 
 type ScheduleOption func(*ScheduleOptions)
 
 // BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
-func BuildScheduleOptions(options ...ScheduleOption) ScheduleOptions {
-	var opts ScheduleOptions
+func BuildScheduleOptions(options ...ScheduleOption) *ScheduleOptions {
+	opts := &ScheduleOptions{}
 	for _, opt := range options {
 		if opt != nil {
-			opt(&opts)
+			opt(opts)
 		}
 	}
 	return opts
@@ -137,6 +141,16 @@ func WithPreemptionFilter(filter PreemptionFilter) ScheduleOption {
 func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 	return func(o *ScheduleOptions) {
 		o.SimulateEmpty = simulateEmpty
+	}
+}
+
+// WithCommittedPreemptionVictims configures the simulator to recognize Pods that
+// are still running on the cluster but are meant for preemption.
+// Takes the ObjectKeys representing Victim Workloads as input.
+// All Workloads listed as input must be absent from the ScheduleSimulator's cache.
+func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
+	return func(opts *ScheduleOptions) {
+		opts.CommittedPreemptionVictims = targets
 	}
 }
 
