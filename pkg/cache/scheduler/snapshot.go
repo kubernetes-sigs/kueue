@@ -518,7 +518,7 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 	}
 	reverts := make([]func() error, 0, len(workloads))
 	for _, w := range workloads {
-		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, workload.Key(w.Obj))
 		if err != nil {
 			// The simulation still holds this victim's Pods, so it can only be
 			// stricter than reality. Log it and keep scheduling.

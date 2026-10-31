@@ -27,10 +27,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type podsByKey map[client.ObjectKey]*corev1.Pod
-type podsByWorkload map[client.ObjectKey]podsByKey
+type podsByWorkload map[workload.Reference]podsByKey
 
 // Tracker stores Pods and indexes them by their Workload annotation.
 // Its zero value is ready to use. All methods are safe for concurrent use.
@@ -43,19 +44,19 @@ type Tracker struct {
 
 // PodsForWorkload returns the Pods annotated with the given Workload name in
 // its namespace, in unspecified order. Returned Pods are read-only.
-func (t *Tracker) PodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+func (t *Tracker) PodsForWorkload(wlKey workload.Reference) []*corev1.Pod {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.workloadPods[wlKey].toSlice()
 }
 
-func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
+func (m podsByWorkload) recordPod(wlKey workload.Reference, podKey client.ObjectKey, pod *corev1.Pod) {
 	if _, ok := m[wlKey]; !ok {
 		m[wlKey] = make(podsByKey)
 	}
 	m[wlKey][podKey] = pod
 }
-func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKey) {
+func (m podsByWorkload) forgetPod(wlKey workload.Reference, podKey client.ObjectKey) {
 	if len(m) == 0 {
 		return
 	}
@@ -98,7 +99,7 @@ func (t *Tracker) Clone() *Tracker {
 
 // RemoveWorkload removes all Pods indexed under the given Workload.
 // This only changes tracked state; it does not delete Kubernetes objects.
-func (t *Tracker) RemoveWorkload(wlKey client.ObjectKey) {
+func (t *Tracker) RemoveWorkload(wlKey workload.Reference) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -146,7 +147,7 @@ func (t *Tracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
 
 	wl := pod.Annotations[kueue.WorkloadAnnotation]
 	if wl != "" {
-		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+		wlKey := workload.NewReference(pod.Namespace, wl)
 		t.workloadPods.forgetPod(wlKey, podKey)
 	}
 }
@@ -162,7 +163,7 @@ func (t *Tracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 		if t.workloadPods == nil {
 			t.workloadPods = make(podsByWorkload)
 		}
-		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+		wlKey := workload.NewReference(pod.Namespace, wl)
 		t.workloadPods.recordPod(wlKey, podKey, pod)
 	}
 }

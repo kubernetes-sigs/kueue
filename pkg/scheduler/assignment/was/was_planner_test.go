@@ -79,7 +79,7 @@ const (
 var errSimulator = errors.New("simulator failure")
 
 type scheduleWorkloadCall struct {
-	consumedCandidates []client.ObjectKey
+	consumedCandidates []workload.Reference
 	simulateEmpty      bool
 }
 
@@ -123,9 +123,9 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 	// Emulate the real SchedulerSimulator's lazy consumption of the PreemptionCandidates
 	// iterator: candidates are pulled one by one (populating PreemptionStrategy's internal
 	// state and mutating the snapshot) until all victims needed to place the pods are seen.
-	var consumedCandidates []client.ObjectKey
+	var consumedCandidates []workload.Reference
 	if candidates != nil {
-		seen := sets.New[client.ObjectKey]()
+		seen := sets.New[workload.Reference]()
 		for wlKey := range candidates {
 			consumedCandidates = append(consumedCandidates, wlKey)
 			seen.Insert(wlKey)
@@ -374,7 +374,7 @@ func TestPlan(t *testing.T) {
 		// wantCalls, when set, checks the ScheduleWorkload calls made by Plan.
 		wantCalls []scheduleWorkloadCall
 		// wantPreemptionTargets checks the workload keys of the PreemptionTargets returned in Plan.
-		wantPreemptionTargets []client.ObjectKey
+		wantPreemptionTargets []workload.Reference
 		// wantResolvedNoFitReason configures what should be the NoFitReason
 		// the Assignemtn resolves to when the UnadmittedWorkloadsObservability
 		// FG ius enabled.
@@ -408,14 +408,14 @@ func TestPlan(t *testing.T) {
 				PodPlacements: simulator.PodPlacements{
 					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				},
-				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.Preempt,
 			wantFit:  true,
 			wantCalls: []scheduleWorkloadCall{
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
-			wantPreemptionTargets: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			wantPreemptionTargets: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
 				Status:             *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
@@ -435,12 +435,12 @@ func TestPlan(t *testing.T) {
 				PodPlacements: simulator.PodPlacements{
 					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				},
-				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: "unknown-victim"}},
+				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, "unknown-victim")},
 			},
 			wantMode: flavorassigner.Preempt,
 			wantErrs: []string{`preempted workload "default/unknown-victim" is not a candidate in this preemption strategy`},
 			wantCalls: []scheduleWorkloadCall{
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:   kueue.DefaultPodSetName,
@@ -465,7 +465,7 @@ func TestPlan(t *testing.T) {
 			wantMode: flavorassigner.Preempt,
 			wantFit:  false,
 			wantCalls: []scheduleWorkloadCall{
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 				{simulateEmpty: true},
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
@@ -493,7 +493,7 @@ func TestPlan(t *testing.T) {
 			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantCalls: []scheduleWorkloadCall{
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 				{simulateEmpty: true},
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
@@ -520,15 +520,15 @@ func TestPlan(t *testing.T) {
 				PodPlacements: simulator.PodPlacements{
 					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				},
-				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.Preempt,
 			wantFit:  true,
 			wantCalls: []scheduleWorkloadCall{
 				{},
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
-			wantPreemptionTargets: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			wantPreemptionTargets: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
 				Status:             *flavorassigner.NewStatus(podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error())),
@@ -556,7 +556,7 @@ func TestPlan(t *testing.T) {
 			wantFit:  false,
 			wantCalls: []scheduleWorkloadCall{
 				{},
-				{consumedCandidates: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 				{simulateEmpty: true},
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
@@ -1064,9 +1064,9 @@ func TestPlan(t *testing.T) {
 			if tc.wantFit != gotPlan.CanFit() {
 				t.Errorf("Plan() returned unexpected verdict - want fit: %v, got: %v", tc.wantFit, gotPlan.CanFit())
 			}
-			var gotTargets []client.ObjectKey
+			var gotTargets []workload.Reference
 			for _, target := range gotPlan.PreemptionTargets {
-				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+				gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 			}
 			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
 				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
@@ -1196,7 +1196,7 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 		incomingCPU           string
 		simResults            []simulator.SchedulingResult
 		wantCalls             []scheduleWorkloadCall
-		wantPreemptionTargets []client.ObjectKey
+		wantPreemptionTargets []workload.Reference
 		wantMode              flavorassigner.FlavorAssignmentMode
 	}{
 		"classical preemption with BorrowWithinCohort: tries borrowing strategy first, falls back to non-borrowing strategy": {
@@ -1244,28 +1244,28 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 					PodPlacements: simulator.PodPlacements{
 						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 					},
-					PreemptionVictims: []client.ObjectKey{
-						{Namespace: testNamespace, Name: "victim-cohort"},
-						{Namespace: testNamespace, Name: "victim-low"},
+					PreemptionVictims: []workload.Reference{
+						workload.NewReference(testNamespace, "victim-cohort"),
+						workload.NewReference(testNamespace, "victim-low"),
 					},
 				},
 			},
 			wantCalls: []scheduleWorkloadCall{
 				{
-					consumedCandidates: []client.ObjectKey{
-						{Namespace: testNamespace, Name: "victim-low"},
+					consumedCandidates: []workload.Reference{
+						workload.NewReference(testNamespace, "victim-low"),
 					},
 				},
 				{
-					consumedCandidates: []client.ObjectKey{
-						{Namespace: testNamespace, Name: "victim-cohort"},
-						{Namespace: testNamespace, Name: "victim-low"},
+					consumedCandidates: []workload.Reference{
+						workload.NewReference(testNamespace, "victim-cohort"),
+						workload.NewReference(testNamespace, "victim-low"),
 					},
 				},
 			},
-			wantPreemptionTargets: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "victim-cohort"},
-				{Namespace: testNamespace, Name: "victim-low"},
+			wantPreemptionTargets: []workload.Reference{
+				workload.NewReference(testNamespace, "victim-cohort"),
+				workload.NewReference(testNamespace, "victim-low"),
 			},
 			wantMode: flavorassigner.Preempt,
 		},
@@ -1298,20 +1298,20 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 					PodPlacements: simulator.PodPlacements{
 						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 					},
-					PreemptionVictims: []client.ObjectKey{
-						{Namespace: testNamespace, Name: "borrower-low"},
+					PreemptionVictims: []workload.Reference{
+						workload.NewReference(testNamespace, "borrower-low"),
 					},
 				},
 			},
 			wantCalls: []scheduleWorkloadCall{
 				{
-					consumedCandidates: []client.ObjectKey{
-						{Namespace: testNamespace, Name: "borrower-low"},
+					consumedCandidates: []workload.Reference{
+						workload.NewReference(testNamespace, "borrower-low"),
 					},
 				},
 			},
-			wantPreemptionTargets: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "borrower-low"},
+			wantPreemptionTargets: []workload.Reference{
+				workload.NewReference(testNamespace, "borrower-low"),
 			},
 			wantMode: flavorassigner.Preempt,
 		},
@@ -1402,9 +1402,9 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			if diff := cmp.Diff(tc.wantCalls, testSim.receivedCalls, cmp.AllowUnexported(scheduleWorkloadCall{})); diff != "" {
 				t.Errorf("Plan() ScheduleWorkload calls mismatch (-want +got):\n%s", diff)
 			}
-			var gotTargets []client.ObjectKey
+			var gotTargets []workload.Reference
 			for _, target := range gotPlan.PreemptionTargets {
-				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+				gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 			}
 			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
 				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)

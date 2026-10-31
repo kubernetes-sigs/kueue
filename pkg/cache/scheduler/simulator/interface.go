@@ -23,10 +23,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type simulatorOptions struct {
@@ -77,7 +77,7 @@ type SchedulerSimulator interface {
 	// When run inside Simulate, any changes made by the method or the returned revert function
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.
-	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
+	PreemptWorkload(ctx context.Context, wlKey workload.Reference) (revert func() error, err error)
 	// ScheduleWorkload simulates how the given workload,
 	// represented by the list of its pods, would be scheduled.
 	// Returns:
