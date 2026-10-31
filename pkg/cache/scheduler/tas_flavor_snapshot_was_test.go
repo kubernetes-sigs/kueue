@@ -58,7 +58,7 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 	if err != nil {
 		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
-	podTracker := &podtracker.Tracker{}
+	podTracker := podtracker.NewTracker()
 	podTracker.Track(testingpod.MakePod("victim-pod", victimKey.Namespace).
 		UID("victim-pod").
 		Annotation(kueue.WorkloadAnnotation, victimKey.Name).

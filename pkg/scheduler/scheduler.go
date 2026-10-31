@@ -855,7 +855,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap, nil); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
@@ -892,6 +892,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
 		log.V(3).Info("Re-computing the assignment as it doesn't fit for TAS")
+		// TODO (#17795): Once the bug is resolved for native Planner,
+		// unify the code paths and remove this check.
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
+		}
 	default:
 		// Short-circuit, nothing to recompute.
 		return schdcache.FitsCheckOk == fitsCheck, nil
@@ -904,10 +909,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot, preemptedWorkloads)
 	if revertRemoval != nil {
 		revertRemoval()
 	}
+
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
@@ -1561,7 +1567,7 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 	err error,
@@ -1592,8 +1598,13 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
 
+	committedVictims := make([]client.ObjectKey, 0, len(preemptedWorkloads))
+	for _, wl := range preemptedWorkloads {
+		committedVictims = append(committedVictims, client.ObjectKeyFromObject(wl.Obj))
+	}
+
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	assignmentPlan := planner.Plan(ctx, &initialAssignment)
+	assignmentPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims))
 
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
@@ -1601,7 +1612,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+			if partialPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims)); partialPlan.CanFit() {
 				bestPartialPlan = &partialPlan
 				return true
 			}

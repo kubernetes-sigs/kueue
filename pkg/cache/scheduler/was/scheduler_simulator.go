@@ -29,6 +29,7 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -47,7 +48,8 @@ var (
 )
 
 type wasSimulator struct {
-	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
+	// wasSnapshot is the cluster as it stands, with every tracked Pod
+	// (excluding Pods marked as Committed Preemption Victims) on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
 	// pods is this cycle's tracker, including unmanaged and virtual Pods.
 	// PreemptWorkload only releases Pods indexed by Workload.
@@ -185,6 +187,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+
 	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
 	if err != nil {
 		return simulator.SchedulingResult{Error: err}
@@ -194,27 +197,25 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
-func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
 	if scheduleOpts.SimulateEmpty {
 		return s.getEmptyCluster(ctx)
 	}
 	return s.wasSnapshot, nil
 }
 
-func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
-	var schedlibFilter schedlib.PreemptionFilter
+func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
+	libOpts := schedlib.ScheduleWorkloadOptions{
+		DryRun: true,
+	}
 	if scheduleOpts.PreemptionFilter != nil {
-		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
+		libOpts.PreemptionFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
 	}
-	var potentialVictims iter.Seq[schedlib.PreemptionVictim]
 	if !scheduleOpts.SimulateEmpty {
-		potentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates, sets.New(scheduleOpts.CommittedPreemptionVictims...))
+		libOpts.CommittedVictims = s.committedVictims(scheduleOpts.CommittedPreemptionVictims)
 	}
-	return schedlib.ScheduleWorkloadOptions{
-		DryRun:           true,
-		PotentialVictims: potentialVictims,
-		PreemptionFilter: schedlibFilter,
-	}
+	return libOpts
 }
 
 func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {

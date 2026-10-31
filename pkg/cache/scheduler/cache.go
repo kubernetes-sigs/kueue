@@ -208,7 +208,7 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
-		podTracker:             &podtracker.Tracker{},
+		podTracker:             podtracker.NewTracker(),
 		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
@@ -273,7 +273,7 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
-func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) *corev1.Pod {
 	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
 		ctrl.LoggerFrom(ctx).V(1).Info(
 			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
@@ -281,11 +281,19 @@ func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
 			"missing annotation", kueue.WorkloadAnnotation,
 		)
 	}
-	c.podTracker.Track(pod)
+	return c.podTracker.Track(pod)
 }
 
 func (c *Cache) UntrackPod(ctx context.Context, key client.ObjectKey) string {
 	return c.podTracker.Untrack(key)
+}
+
+// MarkPreemption marks the Pods of the specified Workload as Committed Preemption Victims,
+// if the SchedulerLibraryDeepIntegration feature gate is enabled.
+func (c *Cache) MarkPreemption(wlKey client.ObjectKey) {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		c.podTracker.MarkPodsPreemption(wlKey)
+	}
 }
 
 // DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
