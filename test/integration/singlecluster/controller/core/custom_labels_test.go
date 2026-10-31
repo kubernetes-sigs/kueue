@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -624,6 +625,49 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 					"custom_team_lq": "alpha",
 				})).To(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should resync LQ admitted active workloads metric when label changes and queue is stopped in the same update", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-stop").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-stop", ns.Name).
+				Label("team", "alpha").
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl-lq-stop", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "alpha")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedLq kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &updatedLq)).To(gomega.Succeed())
+				updatedLq.Labels["team"] = "beta"
+				updatedLq.Spec.StopPolicy = ptr.To(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &updatedLq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "beta")
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueAdmittedActiveWorkloads, map[string]string{
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
+				})).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "beta")
 		})
 	})
 
