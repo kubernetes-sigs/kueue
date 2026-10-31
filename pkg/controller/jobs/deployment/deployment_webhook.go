@@ -78,14 +78,17 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Propagating queue-name")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
-		return err
-	}
 	oldDeploymentObj, err := webhook.OldObjectFromContext[appsv1.Deployment](ctx)
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the label to a running Deployment that did not have it.
+	// ValidateUpdate rejects adding the queue-name and priority class labels
+	// to a running Deployment that did not have them.
+	if oldDeploymentObj == nil || jobframework.CanSetQueueName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
+		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	}
 	if oldDeploymentObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, deployment.Object(), wh.managedJobsNamespaceSelector); err != nil {
 			return err
