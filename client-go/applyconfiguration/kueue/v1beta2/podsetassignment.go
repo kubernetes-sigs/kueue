@@ -36,6 +36,11 @@ type PodSetAssignmentApplyConfiguration struct {
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
 	// This field will not change in case of quota reclaim.
 	ResourceUsage *v1.ResourceList `json:"resourceUsage,omitempty"`
+	// perPodRequests records the untransformed effective requests of one Pod
+	// at admission time, including RuntimeClass overhead and defaults. It is
+	// used to verify that Pods in an admitted group fit their reserved role.
+	// Older admissions may not have this field.
+	PerPodRequests *v1.ResourceList `json:"perPodRequests,omitempty"`
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
 	// Value could be missing for Workloads created before this field was added,
@@ -198,6 +203,14 @@ func (b *PodSetAssignmentApplyConfiguration) WithFlavors(entries map[v1.Resource
 // If called multiple times, the ResourceUsage field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithResourceUsage(value v1.ResourceList) *PodSetAssignmentApplyConfiguration {
 	b.ResourceUsage = &value
+	return b
+}
+
+// WithPerPodRequests sets the PerPodRequests field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PerPodRequests field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithPerPodRequests(value v1.ResourceList) *PodSetAssignmentApplyConfiguration {
+	b.PerPodRequests = &value
 	return b
 }
 
