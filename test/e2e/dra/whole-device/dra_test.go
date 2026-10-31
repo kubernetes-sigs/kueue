@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,9 +34,15 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
+)
+
+const (
+	serviceAccountName           = "default"
+	metricsReaderClusterRoleName = "kueue-metrics-reader"
 )
 
 var _ = ginkgo.Describe("DRA", func() {
@@ -121,6 +128,99 @@ var _ = ginkgo.Describe("DRA", func() {
 
 			ginkgo.By("Verifying workload finished successfully")
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
+		})
+
+		ginkgo.It("Should report DRA reserved and pending device metrics", func() {
+			metricsReaderClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+				Name: "metrics-reader-rolebinding-" + ns.Name,
+				Subjects: []rbacv1.Subject{
+					{
+						Kind:      "ServiceAccount",
+						Name:      serviceAccountName,
+						Namespace: kueueNS,
+					},
+				},
+				RoleRef: rbacv1.RoleRef{
+					APIGroup: rbacv1.GroupName,
+					Kind:     "ClusterRole",
+					Name:     metricsReaderClusterRoleName,
+				},
+			}
+			behavioral.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+			}()
+
+			curlPod := testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
+				ServiceAccountName(serviceAccountName).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, curlPod)
+			defer func() {
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
+			}()
+
+			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+				e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
+			})
+			curlContainerName := curlPod.Spec.Containers[0].Name
+
+			ginkgo.By("Creating ResourceClaimTemplate referencing gpu DeviceClass")
+			rct := utiltesting.MakeResourceClaimTemplate("gpu-metrics-template", ns.Name).
+				DeviceRequest("gpu-request", e2e.DRAExampleDriverName, 1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating Job with ResourceClaimTemplate reference")
+			job := testingjob.MakeJob("dra-job-metrics", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
+				ResourceClaimTemplate("gpu", "gpu-metrics-template").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("Verifying workload has quota reservation")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that DRA reserved device metric is exposed")
+			e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_cluster_queue_dra_devices_reserved", clusterQueue.Name, e2e.DRAExampleDriverName},
+			})
+
+			ginkgo.By("Creating a second Job with large DRA request exceeding available quota")
+			rctLarge := utiltesting.MakeResourceClaimTemplate("large-gpu-metrics-template", ns.Name).
+				DeviceRequest("gpu-request", e2e.DRAExampleDriverName, 10).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rctLarge)
+
+			largeJob := testingjob.MakeJob("large-dra-job-metrics", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				ResourceClaimTemplate("gpu", "large-gpu-metrics-template").
+				TerminationGracePeriod(1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, largeJob)
+
+			ginkgo.By("Checking that DRA pending device metric is exposed")
+			e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_cluster_queue_dra_devices_pending", clusterQueue.Name, e2e.DRAExampleDriverName},
+			})
+
+			ginkgo.By("Cleaning up jobs")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, largeJob, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, job, true)
 		})
 
 		ginkgo.It("Should keep job suspended when DRA quota is exceeded", func() {

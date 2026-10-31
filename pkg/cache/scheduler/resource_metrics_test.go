@@ -23,8 +23,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -157,4 +159,69 @@ func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	}
 	expectGaugeValue(t, kueuemetrics.LocalQueueResourceReservations, labels, math.Inf(1))
 	expectGaugeValue(t, kueuemetrics.LocalQueueResourceUsage, labels, math.Inf(1))
+}
+
+func TestClusterQueueDRADevicesReservedMetrics(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	defer kueuemetrics.InitMetricVectors(nil)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	now := time.Now()
+	setupRecordMetricsHierarchy(ctx, t, log, cache,
+		[]*kueue.ResourceFlavor{
+			utiltestingapi.MakeResourceFlavor("flavor-a").Obj(),
+		},
+		nil,
+		[]*kueue.ClusterQueue{
+			utiltestingapi.MakeClusterQueue("dra-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor-a").
+					Resource("example.com/gpu", "4").Obj()).
+				Obj(),
+		},
+	)
+	t.Cleanup(func() {
+		kueuemetrics.ClearClusterQueueDRADevicesReservedMetrics("dra-cq")
+	})
+
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("dra-cq").
+			PodSets(kueue.PodSetAssignment{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/gpu": "flavor-a",
+				},
+				Count: ptr.To[int32](2),
+			}).
+			Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	reqs := []workload.DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+	}
+
+	if !cache.AddOrUpdateWorkload(ctx, log, wl, workload.WithDRADeviceRequests(reqs)) {
+		t.Fatal("expected workload to be added to cache")
+	}
+
+	labels := map[string]string{
+		"cluster_queue": "dra-cq",
+		"device_class":  "gpu.example.com",
+		"flavor":        "flavor-a",
+		"replica_role":  "standalone",
+	}
+	expectGaugeValue(t, kueuemetrics.ClusterQueueDRADevicesReserved, labels, 4)
+
+	// Removing workload decrements usage to 0
+	if err := cache.DeleteWorkload(log, workload.Key(wl)); err != nil {
+		t.Fatalf("unexpected error deleting workload from cache: %v", err)
+	}
+	expectGaugeValue(t, kueuemetrics.ClusterQueueDRADevicesReserved, labels, 0)
 }

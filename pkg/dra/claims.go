@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // celCache is a package-level CEL compilation cache that avoids recompiling
@@ -243,8 +244,9 @@ func GetResourceRequestsForResourceClaimTemplates(
 	sliceCache *ResourceSliceCache,
 	mapper *ResourceMapper,
 	wl *kueue.Workload,
-	skipDeviceCheck bool) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+	skipDeviceCheck bool) (map[kueue.PodSetReference]corev1.ResourceList, []workload.DRADeviceRequest, field.ErrorList) {
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
+	var draRequests []workload.DRADeviceRequest
 	var allErrs field.ErrorList
 
 	for i := range wl.Spec.PodSets {
@@ -261,7 +263,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 					field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j),
 					fmt.Errorf("failed to get claim spec for ResourceClaimTemplate %s in podset %s: %w", *prc.ResourceClaimTemplateName, ps.Name, err),
 				))
-				return nil, allErrs
+				return nil, nil, allErrs
 			}
 			if spec == nil {
 				continue
@@ -278,7 +280,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, fieldErr.Detail),
 					})
 				}
-				return nil, allErrs
+				return nil, nil, allErrs
 			}
 
 			// Validate CEL selectors against actual devices in the cluster.
@@ -293,7 +295,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 							Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
 						})
 					}
-					return nil, allErrs
+					return nil, nil, allErrs
 				}
 			}
 
@@ -310,7 +312,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 						field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
 						fmt.Sprintf("DeviceClass %s is not mapped in DRA configuration for podset %s", dc, ps.Name),
 					))
-					return nil, allErrs
+					return nil, nil, allErrs
 				}
 				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(dc)) > 0 {
 					continue
@@ -319,6 +321,13 @@ func GetResourceRequestsForResourceClaimTemplates(
 					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(qty.String())})
+				qtyVal, _ := qty.Int64()
+				draRequests = append(draRequests, workload.DRADeviceRequest{
+					PodSet:          ps.Name,
+					DeviceClass:     string(dc),
+					LogicalResource: logical,
+					CountPerPod:     qtyVal,
+				})
 			}
 		}
 
@@ -327,7 +336,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 		}
 	}
 
-	return perPodSet, nil
+	return perPodSet, draRequests, nil
 }
 
 // validateCELSelectors compiles each CEL expression in the given selectors using
