@@ -216,6 +216,13 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return r.cleanupParentAndVariants(ctx, log, parent, variants, flavorOrder)
 	}
+	if workloadfinish.IsFinished(parent) {
+		return ctrl.Result{}, r.syncFinished(ctx, parent, variants)
+	}
+	// The garbage collector deletes the variants of a deleting parent, so recreating them only races it.
+	if !parent.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
 	if err := r.createVariants(ctx, parent, variants, cqFlavors); err != nil {
