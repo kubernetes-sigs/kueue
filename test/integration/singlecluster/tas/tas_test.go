@@ -319,19 +319,27 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 			})
 
 			ginkgo.It("should not allow to unset topologyName", func() {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
-				tasFlavor.Spec.TopologyName = nil
-				err := k8sClient.Update(ctx, tasFlavor)
-				gomega.Expect(err).Should(utiltesting.BeInvalidError())
-				gomega.Expect(err.Error()).To(gomega.ContainSubstring("topologyName is immutable when topologyName is set"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.TopologyName = nil
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
+						utiltesting.BeInvalidError(),
+						gomega.MatchError(gomega.ContainSubstring("topologyName is immutable when topologyName is set")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should not allow to remove all nodeLabels", func() {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
-				tasFlavor.Spec.NodeLabels = nil
-				err := k8sClient.Update(ctx, tasFlavor)
-				gomega.Expect(err).Should(utiltesting.BeInvalidError())
-				gomega.Expect(err.Error()).To(gomega.ContainSubstring("at least one nodeLabel is required when topology is set"))
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.NodeLabels = nil
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
+						utiltesting.BeInvalidError(),
+						gomega.MatchError(gomega.ContainSubstring("at least one nodeLabel is required when topology is set")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should allow to update nodeTaints", func() {
