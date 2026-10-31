@@ -1615,11 +1615,13 @@ func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
 	return ac
 }
 
+// Finalizers sets the finalizers on the AdmissionCheck.
 func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrapper {
 	ac.ObjectMeta.Finalizers = fin
 	return ac
 }
 
+// DeletionTimestamp sets a deletion timestamp for the AdmissionCheck.
 func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
 	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
 	return ac

@@ -41,13 +41,13 @@ import (
 
 func TestAdmissionCheckReconcile(t *testing.T) {
 	errUpdate := errors.New("update failed")
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		ac                 *kueue.AdmissionCheck
 		clusterQueues      []*kueue.ClusterQueue
+		updateErr          error
 		wantAdmissionCheck *kueue.AdmissionCheck
 		wantUpdates        int
-		updateErr          error
 		wantErr            error
 	}{
 		"adds finalizer when missing": {
@@ -64,7 +64,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
 			},
-			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 		},
 		"removes finalizer when deleted and not in use": {
 			ac: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
@@ -75,7 +75,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 		},
 		"removes only the Kueue finalizer when another finalizer is present": {
 			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").DeletionTimestamp(now).Obj(),
-			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").DeletionTimestamp(now).Obj(),
 			wantUpdates:        1,
 		},
 		"ignores not-found AdmissionCheck": {},
@@ -90,7 +90,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			updateErr:          errUpdate,
 			wantErr:            errUpdate,
-			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			wantUpdates:        1,
 		},
 		"ignores NotFound from Update while adding finalizer": {
@@ -102,12 +102,12 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 		"ignores NotFound from Update while removing finalizer": {
 			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			updateErr:          apierrors.NewNotFound(schema.GroupResource{Resource: "admissionchecks"}, "check"),
-			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			wantUpdates:        1,
 		},
 		"no-op when deleted without the Kueue finalizer": {
 			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").DeletionTimestamp(now).Obj(),
-			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").DeletionTimestamp(now).Obj(),
 		},
 	}
 
@@ -152,7 +152,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			}
 
 			if gotUpdates != tc.wantUpdates {
-				t.Errorf("Update called %d times, want %d", gotUpdates, tc.wantUpdates)
+				t.Errorf("update called %d times, want %d", gotUpdates, tc.wantUpdates)
 			}
 
 			var got *kueue.AdmissionCheck
@@ -163,7 +163,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 				t.Fatalf("failed to get AdmissionCheck: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantAdmissionCheck, got, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "DeletionTimestamp"), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantAdmissionCheck, got, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected AdmissionCheck (-want +got):\n%s", diff)
 			}
 		})
