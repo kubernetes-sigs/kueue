@@ -1,0 +1,26 @@
+title: Workload-Aware Scheduling Deep Integration via Scheduler Library
+kep-number: 13151
+authors:
+  - "@kshalot"
+  - "@olekzabl"
+status: provisional
+creation-date: 2026-10-18
+reviewers:
+  - "@alien1403"
+  - "@Singularity23x0"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+see-also:
+  - "/keps/83-workload-preemption"
+  - "/keps/2724-topology-aware-scheduling"
+  - "/keps/13396-configurable-preemptions"
+stage: alpha
+latest-milestone: "v0.21"
+milestone:
+  alpha: "v0.21"
+  beta: "TBD"
+  stable: "TBD"
+feature-gates:
+  - name: SchedulerLibraryDeepIntegration
+disable-supported: true
