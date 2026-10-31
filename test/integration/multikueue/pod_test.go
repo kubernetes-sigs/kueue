@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -45,10 +46,15 @@ import (
 )
 
 var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	var f *multiKueueFixture
+	var (
+		f *multiKueueFixture
+		// managerCachedClient is the manager's cache-backed client, which is also used by the MultiKueue reconcilers.
+		managerCachedClient client.Client
+	)
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerCachedClient = mgr.GetClient()
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
 	})
@@ -169,6 +175,60 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "")
+		})
+	})
+
+	ginkgo.It("Should create a pod on worker if the manager pod has ephemeral containers", func() {
+		pod := testingpod.MakePod("pod1", f.managerNs.Name).
+			Queue(f.managerLq.Name).
+			ManagedByKueueLabel().
+			KueueSchedulingGate().
+			Obj()
+
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pod)
+
+		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: f.managerNs.Name}
+
+		ginkgo.By("adding an ephemeral container to the manager pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+				pod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+					Name:                     "debugger",
+					Image:                    utiltestingjobs.TestDefaultContainerImage,
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					TargetContainerName:      pod.Spec.Containers[0].Name,
+				}}
+				g.Expect(managerTestCluster.client.SubResource("ephemeralcontainers").Update(managerTestCluster.ctx, pod)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("waiting for the manager's cache to observe the ephemeral container", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				cachedPod := &corev1.Pod{}
+				g.Expect(managerCachedClient.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(pod), cachedPod)).To(gomega.Succeed())
+				g.Expect(cachedPod.Spec.EphemeralContainers).NotTo(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("setting workload reservation in worker1", func() {
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("checking the pod is created in worker1 without the ephemeral containers", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remotePod := &corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(pod), remotePod)).To(gomega.Succeed())
+				g.Expect(remotePod.Spec.EphemeralContainers).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
