@@ -67,8 +67,16 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"removes finalizer when deleted and not in use": {
-			ac:          utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
+			ac: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("unrelated").AdmissionChecks("other").Obj(),
+			},
 			wantUpdates: 1,
+		},
+		"removes only the Kueue finalizer when another finalizer is present": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName, "example.com/finalizer").DeletionTimestamp(now).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").Obj(),
+			wantUpdates:        1,
 		},
 		"ignores not-found AdmissionCheck": {},
 		"returns error when Update fails while adding finalizer": {
