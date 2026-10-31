@@ -34,6 +34,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -43,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1306,7 +1308,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		})
 	})
 
-	ginkgo.Context("MultiKueue Manager Quota Automation", func() {
+	ginkgo.Context("MultiKueue Capacity Provider", func() {
+		var (
+			mkcpc *kueuealpha.MultiKueueCapacityProviderConfig
+			cp    *kueuealpha.CapacityProvider
+			dqo   *kueuealpha.DynamicQuotaOrchestrator
+		)
+
 		ginkgo.BeforeEach(func() {
 			ginkgo.By("Setting manager ClusterQueue quotas to zeroes", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1323,37 +1331,61 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Enabling QuotaAutomation in MultiKueueConfig", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					cfg := &kueue.MultiKueueConfig{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
-					cfg.Spec.QuotaManagement = new(kueue.QuotaManagementAutomated)
-					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			ginkgo.By("Creating MultiKueueCapacityProviderConfig, CapacityProvider, and DynamicQuotaOrchestrator on the manager", func() {
+				mkcpc = &kueuealpha.MultiKueueCapacityProviderConfig{
+					GenerateName: "mkcpc-",
+					Spec: kueuealpha.MultiKueueCapacityProviderConfigSpec{
+						ManagerSubtreeRootRef: kueuealpha.CapacityDistributionSubtreeRootRef{
+							Kind: kueuealpha.ClusterQueueSubtreeRootRefKind,
+							Name: managerCq.Name,
+						},
+					},
+				}
+				behavioral.MustCreate(ctx, k8sManagerClient, mkcpc)
+
+				cp = utiltestingalpha.MakeCapacityProviderWithGenerateName("multikueue-cp-").
+					ControllerName(kueuealpha.MultiKueueCapacityProviderControllerName).
+					OrchestratedFlavors(managerFlavor.Name).
+					Parameters(kueuealpha.SchemeGroupVersion.Group, kueuealpha.MultiKueueCapacityProviderConfigKind, mkcpc.Name).
+					Obj()
+				behavioral.MustCreate(ctx, k8sManagerClient, cp)
+
+				dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("multikueue-dqo-"+managerCq.Name).
+					DiscoveryProvider(cp.Name, nil).
+					SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, managerCq.Name).
+					Obj()
+				behavioral.MustCreate(ctx, k8sManagerClient, dqo)
 			})
 		})
 
-		ginkgo.It("should automatically aggregate quotas from active worker ClusterQueues", func() {
-			ginkgo.By("Verifying the MultiKueueManagerQuotaAutomation status condition transitions to true", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					cq := &kueue.ClusterQueue{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sManagerClient, dqo, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sManagerClient, cp, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sManagerClient, mkcpc, true)
+		})
 
-					cond := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+		ginkgo.It("should automatically aggregate quotas from active worker ClusterQueues", func() {
+			ginkgo.By("Verifying the CapacityProvider CapacitySynchronized status condition transitions to true", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					gotCP := &kueuealpha.CapacityProvider{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(cp), gotCP)).To(gomega.Succeed())
+
+					cond := apimeta.FindStatusCondition(gotCP.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
 					g.Expect(cond).NotTo(gomega.BeNil())
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
-					g.Expect(cond.Reason).To(gomega.Equal("QuotaAutomated"))
+					g.Expect(cond.Reason).To(gomega.Equal(kueuealpha.CapacityProviderReasonSynchronized))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verifying that the nominal resource quotas are automatically aggregated on the manager", func() {
+			ginkgo.By("Verifying that the effective resource quotas are automatically aggregated on the manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					cq := &kueue.ClusterQueue{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), cq)).To(gomega.Succeed())
 
-					g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
-					g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
-					g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.ConsistOf(
+					g.Expect(cq.Status.EffectiveQuotas).NotTo(gomega.BeNil())
+					g.Expect(cq.Status.EffectiveQuotas.ResourceGroups).To(gomega.HaveLen(1))
+					g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
+					g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources).To(gomega.ConsistOf(
 						kueue.ResourceQuota{
 							Name:         corev1.ResourceCPU,
 							NominalQuota: resource.MustParse("3200m"),

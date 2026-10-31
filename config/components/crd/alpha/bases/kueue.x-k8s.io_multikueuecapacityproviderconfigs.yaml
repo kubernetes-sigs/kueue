@@ -1,0 +1,84 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: multikueuecapacityproviderconfigs.kueue.x-k8s.io
+spec:
+  group: kueue.x-k8s.io
+  names:
+    kind: MultiKueueCapacityProviderConfig
+    listKind: MultiKueueCapacityProviderConfigList
+    plural: multikueuecapacityproviderconfigs
+    singular: multikueuecapacityproviderconfig
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MultiKueueCapacityProviderConfig is the configuration of the MultiKueue CapacityProvider.
+          The name has the same constraints as CapacityProviderParametersReference.name
+          (at most 63 characters, no dots), so that a CapacityProvider can refer to it in spec.parameters.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the configuration of the MultiKueue CapacityProvider.
+            properties:
+              managerSubtreeRootRef:
+                description: |-
+                  managerSubtreeRootRef selects the manager ClusterQueue
+                  whose related worker ClusterQueues the provider sums.
+                  Only kind ClusterQueue is supported.
+                properties:
+                  kind:
+                    description: kind indicates the kind of the quota node, i.e. ClusterQueue
+                      or Cohort.
+                    enum:
+                    - ClusterQueue
+                    - Cohort
+                    type: string
+                  name:
+                    description: name indicates the name of the quota node, i.e. ClusterQueue
+                      or Cohort.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: only the ClusterQueue kind is allowed for managerSubtreeRootRef
+                  rule: self.kind == 'ClusterQueue'
+            required:
+            - managerSubtreeRootRef
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: name must be no more than 63 characters
+          rule: size(self.metadata.name) <= 63
+        - message: name must not contain dots
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    served: true
+    storage: true
