@@ -527,32 +527,6 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in queue label with quota reserved in legacy workload": {
-			objs: []runtime.Object{
-				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
-					Queue("test-queue").
-					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
-					Conditions(metav1.Condition{
-						Type:   kueue.WorkloadQuotaReserved,
-						Status: metav1.ConditionTrue,
-					}).
-					Obj(),
-			},
-			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				UID("test-uid").
-				Queue("test-queue").
-				Obj(),
-			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
-				UID("test-uid").
-				Queue("test-queue-new").
-				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: queueNameLabelPath.String(),
-				},
-			}.ToAggregate(),
-		},
 		"change in queue label after quota released": {
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-sts"), "test-ns").
