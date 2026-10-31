@@ -175,6 +175,29 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	noPolicyLQ := utiltestingapi.MakeLocalQueue("lq-no-policy", "default").ClusterQueue("cq-no-policy").Obj()
 
+	// readyCheck returns a Ready admission check state carrying pod set updates
+	// which identify the flavor of the Variant it was set on.
+	readyCheck := func(name kueue.AdmissionCheckReference, flavor string) kueue.AdmissionCheckState {
+		return kueue.AdmissionCheckState{
+			Name:               name,
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(fakeNow),
+			Message:            "Ready on " + flavor,
+			PodSetUpdates: []kueue.PodSetUpdate{{
+				Name:         kueue.DefaultPodSetName,
+				Labels:       map[string]string{"flavor-label": flavor},
+				Annotations:  map[string]string{"flavor-annotation": flavor},
+				NodeSelector: map[string]string{"flavor-selector": flavor},
+				Tolerations: []corev1.Toleration{{
+					Key:      "flavor-taint",
+					Operator: corev1.TolerationOpEqual,
+					Value:    flavor,
+					Effect:   corev1.TaintEffectNoSchedule,
+				}},
+			}},
+		}
+	}
+
 	testCases := map[string]struct {
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
@@ -1155,6 +1178,121 @@ func TestReconcile(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
 					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
+		"admitted variant replaces the leftover Ready admission checks of parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				AdmissionCheck(readyCheck("ac", "on-demand")).
+				AdmissionCheck(readyCheck("ac-on-demand", "on-demand")).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					AdmissionCheck(readyCheck("ac", "spot")).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "spot",
+						},
+						Count:         new(int32(1)),
+						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					}).Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The variant wl-variant-spot is admitted",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "QuotaReserved",
+					Message: "Quota reserved in ClusterQueue cq",
+				}).
+				AdmissionCheck(readyCheck("ac", "spot")).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq", "spot", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					AdmissionCheck(readyCheck("ac", "spot")).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
+		"no variant admitted; parent without quota reservation; reset leftover Ready admission checks of parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				AdmissionCheck(readyCheck("ac", "spot")).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:               "ac",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+					Message:            "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq").

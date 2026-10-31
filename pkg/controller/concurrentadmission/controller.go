@@ -771,9 +771,21 @@ func (r *variantReconciler) syncAdmissionStatus(
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
+		// The Parent can keep Ready checks after losing its quota reservation, with or without
+		// an eviction (for example when its LocalQueue is deleted). Reset them before the copy,
+		// as the pod set updates of a Ready check cannot change.
+		if err := r.resetParentChecks(ctx, parent); err != nil {
+			return client.IgnoreNotFound(err)
+		}
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
 			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
+			// The Parent mirrors the admission checks of the admitted Variant, so that the job
+			// is started with their pod set updates.
+			wl.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, len(admittedVariant.Status.AdmissionChecks))
+			for i := range admittedVariant.Status.AdmissionChecks {
+				admittedVariant.Status.AdmissionChecks[i].DeepCopyInto(&wl.Status.AdmissionChecks[i])
+			}
 			log.V(2).Info("Parent is not admitted but a variant is admitted, updating parent to admitted", "parent", klog.KObj(parent), "admittedVariant", klog.KObj(admittedVariant))
 			return true, nil
 		}); err != nil {
@@ -790,8 +802,27 @@ func (r *variantReconciler) syncAdmissionStatus(
 
 	case admittedVariant == nil && !workload.IsAdmitted(parent):
 		log.V(2).Info("Parent and Variants are both not admitted, no sync needed", "parent", klog.KObj(parent))
+		// Nothing else resets the checks the Parent mirrored from an earlier Variant, so do it
+		// once the Parent has released its quota reservation.
+		if !workload.HasQuotaReservation(parent) {
+			if err := r.resetParentChecks(ctx, parent); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+		}
 	}
 	return nil
+}
+
+// resetParentChecks sets the admission checks of the Parent, which mirror the ones of a
+// previously admitted Variant, back to Pending. It is a no-op if none is set.
+func (r *variantReconciler) resetParentChecks(ctx context.Context, parent *kueue.Workload) error {
+	if !slices.ContainsFunc(parent.Status.AdmissionChecks, func(c kueue.AdmissionCheckState) bool { return c.State != kueue.CheckStatePending }) {
+		return nil
+	}
+	return workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+		workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+		return true, nil
+	})
 }
 
 func (r *variantReconciler) logger() logr.Logger {

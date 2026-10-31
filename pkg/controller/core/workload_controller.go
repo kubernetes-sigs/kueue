@@ -1026,7 +1026,7 @@ func buildAdmissionChecksMessage(checks []kueue.AdmissionCheckState, state kueue
 // Returns true if the Workload was rejected or deactivated, and false otherwise.
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
-		// Parent Workloads are not supposed to have admission checks.
+		// Parent admission checks mirror the admitted Variant and are managed by the Concurrent Admission controller.
 		return false, nil
 	}
 	if !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
@@ -1068,7 +1068,7 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 
 func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cq *kueue.ClusterQueue) (bool, error) {
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) {
-		// Parent Workloads are not supposed to have admission checks.
+		// Parent admission checks mirror the admitted Variant and are managed by the Concurrent Admission controller.
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
