@@ -617,56 +617,6 @@ func (t *TASPodSetRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
 }
 
-type FailureInfo struct {
-	// PodSetName indicates the name of the PodSet for which computing the
-	// TAS assignment failed.
-	PodSetName kueue.PodSetReference
-
-	// Reason indicates the reason why computing the TAS assignment failed.
-	Reason string
-
-	// Flavor indicates the resource flavor associated with the failure.
-	Flavor kueue.ResourceFlavorReference
-}
-
-type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
-
-// Failure returns the failure of the first failed PodSet by name. Sorting keeps
-// the reported PodSet stable across scheduling cycles, as several PodSets can
-// fail at once, e.g. a leader and its workers, or PodSets in different flavors.
-func (r TASAssignmentsResult) Failure() *FailureInfo {
-	for _, psName := range slices.Sorted(maps.Keys(r)) {
-		psAssignment := r[psName]
-		if psAssignment.FailureReason != "" {
-			return &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			}
-		}
-	}
-	return nil
-}
-
-func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
-	for psName, psAssignment := range r {
-		if psAssignment.FailureReason != "" {
-			failures = append(failures, &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			})
-		}
-	}
-	return
-}
-
-type tasPodSetAssignmentResult struct {
-	TopologyAssignment *utiltas.TopologyAssignment
-	FailureReason      string
-	Flavor             kueue.ResourceFlavorReference
-}
-
 type FlavorTASRequests []TASPodSetRequests
 
 // Fits checks if the snapshot has enough capacity to accommodate the workload
