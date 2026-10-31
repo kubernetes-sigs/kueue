@@ -1141,6 +1141,9 @@ func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster s
 // across all ClusterQueues. Called when the cluster is removed.
 func ClearMultiKueueClusterMetrics(cluster string) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
 }
 
 // ClearMultiKueueClusterQueueMetrics drops every series reported for a manager

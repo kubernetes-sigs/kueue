@@ -444,6 +444,15 @@ func TestClearMultiKueueClusterMetrics(t *testing.T) {
 
 	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
 	ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, tracker)
+	// worker1 is shared by cq1 and cq2.
+	for _, s := range []struct {
+		cq      kueue.ClusterQueueReference
+		cluster string
+	}{{"cq1", "worker1"}, {"cq2", "worker1"}, {"cq1", "worker2"}} {
+		ReportMultiKueueWorkloadDispatched(s.cq, s.cluster, tracker)
+		ReportMultiKueueWorkloadAdmitted(s.cq, s.cluster, tracker)
+		ReportMultiKueueWorkloadEvicted(s.cq, s.cluster, kueue.WorkloadEvictedByPreemption, tracker)
+	}
 
 	ClearMultiKueueClusterMetrics("worker1")
 
@@ -453,6 +462,10 @@ func TestClearMultiKueueClusterMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected worker2 to still be active, got %v", got)
+	}
+	for _, vec := range []prometheus.Collector{MultiKueueWorkloadsDispatchedTotal, MultiKueueWorkloadsAdmittedTotal, MultiKueueWorkloadsEvictedTotal} {
+		expectFilteredMetricsCount(t, vec, 0, "cluster", "worker1")
+		expectFilteredMetricsCount(t, vec, 1, "cluster", "worker2")
 	}
 }
 
