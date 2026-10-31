@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	resourceapi "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -498,10 +499,7 @@ func setupIndexes(
 
 	// setup provision admission check controller indexes
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-		setupLog.Error(
-			err,
-			"Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
-		)
+		logProvisioningRequestSkip(err, "Skipping admission check controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("could not setup provisioning indexer: %w", err)
 	}
@@ -552,9 +550,7 @@ func setupControllers(
 
 	// setup provision admission check controller
 	if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil {
-		setupLog.Info(
-			"Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
-		)
+		logProvisioningRequestSkip(err, "Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)")
 	} else {
 		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), opts.RoleTracker)
 		if err != nil {
@@ -801,4 +797,15 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	}
 	setupLog.Info("Configuration loaded", "config", cfgStr)
 	return options, cfg, nil
+}
+
+// logProvisioningRequestSkip logs why a ProvisioningRequest setup step is
+// skipped: at info when the API is not installed, at error for any other
+// failure to check for it.
+func logProvisioningRequestSkip(err error, msg string) {
+	if meta.IsNoMatchError(err) {
+		setupLog.Info(msg, "reason", err.Error())
+		return
+	}
+	setupLog.Error(err, msg)
 }

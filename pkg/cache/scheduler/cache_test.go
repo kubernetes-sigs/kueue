@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -4531,4 +4533,119 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 
 	close(start)
 	wg.Wait()
+}
+
+func TestLogWorkloadUpdateErr(t *testing.T) {
+	cases := map[string]struct {
+		err        error
+		wantLines  int
+		wantError  bool
+		wantReason string
+	}{
+		"no error logs nothing": {},
+		"missing ClusterQueue is not an error": {
+			err:        ErrCqNotFound,
+			wantLines:  1,
+			wantReason: ErrCqNotFound.Error(),
+		},
+		"other errors are errors": {
+			err:       errors.New("boom"),
+			wantLines: 1,
+			wantError: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var entries []map[string]any
+			log := funcr.NewJSON(func(obj string) {
+				entry := make(map[string]any)
+				if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+					t.Errorf("Failed to parse log entry %q: %v", obj, err)
+					return
+				}
+				entries = append(entries, entry)
+			}, funcr.Options{Verbosity: 2})
+			logWorkloadUpdateErr(log, tc.err)
+			if len(entries) != tc.wantLines {
+				t.Fatalf("Unexpected log lines (-want,+got): %d, %d: %v", tc.wantLines, len(entries), entries)
+			}
+			for _, e := range entries {
+				_, isError := e["error"]
+				if isError != tc.wantError {
+					t.Errorf("Logged at error level = %v, want %v: %v", isError, tc.wantError, e)
+				}
+				if tc.wantReason != "" && e["reason"] != tc.wantReason {
+					t.Errorf("Unexpected reason: got %v, want %q", e["reason"], tc.wantReason)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkloadUpdatesLogMissingClusterQueueAtInfo(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+	makeWorkload := func(clusterQueue kueue.ClusterQueueReference) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			ResourceVersion("1").
+			PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueue).
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "on-demand", "1").
+					Obj()).
+				Obj(), time.Now()).
+			Obj()
+	}
+	cases := map[string]struct {
+		seed   bool
+		update func(ctx context.Context, cache *Cache, log logr.Logger) bool
+	}{
+		"AddOrUpdateWorkload": {
+			update: func(ctx context.Context, cache *Cache, log logr.Logger) bool {
+				return cache.AddOrUpdateWorkload(ctx, log, makeWorkload("missing"))
+			},
+		},
+		"UpdateWorkloadIfUnchanged": {
+			seed: true,
+			update: func(ctx context.Context, cache *Cache, log logr.Logger) bool {
+				return cache.UpdateWorkloadIfUnchanged(ctx, log, makeWorkload("missing"))
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, seedLog := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if tc.seed && !cache.AddOrUpdateWorkload(ctx, seedLog, makeWorkload("cq")) {
+				t.Fatal("Failed to seed the workload in the cache")
+			}
+			var entries []map[string]any
+			log := funcr.NewJSON(func(obj string) {
+				entry := make(map[string]any)
+				if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+					t.Errorf("Failed to parse log entry %q: %v", obj, err)
+					return
+				}
+				if entry["reason"] == ErrCqNotFound.Error() || entry["msg"] == "Updating workload in cache" {
+					entries = append(entries, entry)
+				}
+			}, funcr.Options{Verbosity: 2})
+			if tc.update(ctx, cache, log) {
+				t.Error("The update stored a workload whose ClusterQueue is missing")
+			}
+			if len(entries) != 1 {
+				t.Fatalf("Got %d missing-ClusterQueue or error entries, want 1: %v", len(entries), entries)
+			}
+			if _, isError := entries[0]["error"]; isError {
+				t.Errorf("Missing ClusterQueue logged at error level: %v", entries[0])
+			}
+			if v, _ := entries[0]["level"].(float64); v != 2 {
+				t.Errorf("Missing ClusterQueue logged at V(%v), want V(2): %v", entries[0]["level"], entries[0])
+			}
+		})
+	}
 }
