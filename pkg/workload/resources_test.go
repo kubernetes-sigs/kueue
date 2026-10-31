@@ -583,6 +583,353 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultPodLevelRequests(t *testing.T) {
+	hugePages2Mi := corev1.ResourceName(corev1.ResourceHugePagesPrefix + "2Mi")
+	cases := map[string]struct {
+		pod  corev1.PodSpec
+		want *corev1.ResourceRequirements
+	}{
+		"requests default from the aggregate container requests": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+		},
+		"the aggregate sums the container requests": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "a",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					},
+				}, {
+					Name: "b",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+			},
+		},
+		"the aggregate takes the max of init and regular containers": {
+			pod: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Name: "init",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					},
+				}},
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
+		"an explicit pod-level request is kept": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
+		"missing requests fall back to the pod-level limits": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "main"}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+					},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+				},
+			},
+		},
+		"hugepages are not copied from the aggregate": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{hugePages2Mi: resource.MustParse("1Gi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Gi")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{hugePages2Mi: resource.MustParse("2Gi")},
+				Requests: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Gi")},
+			},
+		},
+		"unsupported resources are not copied": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+		},
+		"extended resources are not copied": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceName("nvidia.com/gpu"): resource.MustParse("1"),
+						},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+		},
+		"pod-level requests only, the aggregate fills the other resources": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("8Gi"),
+						},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+				},
+			},
+		},
+		"no pod-level resources": {
+			pod:  corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}},
+			want: nil,
+		},
+		"empty pod-level resources": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "main"}},
+				Resources:  &corev1.ResourceRequirements{},
+			},
+			want: &corev1.ResourceRequirements{},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.pod.DeepCopy()
+			DefaultPodLevelRequests(got)
+			if diff := cmp.Diff(tc.want, got.Resources); diff != "" {
+				t.Errorf("Unexpected pod-level resources (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestDefaultHugePagePodLevelLimits(t *testing.T) {
+	hugePages2Mi := corev1.ResourceName(corev1.ResourceHugePagesPrefix + "2Mi")
+	cases := map[string]struct {
+		pod  corev1.PodSpec
+		want *corev1.ResourceRequirements
+	}{
+		"defaults the pod-level limit from the aggregated container limits": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("4"),
+					hugePages2Mi:       resource.MustParse("2Mi"),
+				},
+			},
+		},
+		"aggregates the hugepage limits across the containers": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "a",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("1Mi")},
+					},
+				}, {
+					Name: "b",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("4"),
+					hugePages2Mi:       resource.MustParse("3Mi"),
+				},
+			},
+		},
+		"keeps an existing pod-level hugepage limit": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("4Mi")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("4Mi")},
+			},
+		},
+		"skips when the pod-level requests carry the resource": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{hugePages2Mi: resource.MustParse("1Mi")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				Requests: corev1.ResourceList{hugePages2Mi: resource.MustParse("1Mi")},
+			},
+		},
+		"ignores overcommittable container limits": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+			},
+		},
+		"requests-only pod-level resources gain the hugepage limit": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			},
+			want: &corev1.ResourceRequirements{
+				Limits:   corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+		},
+		"no pod-level resources": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+					},
+				}},
+			},
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.pod.DeepCopy()
+			DefaultHugePagePodLevelLimits(got)
+			if diff := cmp.Diff(tc.want, got.Resources); diff != "" {
+				t.Errorf("Unexpected pod-level resources (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateResources(t *testing.T) {
 	cases := map[string]struct {
 		workloadInfo *Info
