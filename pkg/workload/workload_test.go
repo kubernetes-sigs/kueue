@@ -1449,9 +1449,32 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// The resolver drops the sidecar's negative before charging, so it charges 8
-		// where the accounting view of the same spec reads 5. Both leave nothing under
-		// the replaced name: what the containers asked for is taken back in full.
+		// A negative sidecar must not reduce the Pod request used for accounting.
+		"aNegativeSidecarDoesNotReduceThePodRequest": {
+			workload: *utiltestingapi.MakeWorkload("plain", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 8,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The charge stands in for what the containers asked for, and it is
+		// subtracted from the same clamped view, so the negative sidecar cannot
+		// leave an extended-resource request beside the charge.
 		"aNegativeSidecarLeavesNothingUnderTheReplacedName": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
@@ -1589,6 +1612,101 @@ func TestNewInfo(t *testing.T) {
 					}),
 					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A negative request must not cancel another transformation's contribution
+		// under the same output name.
+		"negativeRequestDoesNotCancelAnotherTransformationContribution": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/real-gpu", "8").
+					Request("example.com/credit", "-3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/real-gpu",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")},
+				},
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"negativeRequestUnderOutputNameDoesNotSpendGeneratedOutput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu-quota", "-3").
+					Request("example.com/real-gpu", "8").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/real-gpu",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A negative multiplyBy must not cancel another transformation's
+		// contribution either: it is read as zero, so only the 10 is charged.
+		// Dropping the multiplier would leave the 8 unscaled and charge 18.
+		"negativeMultiplierDoesNotCancelAnotherTransformationContribution": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/real-gpu", "8").
+					Request("example.com/gpu-count", "-3").
+					Request("example.com/extra-gpu", "10").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "example.com/real-gpu",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "example.com/gpu-count",
+					Outputs:    corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")},
+				},
+				{
+					Input:    "example.com/extra-gpu",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu-quota": 10,
+						"example.com/gpu-count": 0,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu-quota": 10,
+						"example.com/gpu-count": 0,
 					}),
 					Count: 1,
 				}},
