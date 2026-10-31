@@ -1859,6 +1859,159 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	}
 }
 
+// sequencedWatchClient answers successive Watch calls with watches in order, failing every call
+// past the last one, and sends the 1-based index of each call on calls.
+func sequencedWatchClient(ctx context.Context, calls chan<- int, watches ...watch.Interface) SelectivelyCachingClient {
+	var n atomic.Int32
+	return NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			i := int(n.Add(1))
+			calls <- i
+			if i > len(watches) {
+				return nil, errCannotWatch
+			}
+			return watches[i-1], nil
+		},
+	}).Build())
+}
+
+func waitForWatchCall(t *testing.T, calls <-chan int, want int) {
+	t.Helper()
+	for {
+		select {
+		case got := <-calls:
+			if got == want {
+				return
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("Watch call %d never happened", want)
+		}
+	}
+}
+
+func TestWatchThatEndsIsReopenedWithoutDisconnecting(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	first, second := watch.NewFake(), watch.NewFake()
+	calls := make(chan int, 10)
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.client = sequencedWatchClient(ctx, calls, first, second)
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+	t.Cleanup(rc.StopWatchers)
+
+	startWatcher, err := rc.establishWatcher(watchCtx, "batch/v1, Kind=Job", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("unexpected error establishing the watcher: %v", err)
+	}
+	waitForWatchCall(t, calls, 1)
+	rc.connState.markConnected()
+	startWatcher()
+
+	// The API server ends the watch, e.g. at its request timeout.
+	first.Stop()
+	waitForWatchCall(t, calls, 2)
+	if !rc.connState.isConnected() || rc.connState.lostSince() != nil {
+		t.Fatalf("a re-opened watch must leave the client connected, got connected=%v lostSince=%v",
+			rc.connState.isConnected(), rc.connState.lostSince())
+	}
+
+	// The re-opened watch is the one being consumed: ending it re-opens again.
+	second.Stop()
+	waitForWatchCall(t, calls, 3)
+}
+
+func TestWatchThatCannotBeReopenedDisconnectsFromWhenItEnded(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	ended := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(ended)
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
+	watchEndedCh := make(chan event.GenericEvent, 1)
+	rc := newRemoteClient(getClientBuilder(ctx).WithObjects(cluster).Build(), nil, watchEndedCh, nil, defaultOrigin, "worker1", nil)
+	rc.clock = fakeClock
+
+	first := watch.NewFake()
+	var n atomic.Int32
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			if n.Add(1) == 1 {
+				return first, nil
+			}
+			// The worker is gone: the re-open takes a while before it fails.
+			fakeClock.Step(30 * time.Second)
+			return nil, errCannotWatch
+		},
+	}).Build())
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+	t.Cleanup(rc.StopWatchers)
+
+	startWatcher, err := rc.establishWatcher(watchCtx, "Workload.kueue.x-k8s.io", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("unexpected error establishing the watcher: %v", err)
+	}
+	rc.connState.markConnected()
+	startWatcher()
+
+	first.Stop()
+	select {
+	case <-watchEndedCh:
+	case <-time.After(30 * time.Second):
+		t.Fatal("no reconnect was requested after the watch could not be re-opened")
+	}
+	if rc.connState.isConnected() {
+		t.Fatal("want the client disconnected after the watch could not be re-opened")
+	}
+	if s := rc.connState.lostSince(); s == nil || !s.Equal(ended) {
+		t.Fatalf("want the loss recorded when the watch ended (%v), got %v", ended, s)
+	}
+}
+
+func TestReopenedWorkloadWatchResyncsAssignedWorkloads(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	assigned := utiltestingapi.MakeWorkload("assigned", TestNamespace).ClusterName("worker1").Obj()
+	elsewhere := utiltestingapi.MakeWorkload("elsewhere", TestNamespace).ClusterName("worker2").Obj()
+	wlUpdateCh := make(chan event.GenericEvent, 10)
+	rc := newRemoteClient(getClientBuilder(ctx).WithObjects(assigned, elsewhere).WithStatusSubresource(&kueue.Workload{}).Build(),
+		wlUpdateCh, nil, nil, defaultOrigin, "worker1", nil)
+
+	first, second := watch.NewFake(), watch.NewFake()
+	calls := make(chan int, 10)
+	rc.client = sequencedWatchClient(ctx, calls, first, second)
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+	t.Cleanup(rc.StopWatchers)
+
+	startWatcher, err := rc.establishWatcher(watchCtx, "Workload.kueue.x-k8s.io", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("unexpected error establishing the watcher: %v", err)
+	}
+	rc.connState.markConnected()
+	startWatcher()
+
+	// A remote Workload deleted while the watch was down produces no event on the re-opened
+	// watch, so every manager Workload on this worker is requeued instead.
+	first.Stop()
+	select {
+	case e := <-wlUpdateCh:
+		if got := client.ObjectKeyFromObject(e.Object); got != client.ObjectKeyFromObject(assigned) {
+			t.Fatalf("want a resync of %v, got %v", client.ObjectKeyFromObject(assigned), got)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("re-opening the Workload watch did not resync the workloads on the worker")
+	}
+	select {
+	case e := <-wlUpdateCh:
+		t.Fatalf("only workloads on the worker are resynced, got %v", client.ObjectKeyFromObject(e.Object))
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestClientConfigToRESTConfig(t *testing.T) {
 	testKubeconfigData := []byte(testKubeconfig("worker1"))
 	existingRateLimiter := flowcontrol.NewFakeNeverRateLimiter()
