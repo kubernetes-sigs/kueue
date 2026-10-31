@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -313,13 +314,13 @@ func TestBuildPodSets(t *testing.T) {
 			},
 			wantErr: errRedisCleanupMissingRayContainer,
 		},
-		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
+		"autoscaler sidecar added to head podSet with default resources and head image when in-tree autoscaling is enabled": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
+							Containers: []corev1.Container{{Name: "head", Image: "ray-image"}},
 						},
 					},
 				},
@@ -339,9 +340,10 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "head"},
+							{Name: "head", Image: "ray-image"},
 							{
-								Name: "autoscaler",
+								Name:  "autoscaler",
+								Image: "ray-image",
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("500m"),
@@ -377,7 +379,7 @@ func TestBuildPodSets(t *testing.T) {
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
+							Containers: []corev1.Container{{Name: "head", Image: "ray-image"}},
 						},
 					},
 				},
@@ -386,9 +388,10 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "head"},
+							{Name: "head", Image: "ray-image"},
 							{
-								Name: "autoscaler",
+								Name:  "autoscaler",
+								Image: "ray-image",
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("250m"),
@@ -398,6 +401,52 @@ func TestBuildPodSets(t *testing.T) {
 							},
 						},
 					}).
+					Obj(),
+			},
+		},
+		"autoscaler sidecar uses AutoscalerOptions.Image override when set": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions: &rayv1.AutoscalerOptions{
+					Image: new("autoscaler-image"),
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head", Image: "ray-image"}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head", Image: "ray-image"},
+							{
+								Name:  "autoscaler",
+								Image: "autoscaler-image",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("500m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
+		"autoscaler sidecar has an empty image when the head template has no containers": {
+			rayClusterSpec: &rayv1.RayClusterSpec{EnableInTreeAutoscaling: new(true)},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{autoscalerContainer(nil, "")}}).
 					Obj(),
 			},
 		},
@@ -1974,6 +2023,47 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantAnnotation, got); diff != "" {
 				t.Errorf("GetWorkloadslicingCustomAnnotations() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestLegacySidecarImageOptions(t *testing.T) {
+	cases := map[string]struct {
+		noWorkload, reserved, admitted, running, prebuilt bool
+		storedImage                                       string
+		wantOption                                        bool
+	}{
+		"nil workload":                                {noWorkload: true},
+		"legacy admitted workload":                    {reserved: true, admitted: true, wantOption: true},
+		"legacy reserved workload of suspended job":   {reserved: true},
+		"legacy reserved workload of running job":     {reserved: true, running: true, wantOption: true},
+		"legacy unreserved workload of suspended job": {},
+		"legacy prebuilt workload":                    {prebuilt: true, wantOption: true},
+		"admitted workload with the image set":        {reserved: true, admitted: true, storedImage: "ray-image"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cluster := testingrayutil.MakeCluster("rc", "ns").Suspend(!tc.running)
+			if tc.prebuilt {
+				cluster.PrebuiltWorkloadLabel("wl")
+			}
+			var wl *kueue.Workload
+			if !tc.noWorkload {
+				wlWrapper := utiltestingapi.MakeWorkload("wl", "ns").PodSets(*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Containers(
+					corev1.Container{Name: "head", Image: "ray-image"},
+					corev1.Container{Name: autoscalerContainerName, Image: tc.storedImage},
+				).Obj())
+				if tc.reserved {
+					wlWrapper.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now())
+				}
+				if tc.admitted {
+					wlWrapper.AdmittedAt(true, time.Now())
+				}
+				wl = wlWrapper.Obj()
+			}
+			if got := len(LegacySidecarImageOptions((*RayCluster)(cluster.Obj()), wl)) > 0; got != tc.wantOption {
+				t.Errorf("LegacySidecarImageOptions() returned options = %v, want %v", got, tc.wantOption)
 			}
 		})
 	}

@@ -54,6 +54,8 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 	}
+	autoscalerWithHeadImage := *autoscaler.DeepCopy()
+	autoscalerWithHeadImage.Image = "ray-image"
 	// collector mirrors the History Server collector KubeRay injects into every
 	// head and worker Pod, with KubeRay's default resources.
 	collector := corev1.Container{
@@ -458,7 +460,7 @@ func TestPodSets(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
-		"with workload slicing and autoscaling enabled, no RayClusterName in status": {
+		"with workload slicing and autoscaling enabled, no RayClusterName in status, autoscaler uses the head image": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Name:      "rayservice",
 				Namespace: "ns",
@@ -470,7 +472,7 @@ func TestPodSets(t *testing.T) {
 						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c", Image: "ray-image"}}},
 							},
 						},
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
@@ -493,7 +495,7 @@ func TestPodSets(t *testing.T) {
 			rayCluster: nil,
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c", Image: "ray-image"}, autoscalerWithHeadImage}}).
 					Obj(),
 				// Uses spec count
 				*utiltestingapi.MakePodSet("group1", 2).
