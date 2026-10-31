@@ -54,6 +54,13 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	if !m.defaultLocalQueueApplies(jobObj, defaultQueueExist) {
 		return nil
 	}
+	ownerManaged, err := m.shouldDeferToOwner(ctx, k8sClient, jobObj)
+	if err != nil {
+		return err
+	}
+	if ownerManaged {
+		return nil
+	}
 	// Reached only when the label is about to be set, so an object that is not a
 	// candidate costs no Namespace read.
 	managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector)
@@ -74,8 +81,7 @@ func (m *IntegrationManager) defaultLocalQueueApplies(jobObj client.Object, defa
 	if QueueNameForObject(jobObj) != "" {
 		return false
 	}
-	// Do not default the queue-name for a job whose owner is already managed by Kueue
-	return !m.IsOwnerManagedByKueueForObject(jobObj)
+	return true
 }
 
 func setDefaultLocalQueue(jobObj client.Object) {
@@ -99,7 +105,11 @@ func (m *IntegrationManager) ApplyDefaultWorkloadPriorityClass(
 	if WorkloadPriorityClassName(jobObj) != "" {
 		return nil
 	}
-	if m.IsOwnerManagedByKueueForObject(jobObj) {
+	ownerManaged, err := m.shouldDeferToOwner(ctx, k8sClient, jobObj)
+	if err != nil {
+		return err
+	}
+	if ownerManaged {
 		return nil
 	}
 	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, k8sClient)
@@ -139,12 +149,9 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 				log.V(5).Info("Cluster queue for local queue not found", "localQueueName", localQueueName)
 				return
 			}
-			for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
-				if admissionCheck.Controller == kueue.MultiKueueControllerName {
-					log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
-					managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
-					return
-				}
+			if cache.HasMultiKueueAdmissionCheck(clusterQueueName) {
+				log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
+				managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
 			}
 		}
 	}

@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -128,6 +129,28 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 			err := k8sClient.Update(ctx, createdJob)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+		})
+	})
+
+	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
+		ginkgo.BeforeEach(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook, jobframework.WithManageJobsWithoutQueueName(true)))
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.It("should leave a RayJob using an existing cluster unsuspended", func() {
+			job := testingjob.MakeJob("rayjob-selector-only", ns.Name).
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+				RayClusterSpec(nil).
+				Suspend(false).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+			gomega.Expect(job.Spec.Suspend).Should(gomega.BeFalse())
 		})
 	})
 })

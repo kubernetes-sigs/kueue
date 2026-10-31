@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"go.uber.org/mock/gomock"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -71,6 +72,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -1699,6 +1701,42 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 				OwnerReference(cronJob.Name, batchv1.SchemeGroupVersion.WithKind("CronJob")).
 				Obj(),
 		},
+		"Job -> RayJob (clusterSelector, queue-name) => nil": {
+			integrations: []string{"ray.io/rayjob"},
+			ancestors: []client.Object{
+				testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").
+					ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+			},
+			job: testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+		},
+		"Pod -> Job (queue-name) -> RayJob (clusterSelector, queue-name) => Job": {
+			integrations: []string{"batch/job", "ray.io/rayjob"},
+			ancestors: []client.Object{
+				testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj(),
+				testingjob.MakeJob("submitter", jobNamespace).UID("submitter").Queue("submitter-q").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+			},
+			job:         testingjob.MakeJob("pod", jobNamespace).UID("pod").OwnerReference("submitter", batchv1.SchemeGroupVersion.WithKind("Job")).Obj(),
+			wantManaged: testingjob.MakeJob("submitter", jobNamespace).UID("submitter").Queue("submitter-q").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+		},
+		"Job -> RayJob (queue-name) => RayJob": {
+			integrations: []string{"ray.io/rayjob"},
+			ancestors:    []client.Object{testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").Obj()},
+			job:          testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+			wantManaged:  testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").Obj(),
+		},
+		"Job -> RayJob (external framework, queue-name) => RayJob": {
+			externalFrameworks: []string{"RayJob.v1.ray.io"},
+			ancestors:          []client.Object{testingrayjob.MakeJob("rayjob", jobNamespace).UID("rayjob").Queue("test-q").Obj()},
+			job:                testingjob.MakeJob("submitter", jobNamespace).UID("submitter").OwnerReference("rayjob", rayv1.GroupVersion.WithKind("RayJob")).Obj(),
+			wantManaged: &metav1.PartialObjectMetadata{
+				APIVersion: rayv1.GroupVersion.String(),
+				Kind:       "RayJob",
+				Name:       "rayjob",
+				Namespace:  jobNamespace,
+				UID:        "rayjob",
+				Labels:     map[string]string{constants.QueueLabel: "test-q"},
+			},
+		},
 		"child job has ownerReference with unmanaged workload owner that has a queue-name": {
 			ancestors: []client.Object{cronJobWithQueueNameLabel.DeepCopy()},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
@@ -2025,7 +2063,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			t.Cleanup(integrationManager.EnableExternalIntegrationsForTest(t, tc.externalFrameworks...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 			recorder := &utiltesting.EventRecorder{}
-			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme, v1alpha2.AddToScheme)
+			builder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, awv1beta2.AddToScheme, v1alpha2.AddToScheme, rayv1.AddToScheme)
 			builder = builder.WithObjects(tc.ancestors...)
 			if tc.job != nil {
 				builder = builder.WithObjects(tc.job)

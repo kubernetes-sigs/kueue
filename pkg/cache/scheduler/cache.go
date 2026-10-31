@@ -445,6 +445,14 @@ func (c *Cache) AdmissionChecksForClusterQueue(cqName kueue.ClusterQueueReferenc
 	return acs
 }
 
+// HasMultiKueueAdmissionCheck reports whether the ClusterQueue uses MultiKueue.
+func (c *Cache) HasMultiKueueAdmissionCheck(name kueue.ClusterQueueReference) bool {
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.hm.ClusterQueue(name)
+	return cq != nil && cq.hasMultiKueueAdmissionCheck()
+}
+
 func (c *Cache) ClusterQueueActive(name kueue.ClusterQueueReference) bool {
 	return c.clusterQueueInStatus(name, active)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -42,11 +43,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -70,7 +73,28 @@ func TestValidateCreate(t *testing.T) {
 		wantValidationErrs field.ErrorList
 		wantErr            error
 		featureGates       map[featuregate.Feature]bool
+		objs               []runtime.Object
+		multiKueueQueue    bool
 	}{
+		{
+			name:               "existing-cluster submitter cannot use a MultiKueue queue",
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("multi-queue").Obj(),
+			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
+			multiKueueQueue:    true,
+			wantValidationErrs: field.ErrorList{field.Forbidden(queueNameLabelPath, "RayJob submitters using an existing cluster cannot use MultiKueue")},
+		},
+		{
+			name:               "existing-cluster submitter cannot explicitly use MultiKueue managedBy",
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("queue").ManagedBy(kueue.MultiKueueControllerName).Obj(),
+			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
+			wantValidationErrs: field.ErrorList{field.Forbidden(field.NewPath("spec", "managedBy"), "RayJob submitters using an existing cluster cannot use MultiKueue")},
+		},
+		{
+			name:            "managed RayJob child can use a MultiKueue queue",
+			job:             testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("multi-queue").Obj(),
+			objs:            []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").Queue("multi-queue").Obj()},
+			multiKueueQueue: true,
+		},
 		{
 			name:               "simple",
 			job:                testingutil.MakeJob("job", "default").Queue("queue").Obj(),
@@ -725,6 +749,9 @@ func TestValidateCreate(t *testing.T) {
 			jw := &JobWebhook{}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
+			if len(tc.objs) > 0 {
+				jw = newTestSubmitterWebhook(t, tc.multiKueueQueue, tc.objs...)
+			}
 			gotValidationErrs, gotErr := jw.validateCreate(ctx, (*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
@@ -747,7 +774,24 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		featureGates         map[featuregate.Feature]bool
 		maxTimeoutOnWorkload *metav1.Duration
+		objs                 []runtime.Object
+		multiKueueQueue      bool
 	}{
+		{
+			name:               "existing-cluster submitter cannot change to a MultiKueue queue",
+			oldJob:             testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("queue").Obj(),
+			newJob:             testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("multi-queue").Obj(),
+			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
+			multiKueueQueue:    true,
+			wantValidationErrs: field.ErrorList{field.Forbidden(queueNameLabelPath, "RayJob submitters using an existing cluster cannot use MultiKueue")},
+		},
+		{
+			name:            "unchanged unsupported submitter queue does not block cleanup",
+			oldJob:          testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("multi-queue").Obj(),
+			newJob:          testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("multi-queue").Obj(),
+			objs:            []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
+			multiKueueQueue: true,
+		},
 		{
 			name:               "normal update",
 			oldJob:             testingutil.MakeJob("job", "default").Queue("queue").Obj(),
@@ -1286,7 +1330,12 @@ func TestValidateUpdate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotValidationErrs, gotErr := new(JobWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
+			w := &JobWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}
+			if len(tc.objs) > 0 {
+				w = newTestSubmitterWebhook(t, tc.multiKueueQueue, tc.objs...)
+				w.maxTimeoutOnWorkload = tc.maxTimeoutOnWorkload
+			}
+			gotValidationErrs, gotErr := w.validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
@@ -1298,6 +1347,8 @@ func TestValidateUpdate(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
+	selectorParent := testingrayjob.MakeJob("owner", "default").UID("owner").Queue("parent-queue").
+		ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()
 	testcases := map[string]struct {
 		job                        *batchv1.Job
 		objs                       []runtime.Object
@@ -1308,12 +1359,75 @@ func TestDefault(t *testing.T) {
 		featureGates               map[featuregate.Feature]bool
 		defaultLqExist             bool
 		enableIntegrations         []string
+		externalFrameworks         []string
+		namespaceExcluded          bool
 		want                       *batchv1.Job
 		wantErr                    error
 	}{
 		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
 			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
 			want: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+		},
+		"submitter inherits the existing-cluster RayJob queue": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			defaultLqExist:     true,
+			objs:               []runtime.Object{selectorParent.DeepCopy()},
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("parent-queue").Obj(),
+		},
+		"submitter inherits a queue when the RayJob integration is disabled": {
+			objs: []runtime.Object{selectorParent.DeepCopy()},
+			job:  testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("parent-queue").Obj(),
+		},
+		"submitter in an excluded namespace does not inherit a queue": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			namespaceExcluded:  true,
+			objs:               []runtime.Object{selectorParent.DeepCopy()},
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+		},
+		"submitter template queue overrides the RayJob queue": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			objs:               []runtime.Object{selectorParent.DeepCopy()},
+			job: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("template-queue").Obj(),
+		},
+		"submitter explicit queue is preserved": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			objs:               []runtime.Object{selectorParent.DeepCopy()},
+			job: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).
+				PodLabel(constants.QueueLabel, "template-queue").Queue("explicit-queue").Obj(),
+		},
+		"submitter without a queue uses the default LocalQueue": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			defaultLqExist:     true,
+			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").ClusterSelector(map[string]string{"ray.io/cluster": "existing"}).RayClusterSpec(nil).Obj()},
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Queue("default").Obj(),
+		},
+		"submitter of a managed RayJob remains a child job": {
+			enableIntegrations: []string{rayjob.FrameworkName},
+			defaultLqExist:     true,
+			objs:               []runtime.Object{testingrayjob.MakeJob("owner", "default").UID("owner").Queue("parent-queue").Obj()},
+			job:                testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want:               testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+		},
+		"submitter of an externally managed RayJob remains a child job": {
+			enableIntegrations: []string{FrameworkName},
+			externalFrameworks: []string{"RayJob.v1.ray.io"},
+			defaultLqExist:     true,
+			featureGates:       map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			objs: []runtime.Object{
+				testingrayjob.MakeJob("owner", "default").UID("owner").Queue("parent-queue").Obj(),
+				utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj(),
+			},
+			job:  testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").OwnerReference("owner", rayv1.GroupVersion.WithKind("RayJob")).Suspend(false).Obj(),
 		},
 		"update the suspend field 'manageJobsWithoutQueueName=true'": {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
@@ -1437,7 +1551,7 @@ func TestDefault(t *testing.T) {
 
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			clientBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme).
+			clientBuilder := utiltesting.NewClientBuilder(kfmpi.AddToScheme, rayv1.AddToScheme).
 				WithObjects(utiltesting.MakeNamespace("default")).
 				WithRuntimeObjects(tc.objs...)
 			cl := clientBuilder.Build()
@@ -1468,6 +1582,7 @@ func TestDefault(t *testing.T) {
 			}
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			t.Cleanup(integrationManager.EnableExternalIntegrationsForTest(t, tc.externalFrameworks...))
 			w := &JobWebhook{
 				integrationManager:           integrationManager,
 				client:                       cl,
@@ -1475,6 +1590,9 @@ func TestDefault(t *testing.T) {
 				managedJobsNamespaceSelector: labels.Everything(),
 				queues:                       queueManager,
 				cache:                        cqCache,
+			}
+			if tc.namespaceExcluded {
+				w.managedJobsNamespaceSelector = labels.Nothing()
 			}
 			gotErr := w.Default(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
@@ -1490,12 +1608,31 @@ func TestDefault(t *testing.T) {
 func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
 	t.Helper()
 	manager := jobframework.NewIntegrationManager()
-	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{RegisterIntegration, mpijob.RegisterIntegration} {
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{RegisterIntegration, mpijob.RegisterIntegration, rayjob.RegisterIntegration} {
 		if err := registerIntegration(manager); err != nil {
 			t.Fatalf("RegisterIntegration() error = %v", err)
 		}
 	}
 	return manager
+}
+
+func newTestSubmitterWebhook(t *testing.T, multiKueueQueue bool, objs ...runtime.Object) *JobWebhook {
+	t.Helper()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithRuntimeObjects(objs...).Build()
+	cache := schdcache.New(cl)
+	queues := qcache.NewManagerForUnitTests(cl, cache)
+	if multiKueueQueue {
+		check := utiltestingapi.MakeAdmissionCheck("multikueue").ControllerName(kueue.MultiKueueControllerName).Active(metav1.ConditionTrue).Obj()
+		cache.AddOrUpdateAdmissionCheck(log, check)
+		if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("multi-cq").AdmissionChecks(kueue.AdmissionCheckReference(check.Name)).Obj()); err != nil {
+			t.Fatal(err)
+		}
+		if err := queues.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("multi-queue", "default").ClusterQueue("multi-cq").Obj()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &JobWebhook{client: cl, queues: queues, cache: cache}
 }
 
 func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
