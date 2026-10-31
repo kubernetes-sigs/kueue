@@ -611,7 +611,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+		if !workload.HasQuotaReservation(&wl) && wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
 			if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
 				log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
 				return reconcile.Result{RequeueAfter: *requeueAfter}, nil

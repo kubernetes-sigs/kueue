@@ -378,9 +378,10 @@ func TestReconcileEviction(t *testing.T) {
 				},
 			},
 		},
-		"workload with retry checks should be evicted and checks should be pending": {
+		"workload with retry checks should be evicted before retry backoff": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:  "check-1",
@@ -392,6 +393,7 @@ func TestReconcileEviction(t *testing.T) {
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:       "check-1",
