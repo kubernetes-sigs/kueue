@@ -2,6 +2,26 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "kueueViz": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "object",
+          "properties": {
+            "auth": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": ["Disabled", "TokenReview"]
+                }
+              },
+              "required": ["mode"]
+            }
+          }
+        }
+      }
+    },
     "managerConfig": {
       "type": "object",
       "description": "Optional mode selects yaml or structured. When omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
