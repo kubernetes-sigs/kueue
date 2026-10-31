@@ -5230,7 +5230,7 @@ func TestPreemptionStrategy(t *testing.T) {
 	vLowKey := client.ObjectKey{Namespace: "default", Name: "v-low"}
 	vMidKey := client.ObjectKey{Namespace: "default", Name: "v-mid"}
 
-	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
+	setupStrategyWithCPU := func(t *testing.T, incomingCPU string) (PreemptionStrategy, *schdcache.Snapshot) {
 		t.Helper()
 		now := time.Now()
 		ctx, log := utiltesting.ContextWithLog(t)
@@ -5273,7 +5273,7 @@ func TestPreemptionStrategy(t *testing.T) {
 
 		incoming := utiltestingapi.MakeWorkload("incoming", "default").
 			Priority(50).
-			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, incomingCPU).Obj()).
 			Obj()
 		wlInfo := workload.NewInfo(log, incoming)
 		wlInfo.ClusterQueue = "cq"
@@ -5287,6 +5287,10 @@ func TestPreemptionStrategy(t *testing.T) {
 		}
 		t.Fatal("expected at least one PreemptionStrategy")
 		return PreemptionStrategy{}, nil
+	}
+
+	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
+		return setupStrategyWithCPU(t, "2")
 	}
 
 	inSnapshot := func(snapshot *schdcache.Snapshot, wlKey client.ObjectKey) bool {
@@ -5350,6 +5354,8 @@ func TestPreemptionStrategy(t *testing.T) {
 
 	t.Run("GetTargets", func(t *testing.T) {
 		cases := map[string]struct {
+			incomingCPU        string
+			verify             func([]*Target) (bool, string)
 			preemptedWorkloads []client.ObjectKey
 			wantTargets        []client.ObjectKey
 			wantErr            bool
@@ -5365,10 +5371,25 @@ func TestPreemptionStrategy(t *testing.T) {
 				preemptedWorkloads: []client.ObjectKey{vLowKey},
 				wantTargets:        []client.ObjectKey{vLowKey},
 			},
+			"preempted workloads do not free enough quota": {
+				incomingCPU:        "4",
+				preemptedWorkloads: []client.ObjectKey{vLowKey},
+			},
+			"strategy verification fails": {
+				verify:             func([]*Target) (bool, string) { return false, "DRS violated" },
+				preemptedWorkloads: []client.ObjectKey{vLowKey},
+			},
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
-				strategy, snapshot := setupStrategy(t)
+				cpu := tc.incomingCPU
+				if cpu == "" {
+					cpu = "2"
+				}
+				strategy, snapshot := setupStrategyWithCPU(t, cpu)
+				if tc.verify != nil {
+					strategy.verify = tc.verify
+				}
 				for range strategy.Candidates() {
 					break
 				}
@@ -5387,6 +5408,37 @@ func TestPreemptionStrategy(t *testing.T) {
 					t.Errorf("GetTargets(%v) did not restore %v to snapshot", tc.preemptedWorkloads, vLowKey)
 				}
 			})
+		}
+	})
+
+	t.Run("PreemptionFilter", func(t *testing.T) {
+		strategy, snapshot := setupStrategy(t)
+		if strategy.MayFit() {
+			t.Errorf("MayFit() = true before preempting candidate, want false")
+		}
+		for range strategy.Candidates() {
+			break
+		}
+		if !strategy.MayFit() {
+			t.Errorf("MayFit() = false after yielding %v, want true", vLowKey)
+		}
+		strategy.UnpreemptWorkload(vLowKey)
+		if !inSnapshot(snapshot, vLowKey) {
+			t.Errorf("UnpreemptWorkload() did not restore %v to snapshot", vLowKey)
+		}
+		if strategy.MayFit() {
+			t.Errorf("MayFit() = true after UnpreemptWorkload(%v), want false", vLowKey)
+		}
+		strategy.PreemptWorkload(vLowKey)
+		if inSnapshot(snapshot, vLowKey) {
+			t.Fatalf("expected %v to be removed from snapshot after PreemptWorkload", vLowKey)
+		}
+		if !strategy.MayFit() {
+			t.Errorf("MayFit() = false after PreemptWorkload(%v), want true", vLowKey)
+		}
+		strategy.Reset()
+		if !inSnapshot(snapshot, vLowKey) {
+			t.Errorf("Reset() did not restore %v to snapshot", vLowKey)
 		}
 	})
 }

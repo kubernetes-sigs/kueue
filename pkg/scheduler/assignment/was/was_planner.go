@@ -181,6 +181,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			simulator.WithPreemptionFilter(&strategy),
 		)
 		strategy.Reset()
 		if err != nil {
@@ -196,6 +197,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			}
 		}
 	}
+	ctrl.LoggerFrom(ctx).V(5).Info("Preemption target search found no suitable targets")
 
 	// No preemption targets succeeded. Simulate against an empty cluster to check
 	// if the workload can fit at all and, if so, reserve TAS resources while waiting
