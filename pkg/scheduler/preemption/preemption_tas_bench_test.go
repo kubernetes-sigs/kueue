@@ -44,13 +44,14 @@ func BenchmarkTopologyPreemption(b *testing.B) {
 	for _, cacheEnabled := range []bool{false, true} {
 		b.Run(fmt.Sprintf("cache=%t", cacheEnabled), func(b *testing.B) {
 			for _, tc := range []struct {
-				name      string
-				nominal   int
-				scattered bool
+				name        string
+				nominal     int
+				scattered   bool
+				wantTargets int
 			}{
-				{name: "ordinary-success", nominal: nodes*slots - slots},
-				{name: "retry-success", nominal: nodes*slots - slots, scattered: true},
-				{name: "retry-no-legal-victims", nominal: nodes*slots - slots + 1, scattered: true},
+				{name: "ordinary-success", nominal: nodes*slots - slots, wantTargets: slots},
+				{name: "retry-success", nominal: nodes*slots - slots, scattered: true, wantTargets: slots},
+				{name: "retry-no-legal-victims", nominal: nodes*slots - slots + 1, scattered: true, wantTargets: 0},
 			} {
 				b.Run(tc.name, func(b *testing.B) {
 					features.SetFeatureGateDuringTest(b, features.TopologyAwareScheduling, true)
@@ -132,6 +133,9 @@ func BenchmarkTopologyPreemption(b *testing.B) {
 					targetCount := 0
 					for range b.N {
 						targets := preemptor.GetTargetsWithStrategy(ctx, preemptor.GetPreemptionStrategyIterator(ctx, *info, snapshot, assignment))
+						if len(targets) != tc.wantTargets {
+							b.Fatalf("got %d targets, want %d", len(targets), tc.wantTargets)
+						}
 						targetCount += len(targets)
 					}
 					b.StopTimer()
