@@ -113,8 +113,74 @@ func TestComparePodSetSlices(t *testing.T) {
 		ignoreTolerations         bool
 		ignoreTopologyRequest     bool
 		ignoreTopologyIndexLabels bool
+		ignoreEmptyImages         []emptyImageOption
 		wantEquivalent            bool
 	}{
+		"empty stored image on a registered container": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("ps", "img", "")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    true,
+		},
+		"empty stored image without the option": {
+			a:              []kueue.PodSet{withContainers("ps", "img", "img")},
+			b:              []kueue.PodSet{withContainers("ps", "img", "")},
+			wantEquivalent: false,
+		},
+		"empty stored image on a container not registered": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("ps", "img", "")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"other"}}},
+			wantEquivalent:    false,
+		},
+		"empty stored image on a registered container of another PodSet": {
+			a:                 []kueue.PodSet{withContainers("other", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("other", "img", "")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"empty stored image on a registered container with different PodSet names": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("other", "img", "")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"different non-empty images on a registered container": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("ps", "img", "old")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"empty current image and non-empty stored image on a registered container": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "")},
+			b:                 []kueue.PodSet{withContainers("ps", "img", "img")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"empty stored image on a registered container with another container changed": {
+			a:                 []kueue.PodSet{withContainers("ps", "new", "img")},
+			b:                 []kueue.PodSet{withContainers("ps", "old", "")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"empty stored image on a registered container with another field changed": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 1).Containers(
+				corev1.Container{Name: "main", Image: "img"},
+				corev1.Container{Name: "sidecar", Image: "img", Args: []string{"new"}},
+			).Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 1).Containers(
+				corev1.Container{Name: "main", Image: "img"},
+				corev1.Container{Name: "sidecar", Args: []string{"old"}},
+			).Obj()},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}},
+			wantEquivalent:    false,
+		},
+		"empty stored images registered by multiple options": {
+			a:                 []kueue.PodSet{withContainers("ps", "img", "img"), withContainers("ps2", "img", "img")},
+			b:                 []kueue.PodSet{withContainers("ps", "img", ""), withContainers("ps2", "", "img")},
+			ignoreEmptyImages: []emptyImageOption{{"ps", []string{"sidecar"}}, {"ps2", []string{"main"}}, {"ps2", []string{"sidecar"}}},
+			wantEquivalent:    true,
+		},
 		"different name": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps2", 10).SetMinimumCount(5).Obj()},
@@ -373,10 +439,25 @@ func TestComparePodSetSlices(t *testing.T) {
 			if tc.ignoreTopologyIndexLabels {
 				options = append(options, WithIgnoreTopologyIndexLabels())
 			}
+			for _, o := range tc.ignoreEmptyImages {
+				options = append(options, WithIgnoreEmptyContainerImage(o.podSet, o.names...))
+			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {
 				t.Errorf("Unexpected result, want %v", tc.wantEquivalent)
 			}
 		})
 	}
+}
+
+type emptyImageOption struct {
+	podSet kueue.PodSetReference
+	names  []string
+}
+
+func withContainers(name kueue.PodSetReference, mainImage, sidecarImage string) kueue.PodSet {
+	return *utiltestingapi.MakePodSet(name, 1).Containers(
+		corev1.Container{Name: "main", Image: mainImage},
+		corev1.Container{Name: "sidecar", Image: sidecarImage},
+	).Obj()
 }
