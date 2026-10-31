@@ -229,7 +229,11 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}
 		if a.workerOwnsReplicas(localJob) {
 			if a.elastic.IsSuspended(localJob) {
-				return false, nil
+				// Do not reflect the runtime state of a suspended job, but still
+				// repoint: if the job was evicted before the remote was repointed
+				// onto a replacement slice, the worker keeps reconciling the
+				// finished slice and never stops the job.
+				return false, a.repointPrebuiltWorkload(ctx, localClient, remoteClient, workloadName, remoteJob)
 			}
 			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil {
