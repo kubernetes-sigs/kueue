@@ -20,13 +20,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -41,14 +41,12 @@ import (
 
 func TestAdmissionCheckReconcile(t *testing.T) {
 	errUpdate := errors.New("update failed")
+	now := time.Now()
 	cases := map[string]struct {
 		ac                 *kueue.AdmissionCheck
 		clusterQueues      []*kueue.ClusterQueue
-		deleted            bool
 		wantAdmissionCheck *kueue.AdmissionCheck
-		wantDeleted        bool
 		wantUpdates        int
-		skipStore          bool
 		updateErr          error
 		wantErr            error
 	}{
@@ -62,28 +60,29 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"keeps finalizer when deleted but still in use": {
-			ac: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			ac: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
 			},
-			deleted:            true,
 			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"removes finalizer when deleted and not in use": {
-			ac:          utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
-			deleted:     true,
-			wantDeleted: true,
+			ac:          utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
 			wantUpdates: 1,
 		},
-		"ignores not-found AdmissionCheck": {
-			ac:        utiltestingapi.MakeAdmissionCheck("check").Obj(),
-			skipStore: true,
-		},
+		"ignores not-found AdmissionCheck": {},
 		"returns error when Update fails while adding finalizer": {
 			ac:                 utiltestingapi.MakeAdmissionCheck("check").Obj(),
 			updateErr:          errUpdate,
 			wantErr:            errUpdate,
 			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			wantUpdates:        1,
+		},
+		"returns error when Update fails while removing finalizer": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
+			updateErr:          errUpdate,
+			wantErr:            errUpdate,
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 			wantUpdates:        1,
 		},
 		"ignores NotFound from Update while adding finalizer": {
@@ -92,7 +91,19 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Obj(),
 			wantUpdates:        1,
 		},
+		"ignores NotFound from Update while removing finalizer": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).DeletionTimestamp(now).Obj(),
+			updateErr:          apierrors.NewNotFound(schema.GroupResource{Resource: "admissionchecks"}, "check"),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantUpdates:        1,
+		},
+		"no-op when deleted without the Kueue finalizer": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").DeletionTimestamp(now).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers("example.com/finalizer").Obj(),
+		},
 	}
+
+	req := reconcile.Request{Name: "check"}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -109,7 +120,7 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 				},
 			})
 
-			if !tc.skipStore {
+			if tc.ac != nil {
 				builder = builder.WithObjects(tc.ac)
 			}
 			cl := builder.Build()
@@ -124,37 +135,24 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 				}
 			}
 
-			if tc.deleted {
-				if err := cl.Delete(ctx, tc.ac); err != nil {
-					t.Fatalf("failed to delete AdmissionCheck: %v", err)
-				}
-			}
-
-			req := reconcile.Request{Name: tc.ac.Name}
-			_, err := reconciler.Reconcile(ctx, req)
+			res, err := reconciler.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(reconcile.Result{}, res); diff != "" {
+				t.Errorf("unexpected reconcile result (-want +got):\n%s", diff)
 			}
 
 			if gotUpdates != tc.wantUpdates {
 				t.Errorf("Update called %d times, want %d", gotUpdates, tc.wantUpdates)
 			}
 
-			if tc.skipStore {
-				return
-			}
-
-			got := &kueue.AdmissionCheck{}
-			getErr := cl.Get(ctx, types.NamespacedName{Name: tc.ac.Name}, got)
-			if tc.wantDeleted {
-				if !apierrors.IsNotFound(getErr) {
-					t.Errorf("expected AdmissionCheck to be deleted, got: %v", getErr)
-				}
-				return
-			}
-
-			if getErr != nil {
-				t.Fatalf("failed to get AdmissionCheck: %v", getErr)
+			var got *kueue.AdmissionCheck
+			fetched := &kueue.AdmissionCheck{}
+			if err := cl.Get(ctx, req.NamespacedName, fetched); err == nil {
+				got = fetched
+			} else if !apierrors.IsNotFound(err) {
+				t.Fatalf("failed to get AdmissionCheck: %v", err)
 			}
 
 			if diff := cmp.Diff(tc.wantAdmissionCheck, got, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "DeletionTimestamp"), cmpopts.EquateEmpty()); diff != "" {

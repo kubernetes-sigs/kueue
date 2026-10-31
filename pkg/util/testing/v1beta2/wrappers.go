@@ -1620,6 +1620,11 @@ func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrappe
 	return ac
 }
 
+func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
+	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
 	return ac
