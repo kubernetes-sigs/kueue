@@ -46,8 +46,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -129,7 +131,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
 		headPodSet.Template.Spec.Containers = append(
 			headPodSet.Template.Spec.Containers,
-			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
+			autoscalerContainer(rayClusterSpec.AutoscalerOptions, HeadRayContainerImage(rayClusterSpec)),
 		)
 	}
 	if collectorOptions != nil {
@@ -240,17 +242,65 @@ func defaultAutoscalerResources() corev1.ResourceRequirements {
 	}
 }
 
+// HeadRayContainerImage returns the image of the Ray container in the head
+// group Pod template, which KubeRay uses by default for the sidecar containers
+// it injects into the head Pod. It returns an empty string when the template
+// has no containers.
+func HeadRayContainerImage(rayClusterSpec *rayv1.RayClusterSpec) string {
+	if rayClusterSpec == nil {
+		return ""
+	}
+	containers := rayClusterSpec.HeadGroupSpec.Template.Spec.Containers
+	if len(containers) <= rayutils.RayContainerIndex {
+		return ""
+	}
+	return containers[rayutils.RayContainerIndex].Image
+}
+
+// LegacySidecarImageOptions tolerates the empty autoscaler and extraNames head
+// sidecar images stored by older Kueue versions, only in Workloads that are
+// admitted, prebuilt (MultiKueue worker), or whose job is running, so upgrading
+// does not stop running jobs or mark prebuilt Workloads OutOfSync. Other legacy
+// Workloads mismatch and are updated, or recreated when they hold a quota
+// reservation, which repairs those stuck on a ProvisioningRequest check.
+// Elastic (workload-slicing) Workloads bypass this: EnsureWorkloadSlices
+// compares only PodSet counts, so legacy slices keep the empty image and must
+// be deleted manually to be recreated.
+// TODO(#17601): remove in v0.23.
+func LegacySidecarImageOptions(job jobframework.GenericJob, wl *kueue.Workload, extraNames ...string) []equality.ComparePodSetsOption {
+	if wl == nil || (!workload.IsAdmitted(wl) && job.IsSuspended() && jobframework.PrebuiltWorkloadNameFor(job.Object()) != wl.Name) {
+		return nil
+	}
+	names := append([]string{autoscalerContainerName}, extraNames...)
+	if head := utilpodset.FindPodSetByName(wl.Spec.PodSets, headGroupPodSetName); head != nil &&
+		slices.ContainsFunc(head.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Image == "" && slices.Contains(names, c.Name)
+		}) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreEmptyContainerImage(headGroupPodSetName, names...)}
+	}
+	return nil
+}
+
 // autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
 // that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
-// It uses AutoscalerOptions.Resources when provided, otherwise KubeRay's
-// defaults, matching how KubeRay builds the actual container.
-func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
+// It uses AutoscalerOptions.Resources and AutoscalerOptions.Image when provided,
+// otherwise KubeRay's default resources and the head Ray container image,
+// matching how KubeRay builds the actual container. The image is required by
+// ProvisioningRequest.
+func autoscalerContainer(opts *rayv1.AutoscalerOptions, headImage string) corev1.Container {
 	resources := defaultAutoscalerResources()
-	if opts != nil && opts.Resources != nil {
-		resources = *opts.Resources.DeepCopy()
+	image := headImage
+	if opts != nil {
+		if opts.Resources != nil {
+			resources = *opts.Resources.DeepCopy()
+		}
+		if opts.Image != nil {
+			image = *opts.Image
+		}
 	}
 	return corev1.Container{
 		Name:      autoscalerContainerName,
+		Image:     image,
 		Resources: resources,
 	}
 }

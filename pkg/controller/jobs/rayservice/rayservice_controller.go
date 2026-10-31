@@ -128,11 +128,12 @@ var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
 
-func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	opts := raycluster.LegacySidecarImageOptions(j, wl)
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+		opts = append(opts, equality.WithIgnoreTopologyIndexLabels())
 	}
-	return nil
+	return opts
 }
 
 func (j *RayService) Object() client.Object {

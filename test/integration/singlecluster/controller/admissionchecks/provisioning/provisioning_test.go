@@ -20,11 +20,13 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
@@ -40,13 +42,17 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -2008,8 +2014,14 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
+	var managerOpts []managerSetupOption
+
+	ginkgo.BeforeEach(func() {
+		managerOpts = []managerSetupOption{runScheduler, runJobController, runStatefulSetController}
+	})
+
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
+		fwk.StartManager(ctx, cfg, managerSetup(managerOpts...))
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -2142,6 +2154,222 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				gomega.Expect(wlObj.Spec.PodSets).To(gomega.HaveLen(1))
 				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
 				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Volumes).To(gomega.BeEmpty())
+			})
+		})
+	})
+
+	ginkgo.When("A Ray head PodSet accounts for a KubeRay-injected sidecar", func() {
+		rayImage := "rayproject/ray:" + utiltesting.TestRayVersion()
+
+		ginkgo.BeforeEach(func() {
+			managerOpts = append(managerOpts, runRayControllers)
+		})
+
+		ginkgo.JustBeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).
+					Resource(corev1.ResourceCPU, "5").
+					Resource(corev1.ResourceMemory, "5Gi").
+					Obj()).
+				AdmissionChecks(ac1Ref).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cq)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, lq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			// Runs while the manager is still up, so the Ray reconcilers do not
+			// recreate Workloads during teardown. behavioral.DeleteNamespace does
+			// not delete RayClusters, ProvisioningRequests or PodTemplates, and
+			// envtest has no garbage collector.
+			gomega.Expect(k8sClient.DeleteAllOf(ctx, &rayv1.RayCluster{}, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllRayJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var rcs rayv1.RayClusterList
+				g.Expect(k8sClient.List(ctx, &rcs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(rcs.Items).To(gomega.BeEmpty())
+				var rjs rayv1.RayJobList
+				g.Expect(k8sClient.List(ctx, &rjs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(rjs.Items).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Delete the Workloads first so the provisioning controller does not
+			// recreate the ProvisioningRequests.
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wls kueue.WorkloadList
+				g.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(wls.Items).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.DeleteAllOf(ctx, &autoscaling.ProvisioningRequest{}, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			gomega.Expect(k8sClient.DeleteAllOf(ctx, &corev1.PodTemplate{}, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var prs autoscaling.ProvisioningRequestList
+				g.Expect(k8sClient.List(ctx, &prs, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(prs.Items).To(gomega.BeEmpty())
+				var pts corev1.PodTemplateList
+				g.Expect(k8sClient.List(ctx, &pts, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(pts.Items).To(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// expectHeadSidecarInProvisioningRequest checks the ProvisioningRequest
+		// head PodTemplate keeps the sidecar from the Workload head PodSet, with
+		// the Ray head image KubeRay gives it.
+		expectHeadSidecarInProvisioningRequest := func(owner client.Object, sidecarName string) {
+			ginkgo.GinkgoHelper()
+			var (
+				wl          kueue.Workload
+				wlKey       client.ObjectKey
+				provReq     autoscaling.ProvisioningRequest
+				headSidecar corev1.Container
+			)
+			ginkgo.By("await for the Workload head PodSet to include the sidecar and reserve quota", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var wls kueue.WorkloadList
+					g.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+					g.Expect(wls.Items).To(gomega.HaveLen(1))
+					wl = wls.Items[0]
+					g.Expect(metav1.IsControlledBy(&wl, owner)).To(gomega.BeTrue())
+					g.Expect(workload.Status(&wl)).To(gomega.Equal(workload.StatusQuotaReserved))
+					head := slices.IndexFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return ps.Name == "head" })
+					g.Expect(head).NotTo(gomega.Equal(-1))
+					containers := wl.Spec.PodSets[head].Template.Spec.Containers
+					sidecar := slices.IndexFunc(containers, func(c corev1.Container) bool { return c.Name == sidecarName })
+					g.Expect(sidecar).NotTo(gomega.Equal(-1))
+					headSidecar = containers[sidecar]
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				wlKey = client.ObjectKeyFromObject(&wl)
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey := types.NamespacedName{
+					Namespace: wlKey.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Fails fast with the PodTemplate creation error instead of timing out on a NotFound for the ProvisioningRequest.
+					if strings.Contains(check.Message, "Error creating PodTemplate") {
+						gomega.StopTrying("PodTemplate creation failed: " + check.Message).Now()
+					}
+					g.Expect(k8sClient.Get(ctx, provReqKey, &provReq)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the head PodTemplate keeps the sidecar with the Ray head image", func() {
+				// Without a PodSetMergePolicy each PodSet gets its own PodTemplate,
+				// named after the PodSet.
+				head := slices.IndexFunc(provReq.Spec.PodSets, func(ps autoscaling.PodSet) bool {
+					return strings.HasSuffix(ps.PodTemplateRef.Name, "-head")
+				})
+				gomega.Expect(head).NotTo(gomega.Equal(-1))
+				var template corev1.PodTemplate
+				templateKey := types.NamespacedName{Namespace: ns.Name, Name: provReq.Spec.PodSets[head].PodTemplateRef.Name}
+				gomega.Expect(k8sClient.Get(ctx, templateKey, &template)).Should(gomega.Succeed())
+				gomega.Expect(template.Template.Spec.Containers).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Name", sidecarName),
+					gomega.HaveField("Image", rayImage),
+					gomega.HaveField("Resources.Requests", gomega.BeComparableTo(headSidecar.Resources.Requests)),
+				)))
+			})
+		}
+
+		ginkgo.It("Should create the ProvisioningRequest for a RayCluster with in-tree autoscaling", func() {
+			// Kueue accepts in-tree autoscaling only for elastic RayClusters.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			rc := testingraycluster.MakeCluster("raycluster", ns.Name).
+				Queue(lq.Name).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithEnableAutoscaling(new(true)).
+				Image(rayv1.HeadNode, rayImage, nil).
+				Image(rayv1.WorkerNode, rayImage, nil).
+				RequestHead(corev1.ResourceCPU, "100m").
+				RequestWorkerGroup(corev1.ResourceCPU, "100m").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rc)
+
+			expectHeadSidecarInProvisioningRequest(rc, "autoscaler")
+		})
+
+		ginkgo.It("Should create the ProvisioningRequest for a RayJob in SidecarMode", func() {
+			rj := testingrayjob.MakeJob("rayjob", ns.Name).
+				Queue(lq.Name).
+				WithSubmissionMode(rayv1.SidecarMode).
+				Entrypoint("python -c 'print(1)'").
+				Image(rayv1.HeadNode, rayImage).
+				Image(rayv1.WorkerNode, rayImage).
+				RequestHead(corev1.ResourceCPU, "100m").
+				RequestWorkerGroup(corev1.ResourceCPU, "100m").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rj)
+
+			expectHeadSidecarInProvisioningRequest(rj, "ray-job-submitter")
+		})
+
+		ginkgo.It("Should replace a legacy reserved Workload with an empty submitter image for a suspended RayJob", func() {
+			// Without the queue-name label Kueue ignores the RayJob, so the test can
+			// create the Workload an older Kueue version built for it.
+			rj := testingrayjob.MakeJob("rayjob", ns.Name).
+				Suspend(true).
+				WithSubmissionMode(rayv1.SidecarMode).
+				Entrypoint("python -c 'print(1)'").
+				Image(rayv1.HeadNode, rayImage).
+				Image(rayv1.WorkerNode, rayImage).
+				RequestHead(corev1.ResourceCPU, "100m").
+				RequestWorkerGroup(corev1.ResourceCPU, "100m").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rj)
+			podSets, err := (*workloadrayjob.RayJob)(rj).PodSets(ctx, k8sClient)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(podSets[0].Name).To(gomega.Equal(kueue.PodSetReference("head")))
+			submitter := slices.IndexFunc(podSets[0].Template.Spec.Containers, func(c corev1.Container) bool { return c.Name == "ray-job-submitter" })
+			gomega.Expect(submitter).NotTo(gomega.Equal(-1))
+			podSets[0].Template.Spec.Containers[submitter].Image = ""
+			legacyWl := utiltestingapi.MakeWorkload("legacy", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ControllerReference(rayv1.GroupVersion.WithKind("RayJob"), rj.Name, string(rj.UID)).
+				PodSets(podSets...).
+				Obj()
+
+			ginkgo.By("create the legacy Workload and await for it to be stuck on the ProvisioningRequest check", func() {
+				behavioral.MustCreate(ctx, k8sClient, legacyWl)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(legacyWl), legacyWl)).To(gomega.Succeed())
+					g.Expect(workload.Status(legacyWl)).To(gomega.Equal(workload.StatusQuotaReserved))
+					check := admissioncheck.FindAdmissionCheck(legacyWl.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					g.Expect(check.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(check.Message).To(gomega.ContainSubstring("image: Required value"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("add the queue-name label to the RayJob and await for the legacy Workload to be deleted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rj), rj)).To(gomega.Succeed())
+					metav1.SetMetaDataLabel(&rj.ObjectMeta, controllerconstants.QueueLabel, lq.Name)
+					g.Expect(k8sClient.Update(ctx, rj)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(legacyWl), &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			expectHeadSidecarInProvisioningRequest(rj, "ray-job-submitter")
+
+			ginkgo.By("check the replacement Workload is kept", func() {
+				var wls kueue.WorkloadList
+				gomega.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gomega.Expect(wls.Items).To(gomega.HaveLen(1))
+				uid := wls.Items[0].UID
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, &wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(wls.Items).To(gomega.ConsistOf(gomega.HaveField("UID", uid)))
+				}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

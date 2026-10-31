@@ -82,11 +82,12 @@ var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
 
-func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	opts := LegacySidecarImageOptions(j, wl)
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+		opts = append(opts, equality.WithIgnoreTopologyIndexLabels())
 	}
-	return nil
+	return opts
 }
 
 func (j *RayCluster) Object() client.Object {
