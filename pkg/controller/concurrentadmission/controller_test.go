@@ -2863,3 +2863,27 @@ func TestCreateVariantsAlreadyExists(t *testing.T) {
 		t.Fatalf("pre-existing variant should still exist: %v", err)
 	}
 }
+
+func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
+	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+		Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+		Annotation("example.com/key", "value").
+		Obj()
+	original := parent.DeepCopy()
+
+	spot := generateVariant(parent, "spot")
+	onDemand := generateVariant(parent, "on-demand")
+
+	if diff := cmp.Diff(original.ObjectMeta, parent.ObjectMeta); diff != "" {
+		t.Errorf("generateVariant() modified the parent metadata (-want,+got):\n%s", diff)
+	}
+	if got := concurrentadmission.GetVariantFlavor(spot); got != "spot" {
+		t.Errorf("spot variant flavor = %q, want %q", got, "spot")
+	}
+	if got := concurrentadmission.GetVariantFlavor(onDemand); got != "on-demand" {
+		t.Errorf("on-demand variant flavor = %q, want %q", got, "on-demand")
+	}
+	if _, found := spot.Labels[constants.ConcurrentAdmissionParentLabelKey]; found {
+		t.Errorf("spot variant has the %q label", constants.ConcurrentAdmissionParentLabelKey)
+	}
+}
