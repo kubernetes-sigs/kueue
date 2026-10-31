@@ -309,6 +309,18 @@ func TestScheduleForTAS(t *testing.T) {
 			Ready().
 			Obj(),
 	}
+	defaultSingleGPUNode := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				"example.com/gpu":   resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
 
 	//        b1                   b2
 	//     /      \             /      \
@@ -447,10 +459,24 @@ func TestScheduleForTAS(t *testing.T) {
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-three-level").
 		Obj()
+	tasGPUFlavor := *utiltestingapi.MakeResourceFlavor("tas-gpu").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
 	defaultClusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 			Resource(corev1.ResourceCPU, "50").
 			Resource(corev1.ResourceMemory, "50Gi").Obj()).
+		Obj()
+	splitTASAndNonTASClusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "50").Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("tas-gpu").
+				Resource("example.com/gpu", "50").Obj(),
+		).
 		Obj()
 	defaultProvCheck := *utiltestingapi.MakeAdmissionCheck("prov-check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
@@ -3586,15 +3612,9 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"unannotated workload gets implicit TAS when all flavors across resource groups use TAS": {
-			nodes:      defaultSingleNode,
-			topologies: []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{
-				defaultTASFlavor,
-				*utiltestingapi.MakeResourceFlavor("tas-gpu").
-					NodeLabel("tas-node", "true").
-					TopologyName("tas-single-level").
-					Obj(),
-			},
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, tasGPUFlavor},
 			clusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("tas-main").
 					ResourceGroup(
@@ -3828,12 +3848,14 @@ func TestScheduleForTAS(t *testing.T) {
 					Ready().
 					Obj(),
 			},
-			topologies: []kueue.Topology{defaultSingleLevelTopology,
+			topologies: []kueue.Topology{
+				defaultSingleLevelTopology,
 				*utiltestingapi.MakeTopology("tas-custom-topology").
 					Levels("cloud.com/custom-level").
 					Obj(),
 			},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor,
+			resourceFlavors: []kueue.ResourceFlavor{
+				defaultTASFlavor,
 				*utiltestingapi.MakeResourceFlavor("tas-custom-flavor").
 					NodeLabel("tas-node", "true").
 					TopologyName("tas-custom-topology").
@@ -5295,38 +5317,10 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with pod requests split across non-TAS and TAS resource groups fails with TAS annotation": {
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label("tas-node", "true").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						"example.com/gpu":   resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			topologies: []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{
-				defaultFlavor,
-				*utiltestingapi.MakeResourceFlavor("tas-gpu").
-					NodeLabel("tas-node", "true").
-					TopologyName("tas-single-level").
-					Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltestingapi.MakeClusterQueue("tas-main").
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("default").
-							Resource(corev1.ResourceCPU, "50").Obj(),
-					).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("tas-gpu").
-							Resource("example.com/gpu", "50").Obj(),
-					).
-					Obj(),
-			},
+			nodes:           defaultSingleGPUNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultFlavor, tasGPUFlavor},
+			clusterQueues:   []kueue.ClusterQueue{splitTASAndNonTASClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
@@ -5347,38 +5341,10 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 		},
 		"workload with pod requests split across non-TAS and TAS resource groups fails without TAS annotation": {
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("x1").
-					Label("tas-node", "true").
-					Label(corev1.LabelHostname, "x1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("1"),
-						"example.com/gpu":   resource.MustParse("1"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			topologies: []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{
-				defaultFlavor,
-				*utiltestingapi.MakeResourceFlavor("tas-gpu").
-					NodeLabel("tas-node", "true").
-					TopologyName("tas-single-level").
-					Obj(),
-			},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltestingapi.MakeClusterQueue("tas-main").
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("default").
-							Resource(corev1.ResourceCPU, "50").Obj(),
-					).
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("tas-gpu").
-							Resource("example.com/gpu", "50").Obj(),
-					).
-					Obj(),
-			},
+			nodes:           defaultSingleGPUNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultFlavor, tasGPUFlavor},
+			clusterQueues:   []kueue.ClusterQueue{splitTASAndNonTASClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
