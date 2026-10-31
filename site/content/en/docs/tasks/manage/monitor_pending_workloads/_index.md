@@ -2,7 +2,7 @@
 
 title: "Monitor pending Workloads"
 linkTitle: "Monitor pending Workloads"
-weight: 3
+weight: 60
 date: 2023-12-05
 description: >
   How to monitor pending Workloads

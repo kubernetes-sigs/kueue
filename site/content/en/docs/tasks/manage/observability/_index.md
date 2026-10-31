@@ -1,7 +1,7 @@
 ---
 title: "Observability"
 linkTitle: "Observability"
-weight: 5
+weight: 80
 date: 2026-02-04
 description: >
   Monitor Kueue with Prometheus metrics

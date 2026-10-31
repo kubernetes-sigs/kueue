@@ -1,7 +1,7 @@
 ---
 title: "Administer Cluster Quotas"
 date: 2022-03-14
-weight: 2
+weight: 40
 description: >
   Manage your cluster resource quotas.
 ---

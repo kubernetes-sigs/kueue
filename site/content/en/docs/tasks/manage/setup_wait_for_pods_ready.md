@@ -1,7 +1,7 @@
 ---
 title: "Setup All-or-nothing with ready Pods"
 date: 2022-03-14
-weight: 5
+weight: 90
 description: >
   Default implementation of the All-or-nothing scheduling
 ---

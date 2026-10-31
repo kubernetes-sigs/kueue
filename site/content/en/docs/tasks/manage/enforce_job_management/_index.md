@@ -1,6 +1,6 @@
 ---
 title: "Enforce Kueue Management of Workloads"
-weight: 1
+weight: 20
 date: 2024-03-22
 description: >
   As a _batch administrator_, you may want to configure Kueue to ensure that all Workloads created by
