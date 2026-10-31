@@ -570,7 +570,7 @@ func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 	for ancestor := range c.Parent().PathSelfToRoot() {
 		count := ancestor.admittedWorkloadsCount
 		if len(clVals) > 0 {
-			count = ancestor.admittedWorkloadsMatchingLabels(clVals)
+			count = ancestor.admittedWorkloadsInCQsWithLabels(clVals)
 		}
 		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, count, clVals, c.roleTracker)
 	}

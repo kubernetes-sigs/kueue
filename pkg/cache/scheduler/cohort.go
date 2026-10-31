@@ -125,9 +125,9 @@ func (c *cohort) updateAdmittedWorkloadsCount(delta int) {
 	}
 }
 
-// admittedWorkloadsMatchingLabels counts only ClusterQueues whose custom labels
+// admittedWorkloadsInCQsWithLabels counts only ClusterQueues whose custom labels
 // equal clVals, so summing a Cohort's series equals the real subtree count.
-func (c *cohort) admittedWorkloadsMatchingLabels(clVals []string) int {
+func (c *cohort) admittedWorkloadsInCQsWithLabels(clVals []string) int {
 	seen := make(map[*cohort]struct{})
 	var walk func(*cohort) int
 	walk = func(ch *cohort) int {
