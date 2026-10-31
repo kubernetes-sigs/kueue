@@ -21,6 +21,7 @@ import (
 	"maps"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -964,26 +965,48 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 
 func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
 	modePath := field.NewPath("metrics", "accessControlMode")
+	caPath := field.NewPath("metrics", "clientCAFile")
 	if !features.Enabled(features.MetricsAccessControl) {
+		var allErrs field.ErrorList
 		if metrics.AccessControlMode != nil {
-			return field.ErrorList{field.Forbidden(modePath, "requires the MetricsAccessControl feature gate")}
+			allErrs = append(allErrs, field.Forbidden(modePath, "requires the MetricsAccessControl feature gate"))
 		}
-		return nil
+		if metrics.ClientCAFile != nil {
+			allErrs = append(allErrs, field.Forbidden(caPath, "requires the MetricsAccessControl feature gate"))
+		}
+		return allErrs
 	}
 	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
-	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone {
+	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone && mode != configapi.MetricsAccessControlModeClientCertificateOrBearer {
 		return field.ErrorList{field.NotSupported(modePath, mode, []configapi.MetricsAccessControlMode{
-			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone,
+			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone, configapi.MetricsAccessControlModeClientCertificateOrBearer,
 		})}
 	}
-	if mode != configapi.MetricsAccessControlModeNone || metrics.BindAddress == "0" {
-		return nil
+	if mode == configapi.MetricsAccessControlModeClientCertificateOrBearer {
+		return validateMetricsClientCA(metrics.ClientCAFile)
 	}
 	var allErrs field.ErrorList
+	if metrics.ClientCAFile != nil {
+		allErrs = append(allErrs, field.Forbidden(caPath, "only supported in ClientCertificateOrBearer mode"))
+	}
+	if mode != configapi.MetricsAccessControlModeNone || metrics.BindAddress == "0" {
+		return allErrs
+	}
 	address, err := netip.ParseAddrPort(metrics.BindAddress)
 	if err != nil || !address.Addr().Unmap().IsLoopback() || address.Port() == 0 {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("metrics", "bindAddress"), metrics.BindAddress,
 			"accessControlMode None requires a literal loopback IP and numeric port in the range 1–65535 (for example 127.0.0.1:8443 or [::1]:8443); use Delegated for other addresses"))
 	}
 	return allErrs
+}
+
+func validateMetricsClientCA(path *string) field.ErrorList {
+	caPath := field.NewPath("metrics", "clientCAFile")
+	if path == nil {
+		return field.ErrorList{field.Required(caPath, "ClientCertificateOrBearer requires a public client-CA bundle")}
+	}
+	if *path == "" || strings.TrimSpace(*path) != *path || !filepath.IsAbs(*path) {
+		return field.ErrorList{field.Invalid(caPath, *path, "must be a nonempty absolute path without surrounding whitespace")}
+	}
+	return nil
 }
