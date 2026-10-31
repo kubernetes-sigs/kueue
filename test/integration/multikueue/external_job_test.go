@@ -23,9 +23,14 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -39,11 +44,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -147,6 +155,11 @@ var _ = ginkgo.Describe(
 						for _, adapter := range externalAdapters {
 							gvk := adapter.GVK()
 							adapters[gvk.String()] = adapter
+						}
+						batchAdapters, err := jobcontrollers.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						for kind, adapter := range batchAdapters {
+							adapters[kind] = adapter
 						}
 
 						err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
@@ -608,6 +621,76 @@ var _ = ginkgo.Describe(
 					})
 				},
 			)
+			ginkgo.It("Should keep an admitted Batch Job running when the RayJob watch cannot be re-established", func() {
+				job := testingjob.MakeJob("batch-job", managerNs.Name).
+					Queue(kueue.LocalQueueName(managerLq.Name)).
+					Obj()
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+					Namespace: managerNs.Name,
+				}
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+					Obj()
+				integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+				behavioral.ExpectAdmissionCheckStateWithMessage(
+					managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+					multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
+				)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).
+						To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				rayJobCRD := &unstructured.Unstructured{}
+				rayJobCRD.SetGroupVersionKind(schema.GroupVersionKind{
+					Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition",
+				})
+				rayJobCRD.SetName("rayjobs.ray.io")
+				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(rayJobCRD), rayJobCRD)).
+					To(gomega.Succeed())
+				restoredCRD := rayJobCRD.DeepCopy()
+				restoredCRD.SetResourceVersion("")
+				restoredCRD.SetUID("")
+				restoredCRD.SetGeneration(0)
+				restoredCRD.SetCreationTimestamp(metav1.Time{})
+				restoredCRD.SetManagedFields(nil)
+				restoredCRD.SetFinalizers(nil)
+				unstructured.RemoveNestedField(restoredCRD.Object, "status")
+				ginkgo.DeferCleanup(func() {
+					gomega.Expect(worker1TestCluster.client.Create(worker1TestCluster.ctx, restoredCRD)).To(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						currentCRD := &unstructured.Unstructured{}
+						currentCRD.SetGroupVersionKind(restoredCRD.GroupVersionKind())
+						g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(restoredCRD), currentCRD)).
+							To(gomega.Succeed())
+						conditions, found, err := unstructured.NestedSlice(currentCRD.Object, "status", "conditions")
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(found).To(gomega.BeTrue())
+						g.Expect(conditions).To(gomega.ContainElement(gomega.And(
+							gomega.HaveKeyWithValue("type", "Established"),
+							gomega.HaveKeyWithValue("status", "True"),
+						)))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+				gomega.Expect(worker1TestCluster.client.Delete(worker1TestCluster.ctx, rayJobCRD)).To(gomega.Succeed())
+				gomega.Eventually(func() bool {
+					return apierrors.IsNotFound(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(rayJobCRD), &unstructured.Unstructured{}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeTrue())
+
+				expectNoEviction([]types.NamespacedName{wlLookupKey}, multiKueueAC.Name, testingWorkerLostTimeout*2)
+				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).
+					To(gomega.Succeed())
+			})
+
 		})
 	},
 )
