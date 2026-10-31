@@ -67,6 +67,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 const (
@@ -1632,8 +1633,8 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	}
 
 	// Find a matching workload first if there is one.
-	workload := &kueue.Workload{}
-	if err := c.Get(ctx, types.NamespacedName{Name: groupName, Namespace: p.pod.GetNamespace()}, workload); err != nil {
+	wl := &kueue.Workload{}
+	if err := c.Get(ctx, types.NamespacedName{Name: groupName, Namespace: p.pod.GetNamespace()}, wl); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
@@ -1644,9 +1645,9 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	// Only adopt Workloads created by the pod-group framework. Refuse without putting the
 	// foreign Workload in toDelete, or the reconciler would delete the victim's Workload.
 	if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
-		workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue {
+		wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue {
 		log.V(4).Info("Existing workload with the pod group name was not created by the pod group framework; refusing adoption",
-			"workload", klog.KObj(workload))
+			"workload", klog.KObj(wl))
 		r.Eventf(&p.pod, nil, corev1.EventTypeWarning, ReasonWorkloadNameConflict, "Admission",
 			"A Workload named %q already exists but is not a pod group workload; this pod group cannot be admitted", groupName)
 		// A refused group is never ungated, so its pods stay gated and unschedulable. Without
@@ -1660,8 +1661,8 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	}
 
 	defaultDuration := int32(-1)
-	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
-		return nil, []*kueue.Workload{workload}, nil
+	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
+		return nil, []*kueue.Workload{wl}, nil
 	}
 
 	// Cleanup excess pods for each workload pod set (role)
@@ -1671,8 +1672,9 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
 	var replacedInactivePods []corev1.Pod
+	matchedActivePods := make(sets.Set[types.UID], len(activePods))
 
-	for _, ps := range workload.Spec.PodSets {
+	for _, ps := range wl.Spec.PodSets {
 		// Find all the active and inactive pods of the role
 		var roleHashErrors []error
 		hasRoleFunc := func(p *corev1.Pod) bool {
@@ -1687,6 +1689,9 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
 			return nil, nil, errRoleHashCalculation(roleHashErrors)
+		}
+		for _, pod := range roleActivePods {
+			matchedActivePods.Insert(pod.GetUID())
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
@@ -1708,13 +1713,46 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		}
 	}
 
-	jobPodSets, err := constructGroupPodSets(keptPods, podSetReferenceOrder(workload.Spec.PodSets))
+	jobPodSets, err := constructGroupPodSets(keptPods, podSetReferenceOrder(wl.Spec.PodSets))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(keptPods) == 0 || !p.equivalentToWorkload(workload, jobPodSets) {
-		return nil, []*kueue.Workload{workload}, nil
+	if len(keptPods) == 0 || !p.equivalentToWorkload(wl, jobPodSets) {
+		return nil, []*kueue.Workload{wl}, nil
+	}
+
+	// Active pods whose role hashes are absent from the workload's PodSets are
+	// neither kept nor cleaned up, so they would remain gated while the workload
+	// keeps its quota reservation. This can happen when a fast-admission group
+	// gains a pod with a different role hash after its workload was created.
+	if p.fastAdmission() {
+		unmatchedPods := unmatchedActivePods(activePods, matchedActivePods)
+		if len(unmatchedPods) > 0 {
+			declaredPodCount := 0
+			for _, ps := range wl.Spec.PodSets {
+				declaredPodCount += int(ps.Count)
+			}
+
+			if len(matchedActivePods) >= declaredPodCount {
+				excessActivePods = append(excessActivePods, unmatchedPods...)
+			} else if workload.IsActive(wl) {
+				pod := &unmatchedPods[0]
+				roleHash, err := getRoleHash(*pod)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+				}
+				msg := fmt.Sprintf(
+					"pod %q role hash %q does not match any role in the group workload %q",
+					pod.Name, roleHash, groupName,
+				)
+				if err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, p.clock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetDeactivationTarget(wl, jobframework.ReasonErrWorkloadCompose, api.TruncateConditionMessage(msg)), nil
+				}); err != nil {
+					return nil, nil, fmt.Errorf("failed to deactivate workload for pod role hash mismatch: %w", err)
+				}
+			}
+		}
 	}
 
 	// Do not clean up more pods until observing previous operations
@@ -1724,7 +1762,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 
 	p.absentPods = absentPods
 	p.list.Items = keptPods
-	if err := p.EnsureWorkloadOwnedByAllMembers(ctx, c, r, workload); err != nil {
+	if err := p.EnsureWorkloadOwnedByAllMembers(ctx, c, r, wl); err != nil {
 		return nil, nil, err
 	}
 
@@ -1735,7 +1773,17 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	if err := p.finalizePods(ctx, c, replacedInactivePods); err != nil {
 		return nil, nil, err
 	}
-	return workload, []*kueue.Workload{}, nil
+	return wl, []*kueue.Workload{}, nil
+}
+
+func unmatchedActivePods(activePods []corev1.Pod, matchedActivePods sets.Set[types.UID]) []corev1.Pod {
+	var unmatched []corev1.Pod
+	for i := range activePods {
+		if !matchedActivePods.Has(activePods[i].GetUID()) {
+			unmatched = append(unmatched, activePods[i])
+		}
+	}
+	return unmatched
 }
 
 func (p *Pod) countAbsentPods(ps kueue.PodSet, activePods int) int {
