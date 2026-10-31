@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1426,6 +1428,103 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			})
 			if len(gotBeta) == 0 {
 				t.Errorf("Expected custom_team_lq=beta series to be reported")
+			}
+		})
+	}
+}
+
+func TestLocalQueueDeleteWithConcurrentFinish(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	// Delete drops the custom label values before it takes the queue manager
+	// lock, which gives the test a point to wait for.
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	testCases := map[string]struct {
+		stopPolicy kueue.StopPolicy
+	}{
+		"active LocalQueue": {
+			stopPolicy: kueue.None,
+		},
+		"LocalQueue on Hold": {
+			stopPolicy: kueue.Hold,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cLabels := kueuemetrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
+			})
+			t.Cleanup(func() { kueuemetrics.InitMetricVectors(nil) })
+
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue(cq.Name).
+				Label("team", "a").
+				StopPolicy(tc.stopPolicy).
+				Obj()
+			wl := utiltestingapi.MakeWorkload("wl", "default").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).Obj(), time.Now()).
+				Obj()
+
+			cl := utiltesting.NewClientBuilder().WithObjects(cq, lq).WithStatusSubresource(cq, lq).Build()
+			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: labels.Everything(),
+			}
+			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels), schdcache.WithLocalQueueMetrics(lqMetrics))
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithCustomLabels(cLabels),
+				qcache.WithLocalQueueMetrics(lqMetrics),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to manager: %v", err)
+			}
+
+			r := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithCustomLabels(cLabels),
+				WithLocalQueueMetrics(lqMetrics),
+			)
+			wlReconciler := NewWorkloadReconciler(cl, qManager, cqCache, nil, WithWorkloadCustomLabels(cLabels))
+
+			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+
+			// Hold the queue manager lock so that Delete stops before
+			// Manager.DeleteLocalQueue, while the LocalQueue is still in the cache.
+			qManager.Lock()
+			deleted := make(chan struct{})
+			go func() {
+				r.Delete(event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq})
+				close(deleted)
+			}()
+
+			lqKey := string(utilqueue.Key(lq))
+			err := wait.PollUntilContextTimeout(ctx, time.Millisecond, wait.ForeverTestTimeout, true, func(context.Context) (bool, error) {
+				return !slices.Contains(cLabels.StoredRefsForTest(config.SourceKindLocalQueue), lqKey), nil
+			})
+			lbls := map[string]string{"name": lq.Name, "namespace": lq.Namespace}
+			var recorded []utiltestingmetrics.MetricDataPoint
+			if err == nil {
+				wlReconciler.reportFinishedWorkload(log, wl)
+				recorded = utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueFinishedWorkloadsTotal, lbls)
+			}
+			qManager.Unlock()
+			<-deleted
+
+			if err != nil {
+				t.Fatalf("Waiting for Delete to drop the custom label values: %v", err)
+			}
+			if len(recorded) == 0 {
+				t.Fatal("The finished workloads counter was not recorded during Delete")
+			}
+			if got := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueueFinishedWorkloadsTotal, lbls); len(got) != 0 {
+				t.Errorf("Unexpected finished workloads counter after Delete: %v", got)
 			}
 		})
 	}
