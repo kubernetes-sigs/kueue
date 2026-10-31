@@ -123,7 +123,7 @@ var _ admission.Validator[*rayv1.RayCluster] = &RayClusterWebhook{}
 func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayCluster) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func isAnElasticJob(job *rayv1.RayCluster) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCluster, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCluster, maxTimeoutOnWorkload *metav1.Duration, oldJob *rayv1.RayCluster) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
 
@@ -151,7 +151,11 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob)
+		var oldKueueJob *RayCluster
+		if oldJob != nil {
+			oldKueueJob = (*RayCluster)(oldJob)
+		}
+		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob, oldKueueJob)
 		if err != nil {
 			return nil, err
 		}
@@ -199,11 +203,18 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 	return allErrors
 }
 
-func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob *RayCluster) (field.ErrorList, error) {
+func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob, oldRayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, rayJob, nil)
+
+	var oldHeadGroupMeta *metav1.ObjectMeta
+	if oldRayJob != nil {
+		oldHeadGroupMeta = &oldRayJob.Spec.HeadGroupSpec.Template.ObjectMeta
+	}
+
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(headGroupMetaPath, &rayJob.Spec.HeadGroupSpec.Template.ObjectMeta, oldHeadGroupMeta)...)
 	if podSetsErr == nil {
 		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(&rayJob.Spec, headGroupMetaPath, workerGroupSpecsPath))...)
 		for i, p := range podSets {
@@ -213,7 +224,17 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 			default:
 				// the raycluster PodSets function places the worker podsets from index 1
 				workerGroupMetaPath := workerGroupSpecsPath.Index(i-1).Child("template", "metadata")
+				var oldWorkerGroupMeta *metav1.ObjectMeta
+				if oldRayJob != nil {
+					for j := range oldRayJob.Spec.WorkerGroupSpecs {
+						if oldRayJob.Spec.WorkerGroupSpecs[j].GroupName == string(p.Name) {
+							oldWorkerGroupMeta = &oldRayJob.Spec.WorkerGroupSpecs[j].Template.ObjectMeta
+							break
+						}
+					}
+				}
 				allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &p.Template.ObjectMeta)...)
+				allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerGroupMetaPath, &p.Template.ObjectMeta, oldWorkerGroupMeta)...)
 				allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &p.Template.ObjectMeta, &p)...)
 			}
 		}
@@ -236,7 +257,7 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil, oldObj)
 	if err != nil {
 		return nil, err
 	}

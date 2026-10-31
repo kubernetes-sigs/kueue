@@ -129,7 +129,7 @@ var _ admission.Validator[*rayv1.RayService] = &RayServiceWebhook{}
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayService) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration, oldJob *rayv1.RayService) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
@@ -165,7 +165,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, job)
+		validationErrs, err := w.validateTopologyRequest(ctx, job, oldJob)
 		if err != nil {
 			return nil, err
 		}
@@ -196,9 +196,13 @@ func validateUpgradeStrategy(job *rayv1.RayService) field.ErrorList {
 	)}
 }
 
-func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService, oldRayService *rayv1.RayService) (field.ErrorList, error) {
 	job := (*RayService)(rayService)
-	return raycluster.ValidateTopologyRequest(ctx, w.client, job, &rayService.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
+	var oldRayClusterSpec *rayv1.RayClusterSpec
+	if oldRayService != nil {
+		oldRayClusterSpec = &oldRayService.Spec.RayClusterSpec
+	}
+	return raycluster.ValidateTopologyRequest(ctx, w.client, job, &rayService.Spec.RayClusterSpec, oldRayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -211,7 +215,7 @@ func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil, oldObj)
 	if err != nil {
 		return nil, err
 	}

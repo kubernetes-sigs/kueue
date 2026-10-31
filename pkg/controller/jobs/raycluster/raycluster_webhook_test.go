@@ -644,6 +644,13 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+	withPreferredTopology := func(c *rayv1.RayCluster, level string) *rayv1.RayCluster {
+		c.Spec.HeadGroupSpec.Template.Annotations = map[string]string{
+			kueue.PodSetPreferredTopologyAnnotation: level,
+		}
+		return c
+	}
+
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayCluster
 		newJob               *rayv1.RayCluster
@@ -751,6 +758,61 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("queue").
 				WorkloadPriorityClass("test-2").
 				Obj(),
+		},
+		"unchanged preferred topology request is accepted with scheduler library deep integration": {
+			oldJob: withPreferredTopology(testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Obj(), "cloud.com/block"),
+			newJob: withPreferredTopology(testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Label("test-label", "test-value").
+				Obj(), "cloud.com/block"),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			wantErr: nil,
+		},
+		"changed preferred topology request is rejected with scheduler library deep integration": {
+			oldJob: withPreferredTopology(testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Obj(), "cloud.com/block"),
+			newJob: withPreferredTopology(testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Obj(), "cloud.com/rack"),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					headGroupMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported when the SchedulerLibraryDeepIntegration feature gate is enabled",
+				),
+			}.ToAggregate(),
+		},
+		"reordered worker groups keep unchanged preferred topology requests accepted": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("workers-a", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+					*testingrayutil.MakeWorkerGroup("workers-b", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").Obj(),
+				).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("workers-b", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").Obj(),
+					*testingrayutil.MakeWorkerGroup("workers-a", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+				).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			wantErr: nil,
 		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").

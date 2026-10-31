@@ -463,7 +463,7 @@ func ValidateTopologyRequest(
 	ctx context.Context,
 	c client.Client,
 	job jobframework.GenericJob,
-	rayClusterSpec *rayv1.RayClusterSpec,
+	rayClusterSpec, oldRayClusterSpec *rayv1.RayClusterSpec,
 	headGroupMetaPath, workerGroupSpecsPath *field.Path,
 ) (field.ErrorList, error) {
 	var allErrs field.ErrorList
@@ -473,7 +473,13 @@ func ValidateTopologyRequest(
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, job, c)
 
+	var oldHeadGroupMeta *metav1.ObjectMeta
+	if oldRayClusterSpec != nil {
+		oldHeadGroupMeta = &oldRayClusterSpec.HeadGroupSpec.Template.ObjectMeta
+	}
+
 	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+	allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, oldHeadGroupMeta)...)
 
 	if podSetsErr == nil {
 		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
@@ -483,7 +489,17 @@ func ValidateTopologyRequest(
 
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
 		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		var oldWorkerGroupMeta *metav1.ObjectMeta
+		if oldRayClusterSpec != nil {
+			for j := range oldRayClusterSpec.WorkerGroupSpecs {
+				if oldRayClusterSpec.WorkerGroupSpecs[j].GroupName == wgs.GroupName {
+					oldWorkerGroupMeta = &oldRayClusterSpec.WorkerGroupSpecs[j].Template.ObjectMeta
+					break
+				}
+			}
+		}
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, oldWorkerGroupMeta)...)
 
 		if podSetsErr != nil {
 			continue
