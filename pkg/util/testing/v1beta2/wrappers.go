@@ -1890,6 +1890,14 @@ func (pr *ProvisioningRequestWrapper) Label(k, v string) *ProvisioningRequestWra
 	return pr
 }
 
+func (pr *ProvisioningRequestWrapper) Annotation(k, v string) *ProvisioningRequestWrapper {
+	if pr.Annotations == nil {
+		pr.Annotations = make(map[string]string)
+	}
+	pr.Annotations[k] = v
+	return pr
+}
+
 func (pr *ProvisioningRequestWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *ProvisioningRequestWrapper {
 	AppendOwnerReference(&pr.ProvisioningRequest, gvk, name, uid, nil, nil)
 	return pr
