@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +309,40 @@ func TestAssignFlavors(t *testing.T) {
 		"single flavor, fits tainted flavor with toleration": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("taint_and_toleration").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj(),
+
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "taint_and_toleration", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Count: 1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "taint_and_toleration", Mode: Fit},
+					},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				}}},
+			},
+		},
+		"single flavor, fits tainted flavor with toleration, PodSet tolerations have spare capacity": {
+			wlPods: []kueue.PodSet{
+				withSpareTolerationCapacity(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Toleration(corev1.Toleration{Key: "other", Operator: corev1.TolerationOpExists}).
+					Obj()),
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -5211,6 +5246,13 @@ func TestAssignFlavors(t *testing.T) {
 				}, tc.infoOptions...)
 				wlInfo.FlavorScanState = tc.flavorScanState
 
+				// cmp only compares up to len, so a write into spare capacity is invisible to a Workload diff.
+				tolerationsBefore := make([][]corev1.Toleration, len(tc.wlPods))
+				for i := range tc.wlPods {
+					ts := tc.wlPods[i].Template.Spec.Tolerations
+					tolerationsBefore[i] = slices.Clone(ts[:cap(ts)])
+				}
+
 				cache := schdcache.New(utiltesting.NewFakeClient())
 				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 					t.Fatalf("Failed to add CQ to cache")
@@ -5294,9 +5336,23 @@ func TestAssignFlavors(t *testing.T) {
 				}
 
 				flexAssertConsidered(t, tc.wantAssignment, assignment, cmpOpts...)
+
+				for i := range tc.wlPods {
+					ts := tc.wlPods[i].Template.Spec.Tolerations
+					if diff := cmp.Diff(tolerationsBefore[i], ts[:cap(ts)]); diff != "" {
+						t.Errorf("AssignFlavors wrote into the tolerations of PodSet %d (-before,+after):\n%s", i, diff)
+					}
+				}
 			})
 		}
 	}
+}
+
+// withSpareTolerationCapacity leaves room past len in the PodSet's tolerations,
+// where an append to them would write without reallocating.
+func withSpareTolerationCapacity(ps kueue.PodSet) kueue.PodSet {
+	ps.Template.Spec.Tolerations = slices.Grow(ps.Template.Spec.Tolerations, 1)
+	return ps
 }
 
 // We have 3 flavors: uno, due, tre. Each has 10 compute and 10 gpu.
