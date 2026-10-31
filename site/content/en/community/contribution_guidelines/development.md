@@ -76,6 +76,20 @@ make fmt
 make verify
 ```
 
+For local iteration, choose the scopes relevant to the changed inputs, for example:
+
+```shell
+make verify-go
+# Also build the CLI when production CLI code or its dependencies change.
+make verify-cli
+```
+
+These targets do not automatically select work from the Git diff. Run relevant
+generators before checks, review their output, and run application tests separately.
+Use `make verify` for build-system changes or when the required scope is uncertain.
+See [CONTRIBUTING.md](https://github.com/kubernetes-sigs/kueue/blob/main/CONTRIBUTING.md#verification-for-local-changes)
+for the available targets and guidance on choosing checks.
+
 Run individual phases:
 ```shell
 # Phase 1 only: regenerate all checked-in artifacts

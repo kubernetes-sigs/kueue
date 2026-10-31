@@ -48,6 +48,43 @@ If your repo has certain guidelines for contribution, put them here ahead of the
   - **Just run checks**: `make verify-checks`
   - **Common single checks**: `make ci-lint`, `make fmt-verify`, `make helm-verify`, `make helm-unit-test`, `make toc-verify`, `make shell-lint`, `make npm-depcheck`
 
+
+### Verification for local changes
+
+Choose the targets that cover the inputs changed by your PR. These targets do
+not inspect the Git diff or automatically select other scopes.
+
+| Command | Scope |
+| --- | --- |
+| `make verify-go` | Go lint and formatting, without unrelated generation |
+| `make verify-api` | API code, docs and CRD generation, then Go/API checks |
+| `make verify-cli` | CLI binaries and archives for `CLI_PLATFORMS` |
+| `make verify-manifests` | Helm and manifest artifacts, without CLI compilation |
+| `make verify-helm` | Helm rendering and chart unit tests |
+| `make verify-docs` | Hugo version synchronization and KEP TOCs |
+| `make verify-scripts` | ShellCheck and shell helper tests |
+
+For example, a scheduler change usually needs `make verify-go` and relevant Go
+tests. Run `make verify-cli` when changing CLI production code or its dependencies,
+including shared packages, platform-specific files, module dependencies, the
+license, or the CLI build script. Checking only `cmd/` is insufficient. A test-only
+change does not require CLI compilation. Use `CLI_PLATFORMS` to select platforms
+for a local build; CI continues to build all default platforms.
+
+Run the relevant generators before checks. API changes use `verify-api`;
+RBAC/webhook markers and deployment changes need `verify-manifests`, followed by
+`verify-helm` and the applicable RBAC/Kustomize checks. Changes to mock interfaces,
+CLI documentation, metrics, or feature gates need their corresponding
+`generate-*` targets. Inspect generated diffs, include the outputs, and rerun.
+Run generation and validation as separate commands so parallel Make execution
+does not race writers against readers.
+
+Use `make verify` for build-system or generator-tooling changes, when the scope
+is uncertain, or when full verification is requested. CI continues to run the
+complete `make verify` pipeline. Scoped targets do not perform its final Git-clean
+assertion. Run relevant application tests separately; verification does not replace
+the Go unit, integration, or cluster E2E suites.
+
 ### Adding a new step to `make verify`
 
 The `verify` pipeline is defined in `hack/make/verify.mk` and intentionally split into:

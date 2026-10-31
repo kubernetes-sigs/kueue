@@ -460,3 +460,34 @@ i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n
 			fi; \
 		done; \
 	fi
+
+
+# Local scopes use the same leaf recipes as full verification. Complete any
+# required generation before running checks that read the generated files.
+.PHONY: verify-go
+verify-go: ci-lint fmt-verify ## Check Go lint and formatting without regenerating unrelated artifacts.
+
+.PHONY: verify-api
+verify-api: verify-go-prereqs generate-apiref compile-crd-manifests ## Regenerate and check API code, docs, and CRDs.
+	$(MAKE) ci-lint fmt-verify lint-api
+
+.PHONY: verify-cli
+verify-cli: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
+verify-cli: verify-git-tag ## Build and package kueuectl for CLI_PLATFORMS only.
+	$(_cli_artifacts_recipe)
+
+.PHONY: verify-manifests
+verify-manifests: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-manifests: verify-helm-prereqs verify-git-tag kustomize helm yq ## Build Helm and manifest artifacts without compiling the CLI.
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
+	$(_manifest_artifacts_recipe)
+
+.PHONY: verify-helm
+verify-helm: helm-verify helm-unit-test ## Check Helm rendering and chart unit tests.
+
+.PHONY: verify-docs
+verify-docs: sync-hugo-version toc-update ## Synchronize Hugo versions and regenerate KEP tables of contents.
+
+.PHONY: verify-scripts
+verify-scripts: shell-lint e2e-common-test milestone-pull-test ## Check shell scripts and their helper tests.
