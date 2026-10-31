@@ -1231,24 +1231,28 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 	wl *kueue.Workload,
 	existingAssignment *utiltas.TopologyAssignment,
 ) sets.Set[string] {
-	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		return nil
-	}
-
-	// We only replace the head; other queued unhealthy nodes that may also be
-	// missing from the snapshot must not make the assignment appear stale.
+	// A node missing from the snapshot (cordoned, or failed since this attempt was
+	// queued) must not make the assignment stale.
 	ignoreNodes := sets.New[string]()
-	for _, n := range wl.Status.UnhealthyNodes[1:] {
-		ignoreNodes.Insert(n.Name)
-	}
-
-	// A node can fail after this replacement attempt was queued. Treat any other
-	// missing node-level domain as pending replacement; a later pass picks it up
-	// once the failure is recorded on the Workload.
 	for _, domain := range existingAssignment.Domains {
 		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
 		}
+	}
+
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		// Admission clears all recorded unhealthy nodes, so the ones after the head
+		// must still make the assignment stale.
+		for _, n := range wl.Status.UnhealthyNodes[1:] {
+			ignoreNodes.Delete(n.Name)
+		}
+		return ignoreNodes
+	}
+
+	// We only replace the head; other queued unhealthy nodes that may also be
+	// missing from the snapshot must not make the assignment appear stale.
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Insert(n.Name)
 	}
 	return ignoreNodes
 }

@@ -505,6 +505,44 @@ func TestFindTopologyAssignments(t *testing.T) {
 		*testingpod.MakePod("survivor-pod", "test-ns").NodeName("x5").Request(corev1.ResourceCPU, "1").Obj(),
 	}
 
+	// x1 failed and x2 is cordoned, so both are missing from the snapshot, but only x1 is recorded as unhealthy.
+	// x2 is merged by its hostname alone, so it sorts after x3 and x4.
+	cordonedNodeReplacementNodes := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			NotReady().Obj(),
+		*testingnode.MakeNode("x2").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnschedulable, Effect: corev1.TaintEffectNoSchedule}).
+			Ready().Unschedulable().Obj(),
+		*testingnode.MakeNode("x3").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("x4").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x4").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+	}
+	cordonedNodeReplacementWorkload := utiltestingapi.MakeWorkload("test-wl", "test-ns").
+		Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Count(3).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+					Obj()).
+				Obj()).
+			Obj()).
+		UnhealthyNodes("x1")
+	cordonedNodeReplacementPods := []corev1.Pod{
+		*testingpod.MakePod("pod-x2", "test-ns").NodeName("x2").Request(corev1.ResourceCPU, "1").Obj(),
+		*testingpod.MakePod("pod-x3", "test-ns").NodeName("x3").Request(corev1.ResourceCPU, "1").Obj(),
+	}
+
 	// Multi pod-set fixtures: podset-a runs on node-1..3 (r1), podset-b on
 	// node-4..5 (r2). node-1 and node-4 failed, so only the healthy nodes are
 	// listed; node-6 is the only free one.
@@ -11370,6 +11408,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"multi-node replacement: missing tail still fails the stale check when gate is disabled": {
+			// x2 is recorded as unhealthy, so it is not ignored like an unrecorded missing node.
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: false},
 			nodes:        partialFailureNodes,
 			levels:       defaultThreeLevels,
@@ -11381,6 +11420,48 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 				count:           3,
 				wantReason:      "Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain x2",
+			}},
+		},
+		"node replacement: a cordoned node missing from the snapshot does not make the assignment stale when gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: false},
+			nodes:        cordonedNodeReplacementNodes,
+			levels:       defaultThreeLevels,
+			workload:     cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:         cordonedNodeReplacementPods,
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"node replacement: a cordoned node missing from the snapshot does not make the assignment stale when gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        cordonedNodeReplacementNodes,
+			levels:       defaultThreeLevels,
+			workload:     cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:         cordonedNodeReplacementPods,
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
 			}},
 		},
 		"multi-node replacement: rejects an unknown required rack when all assigned nodes are unhealthy": {
