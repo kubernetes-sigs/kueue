@@ -349,6 +349,12 @@ func (p *PodWrapper) ContainerName(name string) *PodWrapper {
 	return p
 }
 
+// InitContainers sets the init containers of the Pod.
+func (p *PodWrapper) InitContainers(containers ...corev1.Container) *PodWrapper {
+	p.Spec.InitContainers = containers
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)

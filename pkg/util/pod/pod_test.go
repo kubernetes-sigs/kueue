@@ -17,6 +17,9 @@ limitations under the License.
 package pod
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -406,6 +409,65 @@ func TestSpecShape(t *testing.T) {
 	}
 }
 
+func TestInitContainersShape(t *testing.T) {
+	requests := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}
+	always := corev1.ContainerRestartPolicyAlways
+
+	cases := map[string]struct {
+		containers        []corev1.Container
+		wantRestartPolicy map[int]any // index -> expected restartPolicy value; nil means absent
+	}{
+		"restartPolicy omitted for regular init containers": {
+			containers: []corev1.Container{{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}}},
+		},
+		"restartPolicy included for restartable init containers": {
+			containers:        []corev1.Container{{Name: "sidecar", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always}},
+			wantRestartPolicy: map[int]any{0: corev1.ContainerRestartPolicy("Always")},
+		},
+		"mixed init containers track restartPolicy per container": {
+			containers: []corev1.Container{
+				{Name: "sidecar", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always},
+				{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}},
+			},
+			wantRestartPolicy: map[int]any{0: corev1.ContainerRestartPolicy("Always")},
+		},
+		"sidecar after regular init container retains its index": {
+			containers: []corev1.Container{
+				{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}},
+				{Name: "sidecar", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always},
+			},
+			wantRestartPolicy: map[int]any{1: corev1.ContainerRestartPolicyAlways},
+		},
+		"multiple sidecars retain both policies": {
+			containers: []corev1.Container{
+				{Name: "first", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always},
+				{Name: "second", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always},
+			},
+			wantRestartPolicy: map[int]any{0: corev1.ContainerRestartPolicyAlways, 1: corev1.ContainerRestartPolicyAlways},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := initContainersShape(tc.containers)
+			if len(got) != len(tc.containers) {
+				t.Fatalf("Unexpected number of shapes: want %d, got %d", len(tc.containers), len(got))
+			}
+			for i, shape := range got {
+				wantValue, wantPresent := tc.wantRestartPolicy[i]
+				gotValue, gotPresent := shape["restartPolicy"]
+				if wantPresent != gotPresent {
+					t.Errorf("Unexpected presence of \"restartPolicy\" key for container %d: want %v, got %v", i, wantPresent, gotPresent)
+				}
+				if wantPresent {
+					if diff := cmp.Diff(wantValue, gotValue); diff != "" {
+						t.Errorf("Unexpected restartPolicy for container %d (-want,+got):\n%s", i, diff)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateRoleHash(t *testing.T) {
 	withoutPodResources := &corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}}
 	withPodResources := &corev1.PodSpec{
@@ -441,6 +503,129 @@ func TestGenerateRoleHash(t *testing.T) {
 			}
 			if gotBaseHash := gotHash == baseHash; gotBaseHash != tc.wantBaseHash {
 				t.Errorf("Unexpected role hash comparison with base hash: want equality %t, base hash %q, got hash %q", tc.wantBaseHash, baseHash, gotHash)
+			}
+		})
+	}
+}
+
+func TestGenerateRoleHashRestartableInitContainer(t *testing.T) {
+	requests := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}
+	always := corev1.ContainerRestartPolicyAlways
+	mainContainer := corev1.Container{Name: "main", Resources: corev1.ResourceRequirements{Requests: requests}}
+	regularInit := corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}}
+	sidecarInit := corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}, RestartPolicy: &always}
+	largerSidecar := sidecarInit.DeepCopy()
+	largerSidecar.Resources.Requests[corev1.ResourceCPU] = resource.MustParse("600m")
+	otherPortSidecar := sidecarInit.DeepCopy()
+	otherPortSidecar.Ports = []corev1.ContainerPort{{ContainerPort: 9000}}
+
+	regularInitHash, err := GenerateRoleHash(&corev1.PodSpec{Containers: []corev1.Container{mainContainer}, InitContainers: []corev1.Container{regularInit}})
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	sidecarHash, err := GenerateRoleHash(&corev1.PodSpec{Containers: []corev1.Container{mainContainer}, InitContainers: []corev1.Container{sidecarInit}})
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	cases := map[string]struct {
+		podSpec         *corev1.PodSpec
+		wantBaseHash    bool
+		wantSidecarHash bool
+	}{
+		"restartable init container changes the role hash": {
+			podSpec:         &corev1.PodSpec{Containers: []corev1.Container{mainContainer}, InitContainers: []corev1.Container{sidecarInit}},
+			wantSidecarHash: true,
+		},
+		"sidecar resource requests remain part of its role": {
+			podSpec: &corev1.PodSpec{Containers: []corev1.Container{mainContainer}, InitContainers: []corev1.Container{*largerSidecar}},
+		},
+		"sidecar ports remain part of its role": {
+			podSpec: &corev1.PodSpec{Containers: []corev1.Container{mainContainer}, InitContainers: []corev1.Container{*otherPortSidecar}},
+		},
+		"regular init container keeps a stable role hash": {
+			podSpec: &corev1.PodSpec{
+				Containers:     []corev1.Container{*mainContainer.DeepCopy()},
+				InitContainers: []corev1.Container{*regularInit.DeepCopy()},
+			},
+			wantBaseHash: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotHash, err := GenerateRoleHash(tc.podSpec)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if gotBaseHash := gotHash == regularInitHash; gotBaseHash != tc.wantBaseHash {
+				t.Errorf("Unexpected role hash comparison with regular init hash: want equality %t, base hash %q, got hash %q", tc.wantBaseHash, regularInitHash, gotHash)
+			}
+			if gotSidecarHash := gotHash == sidecarHash; gotSidecarHash != tc.wantSidecarHash {
+				t.Errorf("Unexpected role hash comparison with sidecar hash: want equality %t, sidecar hash %q, got hash %q", tc.wantSidecarHash, sidecarHash, gotHash)
+			}
+		})
+	}
+}
+
+// TestGenerateRoleHashLegacyInitContainerCompat verifies that pods without
+// restartable init containers keep the role hash computed before
+// restartPolicy was included in the shape, so existing PodGroups keep their
+// roles across the upgrade.
+func TestGenerateRoleHashLegacyInitContainerCompat(t *testing.T) {
+	requests := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}
+	legacyShape := func(podSpec *corev1.PodSpec) map[string]any {
+		containersShape := func(containers []corev1.Container) (result []map[string]any) {
+			for _, c := range containers {
+				result = append(result, map[string]any{
+					"resources": map[string]any{"requests": c.Resources.Requests},
+					"ports":     c.Ports,
+				})
+			}
+			return result
+		}
+		return map[string]any{
+			"initContainers":            containersShape(podSpec.InitContainers),
+			"containers":                containersShape(podSpec.Containers),
+			"nodeSelector":              podSpec.NodeSelector,
+			"affinity":                  podSpec.Affinity,
+			"tolerations":               podSpec.Tolerations,
+			"runtimeClassName":          podSpec.RuntimeClassName,
+			"priority":                  podSpec.Priority,
+			"topologySpreadConstraints": podSpec.TopologySpreadConstraints,
+			"overhead":                  podSpec.Overhead,
+			"resourceClaims":            podSpec.ResourceClaims,
+		}
+	}
+	legacyHash := func(podSpec *corev1.PodSpec) string {
+		shapeJSON, err := json.Marshal(map[string]any{"spec": legacyShape(podSpec)})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		return fmt.Sprintf("%x", sha256.Sum256(shapeJSON))[:8]
+	}
+
+	cases := map[string]struct {
+		podSpec *corev1.PodSpec
+	}{
+		"no init containers": {
+			podSpec: &corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Resources: corev1.ResourceRequirements{Requests: requests}}}},
+		},
+		"regular init containers only": {
+			podSpec: &corev1.PodSpec{
+				Containers:     []corev1.Container{{Name: "main", Resources: corev1.ResourceRequirements{Requests: requests}}},
+				InitContainers: []corev1.Container{{Name: "init", Resources: corev1.ResourceRequirements{Requests: requests}}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotHash, err := GenerateRoleHash(tc.podSpec)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if wantHash := legacyHash(tc.podSpec); gotHash != wantHash {
+				t.Errorf("Unexpected role hash for pods without restartable init containers: want legacy hash %q, got %q", wantHash, gotHash)
 			}
 		})
 	}

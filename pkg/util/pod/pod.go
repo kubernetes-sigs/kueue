@@ -152,7 +152,7 @@ func GenerateRoleHash(podSpec *corev1.PodSpec) (string, error) {
 
 func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
 	shape := map[string]any{
-		"initContainers":            ContainersShape(podSpec.InitContainers),
+		"initContainers":            initContainersShape(podSpec.InitContainers),
 		"containers":                ContainersShape(podSpec.Containers),
 		"nodeSelector":              podSpec.NodeSelector,
 		"affinity":                  podSpec.Affinity,
@@ -169,6 +169,22 @@ func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
 		shape["resources"] = podSpec.Resources.Requests
 	}
 	return shape
+}
+
+// initContainersShape extends ContainersShape with the restartPolicy of each
+// init container when set. A restartable init container (sidecar) keeps
+// consuming resources while the main containers run, so it must not share a
+// role with an otherwise identical regular init container. The key is only
+// included when set, so role hashes of pods without restartable init
+// containers stay stable across upgrades.
+func initContainersShape(containers []corev1.Container) (result []map[string]any) {
+	result = ContainersShape(containers)
+	for i := range containers {
+		if containers[i].RestartPolicy != nil {
+			result[i]["restartPolicy"] = *containers[i].RestartPolicy
+		}
+	}
+	return result
 }
 
 func ContainersShape(containers []corev1.Container) (result []map[string]any) {
