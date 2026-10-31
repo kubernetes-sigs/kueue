@@ -178,7 +178,7 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 
-	watchEstablishing atomic.Bool
+	watchEstablishing map[string]*atomic.Bool
 
 	connState connectionState
 
@@ -406,13 +406,11 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcher, err := rc.establishWatcher(watchCtx, kind, watcher)
 		if err != nil {
-			if errors.Is(err, errWatchEstablishInProgress) {
-				return false, rc.deferConnAttempt(retryIncrement), err
-			}
-			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
+			// Not being able to set up an adapter watcher is not ideal, but the
+			// Workload watcher is sufficient to keep the worker connected.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
-			// however let's not accept this for now.
-			return false, rc.increaseFailedConnAttempt(), err
+			startWatcherCallbacks = append(startWatcherCallbacks, rc.startWatcher(watchCtx, kind, watcher, nil))
+			continue
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
@@ -517,26 +515,73 @@ func establishWatch(
 }
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing, shouldWatchHonorsCancellation)
+	newWatcher, err := rc.newWatcher(ctx, kind, w)
 	if err != nil {
 		return nil, err
 	}
+	return rc.startWatcher(ctx, kind, w, newWatcher), nil
+}
 
+func (rc *remoteClient) newWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (watch.Interface, error) {
+	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
+	return establishWatch(ctx, rc.getClient(), w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.getFailedConnAttempts())+1), rc.watchEstablishingFor(kind), shouldWatchHonorsCancellation)
+}
+
+func (rc *remoteClient) watchEstablishingFor(kind string) *atomic.Bool {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.watchEstablishing == nil {
+		rc.watchEstablishing = make(map[string]*atomic.Bool)
+	}
+	if establishing, found := rc.watchEstablishing[kind]; found {
+		return establishing
+	}
+	establishing := &atomic.Bool{}
+	rc.watchEstablishing[kind] = establishing
+	return establishing
+}
+
+// startWatcher returns a callback that starts a watcher and keeps it alive until its context is cancelled.
+// A Workload watcher is required to consider the worker connected. Other watcher failures are retried
+// independently, so a problem with one job kind cannot evict workloads for every other kind.
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher, initialWatcher watch.Interface) func() {
+	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
+	_, isWorkloadWatcher := w.(*workloadKueueWatcher)
 	return func() {
 		rc.runWatcher(func() {
-			log.V(2).Info("Starting watch")
-			rc.consumeWatch(ctx, log, newWatcher, w)
-			log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
-			if ctx.Err() == nil {
-				if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
-					log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
-					rc.queueWatchEndedEvent(ctx)
+			watcher := initialWatcher
+			var failedAttempts uint
+			for ctx.Err() == nil {
+				if watcher == nil {
+					var err error
+					watcher, err = rc.newWatcher(ctx, kind, w)
+					if err != nil {
+						if isWorkloadWatcher {
+							if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
+								log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
+								rc.queueWatchEndedEvent(ctx)
+							}
+							return
+						}
+						failedAttempts++
+						log.Error(err, "Unable to establish the watcher; retrying", "retryAfter", retryAfter(failedAttempts))
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(retryAfter(failedAttempts)):
+						}
+						continue
+					}
+					failedAttempts = 0
 				}
+
+				log.V(2).Info("Starting watch")
+				rc.consumeWatch(ctx, log, watcher, w)
+				log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
+				watcher = nil
 			}
 		})
-	}, nil
+	}
 }
 
 // consumeWatch dispatches events until the watch ends or ctx is cancelled. Cancelling does

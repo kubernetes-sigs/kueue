@@ -35,6 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -105,6 +106,18 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 	// the loss from creation, so connState never sits in the illegal disconnected/nil combination.
 	ret.connState.markDisconnected(ret.clock.Now())
 	return ret
+}
+
+type testMultiKueueWatcher struct {
+	emptyList client.ObjectList
+}
+
+func (w *testMultiKueueWatcher) GetEmptyList() client.ObjectList {
+	return w.emptyList
+}
+
+func (*testMultiKueueWatcher) WorkloadKeysFor(runtime.Object) ([]types.NamespacedName, error) {
+	return nil, nil
 }
 
 func setReconnectState(rc *remoteClient, a uint) *remoteClient {
@@ -1823,6 +1836,134 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
 		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
 	})
+}
+
+func TestRemoteClientConnectsWhenAdapterWatchCannotBeEstablished(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	workloadWatcher := watch.NewFake()
+	t.Cleanup(workloadWatcher.Stop)
+	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, obj client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			if _, isWorkload := obj.(*kueue.WorkloadList); isWorkload {
+				return workloadWatcher, nil
+			}
+			return nil, errCannotWatch
+		},
+	}).Build())
+	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	if err != nil {
+		t.Fatalf("getting adapters: %v", err)
+	}
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.adapters = adapters
+	rc.builderOverride = func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
+		return workerClient, nil
+	}
+	t.Cleanup(rc.StopWatchers)
+
+	refreshed, _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config)
+	if err != nil {
+		t.Fatalf("unexpected error refreshing watchers: %v", err)
+	}
+	if !refreshed {
+		t.Fatal("expected watchers to be refreshed")
+	}
+	if !rc.connState.isConnected() {
+		t.Fatal("adapter watch failure left the worker disconnected")
+	}
+}
+
+func TestRemoteClientEstablishesDifferentWatchKindsConcurrently(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstWatcher := watch.NewFake()
+	secondWatcher := watch.NewFake()
+	t.Cleanup(firstWatcher.Stop)
+	t.Cleanup(secondWatcher.Stop)
+	var watchCalls atomic.Int32
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			if watchCalls.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+				return firstWatcher, nil
+			}
+			return secondWatcher, nil
+		},
+	}).Build())
+
+	type establishResult struct {
+		watcher watch.Interface
+		err     error
+	}
+	firstResult := make(chan establishResult, 1)
+	go func() {
+		watcher, err := rc.newWatcher(ctx, "batch/v1, Kind=Job", &testMultiKueueWatcher{emptyList: &batchv1.JobList{}})
+		firstResult <- establishResult{watcher: watcher, err: err}
+	}()
+
+	<-firstStarted
+	workloadWatcher, err := rc.newWatcher(ctx, "Workload.kueue.x-k8s.io", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("establishing workload watcher while adapter watcher is pending: %v", err)
+	}
+	workloadWatcher.Stop()
+	close(releaseFirst)
+	result := <-firstResult
+	if result.err != nil {
+		t.Fatalf("establishing adapter watcher: %v", result.err)
+	}
+	result.watcher.Stop()
+}
+
+func TestAdapterWatchEndDoesNotDisconnectWorker(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	firstWatcher := watch.NewFake()
+	secondWatcher := watch.NewFake()
+	t.Cleanup(secondWatcher.Stop)
+	restarted := make(chan struct{})
+	var watchCalls atomic.Int32
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			switch watchCalls.Add(1) {
+			case 1:
+				return firstWatcher, nil
+			case 2:
+				close(restarted)
+				return secondWatcher, nil
+			default:
+				return secondWatcher, nil
+			}
+		},
+	}).Build())
+	rc.connState.markConnected()
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+	t.Cleanup(rc.StopWatchers)
+
+	adapterWatcher := &testMultiKueueWatcher{emptyList: &batchv1.JobList{}}
+	startWatcher, err := rc.establishWatcher(watchCtx, "batch/v1, Kind=Job", adapterWatcher)
+	if err != nil {
+		t.Fatalf("unexpected error establishing adapter watcher: %v", err)
+	}
+	startWatcher()
+	firstWatcher.Stop()
+
+	select {
+	case <-restarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("adapter watcher was not re-established")
+	}
+	if !rc.connState.isConnected() {
+		t.Fatal("adapter watcher ending marked the worker disconnected")
+	}
 }
 
 func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
