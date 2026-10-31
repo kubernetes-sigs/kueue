@@ -232,9 +232,14 @@ func syncLocalPodWithRemote(
 	}
 
 	// If the remote pod does not exist, create it
+	remoteSpec := localPod.Spec.DeepCopy()
+	// Ephemeral containers (e.g. added by `kubectl debug` on the manager Pod)
+	// cannot be set on create, the API server only accepts them through the
+	// ephemeralcontainers subresource.
+	remoteSpec.EphemeralContainers = nil
 	remotePod = corev1.Pod{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
-		Spec:       *localPod.Spec.DeepCopy(),
+		Spec:       *remoteSpec,
 	}
 
 	// Add prebuilt workload name and multikueue origin
