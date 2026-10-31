@@ -1319,7 +1319,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	// The ClusterQueue is only needed for the metric, so a failed lookup does not block the deletion.
 	cqName, lookupErr := p.localQueueClusterQueue(ctx, c)
 	if lookupErr != nil {
-		log.Error(lookupErr, "Failed to get the ClusterQueue, excess pod deletions are not counted")
+		log.Error(lookupErr, "Failed to resolve the ClusterQueue of the pod group's LocalQueue, excess pod deletions are not counted", "localQueue", jobframework.QueueName(p))
 	}
 	customLabelValues := p.customLabels.CQGet(cqName)
 

@@ -5302,6 +5302,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Created Workload: ns/test-group",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		"workload is not created while the live pods of the group, without the terminating pod, are fewer than the total": {
 			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
