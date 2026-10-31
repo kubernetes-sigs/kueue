@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"iter"
+	"slices"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -122,4 +123,28 @@ func (c *cohort) updateAdmittedWorkloadsCount(delta int) {
 	for ancestor := range c.PathSelfToRoot() {
 		ancestor.admittedWorkloadsCount += delta
 	}
+}
+
+// admittedWorkloadsInCQsWithLabels counts only ClusterQueues whose custom labels
+// equal clVals, so summing a Cohort's series equals the real subtree count.
+func (c *cohort) admittedWorkloadsInCQsWithLabels(clVals []string) int {
+	seen := make(map[*cohort]struct{})
+	var walk func(*cohort) int
+	walk = func(ch *cohort) int {
+		if _, ok := seen[ch]; ok {
+			return 0
+		}
+		seen[ch] = struct{}{}
+		count := 0
+		for _, cq := range ch.ChildCQs() {
+			if slices.Equal(cq.GetCustomLabelValues(), clVals) {
+				count += cq.admittedWorkloadsCount
+			}
+		}
+		for _, child := range ch.ChildCohorts() {
+			count += walk(child)
+		}
+		return count
+	}
+	return walk(c)
 }
