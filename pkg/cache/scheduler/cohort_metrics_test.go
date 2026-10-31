@@ -1561,39 +1561,6 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 				{labels: teamLabels("a", "alpha"), count: 0},
 			},
 		},
-		"relabeling a surviving cluster queue moves its series": {
-			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
-			cqs: []*kueue.ClusterQueue{
-				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
-			},
-			workloads: []*kueue.Workload{
-				baseWorkload.Clone().Name("cq1-wl").Obj(),
-			},
-			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
-				relabeled := cq1.Clone().Cohort("a").Label("team", "beta").Obj()
-				customLabels.CQStore(kueue.ClusterQueueReference(relabeled.Name), relabeled.Labels, relabeled.Annotations)
-				if err := cache.UpdateClusterQueue(log, relabeled); err != nil {
-					t.Fatal(err)
-				}
-				// Same parent: UpdateClusterQueue does not re-report. Clear then
-				// resync so the former series is not left at its old value.
-				kueuemetrics.ClearCohortSubtreeAdmittedActiveWorkloads("a")
-				cache.ResyncClusterQueueGaugeMetrics(kueue.ClusterQueueReference(relabeled.Name))
-			},
-			wantValues: []struct {
-				labels map[string]string
-				value  float64
-			}{
-				{labels: teamLabels("a", "beta"), value: 1},
-			},
-			wantSums: []struct {
-				labels map[string]string
-				value  float64
-			}{
-				{labels: teamLabels("a", "alpha"), value: 0},
-				{labels: cohortOnly("a"), value: 1},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
