@@ -199,24 +199,24 @@ func TestCandidateVirtualPodsForPodSet_Validation(t *testing.T) {
 	tests := map[string]struct {
 		wl      *kueue.Workload
 		ps      *kueue.PodSet
-		wantErr string
+		wantErr error
 	}{
 		"nil workload returns error": {
 			wl:      nil,
 			ps:      basePs,
-			wantErr: "workload and podset must be non-nil",
+			wantErr: errWorkloadOrPodSetIsNil,
 		},
 		"nil podset returns error": {
 			wl:      baseWl,
 			ps:      nil,
-			wantErr: "workload and podset must be non-nil",
+			wantErr: errWorkloadOrPodSetIsNil,
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := CandidateVirtualPodsForPodSet(tc.wl, tc.ps, 1, CandidatePodOptions{})
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("CandidateVirtualPodsForPodSet() error = %v, want substring %q", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -331,7 +331,7 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 		updateSelector   map[string]string
 		flavorNodeLabels map[string]string
 		wantSelector     map[string]string
-		wantErr          string
+		wantErr          error
 	}{
 		"merge nodeSelector from PodSet, PodSetUpdate, and Flavor": {
 			podSetSelector:   map[string]string{"arch": "amd64"},
@@ -346,17 +346,17 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 		"conflict between PodSet and PodSetUpdate returns error": {
 			podSetSelector: map[string]string{"arch": "amd64"},
 			updateSelector: map[string]string{"arch": "arm64"},
-			wantErr:        "failed to merge PodSetUpdate",
+			wantErr:        errMergePodSetUpdate,
 		},
 		"conflict between PodSet and Flavor returns error": {
 			podSetSelector:   map[string]string{"gpu": "a100"},
 			flavorNodeLabels: map[string]string{"gpu": "t4"},
-			wantErr:          "failed to merge ResourceFlavor",
+			wantErr:          errMergeResourceFlavor,
 		},
 		"conflict between PodSetUpdate and Flavor returns error": {
 			updateSelector:   map[string]string{"tier": "standard"},
 			flavorNodeLabels: map[string]string{"tier": "premium"},
-			wantErr:          "failed to merge PodSetUpdate",
+			wantErr:          errMergePodSetUpdate,
 		},
 	}
 
@@ -376,9 +376,9 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 			}
 
 			pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, opts)
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("CandidateVirtualPodsForPodSet() error = %v, want substring %q", err, tc.wantErr)
+			if tc.wantErr != nil {
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error (-want,+got):\n%s", diff)
 				}
 				return
 			}
