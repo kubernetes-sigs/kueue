@@ -13,7 +13,9 @@ The file is auto-generated from the Go source code of the component using the
 ## Synopsis
 
 
-List ResourceFlavor
+Lists ResourceFlavors that match the given criteria.
+
+KUEUECTL_LIST_REQUEST_LIMIT sets how many objects kueuectl fetches from the Kubernetes API per request. It does not limit the output: all matching objects are listed. The default is 100; 0 fetches all objects in a single request.
 
 ```
 kueuectl list resourceflavor [--selector KEY=VALUE] [--field-selector FIELD_NAME=VALUE]
