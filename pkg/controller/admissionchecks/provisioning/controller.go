@@ -264,11 +264,11 @@ func requestNames(prs map[kueue.AdmissionCheckReference]*autoscaling.Provisionin
 }
 
 // requestNamesForLiveRequests returns the names of the requests whose booking
-// the autoscaler still honours (see hasLiveBooking).
+// the autoscaler still honours (see HasLiveBooking).
 func requestNamesForLiveRequests(prs []autoscaling.ProvisioningRequest) sets.Set[string] {
 	live := sets.New[string]()
 	for i := range prs {
-		if hasLiveBooking(&prs[i]) {
+		if HasLiveBooking(&prs[i]) {
 			live.Insert(prs[i].Name)
 		}
 	}

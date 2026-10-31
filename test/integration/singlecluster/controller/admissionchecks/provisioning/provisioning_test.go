@@ -64,6 +64,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	var (
 		resourceGPU    corev1.ResourceName = "example.com/gpu"
 		flavorOnDemand                     = "on-demand"
+		managerOptions []managerSetupOption
 	)
 
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
@@ -73,8 +74,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		"p2": "v2",
 	})
 
+	ginkgo.BeforeEach(func() {
+		managerOptions = nil
+	})
+
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManager(ctx, cfg, managerSetup(managerOptions...))
 	})
 
 	ginkgo.AfterEach(func() {
@@ -179,6 +184,105 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc2, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+		})
+
+		ginkgo.When("finished workload retention is enabled for elastic provisioning", func() {
+			var useNonControllerOwner bool
+
+			ginkgo.BeforeEach(func() {
+				useNonControllerOwner = false
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
+				managerOptions = append(managerOptions, withWorkloadRetention(0))
+			})
+
+			ginkgo.JustBeforeEach(func() {
+				ginkgo.By("enabling elastic provisioning on the workload", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						updatedWl.Annotations[workloadslicing.EnabledAnnotationKey] = workloadslicing.EnabledAnnotationValue
+						controllerutil.AddFinalizer(&updatedWl, kueue.ResourceInUseFinalizerName)
+						g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				})
+
+				ginkgo.By("provisioning capacity and waiting for admission", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
+				})
+
+				if useNonControllerOwner {
+					ginkgo.By("using a non-controller Workload owner reference", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+							createdRequest.OwnerReferences[0].Controller = new(false)
+							g.Expect(k8sClient.Update(ctx, &createdRequest)).To(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+				}
+
+				ginkgo.By("marking the admitted slice replaced", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&updatedWl.Status.Conditions, metav1.Condition{
+							Type:   kueue.WorkloadFinished,
+							Status: metav1.ConditionTrue,
+							Reason: kueue.WorkloadSliceReplaced,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &updatedWl)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("keeping both the owner and its request despite zero retention", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						g.Expect(updatedWl.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+						g.Expect(updatedWl.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						g.Expect(createdRequest.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+					}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("ending the booking and allowing the workload to be deleted", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
+							Reason: "CapacityReservationTimeExpired",
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			// envtest has no garbage collector to remove the request if its owner is deleted first.
+			ginkgo.It("Should retain a replaced admitted slice past retention until its booking expires", framework.SlowSpec, func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.When("the request has a non-controller Workload owner reference", func() {
+				ginkgo.BeforeEach(func() {
+					useNonControllerOwner = true
+				})
+
+				ginkgo.It("Should retain a replaced admitted slice past retention until its booking expires", framework.SlowSpec, func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+			})
 		})
 
 		ginkgo.It("Should not create provisioning requests before quota is reserved", framework.SlowSpec, func() {

@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -58,6 +59,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -534,6 +536,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			remainingTime := expirationTime.Sub(now)
 			log.V(3).Info("Requeueing workload for deletion after retention period", "remainingTime", remainingTime)
 			return ctrl.Result{RequeueAfter: remainingTime}, nil
+		}
+
+		if wl.DeletionTimestamp.IsZero() && workloadslicing.IsEnabledForProvisioningRequests(&wl) &&
+			workloadslicing.IsReplaced(wl.Status) && workload.IsAdmitted(&wl) {
+			requests := &autoscaling.ProvisioningRequestList{}
+			err := r.client.List(ctx, requests, client.InNamespace(wl.Namespace),
+				client.MatchingFields{provisioning.RequestsOwnedByWorkloadKey: wl.Name})
+			if apimeta.IsNoMatchError(err) {
+				log.V(4).Info("ProvisioningRequest API not available, continuing finished workload cleanup")
+			} else if err != nil {
+				return ctrl.Result{}, fmt.Errorf("listing provisioning requests before workload deletion: %w", err)
+			}
+			for i := range requests.Items {
+				if provisioning.HasLiveBooking(&requests.Items[i]) && slices.ContainsFunc(requests.Items[i].OwnerReferences, func(ref metav1.OwnerReference) bool {
+					return ref.UID == wl.UID
+				}) {
+					log.V(4).Info("Retaining replaced workload while its provisioning request has a live booking",
+						"provisioningRequest", klog.KObj(&requests.Items[i]))
+					return ctrl.Result{}, nil
+				}
+			}
 		}
 
 		// Finished Workloads should no longer need Kueue's resource-in-use finalizer.
@@ -1752,6 +1775,18 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh)
+	if r.workloadRetention != nil && r.workloadRetention.afterFinished != nil &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlices) &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesForProvisioningRequests) {
+		if err := provisioning.ServerSupportsProvisioningRequest(mgr); err != nil && apimeta.IsNoMatchError(err) {
+			r.logger().V(1).Info("ProvisioningRequest API not available, skipping workload retention watcher")
+		} else if err != nil {
+			return err
+		} else {
+			bld = bld.Watches(&autoscaling.ProvisioningRequest{},
+				handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &kueue.Workload{}))
+		}
+	}
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(resourcev1.SchemeGroupVersion.WithKind("DeviceClass").GroupKind()); err != nil && apimeta.IsNoMatchError(err) {
 			r.logger().V(1).Info("DeviceClass API not available, skipping DeviceClass watcher")
