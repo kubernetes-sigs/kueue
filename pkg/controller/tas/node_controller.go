@@ -84,7 +84,8 @@ type workloadStatus int
 
 const (
 	// workloadHealthy indicates that the workload does not need to be replaced on the node.
-	// This happens if the node is healthy, or if the workload has permanent tolerations for the node's taints.
+	// This happens if the node is healthy, if the workload has permanent tolerations for the node's taints,
+	// or if all of the workload's pods assigned to the node have succeeded.
 	workloadHealthy workloadStatus = iota
 
 	// workloadUnhealthy indicates that the workload needs to be replaced or evicted from the node,
@@ -401,12 +402,12 @@ func (r *nodeReconciler) getWorkloadStatus(
 		// If a pod arrives late (via nodeSelector) and its node is no longer part
 		// of the topology assignment, we must always check pods
 		// to catch and fail the stray pod.
-		return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+		return r.checkPodsOnNode(ctx, node.Name, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !ready:
 		if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
 			return workloadHealthCheck{status: workloadUnhealthy}, nil
 		}
-		return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+		return r.checkPodsOnNode(ctx, node.Name, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	case !hasSchedulingTaints(node.Spec.Taints):
@@ -422,10 +423,10 @@ func (r *nodeReconciler) getWorkloadStatus(
 			if !features.Enabled(features.TASReplaceNodeOnPodTermination) {
 				return workloadHealthCheck{status: workloadUnhealthy}, nil
 			}
-			return r.checkPodsOnNode(ctx, node.Name, wl, true, hasTASAssignment, nodeSelectorAssignedPods)
+			return r.checkPodsOnNode(ctx, node.Name, nodeName, wl, true, hasTASAssignment, nodeSelectorAssignedPods)
 		}
 		if len(temporarilyTolerated) > 0 {
-			return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+			return r.checkPodsOnNode(ctx, node.Name, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 		}
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
@@ -481,15 +482,17 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 func (r *nodeReconciler) checkPodsOnNode(
 	ctx context.Context,
 	nodeName string,
+	hostname string,
 	wl *kueue.Workload,
 	hasUntoleratedTaints bool,
 	hasTASAssignment bool,
 	nodeSelectorAssignedPods []*corev1.Pod,
 ) (workloadHealthCheck, error) {
-	podsToTerminate, hasProgressingPods, err := r.getPodsToTerminate(ctx, wl, nodeName, nodeSelectorAssignedPods)
+	boundPods, err := r.listPodsOnNode(ctx, wl, nodeName)
 	if err != nil {
-		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods to terminate for node %s: %w", nodeName, err)
+		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to list pods on node %s: %w", nodeName, err)
 	}
+	podsToTerminate := getPodsToTerminate(nodeSelectorAssignedPods)
 
 	if !hasTASAssignment {
 		// This node is not part of the workload's topology assignment. If pods are assigned
@@ -497,11 +500,39 @@ func (r *nodeReconciler) checkPodsOnNode(
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if hasProgressingPods && (!hasUntoleratedTaints || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+	if hasProgressingPods(boundPods) && (!hasUntoleratedTaints || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
+	}
+
+	if allAssignedPodsSucceeded(wl, hostname, boundPods, nodeSelectorAssignedPods) {
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
+}
+
+// allAssignedPodsSucceeded reports whether every pod that the workload's
+// TopologyAssignment places on the node has succeeded, so no pod of the
+// workload needs to run on the node again.
+//
+// hostname is the node's kubernetes.io/hostname label, used by the TopologyAssignment.
+func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, boundPods, nodeSelectorAssignedPods []*corev1.Pod) bool {
+	seen := sets.New[string]()
+	var pods []*corev1.Pod
+	for _, pod := range slices.Concat(boundPods, nodeSelectorAssignedPods) {
+		if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name || seen.Has(pod.Name) {
+			continue
+		}
+		seen.Insert(pod.Name)
+		pods = append(pods, pod)
+	}
+	if slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
+		return pod.Status.Phase != corev1.PodSucceeded
+	}) {
+		return false
+	}
+	// Pods that are not created yet still need the node.
+	return int32(len(pods)) >= utiltas.PodCountOnNode(wl.Status.Admission, hostname)
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
@@ -719,14 +750,8 @@ func (r *nodeReconciler) addUnhealthyNode(ctx context.Context, wl *kueue.Workloa
 	return nil
 }
 
-// getPodsToTerminate returns a list of pending pods that are assigned to the node by topology (but not yet scheduled),
-// and a boolean indicating if there is at least one pod to retain (e.g. any scheduled pod).
-func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workload, nodeName string, nodeSelectorAssignedPods []*corev1.Pod) ([]*corev1.Pod, bool, error) {
-	hasProgressingPods, err := r.hasProgressingPods(ctx, wl, nodeName)
-	if err != nil {
-		return nil, false, fmt.Errorf("list scheduled pods: %w", err)
-	}
-
+// getPodsToTerminate returns a list of pending pods that are assigned to the node by topology (but not yet scheduled).
+func getPodsToTerminate(nodeSelectorAssignedPods []*corev1.Pod) []*corev1.Pod {
 	var podsToTerminate []*corev1.Pod
 	for _, pod := range nodeSelectorAssignedPods {
 		if len(pod.Spec.NodeName) == 0 && pod.Status.Phase == corev1.PodPending && !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
@@ -734,21 +759,21 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 		}
 	}
 
-	return podsToTerminate, hasProgressingPods, nil
+	return podsToTerminate
 }
 
-func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-		indexer.PodNodeNameKey: nodeName,
-	})
-	if err != nil {
-		return false, err
-	}
-	hasProgressingPods := slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
+// hasProgressingPods reports whether at least one pod is still running or pending (e.g. any scheduled pod to retain).
+func hasProgressingPods(pods []*corev1.Pod) bool {
+	return slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
 		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 	})
-	return hasProgressingPods, nil
+}
+
+// listPodsOnNode returns the pods of the workload slice that are bound to the node.
+func (r *nodeReconciler) listPodsOnNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, error) {
+	return workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl), client.MatchingFields{
+		indexer.PodNodeNameKey: nodeName,
+	})
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
