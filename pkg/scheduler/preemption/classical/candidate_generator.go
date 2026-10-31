@@ -94,6 +94,7 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // with and without borrowing. The runs are independent which means that the same candidates
 // might be returned for both, but note that the candidates with borrowing are a subset of
 // candidates without borrowing.
+// Ordering must be stable within each queue for the lifetime of the snapshot.
 func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
@@ -105,17 +106,19 @@ func NewCandidateIterator(
 	if features.Enabled(features.ClassicalPreemptionCandidateOrderCache) {
 		return newCacheCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
 	}
-	return newCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
+	return NewUncachedCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
 }
 
-func newCandidateIterator(
+// NewUncachedCandidateIterator sorts candidates for an attempt-specific order
+// without reading or replacing the snapshot's shared candidate-order cache.
+func NewUncachedCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	snapshot *schdcache.Snapshot,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
-) *candidateIterator {
+) CandidateIterator {
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	hierarchyCandidates, priorityCandidates := collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 	slices.SortFunc(sameQueueCandidates, func(a, b *candidateElem) int {
