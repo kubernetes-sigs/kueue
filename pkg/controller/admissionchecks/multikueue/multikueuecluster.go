@@ -208,8 +208,8 @@ type remoteClient struct {
 type connectionState struct {
 	mu        sync.RWMutex
 	connected bool
-	// disconnectedSince is when the client last became disconnected: the watch dropping, or the
-	// client's creation for one that has never connected. It becomes nil only when a fully
+	// disconnectedSince is when the client last became disconnected: the end of a watch that
+	// could not be re-opened, or the client's creation for one that has never connected. It becomes nil only when a fully
 	// established connection (markConnected) clears it, and is preserved across failed reconnect
 	// attempts, so the worker-lost grace measures from the first loss, not the latest failed retry.
 	disconnectedSince *time.Time
@@ -518,25 +518,61 @@ func establishWatch(
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing, shouldWatchHonorsCancellation)
+	newWatcher, err := rc.openWatch(ctx, w, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing)
 	if err != nil {
 		return nil, err
 	}
 
 	return func() {
 		rc.runWatcher(func() {
-			log.V(2).Info("Starting watch")
-			rc.consumeWatch(ctx, log, newWatcher, w)
-			log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
-			if ctx.Err() == nil {
-				if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
-					log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
-					rc.queueWatchEndedEvent(ctx)
-				}
-			}
+			rc.runWatchLoop(ctx, log, newWatcher, w)
 		})
 	}, nil
+}
+
+func (rc *remoteClient) openWatch(ctx context.Context, w jobframework.MultiKueueWatcher, timeout time.Duration, establishing *atomic.Bool) (watch.Interface, error) {
+	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
+	return establishWatch(ctx, rc.getClient(), w.GetEmptyList(), rc.origin, timeout, establishing, shouldWatchHonorsCancellation)
+}
+
+// runWatchLoop consumes the watch until ctx is cancelled. Watches end routinely, at the API
+// server's request timeout or a proxy's idle timeout, so a watch that ends on its own is
+// re-opened in place: the client stays connected and the worker-lost grace does not start for
+// the workloads on this worker. Only a watch that cannot be re-opened marks the client
+// disconnected, from when it ended, and requests a full reconnect.
+func (rc *remoteClient) runWatchLoop(ctx context.Context, log logr.Logger, watcher watch.Interface, w jobframework.MultiKueueWatcher) {
+	// Owned by this loop so watches of other kinds ending at the same time re-open concurrently.
+	var reopening atomic.Bool
+	for {
+		log.V(2).Info("Starting watch")
+		rc.consumeWatch(ctx, log, watcher, w)
+		watcher.Stop()
+		endedAt := rc.clock.Now()
+		log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
+		if ctx.Err() != nil {
+			return
+		}
+
+		next, err := rc.openWatch(ctx, w, initialEstablishTimeout, &reopening)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.V(2).Info("Unable to re-open the watch", "err", err)
+			if wasConnected := rc.connState.markDisconnected(endedAt); wasConnected {
+				log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
+				rc.queueWatchEndedEvent(ctx)
+			}
+			return
+		}
+		watcher = next
+		// The re-opened watch replays every existing object but not the deletions made while
+		// it was down. A deleted job also deletes its remote Workload, so a resync is needed
+		// only when the Workload watch itself was down.
+		if _, isWorkloadWatch := w.(*workloadKueueWatcher); isWorkloadWatch {
+			rc.requeueWorkloadsForCluster(ctx)
+		}
+	}
 }
 
 // consumeWatch dispatches events until the watch ends or ctx is cancelled. Cancelling does
