@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -1992,7 +1993,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	case *corev1.LimitRange:
 		log := ctrl.LoggerFrom(ctx).WithValues("limitRange", klog.KObj(v))
 		ctx = ctrl.LoggerInto(ctx, log)
-		h.queueReconcileForPending(ctx, q, client.InNamespace(v.Namespace))
+		h.queueReconcileForPending(ctx, q, nil, client.InNamespace(v.Namespace))
 	case *nodev1.RuntimeClass:
 		log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(v))
 		ctx = ctrl.LoggerInto(ctx, log)
@@ -2002,11 +2003,15 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	}
 }
 
-func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], opts ...client.ListOption) {
+// queueReconcileForPending takes the field selectors in fields rather than in opts,
+// because each client.MatchingFields option replaces the field selector of the previous one.
+func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], fields client.MatchingFields, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
-	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
-	err := h.r.client.List(ctx, &lst, opts...)
+	pendingFields := client.MatchingFields{}
+	maps.Copy(pendingFields, fields)
+	pendingFields[indexer.WorkloadQuotaReservedKey] = string(metav1.ConditionFalse)
+	err := h.r.client.List(ctx, &lst, append(opts, pendingFields)...)
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
 		return
@@ -2281,7 +2286,7 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 	}
 	resourceHandler := &resourceUpdatesHandler{r: h.r}
 	for namespace := range namespaces {
-		resourceHandler.queueReconcileForPending(ctx, q, client.InNamespace(namespace))
+		resourceHandler.queueReconcileForPending(ctx, q, nil, client.InNamespace(namespace))
 	}
 }
 
