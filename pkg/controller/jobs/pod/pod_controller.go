@@ -241,7 +241,7 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 	}
 }
 
-// WithCustomLabels sets the labels the Pod's scheduling-gate-removal metric is recorded with.
+// WithCustomLabels sets the custom labels the Pod's metrics are recorded with.
 func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
 	return func(pod *Pod) {
 		pod.customLabels = cl
@@ -1316,6 +1316,12 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	}
 
 	log := ctrl.LoggerFrom(ctx)
+	// The ClusterQueue is only needed for the metric, so a failed lookup does not block the deletion.
+	cqName, lookupErr := p.localQueueClusterQueue(ctx, c)
+	if lookupErr != nil {
+		log.Error(lookupErr, "Failed to resolve the ClusterQueue of the pod group's LocalQueue, excess pod deletions are not counted", "localQueue", jobframework.QueueName(p))
+	}
+	customLabelValues := p.customLabels.CQGet(cqName)
 
 	// Extract all the latest created extra pods
 	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
@@ -1347,6 +1353,9 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 				return err
 			}
 			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
+			if lookupErr == nil {
+				metrics.ReportExcessPodDeleted(cqName, customLabelValues, p.roleTracker)
+			}
 		}
 		return nil
 	})
@@ -1354,6 +1363,26 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 		return err
 	}
 	return nil
+}
+
+// localQueueClusterQueue returns the ClusterQueue of the pod group's LocalQueue.
+// It returns an empty name when the LocalQueue or its ClusterQueue is not
+// found, for example before they are created. Returning only existing
+// ClusterQueues bounds the label values, because deleting a ClusterQueue
+// clears its series.
+func (p *Pod) localQueueClusterQueue(ctx context.Context, c client.Client) (kueue.ClusterQueueReference, error) {
+	queueName := jobframework.QueueName(p)
+	if queueName == "" {
+		return "", nil
+	}
+	lq := &kueue.LocalQueue{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: p.pod.Namespace, Name: string(queueName)}, lq); err != nil {
+		return "", client.IgnoreNotFound(err)
+	}
+	if err := c.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, &kueue.ClusterQueue{}); err != nil {
+		return "", client.IgnoreNotFound(err)
+	}
+	return lq.Spec.ClusterQueue, nil
 }
 
 func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []corev1.Pod) error {
