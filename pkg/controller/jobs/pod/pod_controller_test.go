@@ -10740,6 +10740,24 @@ func TestPod_IsActive(t *testing.T) {
 				},
 			},
 		},
+		"PodGroup_GatedRunning_NotActive": {
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							Name: "gated-running",
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: podconstants.SchedulingGateName},
+								},
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
 		"PodGroup_Active": {
 			fields: fields{
 				list: corev1.PodList{
