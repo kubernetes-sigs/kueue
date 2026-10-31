@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -504,16 +505,23 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
+// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count
+// and added tolerations.
 func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
 	}
+	if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.ContainsAll(new.Template.Spec.Tolerations, old.Template.Spec.Tolerations) {
+		// Allow adding tolerations: the pods still tolerate the taints of the
+		// assigned nodes, so the admission stays valid.
+		new.Template.Spec.Tolerations = old.Template.Spec.Tolerations
+	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
-// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
+// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count
+// and added tolerations.
 func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}

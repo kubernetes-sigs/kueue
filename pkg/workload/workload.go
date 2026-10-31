@@ -1782,6 +1782,13 @@ func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 	return priority.EffectivePriority(log, old) != priority.EffectivePriority(log, new)
 }
 
+// PodTemplates returns the pod templates of the Workload PodSets by PodSet name.
+func PodTemplates(wl *kueue.Workload) map[kueue.PodSetReference]*corev1.PodTemplateSpec {
+	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, *corev1.PodTemplateSpec) {
+		return wl.Spec.PodSets[i].Name, &wl.Spec.PodSets[i].Template
+	})
+}
+
 // TASAssignedNodeNames extracts the unique set of node names that a Workload is assigned to.
 func TASAssignedNodeNames(wl *kueue.Workload) []string {
 	if !IsAdmittedByTAS(wl) {
