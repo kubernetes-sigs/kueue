@@ -619,6 +619,17 @@ func ExpectSingleActiveWorkloadWithTimeout(ctx context.Context, k8sClient client
 	return active
 }
 
+// ExpectAllWorkloadsInNamespaceToFinish waits until every Workload in the namespace is finished.
+func ExpectAllWorkloadsInNamespaceToFinish(ctx context.Context, k8sClient client.Client, namespace string) {
+	ginkgo.GinkgoHelper()
+	list := &kueue.WorkloadList{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
+		g.Expect(FindNonFinishedWorkloads(list.Items)).To(gomega.BeEmpty())
+	}, LongTimeout, Interval).Should(gomega.Succeed(),
+		AssertMsgObjList("Expected all workloads to be finished", list))
+}
+
 // ConsistentlyActiveWorkloadNames asserts that the namespace's non-finished Workloads stay exactly the named ones.
 func ConsistentlyActiveWorkloadNames(ctx context.Context, k8sClient client.Client, namespace string, names ...string) {
 	ginkgo.GinkgoHelper()

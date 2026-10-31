@@ -19,11 +19,16 @@ package sparkapplication
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -44,7 +50,17 @@ import (
 const (
 	instanceKey                       = "cloud.provider.com/instance"
 	jobQueueName kueue.LocalQueueName = "test-queue"
+	submissionID                      = "submission-1"
 )
+
+// executorPodPhases maps the executor states the Spark Operator reports to the phases of
+// their pods.
+var executorPodPhases = map[sparkv1beta2.ExecutorState]corev1.PodPhase{
+	sparkv1beta2.ExecutorStatePending:   corev1.PodPending,
+	sparkv1beta2.ExecutorStateRunning:   corev1.PodRunning,
+	sparkv1beta2.ExecutorStateCompleted: corev1.PodSucceeded,
+	sparkv1beta2.ExecutorStateFailed:    corev1.PodFailed,
+}
 
 type PodsReadyTestSpec struct {
 	FeatureGates    map[featuregate.Feature]bool
@@ -258,4 +274,38 @@ func executorStatesForAppState(sparkApp *sparkv1beta2.SparkApplication, state sp
 		states[fmt.Sprintf("%s-exec-%d", sparkApp.Name, i)] = sparkv1beta2.ExecutorStateRunning
 	}
 	return states
+}
+
+// createExecutorPod emulates the Spark driver, which creates the executor pods with the Spark
+// labels and from the executor labels, annotations and pod template. envtest runs no Spark driver.
+// As in Spark, the name ends with the executor ID.
+func createExecutorPod(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, name string) *corev1.Pod {
+	ginkgo.GinkgoHelper()
+	gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).Should(gomega.Succeed())
+	executor := testingpod.MakePod(name, sparkApp.Namespace).
+		Label(sparkcommon.LabelSparkAppName, sparkApp.Name).
+		Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+		Label(sparkcommon.LabelSubmissionID, submissionID).
+		Label(sparkcommon.LabelSparkExecutorID, name[strings.LastIndex(name, "-")+1:]).
+		Obj()
+	maps.Copy(executor.Labels, sparkApp.Spec.Executor.Labels)
+	executor.Annotations = maps.Clone(sparkApp.Spec.Executor.Annotations)
+	executor.Spec.SchedulingGates = slices.Clone(sparkApp.Spec.Executor.Template.Spec.SchedulingGates)
+	behavioral.MustCreate(ctx, k8sClient, executor)
+	return executor
+}
+
+// setExecutorPodPhase emulates the kubelet, which moves the executor pod to the given phase.
+// It creates the executor pod first if the driver has not created it yet.
+func setExecutorPodPhase(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication, name string, phase corev1.PodPhase) {
+	ginkgo.GinkgoHelper()
+	pod := &corev1.Pod{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: sparkApp.Namespace, Name: name}, pod); apierrors.IsNotFound(err) {
+		pod = createExecutorPod(ctx, k8sClient, sparkApp, name)
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+		pod.Status.Phase = phase
+		g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
