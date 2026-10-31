@@ -1020,6 +1020,37 @@ func TestConnectionStateTransitions(t *testing.T) {
 	}
 }
 
+func TestConnectionStatePendingDisconnect(t *testing.T) {
+	now := time.Now()
+	cs := &connectionState{}
+	cs.markConnected()
+
+	cs.recordPendingDisconnect(now)
+	if !cs.isConnected() || cs.lostSince() != nil {
+		t.Fatalf("pending disconnect must keep the worker connected, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
+	}
+	if cs.pendingDisconnectSince == nil || !cs.pendingDisconnectSince.Equal(now) {
+		t.Fatalf("pending disconnect must record now (%v), got %v", now, cs.pendingDisconnectSince)
+	}
+
+	if was := cs.markDisconnected(now.Add(time.Minute)); !was {
+		t.Fatal("want the pending disconnect to transition from connected")
+	}
+	if s := cs.lostSince(); s == nil || !s.Equal(now) {
+		t.Fatalf("disconnect must use pending time (%v), got %v", now, s)
+	}
+	if cs.pendingDisconnectSince != nil {
+		t.Fatal("markDisconnected must clear the pending disconnect")
+	}
+
+	cs.markConnected()
+	cs.recordPendingDisconnect(now)
+	cs.clearPendingDisconnect()
+	if !cs.isConnected() || cs.lostSince() != nil || cs.pendingDisconnectSince != nil {
+		t.Fatalf("successful re-establishment must clear pending state, got connected=%v since=%v pending=%v", cs.isConnected(), cs.lostSince(), cs.pendingDisconnectSince)
+	}
+}
+
 func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 

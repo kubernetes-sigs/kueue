@@ -683,7 +683,9 @@ var _ = ginkgo.Describe(
 				})
 				gomega.Expect(worker1TestCluster.client.Delete(worker1TestCluster.ctx, rayJobCRD)).To(gomega.Succeed())
 				gomega.Eventually(func() bool {
-					return apierrors.IsNotFound(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(rayJobCRD), &unstructured.Unstructured{}))
+					deletedCRD := &unstructured.Unstructured{}
+					deletedCRD.SetGroupVersionKind(rayJobCRD.GroupVersionKind())
+					return apierrors.IsNotFound(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(rayJobCRD), deletedCRD))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeTrue())
 
 				expectNoEviction([]types.NamespacedName{wlLookupKey}, multiKueueAC.Name, testingWorkerLostTimeout*2)

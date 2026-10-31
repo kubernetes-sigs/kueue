@@ -203,11 +203,11 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
-// connectionState holds a remote client's connection status. Its own mutex guards the fields
-// so connected and disconnectedSince are always read and updated together.
+// connectionState holds a remote client's connection status. Its own mutex guards the fields.
 type connectionState struct {
-	mu        sync.RWMutex
-	connected bool
+	mu                     sync.RWMutex
+	connected              bool
+	pendingDisconnectSince *time.Time
 	// disconnectedSince is when the client last became disconnected: the watch dropping, or the
 	// client's creation for one that has never connected. It becomes nil only when a fully
 	// established connection (markConnected) clears it, and is preserved across failed reconnect
@@ -233,6 +233,24 @@ func (c *connectionState) markConnected() {
 	defer c.mu.Unlock()
 	c.connected = true
 	c.disconnectedSince = nil
+	c.pendingDisconnectSince = nil
+}
+
+// recordPendingDisconnect records when the Workload watch ended without yet marking the worker
+// disconnected. A successful replacement watch clears this time; a failed replacement uses it to
+// start the worker-lost grace period from the original watch loss.
+func (c *connectionState) recordPendingDisconnect(now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.connected && c.pendingDisconnectSince == nil {
+		c.pendingDisconnectSince = &now
+	}
+}
+
+func (c *connectionState) clearPendingDisconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingDisconnectSince = nil
 }
 
 // markDisconnected transitions to disconnected, recording now as the first-drop time only if
@@ -244,8 +262,13 @@ func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
 	wasConnected = c.connected
 	c.connected = false
 	if c.disconnectedSince == nil {
-		c.disconnectedSince = &now
+		if c.pendingDisconnectSince != nil {
+			c.disconnectedSince = c.pendingDisconnectSince
+		} else {
+			c.disconnectedSince = &now
+		}
 	}
+	c.pendingDisconnectSince = nil
 	return wasConnected
 }
 
@@ -573,11 +596,17 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w jobfram
 						continue
 					}
 					failedAttempts = 0
+					if isWorkloadWatcher && ctx.Err() == nil {
+						rc.connState.clearPendingDisconnect()
+					}
 				}
 
 				log.V(2).Info("Starting watch")
 				rc.consumeWatch(ctx, log, watcher, w)
 				log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
+				if isWorkloadWatcher && ctx.Err() == nil {
+					rc.connState.recordPendingDisconnect(rc.clock.Now())
+				}
 				watcher = nil
 			}
 		})
