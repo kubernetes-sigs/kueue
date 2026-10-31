@@ -368,15 +368,16 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should create one resource group with resource names containing dashes and dots after the slash": {
-			quotaArgs: []string{"alpha:nvidia.com/mig-1g.5gb=7;example.com/foo--bar=1"},
+		"should create one resource group with resource names containing dashes and dots": {
+			quotaArgs: []string{"alpha:nvidia.com/mig-1g.5gb=7;example.com/foo--bar=1;foo--bar.example.com/gpu=1"},
 			wantResourceGroups: []kueue.ResourceGroup{
 				{
-					CoveredResources: []corev1.ResourceName{"nvidia.com/mig-1g.5gb", "example.com/foo--bar"},
+					CoveredResources: []corev1.ResourceName{"nvidia.com/mig-1g.5gb", "example.com/foo--bar", "foo--bar.example.com/gpu"},
 					Flavors: []kueue.FlavorQuotas{
 						*utiltestingapi.MakeFlavorQuotas("alpha").
 							Resource("nvidia.com/mig-1g.5gb", "7").
 							Resource("example.com/foo--bar", "1").
+							Resource("foo--bar.example.com/gpu", "1").
 							Obj(),
 					},
 				},
@@ -561,7 +562,7 @@ func TestParseResourceQuotas(t *testing.T) {
 			wantErrMessage: `misconfigured flavor "alpha": invalid resource name "/gpu" in --lending-limit: prefix part must be non-empty`,
 		},
 		"should fail when invalid resources separator": {
-			// pflag keeps it as one spec when quoted.
+			// pflag keeps it as one spec only when CSV-quoted, e.g. '"alpha:cpu=0,memory=1"'.
 			quotaArgs:      []string{"alpha:cpu=0,memory=1"},
 			wantErr:        errInvalidResourcesSpec,
 			wantErrMessage: `invalid resources specification "alpha:cpu=0,memory=1" in --nominal-quota`,
