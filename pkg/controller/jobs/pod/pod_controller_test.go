@@ -52,7 +52,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
-	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -815,7 +814,6 @@ func TestRun(t *testing.T) {
 			}
 
 			kClient := clientBuilder.
-				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(tc.initObjects...).
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				Build()

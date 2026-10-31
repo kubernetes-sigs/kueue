@@ -26,7 +26,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -44,8 +43,7 @@ func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(lr).
-		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+	cl := utiltesting.NewClientBuilder().WithObjects(lr).Build()
 	cache := schdcache.New(cl)
 	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
 	cache.AddOrUpdateResourceFlavor(log, rf)
@@ -54,7 +52,10 @@ func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
-	info := workload.NewInfoFromClient(ctx, cl, wl)
+	info, err := workload.NewInfoFromClient(ctx, cl, wl)
+	if err != nil {
+		t.Fatal(err)
+	}
 	lr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("2")
 	if err := cl.Update(ctx, lr); err != nil {
 		t.Fatal(err)

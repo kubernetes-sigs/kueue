@@ -156,7 +156,15 @@ func draConditionReasonsWithLegacyFallback() (quotaReservedReason, requeuedReaso
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	wi := workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
+	wi, err := workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
+	if err != nil {
+		if errors.Is(err, workload.ErrInternal) {
+			return true, ctrl.Result{}, nil, err
+		}
+		fieldErrs := field.ErrorList{field.Invalid(field.NewPath("spec", "podSets"), wl.Spec.PodSets, err.Error())}
+		done, result, markErr := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to resolve effective resources for DRA workload")
+		return done, result, nil, markErr
+	}
 	if workload.HasResourceClaim(wl) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
 		message := "KueueDRAIntegration feature does not support use of resource claims"
@@ -2356,10 +2364,17 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
 			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
-		wlInfo := workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
-		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
-		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
-			return "", "", admissibilityErr
+		wlInfo, err := workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
+		if err != nil {
+			if errors.Is(err, workload.ErrInternal) {
+				return "", "", err
+			}
+			admissibilityErr = err
+		} else {
+			admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
+			if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
+				return "", "", admissibilityErr
+			}
 		}
 	}
 	switch {
@@ -2447,7 +2462,7 @@ func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Wo
 	// resource. This runs on every Workload event, so skip building the Info otherwise.
 	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) &&
 		r.draBackedResources != nil && !r.draBackedResources.IsEmpty() {
-		wi = workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
+		wi, _ = workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
 	}
 	return dra.NeedsDRAReconcile(wi, r.draBackedResources)
 }
