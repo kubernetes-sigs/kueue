@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
@@ -218,8 +219,21 @@ func setupManagerControllers(configNamespace string, cfg configuration.Config) m
 		); err != nil {
 			return fmt.Errorf("setup MultiKueue controllers: %w", err)
 		}
-		return nil
+		return setupWorkloadDispatcher(mgr, cfg.Dispatcher)
 	}
+}
+
+// setupWorkloadDispatcher registers the controller that nominates worker clusters for
+// the configured dispatcher, as the Kueue manager does next to the MultiKueue controllers.
+func setupWorkloadDispatcher(mgr manager.Manager, dispatcherName string) error {
+	configuration := &configapi.Configuration{
+		MultiKueue: &configapi.MultiKueue{DispatcherName: &dispatcherName},
+	}
+	mgr.GetScheme().Default(configuration)
+	if _, err := workloaddispatcher.SetupControllers(mgr, configuration, nil); err != nil {
+		return fmt.Errorf("setup MultiKueue workload dispatcher: %w", err)
+	}
+	return nil
 }
 
 func (c *benchmarkCluster) stop() error {
