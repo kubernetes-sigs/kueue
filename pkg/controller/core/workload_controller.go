@@ -778,7 +778,7 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 // requeues it with the DRA queue options from handleDRA.
 // Returns done=true when reconciliation should stop.
 func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Workload, draPreprocessed bool, draQueueOptions []workload.InfoOption) (done bool, result ctrl.Result, err error) {
-	if wl.Status.RequeueState == nil || wl.Status.RequeueState.RequeueAt == nil {
+	if workload.HasQuotaReservation(wl) || wl.Status.RequeueState == nil || wl.Status.RequeueState.RequeueAt == nil {
 		return false, ctrl.Result{}, nil
 	}
 
