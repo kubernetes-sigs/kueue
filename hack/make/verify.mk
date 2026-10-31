@@ -230,6 +230,7 @@ endef
 
 define _helm_unit_test_recipe
 HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
+cd $(PROJECT_DIR)/test/helm && $(GO_CMD) test ./...
 endef
 
 define _npm_depcheck_recipe

@@ -20,6 +20,7 @@ updates:
     directories:
       - "/"
       - "/hack/tools"
+      - "/test/helm"
       - "/site"
       - "/cmd/kueueviz/backend"
       - "/cmd/experimental/kueue-populator"
