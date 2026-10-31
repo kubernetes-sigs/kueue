@@ -183,7 +183,10 @@ LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
 LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
 
 clean_branches=()
+RELEASE_CHECKLIST_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/log_to_issue.XXXXXX")
+declare -r RELEASE_CHECKLIST_SCRIPT
 function cleanup {
+  rm -f "${RELEASE_CHECKLIST_SCRIPT}"
   # Return to the starting branch and delete specified branches
   echo
   echo "+++ Returning to the ${STARTING_BRANCH} branch."
@@ -211,6 +214,9 @@ function cleanup {
   done
 }
 trap cleanup EXIT
+
+# The release branch may not have the checklist helper's current CLI.
+cp "${REPO_ROOT}/hack/releasing/log_to_issue.py" "${RELEASE_CHECKLIST_SCRIPT}"
 
 # $1 - version
 # $2 - branch
@@ -360,6 +366,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
     PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
     if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
       RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
+      RELEASE_ISSUE_BODY=$(printf '%s' "${RELEASE_ISSUE_BODY}" | python3 "${RELEASE_CHECKLIST_SCRIPT}" --mark-step-done prepare-pull-release)
       gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
         echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
       }
@@ -388,6 +395,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
   PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
   if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
     RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
+    RELEASE_ISSUE_BODY=$(printf '%s' "${RELEASE_ISSUE_BODY}" | python3 "${RELEASE_CHECKLIST_SCRIPT}" --mark-step-done prepare-pull-main)
     gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
       echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
     }
