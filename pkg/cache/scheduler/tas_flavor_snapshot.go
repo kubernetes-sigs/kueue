@@ -911,10 +911,15 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
-	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+	ignoreNodes := s.replacementIgnoreNodes(wl, existingAssignment)
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment, groupAnchor)
+	// Nodes missing from the snapshot cannot pin the required domain.
+	if len(ignoreNodes) > 0 && isRequired(tr.PodSet.TopologyRequest) && requiredReplacementDomain == "" {
+		return nil, nil, "cannot replace the node: required topology domain of the remaining assignment cannot be determined"
+	}
 	trCopy := *tr
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
 	if reason != "" {
@@ -958,6 +963,27 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, fmt.Sprintf("cannot replace the node %v without splitting a PodSet slice", wl.Status.UnhealthyNodes[0].Name)
 	}
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
+}
+
+func (s *TASFlavorSnapshot) replacementIgnoreNodes(
+	wl *kueue.Workload,
+	existingAssignment *utiltas.TopologyAssignment,
+) sets.Set[string] {
+	// A node missing from the snapshot (cordoned, or failed since this attempt was
+	// queued) must not make the assignment stale.
+	ignoreNodes := sets.New[string]()
+	for _, domain := range existingAssignment.Domains {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+		}
+	}
+
+	// Admission clears all recorded unhealthy nodes, so the ones after the head
+	// must still make the assignment stale.
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Delete(n.Name)
+	}
+	return ignoreNodes
 }
 
 func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
@@ -1032,20 +1058,20 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		domains = groupAnchor
 	}
 	nodeLevel := len(s.levelKeys) - 1
-	domainValues := domains[0].Values
-	if len(domainValues) == 0 {
-		return ""
+	// A node missing from the snapshot is skipped; a surviving one still pins the required domain.
+	for _, assignment := range domains {
+		// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
+		domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(assignment.Values)]
+		if !found {
+			continue
+		}
+		// Find a domain that complies with the required policy
+		for i := nodeLevel; i > levelIdx; i-- {
+			domain = domain.parent
+		}
+		return domain.id
 	}
-	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
-	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
-	if !found {
-		return ""
-	}
-	// Find a domain that complies with the required policy
-	for i := nodeLevel; i > levelIdx; i-- {
-		domain = domain.parent
-	}
-	return domain.id
+	return ""
 }
 
 // IsTopologyAssignmentStale indicates whether the topologyAssignment have Nodes
@@ -1053,6 +1079,20 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 // in Node's NodeReady condition
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			return true, domain.Values[0]
+		}
+	}
+	return false, ""
+}
+
+// isTopologyAssignmentStaleIgnoringNodes is IsTopologyAssignmentStale without
+// the node-level domains whose node name is in ignoreNodes.
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoringNodes(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
+	for _, domain := range ta.Domains {
+		if ignoreNodes.Has(domain.Values[len(domain.Values)-1]) {
+			continue
+		}
 		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
@@ -2723,9 +2763,15 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
 	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
-		aDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(a.Values)]
-		bDomain := s.domainsPerLevel[nodeLevel][utiltas.DomainID(b.Values)]
-		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
+		// A node missing from the snapshot is ordered by its assignment values.
+		aID, bID := utiltas.DomainID(a.Values), utiltas.DomainID(b.Values)
+		if aDomain, found := s.domainsPerLevel[nodeLevel][aID]; found {
+			aID = utiltas.DomainID(aDomain.levelValues)
+		}
+		if bDomain, found := s.domainsPerLevel[nodeLevel][bID]; found {
+			bID = utiltas.DomainID(bDomain.levelValues)
+		}
+		return cmp.Compare(aID, bID)
 	})
 	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {
