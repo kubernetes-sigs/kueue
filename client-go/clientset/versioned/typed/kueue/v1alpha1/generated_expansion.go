@@ -18,6 +18,8 @@ limitations under the License.
 
 package v1alpha1
 
+type CapacityBufferConfigExpansion interface{}
+
 type CapacityProviderExpansion interface{}
 
 type DynamicQuotaOrchestratorExpansion interface{}

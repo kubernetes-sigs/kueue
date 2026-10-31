@@ -136,6 +136,23 @@ rules:
   - apiGroups:
       - autoscaling.x-k8s.io
     resources:
+      - capacitybuffers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - capacitybuffers/status
+      - provisioningrequests/status
+    verbs:
+      - get
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
       - provisioningrequests
     verbs:
       - create
@@ -145,12 +162,6 @@ rules:
       - patch
       - update
       - watch
-  - apiGroups:
-      - autoscaling.x-k8s.io
-    resources:
-      - provisioningrequests/status
-    verbs:
-      - get
   - apiGroups:
       - batch
     resources:
@@ -300,6 +311,7 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - capacitybufferconfigs
       - capacityproviders
       - cohorts
       - dynamicquotaorchestrators
