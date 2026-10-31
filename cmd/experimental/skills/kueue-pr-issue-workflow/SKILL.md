@@ -30,9 +30,11 @@ requirements below come from `.github/PULL_REQUEST_TEMPLATE.md` and `.github/ISS
   matches the issue type, and read it in full.
 - Apply all labels specified in the selected template's `labels` field,
   including every `kind/*` label when multiple are listed. GitHub applies
-  template labels only through the web form, so `gh issue create` must pass
-  each label with `--label`. The REST API must send each label in the request
-  body's `labels` array.
+  template labels only through the web form, and silently drops labels passed
+  via `--label` or API requests when the caller lacks triage permissions. Add
+  one Prow command per label to the issue body, each on its own line outside
+  HTML comments, for example `/kind cleanup`, `/kind flake` and `/kind bug`, or
+  `/area release`.
 - Fill its existing sections. Preserve their titles and order; do not add,
   remove, rename, or combine sections.
 - Start the title with the emoji representing the issue type from the template's
