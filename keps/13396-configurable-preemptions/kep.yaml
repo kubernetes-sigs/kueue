@@ -16,6 +16,9 @@ approvers:
   - "@mimowo"
   - "@tenzen-y"
 
+see-also:
+  - "/keps/16925-preemption-limits"
+
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
 
