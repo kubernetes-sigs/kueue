@@ -30,6 +30,45 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
+func TestPod(t *testing.T) {
+	pod := testingpod.MakePod("pod", "ns").UID("original").Obj()
+	replacement := testingpod.MakePod("pod", "ns").UID("replacement").Obj()
+	otherNamespace := testingpod.MakePod("pod", "other").UID("other").Obj()
+	cases := map[string]struct {
+		pods    []*corev1.Pod
+		key     types.NamespacedName
+		wantPod *corev1.Pod
+	}{
+		"empty tracker": {key: types.NamespacedName{Namespace: "ns", Name: "pod"}},
+		"missing Pod": {
+			pods: []*corev1.Pod{pod}, key: types.NamespacedName{Namespace: "ns", Name: "missing"},
+		},
+		"missing namespace": {
+			pods: []*corev1.Pod{pod}, key: types.NamespacedName{Namespace: "missing", Name: "pod"},
+		},
+		"unannotated Pod": {
+			pods: []*corev1.Pod{pod}, key: types.NamespacedName{Namespace: "ns", Name: "pod"}, wantPod: pod,
+		},
+		"namespace isolates same-name Pods": {
+			pods: []*corev1.Pod{pod, otherNamespace}, key: types.NamespacedName{Namespace: "other", Name: "pod"}, wantPod: otherNamespace,
+		},
+		"same-key replacement returns latest UID": {
+			pods: []*corev1.Pod{pod, replacement}, key: types.NamespacedName{Namespace: "ns", Name: "pod"}, wantPod: replacement,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var tracker Tracker
+			for _, pod := range tc.pods {
+				tracker.Track(pod)
+			}
+			if diff := cmp.Diff(tc.wantPod, tracker.Pod(tc.key)); diff != "" {
+				t.Errorf("Unexpected Pod observation (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestWorkloadMapping(t *testing.T) {
 	basicPod := testingpod.MakePod("pod", "ns").Annotation(kueue.WorkloadAnnotation, "wl").Obj()
 
@@ -213,8 +252,12 @@ func TestTrackerClone(t *testing.T) {
 			// Apply the same change to the source and check that its old snapshot
 			// keeps both its Pod map and Workload index intact.
 			snapshot := tracker.Clone()
+			wantPod := snapshot.Pod(podKey)
 			wantWLPods := snapshot.PodsForWorkload(wlKey)
 			tc.operation(&tracker)
+			if diff := cmp.Diff(wantPod, snapshot.Pod(podKey)); diff != "" {
+				t.Errorf("Original mutation changed snapshot lookup (-want,+got):\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.initialPods, snapshot.Pods(), cmpOpts...); diff != "" {
 				t.Errorf("Original mutation changed snapshot pods (-want,+got):\n%s", diff)
 			}
@@ -235,6 +278,7 @@ func TestTrackerConcurrentAccess(t *testing.T) {
 			for range 20 {
 				tracker.Track(pod)
 				tracker.Pods()
+				tracker.Pod(types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name})
 				tracker.PodsForWorkload(wlKey)
 				tracker.Clone().RemoveWorkload(wlKey)
 				tracker.Untrack(types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name})
@@ -278,6 +322,9 @@ func TestUntrackPodReturnsNodeName(t *testing.T) {
 
 	if got := tracker.Untrack(podKey); got != "node-a" {
 		t.Errorf("UntrackPod() = %q, want %q", got, "node-a")
+	}
+	if got := tracker.Pod(podKey); got != nil {
+		t.Errorf("Pod() after Untrack = %v, want nil", got)
 	}
 	if got := tracker.Untrack(podKey); got != "" {
 		t.Errorf("second UntrackPod() = %q, want empty string", got)
