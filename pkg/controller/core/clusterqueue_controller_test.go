@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -942,6 +943,11 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
 			}
 
+			cqRef := kueue.ClusterQueueReference(cq.Name)
+			metrics.ReportMultiKueueWorkloadDispatched(cqRef, "worker1", nil)
+			metrics.ReportMultiKueueWorkloadAdmitted(cqRef, "worker1", nil)
+			metrics.ReportMultiKueueWorkloadEvicted(cqRef, "worker1", kueue.WorkloadEvictedByPreemption, nil)
+
 			req := ctrl.Request{Name: cq.Name}
 			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
 
@@ -977,6 +983,19 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			})
 			if len(gotBeta) == 0 {
 				t.Errorf("Expected custom_team_cq=beta series to be reported")
+			}
+
+			// MultiKueue counters carry no custom labels, so the label update must keep them.
+			multiKueueCounters := map[string]prometheus.Collector{
+				"workloads_dispatched_total": metrics.MultiKueueWorkloadsDispatchedTotal,
+				"workloads_admitted_total":   metrics.MultiKueueWorkloadsAdmittedTotal,
+				"workloads_evicted_total":    metrics.MultiKueueWorkloadsEvictedTotal,
+			}
+			for name, counter := range multiKueueCounters {
+				got := testingmetrics.CollectFilteredGaugeVec(counter, map[string]string{"cluster_queue": cq.Name})
+				if len(got) != 1 || got[0].Value != 1 {
+					t.Errorf("Expected %s to keep value 1 after the label update, got %v", name, got)
+				}
 			}
 		})
 	}
