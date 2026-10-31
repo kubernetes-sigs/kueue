@@ -155,12 +155,12 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 				t.Errorf("update called %d times, want %d", gotUpdates, tc.wantUpdates)
 			}
 
-			var got *kueue.AdmissionCheck
-			fetched := &kueue.AdmissionCheck{}
-			if err := cl.Get(ctx, req.NamespacedName, fetched); err == nil {
-				got = fetched
-			} else if !apierrors.IsNotFound(err) {
-				t.Fatalf("failed to get AdmissionCheck: %v", err)
+			got := &kueue.AdmissionCheck{}
+			if err := cl.Get(ctx, req.NamespacedName, got); err != nil {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("failed to get AdmissionCheck: %v", err)
+				}
+				got = nil
 			}
 
 			if diff := cmp.Diff(tc.wantAdmissionCheck, got, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"), cmpopts.EquateEmpty()); diff != "" {
