@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -103,6 +104,7 @@ func TestReconcile(t *testing.T) {
 	testCases := map[string]struct {
 		workloads []kueue.Workload
 		pods      []corev1.Pod
+		nodes     []corev1.Node
 		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
 		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
@@ -373,6 +375,113 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 				*makeElasticPodForPodSet("worker-running-1", workersPodSet).
 					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
+		"pod stuck terminating on an unreachable node frees its slot": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-ok").Obj(),
+				*testingnode.MakeNode("node-down").
+					Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoExecute}).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-down").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-down").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).Obj(),
+			},
+		},
+		"pod terminating on a reachable node keeps its slot": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-ok").Obj(),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-ok").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
+		"pod terminating on a deleted node keeps its slot": {
+			workloads: []kueue.Workload{
+				*makeAdmittedTwoPodSetWorkload(now),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-gone").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					Obj(),
+				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("worker-running", workersPodSet).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("worker-terminating", workersPodSet).
+					NodeName("node-gone").
+					StatusPhase(corev1.PodRunning).
+					Finalizer("test/finalizer").
 					Obj(),
 				*makeElasticPodForPodSet("worker-waiting", workersPodSet).
 					Gate(kueue.ElasticJobSchedulingGate).
@@ -1144,6 +1253,9 @@ func TestReconcile(t *testing.T) {
 
 			for i := range tc.pods {
 				clientBuilder = clientBuilder.WithObjects(&tc.pods[i])
+			}
+			for i := range tc.nodes {
+				clientBuilder = clientBuilder.WithObjects(&tc.nodes[i])
 			}
 			for i := range tc.workloads {
 				clientBuilder = clientBuilder.WithStatusSubresource(&tc.workloads[i])

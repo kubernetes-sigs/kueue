@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -72,6 +73,7 @@ var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
 func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
@@ -297,6 +299,15 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 			}
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
 		} else {
+			stuck, err := r.stuckTerminatingOnUnreachableNode(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			if stuck {
+				ctrl.LoggerFrom(ctx).V(3).Info("ignoring pod stuck terminating on an unreachable node",
+					"pod", klog.KObj(p), "node", p.Spec.NodeName, "podSet", ps)
+				continue
+			}
 			// Already-ungated pods consume quota too.
 			ungatedPerPodSet[ps]++
 		}
@@ -325,6 +336,17 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
+}
+
+func (r *elasticJobUngater) stuckTerminatingOnUnreachableNode(ctx context.Context, p *corev1.Pod) (bool, error) {
+	if p.DeletionTimestamp == nil || p.Spec.NodeName == "" {
+		return false, nil
+	}
+	node := &corev1.Node{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: p.Spec.NodeName}, node); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return utiltaints.TaintKeyExists(node.Spec.Taints, corev1.TaintNodeUnreachable), nil
 }
 
 // Workload predicates

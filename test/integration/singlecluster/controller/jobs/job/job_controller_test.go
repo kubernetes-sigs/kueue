@@ -6384,6 +6384,89 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should ungate a replacement while the prior Pod is stuck terminating on an unreachable node", framework.SlowSpec, func() {
+		// Regression for kueue#17948: a Pod being deleted on an unreachable node
+		// stays Terminating until the node returns, and it still counted toward
+		// the granted PodSet count, leaving the Job's replacement Pod gated.
+		const testFinalizer = "kueue.x-k8s.io/integration-test"
+		node := testingnode.MakeNode("unreachable-node").
+			Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable, Effect: corev1.TaintEffectNoExecute}).
+			Obj()
+		ginkgo.By("creating an unreachable node")
+		behavioral.MustCreate(ctx, k8sClient, node)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+		})
+
+		testJob := testingjob.MakeJob("unreachable-pod-replacement", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(1).
+			Completions(1).
+			Obj()
+
+		ginkgo.By("creating an elastic job with one concurrent slot")
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+
+		var (
+			jobWorkload *kueue.Workload
+			podSet      kueue.PodSetReference
+		)
+		ginkgo.By("waiting for Kueue to admit one concurrent pod")
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			jobWorkload = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(jobWorkload)).Should(gomega.BeTrue())
+			g.Expect(jobWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+			podSet = jobWorkload.Spec.PodSets[0].Name
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		firstPod := testingpod.MakePod("first-pod", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, jobWorkload.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, jobWorkload.Name).
+			Label(pkgconstants.PodSetLabel, string(podSet)).
+			Finalizer(testFinalizer).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("creating the first pod with an elastic scheduling gate")
+		behavioral.MustCreate(ctx, k8sClient, firstPod)
+		ginkgo.DeferCleanup(func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				p := &corev1.Pod{}
+				g.Expect(client.IgnoreNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), p))).To(gomega.Succeed())
+				if controllerutil.RemoveFinalizer(p, testFinalizer) {
+					g.Expect(k8sClient.Update(ctx, p)).To(gomega.Succeed())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.By("waiting for Kueue to remove the first pod's scheduling gate")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(firstPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("binding the first pod to the unreachable node and deleting it")
+		integration.BindPodWithNode(ctx, k8sClient, node.Name, firstPod)
+		gomega.Expect(k8sClient.Delete(ctx, firstPod)).Should(gomega.Succeed())
+
+		replacementPod := testingpod.MakePod("replacement-pod", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, jobWorkload.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, jobWorkload.Name).
+			Label(pkgconstants.PodSetLabel, string(podSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		ginkgo.By("creating a gated replacement for the stuck pod")
+		behavioral.MustCreate(ctx, k8sClient, replacementPod)
+		ginkgo.By("waiting for Kueue to reuse the slot held by the stuck pod")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacementPod), replacementPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.HasGate(replacementPod, kueue.ElasticJobSchedulingGate)).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should ungate a scale-up pod minted after the replacement slice was admitted", framework.SlowSpec, func() {
 		// Reproduces the trigger gap behind kueue#12045: after a scale-up the
 		// replacement slice is the active workload while the previous slice is
