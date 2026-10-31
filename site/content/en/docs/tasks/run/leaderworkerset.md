@@ -84,6 +84,23 @@ The unit of scaling is a LWS group. By changing the number of `replicas` in the 
 or delete entire groups of Pods. As a result of scale up the newly created group of Pods is
 suspended by a scheduling gate, until the corresponding Workload is admitted.
 
+### d. Updating the Pod templates
+
+While Kueue manages a LeaderWorkerSet, it rejects changes to the fields of the Pod templates
+that affect admission, such as the resource requests, the `nodeSelector` or the `affinity`.
+
+Since Kueue v0.21, you can add, remove or change the `initContainers` of the Pod templates,
+including sidecar containers, as long as the effective resource requests of the Pods and the
+ports of the init containers stay the same.
+For example, you can add an init container whose requests do not exceed the requests of the
+app containers.
+Kueue computes the effective requests as for the quota of the Workloads: limits are used as
+missing requests, and the defaults of the LimitRanges in the namespace apply to the containers
+without requests.
+The quota of the Workloads stays valid, so Kueue does not change them.
+To turn this off, disable the `AllowChangingPodTemplateInitContainers`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
 ## Example
 Here is a sample LeaderWorkerSet:
 
