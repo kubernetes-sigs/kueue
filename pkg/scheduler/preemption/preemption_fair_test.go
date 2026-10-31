@@ -17,6 +17,9 @@ limitations under the License.
 package preemption
 
 import (
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1726,6 +1729,354 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New[string](),
 		},
+		"ReclaimOnly: reclaim nominal quota from a borrowing ClusterQueue": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b2").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b3").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b4").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b5").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("c1").SimpleReserveQuota("c", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("c_incoming").Obj(),
+			targetCQ:      "c",
+			wantPreempted: sets.New(targetKeyReason("/b1", kueue.InCohortReclamationReason)),
+		},
+		"ReclaimOnly: no preemption when the preemptor would borrow, even if it has a lower share": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
+		},
+		"ReclaimOnly: preempt lower priority workloads in the preemptor ClusterQueue": {
+			clusterQueues: baseCQs,
+			strategies:    []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/a1", kueue.InClusterQueueReason)),
+		},
+		// root
+		// ├── cohort-c   (no quota)
+		// │   ├── a      10 CPU   P: 10 (pending)
+		// │   └── s       0 CPU   S: 4  (admitted)
+		// └── t           0 CPU   T: 6  (admitted)
+		//
+		// Reclaiming from t, which is farther from a, is only possible once
+		// s has been reclaimed and cohort-c is back within its nominal quota.
+		"ReclaimOnly: nested cohorts reclaim from a farther ClusterQueue once a closer one is reclaimed": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("s1", "").Request(corev1.ResourceCPU, "4").SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "10").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/s1", kueue.InCohortReclamationReason),
+				targetKeyReason("/t1", kueue.InCohortReclamationReason),
+			),
+		},
+		// cohort-c
+		// ├── a   4 CPU   L: 2 (admitted, low priority)
+		// │               P: 3 (pending)
+		// └── b   2 CPU   B: 4 (admitted)
+		//
+		// a would borrow with P admitted, so B can only be reclaimed once
+		// L is preempted within a.
+		"ReclaimOnly: reclaim after preempting within the preemptor ClusterQueue": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("l1", "").Request(corev1.ResourceCPU, "2").Priority(-1).SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "4").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "3").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/l1", kueue.InClusterQueueReason),
+				targetKeyReason("/b1", kueue.InCohortReclamationReason),
+			),
+		},
+		// root
+		// ├── cohort-c   (no quota)
+		// │   ├── a      10 CPU   P: 8 (pending)
+		// │   └── s       0 CPU   S: 4 (admitted)
+		// └── t           2 CPU   T: 6 (admitted)
+		//
+		// t is farther, but cohort-c would borrow with P admitted, so T is
+		// only reclaimed after S. P can use its nominal quota.
+		"ReclaimOnly: revisit a farther ClusterQueue after reclaiming from a closer one": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("s1", "").Request(corev1.ResourceCPU, "4").SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "6").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "8").Obj(),
+			targetCQ: "a",
+			wantPreempted: sets.New(
+				targetKeyReason("/s1", kueue.InCohortReclamationReason),
+				targetKeyReason("/t1", kueue.InCohortReclamationReason),
+			),
+		},
+		// root
+		// ├── cohort-c   (no quota)
+		// │   ├── a      4 CPU   P: 2 (pending)
+		// │   └── b      0 CPU   B: 2 (admitted)
+		// └── t          0 CPU   T: 2 (admitted)
+		//
+		// Both B and T can be reclaimed, and one of them is enough. The
+		// farthest ClusterQueue is reclaimed from first.
+		"ReclaimOnly: reclaim from the farthest ClusterQueue first": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "2").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "2").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/t1", kueue.InCohortReclamationReason)),
+		},
+		// root
+		// ├── a          4 CPU   P: 4 (pending)
+		// └── cohort-d   (no quota)
+		//     ├── u      2 CPU   U: 2 (admitted, low priority)
+		//     └── v      2 CPU   V: 4 (admitted)
+		//
+		// cohort-d is borrowing, but u is within its nominal quota, so U
+		// is protected even though it would be preempted first otherwise.
+		"ReclaimOnly: a ClusterQueue within nominal quota below the AlmostLCA is protected": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("u").
+					Cohort("cohort-d").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("v").
+					Cohort("cohort-d").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-d").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("u1", "").Request(corev1.ResourceCPU, "2").Priority(-1).SimpleReserveQuota("u", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("v1", "").Request(corev1.ResourceCPU, "4").SimpleReserveQuota("v", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New(targetKeyReason("/v1", kueue.InCohortReclamationReason)),
+		},
+		"ReclaimOnly: nested cohorts don't reclaim when the preemptor's cohort would borrow": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("s").
+					Cohort("cohort-c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("t").
+					Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("root").Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.ReclaimOnly},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "8").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("s1", "").Request(corev1.ResourceCPU, "4").Priority(10).SimpleReserveQuota("s", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "").Request(corev1.ResourceCPU, "8").SimpleReserveQuota("t", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p", "").Request(corev1.ResourceCPU, "4").Obj(),
+			targetCQ:      "a",
+			wantPreempted: nil,
+		},
+	}
+	// ReclaimOnly doesn't depend on FairSharingPreemptWithinNominal and
+	// FairSharingVerifyFinalTargets, so every ReclaimOnly case has to give
+	// the same result with those disabled.
+	for name, tc := range maps.Clone(cases) {
+		if !strings.HasPrefix(name, "ReclaimOnly:") {
+			continue
+		}
+		for _, gates := range []map[featuregate.Feature]bool{
+			{features.FairSharingPreemptWithinNominal: false},
+			{features.FairSharingVerifyFinalTargets: false},
+			{features.FairSharingPreemptWithinNominal: false, features.FairSharingVerifyFinalTargets: false},
+		} {
+			variant := tc
+			variant.featureGates = maps.Clone(tc.featureGates)
+			if variant.featureGates == nil {
+				variant.featureGates = map[featuregate.Feature]bool{}
+			}
+			var disabled []string
+			for gate, enabled := range gates {
+				variant.featureGates[gate] = enabled
+				disabled = append(disabled, string(gate))
+			}
+			slices.Sort(disabled)
+			variant.admitted = slices.Clone(tc.admitted)
+			cases[fmt.Sprintf("%s [disabled: %s]", name, strings.Join(disabled, ","))] = variant
+		}
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

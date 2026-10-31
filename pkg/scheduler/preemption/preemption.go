@@ -69,6 +69,9 @@ type Preemptor struct {
 	workloadOrdering  workload.Ordering
 	enableFairSharing bool
 	fsStrategies      []fairsharing.Strategy
+	// fsReclaimOnly is set when the only configured FairSharing
+	// preemption strategy is ReclaimOnly (rule S1).
+	fsReclaimOnly bool
 
 	enabledAfs             bool
 	roleTracker            *roletracker.RoleTracker
@@ -92,6 +95,10 @@ type PreemptionStrategy struct {
 	// If nil, any target set that fits is valid. It returns whether the target set is valid
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
+	// verifyFillBack makes the fill back keep a target whenever adding it
+	// back would leave a target set that fails verify. It is needed when a
+	// target is only valid because of another one, as in ReclaimOnly.
+	verifyFillBack bool
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
 	targetsByKey map[client.ObjectKey]*Target
 }
@@ -101,6 +108,14 @@ type strategyOption func(*PreemptionStrategy)
 func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
 	return func(ps *PreemptionStrategy) {
 		ps.verify = verify
+	}
+}
+
+// withVerifyFillBack makes the fill back respect verify, see
+// PreemptionStrategy.verifyFillBack.
+func withVerifyFillBack() strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.verifyFillBack = true
 	}
 }
 
@@ -192,6 +207,7 @@ func New(
 		workloadOrdering:       workloadOrdering,
 		enableFairSharing:      fairsharing.Enabled(fs),
 		fsStrategies:           parseStrategies(fs),
+		fsReclaimOnly:          reclaimOnly(fs),
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		customLabels:           customLabels,
@@ -431,7 +447,11 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		for candidate := range strategy.candidates {
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
-				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				var fillBackVerify func([]*Target) (bool, string)
+				if strategy.verifyFillBack {
+					fillBackVerify = strategy.verify
+				}
+				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing, fillBackVerify)
 				if strategy.verify != nil {
 					if valid, reason := strategy.verify(targets); !valid {
 						if logV := log.V(5); logV.Enabled() {
@@ -458,6 +478,18 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 	return nil
 }
 
+// fillBackValid reports whether the targets other than targets[i] pass verify.
+func fillBackValid(targets []*Target, i int, verify func([]*Target) (bool, string)) bool {
+	if verify == nil {
+		return true
+	}
+	remaining := make([]*Target, 0, len(targets)-1)
+	remaining = append(remaining, targets[:i]...)
+	remaining = append(remaining, targets[i+1:]...)
+	valid, _ := verify(remaining)
+	return valid
+}
+
 func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	for _, t := range targets {
 		snapshot.AddWorkload(t.WorkloadInfo)
@@ -465,10 +497,11 @@ func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 }
 
 // fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
-func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
+// When verify is set, a workload is only added back if the remaining targets still pass it.
+func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool, verify func([]*Target) (bool, string)) []*Target {
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
+		if workloadFits(ctx, preemptionCtx, allowBorrowing) && fillBackValid(targets, i, verify) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
@@ -488,6 +521,10 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 	if fs == nil || len(fs.PreemptionStrategies) == 0 {
 		return []fairsharing.Strategy{fairsharing.LessThanOrEqualToFinalShare, fairsharing.LessThanInitialShare}
 	}
+	if reclaimOnly(fs) {
+		// ReclaimOnly doesn't compare DominantResourceShares; see iterateReclaimOnly.
+		return nil
+	}
 	fsStrategies := make([]fairsharing.Strategy, len(fs.PreemptionStrategies))
 	for i, strategy := range fs.PreemptionStrategies {
 		switch strategy {
@@ -498,6 +535,13 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 		}
 	}
 	return fsStrategies
+}
+
+// reclaimOnly reports whether the FairSharing preemption is restricted to
+// reclaiming nominal quota. Configuration validation only allows ReclaimOnly
+// as the single strategy.
+func reclaimOnly(fs *config.FairSharing) bool {
+	return fs != nil && slices.Equal(fs.PreemptionStrategies, []config.PreemptionStrategy{config.ReclaimOnly})
 }
 
 // fsStrategyUnsatisfiable reports whether, given the preemptor's and the
