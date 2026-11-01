@@ -35,6 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // priorityStats is counted through the interceptors, for the cases that care how
@@ -254,7 +255,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		},
 
 		// A workload that already carries the right class name but a stale value is
-		// only repaired if the comparison looks past the name.
+		// only repaired if the comparison looks past the name. The class is read once
+		// to resolve it and once after each of the two groups is written.
 		"converges a workload that already names the class but holds a stale value": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -267,7 +269,25 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"first":  {refName: new("high"), priority: new(int32(200))},
 				"second": {refName: new("high"), priority: new(int32(200))},
 			},
-			wantClassReads: new(2),
+			wantClassReads: new(3),
+		},
+
+		// spec.priority stays mutable on a workload that names its class, so when
+		// no class name has to change, the class is not resolved and an edited
+		// value is kept, whether the owner has one workload or several.
+		"keeps a hand-edited priority when two workloads already name the class": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("edited", "ns").WorkloadPriorityClassRef("high").Priority(500).Obj(),
+				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"edited": {priority: new(int32(500))},
+				"other":  {priority: new(int32(200))},
+			},
+			wantWorkloadWrites: new(0),
 		},
 
 		// The split state is reachable from a real partial write: the first workload
@@ -337,8 +357,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		// reconciles before the workload updates land, the class controller skips the
 		// same-class workload (which still holds the new value in the store) and misses
 		// the transitioning one (which still names the old class). Re-reading the class
-		// after the writes and merge-patching spec.priority repairs the batch in place,
-		// even if an unrelated update bumped a written workload's ResourceVersion.
+		// after the same-class writes and merge-patching spec.priority repairs them in
+		// place, even if an unrelated update bumped a written workload's
+		// ResourceVersion, and the transitioning one is then written with the new value.
 		"rewrites the batch when the class value changes while a workload is written": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -350,7 +371,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				return interceptor.Funcs{
 					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 						wl, isWorkload := obj.(*kueue.Workload)
-						if isWorkload && wl.Name == "same-class" && !changedOnce {
+						sameClassFirstWrite := isWorkload && wl.Name == "same-class" && !changedOnce
+						if sameClassFirstWrite {
 							changedOnce = true
 							wpc := &kueue.WorkloadPriorityClass{}
 							if err := c.Get(ctx, types.NamespacedName{Name: "high"}, wpc); err != nil {
@@ -364,7 +386,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 						if err := c.Update(ctx, obj, opts...); err != nil {
 							return err
 						}
-						if isWorkload && wl.Name == "transitioning" {
+						if sameClassFirstWrite {
 							// Simulate a concurrent write to same-class after its Update
 							// landed so a second full Update would conflict on ResourceVersion.
 							stored := &kueue.Workload{}
@@ -457,6 +479,92 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			want: map[string]wantWorkload{
 				"same-class":    {refName: new("high"), priority: new(int32(100))},
 				"transitioning": {refName: new("high"), priority: new(int32(100))},
+			},
+		},
+
+		// A workload that moves from no class to the owner's class can reserve quota
+		// right after its write, and from then on the API server refuses to take the
+		// priorityClassRef off it again. The same-class workloads are written and
+		// checked against the class before anything moves, so a failed follow-up
+		// patch leaves the mover on no class and the next call resolves the class
+		// again instead of returning at the fast exit.
+		"converges when a workload moving from no class reserves quota and a follow-up patch fails": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("w0", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("w1", "ns").Obj(),
+			},
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				changedOnce := false
+				failPatchOnce := true
+				// The fake client does not run the Workload CEL rules, so the one
+				// that freezes the presence of priorityClassRef while quota is
+				// reserved is checked here.
+				refRemovedWhileReserved := func(ctx context.Context, c client.WithWatch, wl *kueue.Workload) bool {
+					stored := &kueue.Workload{}
+					if err := c.Get(ctx, client.ObjectKeyFromObject(wl), stored); err != nil {
+						return false
+					}
+					return workload.HasQuotaReservation(stored) && stored.Spec.PriorityClassRef != nil && wl.Spec.PriorityClassRef == nil
+				}
+				immutable := apierrors.NewInvalid(kueue.SchemeGroupVersion.WithKind("Workload").GroupKind(), "w1", nil)
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						wl, isWorkload := obj.(*kueue.Workload)
+						if !isWorkload {
+							return c.Update(ctx, obj, opts...)
+						}
+						if refRemovedWhileReserved(ctx, c, wl) {
+							return immutable
+						}
+						if wl.Name == "w0" && !changedOnce {
+							changedOnce = true
+							wpc := &kueue.WorkloadPriorityClass{}
+							if err := c.Get(ctx, types.NamespacedName{Name: "high"}, wpc); err != nil {
+								return err
+							}
+							wpc.Value = 100
+							if err := c.Update(ctx, wpc); err != nil {
+								return err
+							}
+						}
+						if err := c.Update(ctx, obj, opts...); err != nil {
+							return err
+						}
+						if wl.Name == "w1" && !workload.HasQuotaReservation(wl) {
+							stored := &kueue.Workload{}
+							if err := c.Get(ctx, client.ObjectKeyFromObject(wl), stored); err != nil {
+								return err
+							}
+							stored.Status.Conditions = append(stored.Status.Conditions, metav1.Condition{
+								Type:               kueue.WorkloadQuotaReserved,
+								Status:             metav1.ConditionTrue,
+								Reason:             "AdmittedByTest",
+								Message:            "reserved",
+								LastTransitionTime: metav1.Now(),
+							})
+							return c.Update(ctx, stored)
+						}
+						return nil
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok {
+							if refRemovedWhileReserved(ctx, c, wl) {
+								return immutable
+							}
+							if failPatchOnce {
+								failPatchOnce = false
+								return errors.New("simulated patch failure")
+							}
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}, {}, {}},
+			want: map[string]wantWorkload{
+				"w0": {refName: new("high"), priority: new(int32(100))},
+				"w1": {refName: new("high"), priority: new(int32(100))},
 			},
 		},
 	}
