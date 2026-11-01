@@ -96,6 +96,24 @@ make npm-depcheck      # frontend dependency check (requires Docker)
 make gomod-verify      # go.mod / go.sum tidy check
 ```
 
+Verification downloads pinned upstream binaries for golangci-lint, controller-gen,
+kustomize, gotestsum, kind, yq, mdtoc, and helm-docs instead of compiling them.
+Helm also uses its upstream binary. Versions continue to come from
+`hack/tools/go.mod`. Downloaded tools are reused until their version or host
+platform changes. Generators without upstream binaries and the custom API
+linter are compiled once and reused until their version, configuration, or Go
+toolchain changes. Run `make verify-ci-tools` to test installation and reuse
+without network access or containers.
+
+Build metadata normally records the current time. To compare consecutive builds
+with identical inputs and reuse Go's link cache, keep `BUILD_DATE` fixed:
+
+```shell
+export BUILD_DATE="$(git show -s --format=%cI HEAD)"
+make build
+make build
+```
+
 Limit parallelism if needed:
 ```shell
 VERIFY_NPROCS=4 make verify
