@@ -274,7 +274,7 @@ verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
 verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
-	@echo "Artifact build concurrency: platforms=$(CLI_BUILD_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
+	@echo "Artifact build concurrency: platforms=$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(CLI_BUILD_NPROCS),skipped), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
