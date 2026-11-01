@@ -1172,7 +1172,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
-	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
+	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, tr.PodSet.TopologyRequest, existingAssignment)
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
@@ -1229,8 +1229,14 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 
 func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 	wl *kueue.Workload,
+	tr *kueue.PodSetTopologyRequest,
 	existingAssignment *utiltas.TopologyAssignment,
 ) sets.Set[string] {
+	// Without the gate, ignoring a missing node can split a slice, so slices keep the stale check.
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) && slicesRequested(tr) {
+		return nil
+	}
+
 	// A node missing from the snapshot (cordoned, or failed since this attempt was
 	// queued) must not make the assignment stale.
 	ignoreNodes := sets.New[string]()

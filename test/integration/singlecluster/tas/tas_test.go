@@ -3856,11 +3856,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 
-					ginkgo.By("verify the workload is not evicted", func() {
+					ginkgo.By("verify the workload is not evicted and pod1 keeps running", func() {
 						gomega.Consistently(func(g gomega.Gomega) {
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 							g.Expect(apimeta.IsStatusConditionTrue(wl1.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 							g.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
+							pod := &corev1.Pod{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "pod1"}, pod)).To(gomega.Succeed())
+							g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 					})
 				})
