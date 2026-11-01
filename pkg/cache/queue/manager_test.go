@@ -254,7 +254,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
 			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
 			manager.SetDRAReconcileChannel(draCh)
-			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
 				t.Fatalf("Failed adding ClusterQueue: %v", err)
 			}
 			if err := manager.AddLocalQueue(ctx, lq); err != nil {
@@ -299,8 +299,17 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				inflight.SchedulingHash = probe
 			}
 
-			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
+			requeueReason := RequeueReasonGeneric
+			if tc.refreshCharges {
+				// A NoFit result for the old charge shape must not leave the
+				// refreshed workload parked in BestEffortFIFO's inadmissible set.
+				requeueReason = RequeueReasonNoFit
+			}
+			if got := manager.RequeueWorkload(ctx, inflight, requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+			if tc.refreshCharges && manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil {
+				t.Error("refreshed DRA workload remained inadmissible after a NoFit requeue")
 			}
 			if tc.refreshCharges && inflight.SchedulingHash == probe {
 				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)
