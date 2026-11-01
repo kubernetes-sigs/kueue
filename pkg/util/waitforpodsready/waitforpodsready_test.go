@@ -26,6 +26,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -164,6 +166,66 @@ func TestParseAnnotation(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("ParseAnnotation() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseWaitForPodsReady(t *testing.T) {
+	testCases := map[string]struct {
+		annotation string
+		want       *kueue.WaitForPodsReady
+		wantErrMsg string
+	}{
+		"no annotation": {
+			annotation: "",
+			want:       nil,
+		},
+		"timeout only": {
+			annotation: `{"timeoutSeconds":100}`,
+			want:       &kueue.WaitForPodsReady{TimeoutSeconds: 100},
+		},
+		"timeout and recoveryTimeout": {
+			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":50}`,
+			want: &kueue.WaitForPodsReady{
+				TimeoutSeconds:         100,
+				RecoveryTimeoutSeconds: ptr.To[int64](50),
+			},
+		},
+		// ParseWaitForPodsReady does not validate values; the minimum is enforced by the webhook.
+		"missing timeoutSeconds defaults to zero": {
+			annotation: `{"recoveryTimeoutSeconds":10}`,
+			want: &kueue.WaitForPodsReady{
+				TimeoutSeconds:         0,
+				RecoveryTimeoutSeconds: ptr.To[int64](10),
+			},
+		},
+		"malformed JSON returns an error": {
+			annotation: `{"timeoutSeconds":`,
+			wantErrMsg: "unexpected end of JSON input",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			})
+			obj := &metav1.PartialObjectMetadata{}
+			if tc.annotation != "" {
+				obj.Annotations = map[string]string{
+					controllerconstants.WaitForPodsReadyAnnotation: tc.annotation,
+				}
+			}
+			got, err := ParseWaitForPodsReady(obj)
+			gotErrMsg := ""
+			if err != nil {
+				gotErrMsg = err.Error()
+			}
+			if gotErrMsg != tc.wantErrMsg {
+				t.Errorf("ParseWaitForPodsReady() error = %q, want %q", gotErrMsg, tc.wantErrMsg)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ParseWaitForPodsReady() = %v, want %v", got, tc.want)
 			}
 		})
 	}
