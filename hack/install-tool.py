@@ -95,10 +95,41 @@ def release(name, version, goos, goarch):
     raise ValueError(f"No upstream binary configured for {name}")
 
 
+def parse_checksums(text):
+    """Read standard SHA256 and BSD checksum manifests."""
+    checksums = {}
+    for line in text.splitlines():
+        match = re.fullmatch(r"([a-fA-F0-9]{64})\s+\*?(.+)", line.strip())
+        if match:
+            checksums[match[2]] = match[1]
+        match = re.fullmatch(r"SHA(?:2-|-)?256 \((.+)\) = ([a-fA-F0-9]{64})", line.strip())
+        if match:
+            checksums[match[1]] = match[2]
+    return checksums
+
+
+def release_assets(name, version, repo, tag):
+    checksum_files = {
+        "golangci-lint": f"golangci-lint-{version.removeprefix('v')}-checksums.txt",
+        "kustomize": "checksums.txt",
+        "gotestsum": f"gotestsum-{version.removeprefix('v')}-checksums.txt",
+        "yq": "checksums-bsd",
+        "mdtoc": "checksums.txt",
+        "helm-docs": "checksums.txt",
+    }
+    if name not in checksum_files:
+        return json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
+    # Prow jobs need no API token for tools with independent checksum manifests.
+    base = f"https://github.com/{repo}/releases/download/{quote(tag, safe='')}/"
+    checksums = parse_checksums(download(base + checksum_files[name]).decode())
+    if not checksums:
+        raise ValueError(f"No SHA256 checksums in {checksum_files[name]}")
+    return [{"name": asset, "digest": "sha256:" + digest, "browser_download_url": base + asset} for asset, digest in checksums.items()]
+
+
 def release_binary(name, version, goos, goarch):
     repo, tag, filename = release(name, version, goos, goarch)
-    metadata = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))
-    assets = {asset["name"]: asset for asset in metadata["assets"]}
+    assets = {asset["name"]: asset for asset in release_assets(name, version, repo, tag)}
     if filename not in assets:
         raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no {filename}")
     asset = assets[filename]
@@ -112,16 +143,7 @@ def release_binary(name, version, goos, goarch):
         for checksum in assets:
             if "checksums" not in checksum or checksum.endswith((".sig", ".pem", ".bundle")):
                 continue
-            lines = download(assets[checksum]["browser_download_url"]).decode().splitlines()
-            for line in lines:
-                match = re.fullmatch(r"([a-fA-F0-9]{64})\s+\*?" + re.escape(filename), line.strip())
-                if match:
-                    expected = match[1]
-                    break
-                match = re.fullmatch(r"SHA256 \(" + re.escape(filename) + r"\) = ([a-fA-F0-9]{64})", line.strip())
-                if match:
-                    expected = match[1]
-                    break
+            expected = parse_checksums(download(assets[checksum]["browser_download_url"]).decode()).get(filename)
             if expected:
                 break
         if not expected:

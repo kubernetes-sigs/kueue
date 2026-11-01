@@ -122,8 +122,26 @@ class InstallTest(unittest.TestCase):
             archive.addfile(binary, io.BytesIO(b"tool"))
         content = buffer.getvalue()
         asset = {"name": "kustomize_v1_linux_amd64.tar.gz", "browser_download_url": "https://example.test/archive", "digest": "sha256:" + hashlib.sha256(content).hexdigest()}
-        with patch.object(installer, "download", side_effect=[json.dumps({"assets": [asset]}).encode(), content]):
+        manifest = (hashlib.sha256(content).hexdigest() + "  " + asset["name"]).encode()
+        with patch.object(installer, "download", side_effect=[manifest, content]):
             self.assertEqual(installer.release_binary("kustomize", "v1", "linux", "amd64"), b"tool")
+
+    def test_checksum_manifest_avoids_api_requests(self):
+        for name in ("golangci-lint", "kustomize", "gotestsum", "yq", "mdtoc", "helm-docs"):
+            with self.subTest(name=name):
+                repo, tag, filename = installer.release(name, "v1", "linux", "amd64")
+                manifest = f"SHA256 ({filename}) = {'a' * 64}\n".encode()
+                with patch.object(installer, "download", return_value=manifest) as download:
+                    assets = installer.release_assets(name, "v1", repo, tag)
+                    self.assertEqual(assets[0]["name"], filename)
+                    self.assertEqual(assets[0]["digest"], "sha256:" + "a" * 64)
+                    self.assertTrue(download.call_args.args[0].startswith("https://github.com/"))
+
+    def test_invalid_checksum_manifest_is_not_a_missing_binary(self):
+        with patch.object(installer, "download", return_value=b"unrecognized format"):
+            with self.assertRaisesRegex(ValueError, "No SHA256 checksums") as error:
+                installer.release_binary("mdtoc", "v1", "linux", "amd64")
+            self.assertNotIsInstance(error.exception, installer.NoReleaseBinary)
 
     def test_transient_failure_is_retried_once(self):
         for error, delay in [(HTTPError("url", 429, "limit", {}, None), 20), (HTTPError("url", 503, "unavailable", {}, None), 2), (URLError("timeout"), 2)]:
