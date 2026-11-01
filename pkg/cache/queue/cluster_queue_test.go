@@ -1588,7 +1588,9 @@ func TestBestEffortFIFOImmediateNoFitRequeueKeepsNewShapeActive(t *testing.T) {
 	first := utiltestingapi.MakeWorkload("first-old-shape", defaultNamespace).Obj()
 	firstInfo := workload.NewInfo(log, first)
 	firstInfo.SchedulingHash = "old-shape"
-	cq.PushOrUpdate(firstInfo)
+	if !cq.RequeueIfNotPresent(ctx, firstInfo, RequeueReasonNoFit, "") {
+		t.Fatal("failed to requeue first workload with the old shape")
+	}
 
 	peer := utiltestingapi.MakeWorkload("third-new-shape", defaultNamespace).Obj()
 	peerInfo := workload.NewInfo(log, peer)

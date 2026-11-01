@@ -183,6 +183,8 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		// clientGeneration is the newest object, the one requeue fetches.
 		clientGeneration  int64
 		refreshCharges    bool
+		requeueReason     RequeueReason
+		wantInadmissible  bool
 		wantRequeued      bool
 		wantTotalRequests []workload.PodSetResources
 		// wantSentGeneration is the generation handed back on the reconcile
@@ -199,6 +201,16 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			draIntegration:    true,
 			clientGeneration:  1,
 			refreshCharges:    true,
+			requeueReason:     RequeueReasonNoFit,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
+		},
+		"namespace mismatch remains inadmissible after charges refresh": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			requeueReason:     RequeueReasonNamespaceMismatch,
+			wantInadmissible:  true,
 			wantRequeued:      true,
 			wantTotalRequests: refreshedGPUCharge,
 		},
@@ -299,8 +311,11 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				inflight.SchedulingHash = probe
 			}
 
-			requeueReason := RequeueReasonGeneric
-			if tc.refreshCharges {
+			requeueReason := tc.requeueReason
+			if requeueReason == "" {
+				requeueReason = RequeueReasonGeneric
+			}
+			if tc.refreshCharges && tc.requeueReason == "" {
 				// A NoFit result for the old charge shape must not leave the
 				// refreshed workload parked in BestEffortFIFO's inadmissible set.
 				requeueReason = RequeueReasonNoFit
@@ -308,8 +323,9 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			if got := manager.RequeueWorkload(ctx, inflight, requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
 			}
-			if tc.refreshCharges && manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil {
-				t.Error("refreshed DRA workload remained inadmissible after a NoFit requeue")
+			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
+			if gotInadmissible != tc.wantInadmissible {
+				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
 			}
 			if tc.refreshCharges && inflight.SchedulingHash == probe {
 				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)

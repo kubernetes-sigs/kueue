@@ -850,7 +850,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 
 	var added bool
-	if draRequestsRefreshed {
+	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
 		added = cq.RequeueIfNotPresentImmediately(ctx, info, reason, quotaReservedReason)
 	} else {
 		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
