@@ -1561,6 +1561,36 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 				{labels: teamLabels("a", "alpha"), count: 0},
 			},
 		},
+		"deleting one of two cluster queues sharing a label keeps the series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				baseWorkload.Clone().Name("cq1-wl").Obj(),
+				baseWorkload.Clone().Name("cq2-wl").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now).AdmittedAt(true, now).Obj(),
+			},
+			change: func(_ *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
+			},
+			wantValues: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: teamLabels("a", "alpha"), value: 1},
+			},
+			wantSums: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: cohortOnly("a"), value: 1},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
