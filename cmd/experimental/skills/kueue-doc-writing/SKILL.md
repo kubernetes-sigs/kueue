@@ -15,8 +15,8 @@ documentation. Produce a reviewable repository change, not a generic explanation
 
 Identify these items before editing a file:
 
-1. **Reader:** choose a Kueue persona: batch administrator, batch user, serving
-   user, platform developer, or a contributor.
+1. **Reader:** choose the intended audience: system administrator, batch user,
+   serving user, platform developer, or a contributor.
 2. **Outcome:** state what the reader should understand or accomplish after
    reading the page.
 3. **Page type:** choose a concept, task, tutorial, reference, or troubleshooting
@@ -97,6 +97,11 @@ Follow the structure for the selected page type:
 Keep each page focused on one outcome. Split pages for different personas,
 unrelated prerequisites, or independent goals.
 
+Add links to related documentation throughout the page. Link tasks and tutorials
+to concepts for background, and concepts to tasks for procedures. Link to API or
+CLI references for field and flag details and to KEPs for design context. Use
+descriptive link text and point related pages to the canonical explanation.
+
 ## Write Kueue documentation
 
 ### Front matter and navigation
@@ -105,8 +110,15 @@ unrelated prerequisites, or independent goals.
   description.
 - Put new pages under the appropriate `site/content/en/docs` subsection and
   update the nearest `_index.md` when the section uses an explicit list.
+- For pages under `tasks/manage/`, `tasks/run/`, or `tasks/dev/`, also update the
+  relevant persona list in
+  [`tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md), in
+  addition to setting front matter `weight`. The current task index groups system
+  administrators under "Batch administrator"; match that existing navigation label.
 - Use Hugo shortcodes already used by the site, such as `feature-state` and
-  `include`, instead of inventing new markup.
+  `include`, instead of inventing new markup. For a feature-state notice, use
+  angle-bracket delimiters, for example:
+  `{{< feature-state state="beta" for_version="v0.20" >}}`.
 - Keep the English page canonical. Update versioned pages only when behavior or
   supported APIs differ; check compatibility before copying `main` content.
 
@@ -143,8 +155,11 @@ unrelated prerequisites, or independent goals.
   that is not obvious, and remove fields that are unrelated to the outcome.
 - Describe what the user sees after each important action: status conditions,
   events, labels, annotations, logs, metrics, or command output.
-- Keep generated API, CLI, metrics, and feature-gate references generated. Edit
-  their source or generator inputs instead of editing generated output.
+- For files marked as generated, edit their source or generator inputs and
+  regenerate the output. In hand-written documentation, organize reference
+  information into readable lists or tables, such as a table of feature gates.
+  Preserve field names, values, defaults, and feature states, and link to the
+  canonical generated reference for the full details.
 
 ### Examples and operational safety
 
@@ -155,7 +170,9 @@ unrelated prerequisites, or independent goals.
 - Explain cleanup for resources created by a tutorial or task.
 - Highlight destructive, disruptive, security-sensitive, or irreversible
   operations with the site's alert shortcode and explain a safe alternative or
-  rollback path.
+  rollback path. Use percent delimiters so Markdown links and code blocks inside
+  the alert are rendered, for example:
+  `{{% alert title="Note" color="primary" %}}...{{% /alert %}}`.
 - Prefer read-only inspection commands in troubleshooting guides. When a change
   is required, show how to verify the current state and how to confirm the fix.
 - Link to canonical Kubernetes or dependency docs rather than copying material
@@ -171,8 +188,9 @@ Review the page as both a user and a maintainer:
 2. **KEP alignment:** the page covers the user story that motivated it and does
    not promise a non-goal, abandoned alternative, or future milestone as if it
    were available.
-3. **Discoverability:** the page is linked from the nearest index or related
-   page, and links use the site's canonical paths.
+3. **Discoverability:** the page is linked from the appropriate index or persona
+   list and cross-links to relevant concepts, tasks, references, and KEPs. Links
+   use the site's canonical paths.
 4. **Examples:** a reader can follow the steps in order; names and values are
    consistent; output reflects real behavior; version-specific details are
    declared.
@@ -199,6 +217,21 @@ and results:
   `make verify-website-links` to check the deployed public site.
 - `make site-server` provides a local Hugo preview. Inspect desktop and mobile
   widths when layout or shortcodes change.
+- For a fast local Markdown, shortcode, and template check without the production
+  PostCSS pipeline, run:
+
+  ```shell
+  hugo --environment development --source site --renderToMemory --noBuildLock
+  ```
+
+  For a full production build check, install the site's Node dependencies and run:
+
+  ```shell
+  npm --prefix site ci &&
+    PATH="$PWD/site/node_modules/.bin:$PATH" \
+    hugo --environment production --source site --renderToMemory --noBuildLock
+  ```
+
 - `make verify-skills-lint` validates this skill and the skills index.
 - Before running `make toc-update` for a KEP or another document with a
   generated `<!-- toc -->` block, ask the user for explicit confirmation. After
@@ -220,6 +253,8 @@ version or feature-state assumptions, and open questions or operational follow-u
 - [Kubernetes Documentation Style Guide](https://kubernetes.io/docs/contribute/style/style-guide/)
 - [Kubernetes Page Content Types](https://kubernetes.io/docs/contribute/style/page-content-types/)
 - [Google Technical Writing Resources](https://developers.google.com/tech-writing/resources)
+- [Hugo shortcode notation](https://gohugo.io/content-management/shortcodes/#notation)
+- [Hugo production environment](https://gohugo.io/functions/hugo/isproduction/)
 - [Kueue Website Contributions](../../../../site/content/en/community/contribution_guidelines/website.md)
 - [Kueue KEP Writing Skill](../kep-writing/SKILL.md)
 - [Kueue Skills Index](../README.md)
