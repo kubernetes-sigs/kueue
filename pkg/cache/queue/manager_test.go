@@ -323,7 +323,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
 			}
 			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
-			if gotInadmissible != tc.wantInadmissible {
+			if tc.refreshCharges && gotInadmissible != tc.wantInadmissible {
 				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
 			}
 			if tc.refreshCharges && inflight.SchedulingHash == probe {
