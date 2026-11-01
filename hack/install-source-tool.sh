@@ -23,10 +23,12 @@ module=$2
 version=$3
 package=$4
 go_cmd=${GO_CMD:-go}
+host_os=$("$go_cmd" env GOHOSTOS)
+host_arch=$("$go_cmd" env GOHOSTARCH)
 identity="$module $version $("$go_cmd" env GOVERSION GOHOSTOS GOHOSTARCH) CGO_ENABLED=${CGO_ENABLED:-default}"
 marker="$binary.source-version"
 if [[ -x "$binary" && -f "$marker" && "$(cat "$marker")" == "$identity" ]]; then
     exit 0
 fi
-GOBIN=$(dirname "$binary") "$go_cmd" install "$package@$version"
+GOBIN=$(dirname "$binary") GOOS="$host_os" GOARCH="$host_arch" "$go_cmd" install "$package@$version"
 printf '%s\n' "$identity" > "$marker"

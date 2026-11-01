@@ -23,6 +23,8 @@ CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 TOOLS_DIR=$(realpath "${CURRENT_DIR}/..")
 KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
+# Precompiled generators do not populate the module source cache.
+(cd "${TOOLS_DIR}"; "${GO_CMD}" mod download k8s.io/code-generator)
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
 # TODO(#15965): remove this wrapper once hack/tools/go.mod is upgraded to

@@ -32,6 +32,25 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
+class NoReleaseBinary(ValueError):
+    """The requested release exists but has no binary for this host."""
+
+
+def install_source(name, version, destination):
+    packages = {
+        "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
+        "controller-gen": ("sigs.k8s.io/controller-tools", "sigs.k8s.io/controller-tools/cmd/controller-gen"),
+        "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
+        "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
+        "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
+        "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
+        "mdtoc": ("sigs.k8s.io/mdtoc", "sigs.k8s.io/mdtoc"),
+        "helm-docs": ("github.com/norwoodj/helm-docs", "github.com/norwoodj/helm-docs/cmd/helm-docs"),
+    }
+    module, package = packages[name]
+    subprocess.run(["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(destination), module, version, package], check=True)
+
+
 def download(url):
     """Retry rate limits after 20s and transient failures once after 2s."""
     headers = {"User-Agent": "kueue-tool-installer"}
@@ -72,7 +91,7 @@ def release(name, version, goos, goarch):
     if name == "mdtoc":
         return "kubernetes-sigs/mdtoc", version, f"mdtoc-{goarch}-{goos}"
     if name == "helm-docs":
-        return "norwoodj/helm-docs", version, f"helm-docs_{number}_{platforms[goos]}_{archs.get(goarch, goarch)}.tar.gz"
+        return "norwoodj/helm-docs", version, f"helm-docs_{number}_{platforms.get(goos, goos)}_{archs.get(goarch, goarch)}.tar.gz"
     raise ValueError(f"No upstream binary configured for {name}")
 
 
@@ -81,7 +100,7 @@ def release_binary(name, version, goos, goarch):
     metadata = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))
     assets = {asset["name"]: asset for asset in metadata["assets"]}
     if filename not in assets:
-        raise ValueError(f"Upstream release {repo}@{tag} has no {filename}")
+        raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no {filename}")
     asset = assets[filename]
     content = download(asset["browser_download_url"])
     digest = asset.get("digest") or ""
@@ -127,10 +146,20 @@ def install(name, version, destination):
     destination = Path(destination)
     marker = destination.with_name(destination.name + ".release-version")
     identity = f"{version} {goos}/{goarch}\n"
-    if destination.is_file() and os.access(destination, os.X_OK) and marker.is_file() and marker.read_text() == identity:
-        return
+    if destination.is_file() and os.access(destination, os.X_OK) and marker.is_file():
+        if marker.read_text() == identity:
+            return
+        if marker.read_text() == identity + "source\n":
+            install_source(name, version, destination)
+            return
     print(f"Downloading {name} {version} for {goos}/{goarch}", flush=True)
-    binary = release_binary(name, version, goos, goarch)
+    try:
+        binary = release_binary(name, version, goos, goarch)
+    except NoReleaseBinary:
+        # Preserve hosts not covered by upstream assets; never hide download or checksum errors.
+        install_source(name, version, destination)
+        marker.write_text(identity + "source\n")
+        return
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Only replace a working binary after the download and checksum succeed.
     with tempfile.TemporaryDirectory(dir=destination.parent) as temp:

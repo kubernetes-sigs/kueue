@@ -89,10 +89,30 @@ class InstallTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No SHA256 checksum"):
                 installer.release_binary("controller-gen", "v1", "linux", "amd64")
 
-    def test_missing_asset_has_no_compile_fallback(self):
+    def test_missing_asset_is_distinct_from_download_errors(self):
         with patch.object(installer, "download", return_value=b'{"assets": []}'):
             with self.assertRaisesRegex(ValueError, "has no controller-gen"):
                 installer.release_binary("controller-gen", "v1", "linux", "amd64")
+
+    def test_unsupported_host_uses_cached_source_without_repeating_download(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\ns390x\n"):
+            binary = Path(temp) / "helm-docs"
+
+            def source(*args):
+                binary.write_bytes(b"host binary")
+                binary.chmod(0o755)
+
+            with patch.object(installer, "release_binary", side_effect=installer.NoReleaseBinary("no host asset")) as download, patch.object(installer, "install_source", side_effect=source) as compile_source:
+                installer.install("helm-docs", "v1", binary)
+                installer.install("helm-docs", "v1", binary)
+                self.assertEqual(download.call_count, 1)
+                self.assertEqual(compile_source.call_count, 2)
+                compile_source.assert_called_with("helm-docs", "v1", binary)
+
+    def test_source_fallback_uses_pinned_package(self):
+        with patch.object(installer.subprocess, "run") as run:
+            installer.install_source("helm-docs", "v1", "/tmp/helm-docs")
+            self.assertEqual(run.call_args.args[0][-3:], ["github.com/norwoodj/helm-docs", "v1", "github.com/norwoodj/helm-docs/cmd/helm-docs"])
 
     def test_archive_uses_only_binary_contents(self):
         buffer = io.BytesIO()
@@ -159,8 +179,10 @@ class InstallTest(unittest.TestCase):
             fake_go.write_text('''#!/usr/bin/env python3
 import os, pathlib, sys
 if sys.argv[1] == "env":
-    print("go1.27.0\\nlinux\\namd64")
+    values = {"GOVERSION": "go1.27.0", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64"}
+    print("\\n".join(values[key] for key in sys.argv[2:]))
 else:
+    assert os.environ["GOOS"] == "linux" and os.environ["GOARCH"] == "amd64"
     binary = pathlib.Path(os.environ["GOBIN"]) / "generator"
     with binary.with_suffix(".calls").open("a") as calls:
         calls.write(sys.argv[-1] + "\\n")
@@ -168,13 +190,74 @@ else:
     binary.chmod(0o755)
 ''')
             fake_go.chmod(0o755)
-            env = {**os.environ, "GO_CMD": str(fake_go)}
+            env = {**os.environ, "GO_CMD": str(fake_go), "GOOS": "windows", "GOARCH": "386"}
             command = ["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(directory / "generator"), "example/generator", "v1", "example/generator"]
             subprocess.run(command, env=env, check=True)
             subprocess.run(command, env=env, check=True)
             command[-2] = "v2"
             subprocess.run(command, env=env, check=True)
             self.assertEqual((directory / "generator.calls").read_text(), "example/generator@v1\nexample/generator@v2\n")
+
+    def test_codegen_downloads_module_before_querying_source_directory(self):
+        import shutil
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "hack/tools/code-generator/generate.sh"
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(Path(__file__).parent / "tools/code-generator/generate.sh", script)
+            module = root / "module"
+            module.mkdir()
+            (module / "kube_codegen.sh").write_text("\n".join(f"kube::codegen::{name}() {{ :; }}" for name in ["gen_helpers", "gen_openapi", "gen_client"]))
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import os, pathlib, sys
+root = pathlib.Path(os.environ["CODEGEN_TEST_ROOT"])
+if sys.argv[1:] == ["mod", "download", "k8s.io/code-generator"]:
+    (root / "downloaded").touch()
+elif sys.argv[1] == "list" and (root / "downloaded").exists():
+    print(root / "module")
+else:
+    sys.exit(1)
+''')
+            fake_go.chmod(0o755)
+            subprocess.run(["bash", str(script), str(fake_go)], env={**os.environ, "CODEGEN_TEST_ROOT": str(root)}, check=True)
+            self.assertTrue((root / "downloaded").exists())
+
+    def test_custom_linter_rebuilds_on_configuration_and_toolchain_changes(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = root / "hack/testing/kal-linter/.custom-gcl.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text("version: v1\n")
+            (root / "bin").mkdir()
+            fake_go = root / "go"
+            fake_go.write_text('#!/bin/sh\nprintf "%s\\n" "${KAL_TEST_VERSION:-go1.27.0}"\nif [ "$#" -gt 2 ]; then printf "%s\\n" linux amd64; fi\n')
+            fake_go.chmod(0o755)
+            linter = root / "bin/golangci-lint"
+            linter.write_text('''#!/bin/sh
+set -e
+if [ "$1" = version ]; then echo test-linter; exit 0; fi
+mkdir -p bin
+printf '#!/bin/sh\\nexit 0\\n' > bin/golangci-lint-kube-api-linter
+chmod +x bin/golangci-lint-kube-api-linter
+echo built >> "$KAL_TEST_LOG"
+''')
+            linter.chmod(0o755)
+            makefile = root / "Makefile"
+            makefile.write_text(f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\nNETWORK_INSTALL_RETRY := env\ninclude {Path(__file__).resolve().parent / 'make/deps.mk'}\n")
+            env = {**os.environ, "KAL_TEST_LOG": str(root / "builds")}
+            command = ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"]
+            for _ in range(2):
+                subprocess.run(command, cwd=root, env=env, check=True)
+            self.assertEqual((root / "builds").read_text().splitlines(), ["built"])
+            config.write_text("version: v2\n")
+            subprocess.run(command, cwd=root, env=env, check=True)
+            subprocess.run(command, cwd=root, env={**env, "KAL_TEST_VERSION": "go1.27.1"}, check=True)
+            self.assertEqual((root / "builds").read_text().splitlines(), ["built"] * 3)
 
 
 if __name__ == "__main__":

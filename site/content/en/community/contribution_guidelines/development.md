@@ -98,7 +98,9 @@ make gomod-verify      # go.mod / go.sum tidy check
 
 Verification downloads pinned upstream binaries for golangci-lint, controller-gen,
 kustomize, gotestsum, kind, yq, mdtoc, and helm-docs instead of compiling them.
-Helm also uses its upstream binary. Versions continue to come from
+Helm also uses its upstream binary. Hosts absent from upstream release assets
+retain a cached source build; network or checksum failures do not fall back to
+compilation. Versions continue to come from
 `hack/tools/go.mod`. Downloaded tools are reused until their version or host
 platform changes. Generators without upstream binaries and the custom API
 linter are compiled once and reused until their version, configuration, or Go
