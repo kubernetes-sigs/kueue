@@ -143,6 +143,20 @@ class InstallTest(unittest.TestCase):
                 installer.release_binary("mdtoc", "v1", "linux", "amd64")
             self.assertNotIsInstance(error.exception, installer.NoReleaseBinary)
 
+    def test_partial_manifest_does_not_hide_missing_checksum(self):
+        manifest = f"{'a' * 64}  mdtoc-arm64-linux\n".encode()
+        published = json.dumps({"assets": [{"name": "mdtoc-amd64-linux"}]}).encode()
+        with patch.object(installer, "download", side_effect=[manifest, published]):
+            with self.assertRaisesRegex(ValueError, "No SHA256 checksum") as error:
+                installer.release_binary("mdtoc", "v1", "linux", "amd64")
+            self.assertNotIsInstance(error.exception, installer.NoReleaseBinary)
+
+    def test_manifest_without_host_asset_allows_source_build(self):
+        manifest = f"{'a' * 64}  mdtoc-arm64-linux\n".encode()
+        with patch.object(installer, "download", side_effect=[manifest, b'{"assets": []}']):
+            with self.assertRaises(installer.NoReleaseBinary):
+                installer.release_binary("mdtoc", "v1", "linux", "s390x")
+
     def test_transient_failure_is_retried_once(self):
         for error, delay in [(HTTPError("url", 429, "limit", {}, None), 20), (HTTPError("url", 503, "unavailable", {}, None), 2), (URLError("timeout"), 2)]:
             with self.subTest(error=error), patch.object(installer, "urlopen", side_effect=error) as request, patch.object(installer.time, "sleep") as sleep:
@@ -197,7 +211,7 @@ class InstallTest(unittest.TestCase):
             fake_go.write_text('''#!/usr/bin/env python3
 import os, pathlib, sys
 if sys.argv[1] == "env":
-    values = {"GOVERSION": "go1.27.0", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64"}
+    values = {"GOVERSION": "go1.27.0", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64", "GOFLAGS": os.environ.get("GOFLAGS", "")}
     print("\\n".join(values[key] for key in sys.argv[2:]))
 else:
     assert os.environ["GOOS"] == "linux" and os.environ["GOARCH"] == "amd64"
@@ -214,7 +228,12 @@ else:
             subprocess.run(command, env=env, check=True)
             command[-2] = "v2"
             subprocess.run(command, env=env, check=True)
-            self.assertEqual((directory / "generator.calls").read_text(), "example/generator@v1\nexample/generator@v2\n")
+            env["GOFLAGS"] = "-tags=custom"
+            subprocess.run(command, env=env, check=True)
+            subprocess.run(command, env=env, check=True)
+            command[-1] = "example/generator/cmd/generator"
+            subprocess.run(command, env=env, check=True)
+            self.assertEqual((directory / "generator.calls").read_text(), "example/generator@v1\nexample/generator@v2\nexample/generator@v2\nexample/generator/cmd/generator@v2\n")
 
     def test_codegen_downloads_module_before_querying_source_directory(self):
         import shutil

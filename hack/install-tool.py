@@ -131,6 +131,10 @@ def release_binary(name, version, goos, goarch):
     repo, tag, filename = release(name, version, goos, goarch)
     assets = {asset["name"]: asset for asset in release_assets(name, version, repo, tag)}
     if filename not in assets:
+        # A partial manifest must not turn a published binary into a source build.
+        published = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
+        if any(asset["name"] == filename for asset in published):
+            raise ValueError(f"No SHA256 checksum for {filename}")
         raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no {filename}")
     asset = assets[filename]
     content = download(asset["browser_download_url"])
