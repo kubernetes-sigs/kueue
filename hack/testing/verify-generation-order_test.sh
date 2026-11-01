@@ -157,8 +157,9 @@ for fail_stage in '' generate-code generate-mocks gomod gomod-verified verify-gi
   if [[ -n "$fail_stage" && "$fail_stage" != cli ]]; then
     test ! -f "$ORDER_STATE/cli-started"
   fi
-  test ! -f "$ORDER_STATE/helm-package"
-  test ! -f "$ORDER_STATE/generate-apiref"
+  for step in compile-crd-manifests update-helm prepare-release-branch helm-package generate-apiref; do
+    test ! -f "$ORDER_STATE/$step"
+  done
 done
 
 echo "Generation barriers and independent check overlap passed."
