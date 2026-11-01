@@ -7,7 +7,8 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1 - Configurable retention for finished Job owners](#story-1---configurable-retention-for-finished-job-owners)
+    - [Story 1 - Retention for finished owners on a MultiKueue manager](#story-1---retention-for-finished-owners-on-a-multikueue-manager)
+    - [Story 2 - Retention for integrations without a native TTL](#story-2---retention-for-integrations-without-a-native-ttl)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -44,13 +45,30 @@ KEP-1618 solved for Workloads, just one level up the ownership chain.
 
 ## Motivation
 
-Kueue already has a mechanism for this shape of problem for owners that were
-deactivated by Kueue itself: `WorkloadRetentionPolicy.AfterDeactivatedByKueue`
-deletes the parent owner after a Kueue-initiated deactivation. But this only
-covers workloads Kueue itself decided to stop. It does not cover the common
-case of a Job that ran to completion normally and finished successfully or
-failed on its own — the much larger, more routine category of finished work
-in most clusters.
+Kueue already deletes owners in one case: `WorkloadRetentionPolicy.AfterDeactivatedByKueue`
+removes the parent owner after a Kueue-initiated deactivation. It does not
+cover a Job that ran to completion normally.
+
+For a single cluster, that gap is largely filled by the job types themselves.
+`batch/Job`, JobSet, RayJob, and the Kubeflow training-operator, MPI-operator
+and trainer types all expose `ttlSecondsAfterFinished` or an equivalent, and
+their own controllers act on it.
+
+The gap that remains is MultiKueue. The manager-side object is a status
+mirror: its own operator skips reconciliation because `managedBy` points to
+MultiKueue, so the TTL field is present but inert. For RayJob specifically,
+`ttlSecondsAfterFinished`, `deletionStrategy` and `DeleteSelf` never run on
+the manager copy. MultiKueue deletes the worker-side object after completion,
+but the manager-side owner remains indefinitely and accumulates at the
+submission rate with no reclamation path.
+
+This applies to any `managedBy` integration, not just KubeRay, which is why a
+single integration-agnostic policy is preferable to a separate external
+janitor per job kind.
+
+This is distinct from retention of remote worker-cluster mirrors (#13847,
+#16237), which keeps worker-side objects longer rather than removing
+manager-side ones.
 
 ### Goals
 
@@ -97,12 +115,24 @@ established for `WorkloadRetentionPolicy.AfterFinished`.
 
 ### User Stories
 
-#### Story 1 - Configurable retention for finished Job owners
+#### Story 1 - Retention for finished owners on a MultiKueue manager
 
-As a Kueue administrator running large volumes of short-lived batch Jobs, I
-want Kueue to automatically delete the Job object itself some time after its
-Workload has finished, so that I don't need to run a separate cleanup
-process or watch my cluster's Job count grow unbounded.
+As a Kueue administrator running MultiKueue, I want Kueue to delete the
+manager-side Job object some time after its Workload has finished. The job
+type's own `ttlSecondsAfterFinished` is inert on the manager copy, because
+`managedBy` points to MultiKueue and the type's controller skips
+reconciliation, so without this the manager accumulates finished owners at the
+submission rate. I don't want to run a separate janitor per job kind to clean
+them up.
+
+
+#### Story 2 - Retention for integrations without a native TTL
+
+As a Kueue administrator running AppWrapper or SparkApplication workloads, I
+want the same retention policy to apply to them. Neither type exposes a
+`ttlSecondsAfterFinished` equivalent, so finished owners of those kinds
+accumulate with no native reclamation path, even in a single cluster. A single
+integration-agnostic setting covers them without needing a per-kind janitor.
 
 ### Notes/Constraints/Caveats
 
@@ -284,8 +314,9 @@ the blast radius noted under Risks.
    evaluate-then-delete-or-requeue pattern KEP-1618 established for
    Workloads.
 3. During Kueue's initial reconciliation loop, owners carrying the annotation
-   are evaluated the same way. Owners without it — those that finished before
-   the feature was enabled — are skipped; see [Non-Goals](#non-goals).
+   are evaluated the same way. Owners without it are skipped, including those
+   whose Workload was deleted before it could be stamped; see
+   [Non-Goals](#non-goals).
 4. `Finish` patches the Workload's status and the stamp is a separate write
    to a different object, so the two cannot be atomic. If the stamp write
    fails, the Workload is Finished and the owner unstamped.
