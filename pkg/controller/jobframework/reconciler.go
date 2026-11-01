@@ -2296,7 +2296,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
-		if apierrors.IsInvalid(err) {
+		if apierrors.IsInvalid(err) || apierrors.IsForbidden(err) {
 			message := api.TruncateEventMessage(fmt.Sprintf("Failed to create Workload: %v", err))
 			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonFailedCreateWorkload, ReasonFailedCreateWorkload, "%s", message)
 		}

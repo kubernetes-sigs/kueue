@@ -133,6 +133,22 @@ func TestReconcileGenericJob(t *testing.T) {
 		AdmittedAt(true, reservedAt).
 		Obj()
 
+	forbiddenWorkloadCreateError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New("preferred topology is not supported"),
+	)
+	workloadCreateInterceptor := func(createErr error) interceptor.Funcs {
+		return interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*kueue.Workload); ok {
+					return createErr
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}
+	}
+
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
 		reconcilerOptions []Option
@@ -187,6 +203,20 @@ func TestReconcileGenericJob(t *testing.T) {
 				Reason:    ReasonFailedCreateWorkload,
 				Message: `Failed to create Workload: Workload.kueue.x-k8s.io "job-test-job-ce737" is invalid: ` +
 					`spec.podSets[0].topologyRequest.preferred: Forbidden: preferred topology is not supported`,
+			}},
+		},
+		"report forbidden Workload creation on the owning Job": {
+			req:              baseReq,
+			job:              baseJob.DeepCopy(),
+			podSets:          basePodSets,
+			interceptorFuncs: workloadCreateInterceptor(forbiddenWorkloadCreateError),
+			wantErr:          apierrors.IsForbidden,
+			wantWorkloads:    []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   fmt.Sprintf("Failed to create Workload: %v", forbiddenWorkloadCreateError),
 			}},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
