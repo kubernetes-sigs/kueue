@@ -24,5 +24,8 @@ make helm-unit-test
 Or on their own:
 
 ```sh
-cd test/helm && go test ./...
+cd test/helm && go test -count=1 ./...
 ```
+
+Disable test result caching with `-count=1` because the chart files are outside
+this Go module and changes to them do not invalidate Go's test cache.
