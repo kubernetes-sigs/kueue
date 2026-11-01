@@ -1,0 +1,123 @@
+# Uploads the merged unit-test coverage that Prow published to Codecov:
+# - pull-kueue-test-unit-coverage-main (presubmit) merges the unit shards of a
+#   pull request head and posts a status on that head;
+# - post-kueue-test-unit-coverage-main (postsubmit) merges the shard builds
+#   that tested a main commit's exact tree and posts a status on that commit.
+# This workflow runs on that status, downloads the one artifacts/filtered.cov
+# from the public bucket and uploads it. It does not find shard builds, pair
+# them, or merge anything; there is no Go toolchain here.
+# Scripts and codecov.yml always come from the default branch. The commit is
+# checked out into target/ only as data (the Codecov CLI maps paths and reads
+# files to skip blank and comment lines). Nothing in target/ is executed.
+name: Codecov (Prow unit coverage)
+
+on:
+  # Prow posts a commit status when each merge job finishes.
+  status:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "A pull request head or a main commit with a finished merge-job status."
+        type: string
+        required: true
+      force:
+        description: "Upload even if Codecov already has a processed unit upload for the commit. Codecov unions it with the earlier uploads; it does not replace them."
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  upload:
+    # Most status events come from other contexts; skip them before
+    # allocating a runner. kubernetes-prow[bot] creates both the presubmit
+    # and the postsubmit statuses (API-checked on main commits). At run time
+    # the trust anchor is the strict target_url regex plus the Prow metadata
+    # in GCS, read again by the script.
+    if: >-
+      github.repository == 'kubernetes-sigs/kueue' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.state == 'success' &&
+          github.event.sender.login == 'kubernetes-prow[bot]' &&
+          contains(fromJSON('["pull-kueue-test-unit-coverage-main","post-kueue-test-unit-coverage-main"]'), github.event.context)
+        )
+      )
+    runs-on: ubuntu-latest
+    # The fetch step alone can take about 23 minutes when every curl call in it
+    # hits its --max-time once (Codecov polling included). Retries can take it
+    # past this limit only while GCS or Codecov keep timing out, when the
+    # upload would fail as well; rerun with workflow_dispatch.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+      id-token: write # Codecov OIDC upload
+    concurrency:
+      # Runs for one commit run one at a time; cancelling could stop a run in
+      # the middle of its upload.
+      group: codecov-prow-${{ github.event.sha || github.event.inputs.sha }}
+      cancel-in-progress: false
+    steps:
+      # Explicit ref, so that a dispatch from another branch cannot swap the
+      # scripts or codecov.yml.
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Find the Prow merge build and download its profile
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.sha || github.event.inputs.sha }}
+          CODECOV_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' }}
+        run: |
+          out="${RUNNER_TEMP}/prow-coverage"
+          hack/testing/fetch-prow-merged-coverage.sh "${SHA}" "${out}" >> "${GITHUB_OUTPUT}"
+          echo "file=${out}/unit-coverage.out" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out the tested commit as data
+        if: steps.fetch.outputs.skip == 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.fetch.outputs.sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The Codecov CLI opens every tracked file whose name looks like source
+      # code. A symlink from the pull request (to /dev/zero, or dangling)
+      # could hang or crash it, so drop symlinks from the index and the tree.
+      - name: Remove symlinks from the tested commit
+        if: steps.fetch.outputs.skip == 'false'
+        working-directory: target
+        run: |
+          find . -path ./.git -prune -o -type l -print0 \
+            | xargs -0 -r git --literal-pathspecs rm -q --cached --ignore-unmatch --
+          find . -path ./.git -prune -o -type l -exec rm -f {} +
+
+      - name: Upload to Codecov
+        if: steps.fetch.outputs.skip == 'false'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          version: v11.2.8
+          use_oidc: true
+          files: ${{ steps.fetch.outputs.file }}
+          disable_search: true
+          working-directory: target
+          root_dir: ${{ github.workspace }}/target
+          cleanup: true
+          codecov_yml_path: ${{ github.workspace }}/codecov.yml
+          plugins: noop
+          flags: unit
+          name: prow-unit
+          # Plain values only (check_outputs in the fetch script); the
+          # wrapper splits inputs at commas.
+          override_commit: ${{ steps.fetch.outputs.sha }}
+          override_pr: ${{ steps.fetch.outputs.pr }}
+          override_branch: ${{ steps.fetch.outputs.branch }}
+          override_build: ${{ steps.fetch.outputs.build_id }}
+          override_build_url: ${{ steps.fetch.outputs.build_url }}
+          fail_ci_if_error: true
