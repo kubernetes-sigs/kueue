@@ -705,6 +705,40 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
 		})
 
+		ginkgo.It("when PriorityBoost is enabled, boosting an admitted Workload without a WorkloadPriorityClass, re-evaluates pending Workloads", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+			wlAdmitted := utiltestingapi.MakeWorkload("wl-admitted-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlAdmitted)
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
+				if wl.Annotations == nil {
+					wl.Annotations = make(map[string]string)
+				}
+				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "-100"
+				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlAdmitted)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
+		})
+
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
 				lqsStopPolicy = new(kueue.Hold)

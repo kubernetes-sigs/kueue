@@ -355,6 +355,12 @@ func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWr
 	return w
 }
 
+// WaitForPodsReady sets the Spec.WaitForPodsReady configuration.
+func (w *WorkloadWrapper) WaitForPodsReady(cfg *kueue.WaitForPodsReady) *WorkloadWrapper {
+	w.Spec.WaitForPodsReady = cfg
+	return w
+}
+
 func (w *WorkloadWrapper) UnhealthyNodes(nodeNames ...string) *WorkloadWrapper {
 	for _, nodeName := range nodeNames {
 		w.Status.UnhealthyNodes = append(w.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName})
@@ -1613,6 +1619,18 @@ func (ac *AdmissionCheckWrapper) Condition(cond metav1.Condition) *AdmissionChec
 // Generation sets the generation of the AdmissionCheck.
 func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
 	ac.ObjectMeta.Generation = num
+	return ac
+}
+
+// Finalizers sets the finalizers on the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrapper {
+	ac.ObjectMeta.Finalizers = fin
+	return ac
+}
+
+// DeletionTimestamp sets a deletion timestamp for the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
+	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
 	return ac
 }
 

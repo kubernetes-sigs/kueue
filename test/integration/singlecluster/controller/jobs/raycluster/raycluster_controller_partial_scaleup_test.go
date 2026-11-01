@@ -46,7 +46,7 @@ const (
 )
 
 // KEP-12100: Partial Replica ScaleUp for ElasticJob.
-var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -83,18 +83,14 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()

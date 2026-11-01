@@ -261,15 +261,20 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
-		if annotation != "" {
-			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
-		}
-	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
+	var wfpr *kueue.WaitForPodsReady
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		var err error
+		wfpr, err = waitforpodsready.ParseWaitForPodsReady(obj)
+		if err != nil {
+			ctrl.Log.WithName("waitforpodsready").V(2).Info(
+				"Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration",
+				"object", klog.KObj(obj), "error", err)
+		}
+	}
+
 	return &kueue.Workload{
 		Name:        name,
 		Namespace:   obj.GetNamespace(),
@@ -280,6 +285,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
 			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+			WaitForPodsReady:            wfpr,
 		},
 	}
 }
@@ -293,10 +299,7 @@ var ErrMultiKueueOriginEmpty = errors.New("multikueue origin is empty")
 // Returns (false, nil) if the object does not exist.
 // Returns (false, err) if there is a retrieval error or if the object is not owned by this MultiKueue origin.
 func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Client, key types.NamespacedName, gvk schema.GroupVersionKind, origin string) (bool, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "objectType", gvk, "origin", origin)
-
 	if origin == "" {
-		log.Error(ErrMultiKueueOriginEmpty, "Remote object ownership validation failed because origin is empty")
 		return false, ErrMultiKueueOriginEmpty
 	}
 
@@ -324,20 +327,19 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
 
 	if origin == "" {
-		log.Error(ErrMultiKueueOriginEmpty, "Skipping remote object deletion because origin is empty")
 		return ErrMultiKueueOriginEmpty
 	}
 
 	found, err := ValidateRemoteObjectOwnership(ctx, remoteClient, key, adapter.GVK(), origin)
 	if err != nil {
 		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
-			log.V(2).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
+			log.V(3).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
 			return nil
 		}
 		return err
 	}
 	if !found {
-		log.V(2).Info("Skipping remote object deletion because object was not found")
+		log.V(3).Info("Skipping remote object deletion because object was not found")
 		return nil
 	}
 
