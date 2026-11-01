@@ -8,51 +8,43 @@ metadata:
 
 # Kueue Documentation Writing
 
-Use this skill to turn a Kueue feature or behavior into accurate, discoverable
-documentation. Produce a reviewable repository change, not a generic explanation.
+Produce an accurate, discoverable, reviewable documentation change.
 
 ## Define the change before writing
 
-Identify these items before editing a file:
+Before editing, identify:
 
-1. **Reader:** choose the intended audience: system administrator, batch user,
-   serving user, platform developer, or a contributor.
-2. **Outcome:** state what the reader should understand or accomplish after
-   reading the page.
-3. **Page type:** choose a concept, task, tutorial, reference, or troubleshooting
-   page. Use the existing Kueue information architecture instead of creating a
-   parallel section.
-4. **Version:** determine whether the change targets `main`, a released version,
-   or several versioned sites. Match the API version, feature state, and examples
-   to that target.
-5. **Scope:** find the smallest existing page that should be updated. Create a
-   new page only when the topic has a distinct audience and goal.
+1. **Reader:** system administrator, batch user, serving user, platform developer,
+   or contributor.
+2. **Outcome:** what the reader should understand or accomplish.
+3. **Page type:** concept, task, tutorial, reference, or troubleshooting. Use the
+   existing information architecture.
+4. **Version:** `main`, a release, or several versioned sites. Match APIs, feature
+   states, and examples to that target.
+5. **Scope:** update the smallest suitable page; add one for a distinct audience
+   and goal.
 
 Use the [documentation root](../../../../site/content/en/docs/_index.md) and
 nearest section index for the selected page type, such as
 [`concepts/_index.md`](../../../../site/content/en/docs/concepts/_index.md),
 [`tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md), or
 [`reference/_index.md`](../../../../site/content/en/docs/reference/_index.md),
-to choose navigation and a destination. Keep one canonical explanation and link
-to it from related pages.
+to choose navigation and a destination.
 
 ## Gather evidence
 
-Read these sources in order and resolve disagreements explicitly:
+Read sources in this order:
 
 1. The current API types, feature gates, controller behavior, generated
    references, and tests in this repository.
-2. The relevant KEP, including its Summary, Motivation, User Stories, Design
-   Details, Handling, Test Plan, and Graduation Criteria.
+2. The relevant KEP: user stories, design, handling, tests, and graduation criteria.
 3. Existing Kueue concepts, tasks, examples, release notes, and versioned docs.
 4. Canonical Kubernetes documentation and the documentation style guidance
    linked in [References](#references).
 5. External project documentation when Kueue depends on it.
 
-The current implementation is the source of truth for behavior. A KEP explains
-intent and user stories, but it can describe a design that changed during
-implementation. If code and docs disagree, document the implemented behavior
-and call out the discrepancy for maintainers instead of guessing.
+The implementation is the source of truth; a KEP can describe an earlier design.
+Document implemented behavior and flag discrepancies for maintainers.
 
 For API or configuration changes, inspect the type, validation, defaulting,
 feature gate, generated reference, and tests. For behavior changes, inspect
@@ -72,35 +64,26 @@ Use the KEP as a map, not as text to copy verbatim:
 | Graduation Criteria | Feature state, version availability, and upgrade notes |
 | Risks and Alternatives | Include only when it affects operations |
 
-Preserve the user problem and supported behavior. Move implementation-only
-details, abandoned alternatives, and internal names out of user docs. Link to a
-KEP for design history when readers need that context.
+Preserve the user problem and supported behavior. Omit implementation-only details
+and abandoned alternatives; link to the KEP for design history.
 
 ## Choose a page structure
 
-Follow the structure for the selected page type:
-
-- **Concept:** introduce the topic in one overview paragraph, explain the model
-  and behavior in the body, then add a short "What's next" list. Link to tasks
-  rather than embedding a long procedure.
-- **Task:** explain why the task matters, list prerequisites, give numbered
-  steps, show expected results, and link to concepts for background.
-- **Tutorial:** state objectives, walk through a complete example in ordered
-  sections, include cleanup, and link to concepts for deeper explanations.
-- **Reference:** present exact fields, flags, defaults, constraints, and
-  generated output. Prefer generated API and CLI references over hand-written
-  copies.
-- **Troubleshooting:** start from a symptom, give safe inspection commands,
-  explain how to interpret the output, then provide corrective actions and
-  escalation information.
+- **Concept:** overview, model and behavior, then "What's next". Link to tasks
+  for procedures.
+- **Task:** purpose, prerequisites, numbered steps, and expected results.
+- **Tutorial:** objectives, a complete ordered example, and cleanup.
+- **Reference:** exact fields, flags, defaults, and constraints. Prefer generated
+  API and CLI references over hand-written copies.
+- **Troubleshooting:** symptom, safe inspection commands, output interpretation,
+  corrective actions, and escalation.
 
 Keep each page focused on one outcome. Split pages for different personas,
 unrelated prerequisites, or independent goals.
 
-Add links to related documentation throughout the page. Link tasks and tutorials
-to concepts for background, and concepts to tasks for procedures. Link to API or
-CLI references for field and flag details and to KEPs for design context. Use
-descriptive link text and point related pages to the canonical explanation.
+Cross-link related pages: tasks and tutorials to concepts, concepts to tasks,
+fields and flags to API/CLI references, and design context to KEPs. Use descriptive
+link text and one canonical explanation.
 
 ## Write Kueue documentation
 
@@ -115,30 +98,22 @@ descriptive link text and point related pages to the canonical explanation.
   [`tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md), in
   addition to setting front matter `weight`. The current task index groups system
   administrators under "Batch administrator"; match that existing navigation label.
-- Use Hugo shortcodes already used by the site, such as `feature-state` and
-  `include`, instead of inventing new markup. For a feature-state notice, use
-  angle-bracket delimiters, for example:
+- Reuse Hugo shortcodes such as `feature-state` and `include`. Feature-state
+  notices use angle-bracket delimiters:
   `{{< feature-state state="beta" for_version="v0.20" >}}`.
 - Keep the English page canonical. Update versioned pages only when behavior or
   supported APIs differ; check compatibility before copying `main` content.
 
 ### Terminology and style
 
-- Use the Kubernetes documentation style guide's U.S. English and sentence-case
-  conventions.
-- Apply Google's core technical-writing practices from its
+- Use the Kubernetes style guide's U.S. English and sentence case, and Google's
   [Technical Writing resources](https://developers.google.com/tech-writing/resources):
-  identify the audience and purpose, prefer active voice, keep sentences and
-  paragraphs focused, use concrete words and examples, and remove filler.
+  active voice, focused paragraphs, concrete words and examples, and no filler.
 - Refer to API kinds as `Workload`, `ClusterQueue`, `LocalQueue`, `ResourceFlavor`,
   and `AdmissionCheck`; use code formatting for fields, annotations, commands,
   paths, resource names, and values where the style guide calls for it.
-- Define a Kueue-specific term before using it and use one term consistently.
-- Prefer direct, active sentences. Put the important result first, then explain
-  the detail.
-- Use headings, numbered steps, bullets, and tables to make relationships and
-  sequences easy to scan. Keep list items parallel and start each item with the
-  same kind of word or phrase.
+- Define Kueue-specific terms and use them consistently. Put results before detail.
+- Use headings, numbered steps, parallel lists, and tables to clarify structure.
 - Use angle-bracket placeholders such as `<namespace>` and `<workload-name>`;
   use realistic names in complete examples.
 - Keep command and output blocks separate. Do not include shell prompts (`$`)
@@ -163,15 +138,13 @@ descriptive link text and point related pages to the canonical explanation.
 
 ### Examples and operational safety
 
-- Make examples consistent: names, namespaces, queue references, requests,
-  versions, and commands must match across all blocks.
+- Keep names, namespaces, queues, requests, versions, and commands consistent.
 - State prerequisites such as Kubernetes/Kueue versions, CRDs, feature gates,
   RBAC, external controllers, or an existing queue setup before the first step.
 - Explain cleanup for resources created by a tutorial or task.
-- Highlight destructive, disruptive, security-sensitive, or irreversible
-  operations with the site's alert shortcode and explain a safe alternative or
-  rollback path. Use percent delimiters so Markdown links and code blocks inside
-  the alert are rendered, for example:
+- Highlight destructive, disruptive, security-sensitive, or irreversible operations
+  with an alert and a safe alternative or rollback. Percent delimiters render inner
+  Markdown links and code blocks:
   `{{% alert title="Note" color="primary" %}}...{{% /alert %}}`.
 - Prefer read-only inspection commands in troubleshooting guides. When a change
   is required, show how to verify the current state and how to confirm the fix.
@@ -180,30 +153,21 @@ descriptive link text and point related pages to the canonical explanation.
 
 ## Review before delivery
 
-Review the page as both a user and a maintainer:
+Check as a user and maintainer:
 
-1. **Behavior:** every claim matches the current implementation, API, feature
-   gate, and supported integrations. Check both the success path and the most
-   likely rejected, pending, or disabled path.
-2. **KEP alignment:** the page covers the user story that motivated it and does
-   not promise a non-goal, abandoned alternative, or future milestone as if it
-   were available.
-3. **Discoverability:** the page is linked from the appropriate index or persona
-   list and cross-links to relevant concepts, tasks, references, and KEPs. Links
-   use the site's canonical paths.
-4. **Examples:** a reader can follow the steps in order; names and values are
-   consistent; output reflects real behavior; version-specific details are
-   declared.
-5. **Style:** headings are meaningful, paragraphs are short, API kinds and
-   fields are formatted consistently, and duplicated explanations are replaced
-   with links.
-6. **Accessibility:** use descriptive link text, meaningful heading order,
-   readable tables, and text alternatives for diagrams or screenshots.
-7. **Maintenance:** note the source of generated content, avoid unnecessary
-   version forks, and remove stale instructions when the feature changes.
+1. **Behavior:** claims match implementation, APIs, gates, and integrations,
+   including success and likely rejected, pending, or disabled paths.
+2. **KEP alignment:** cover the user story; distinguish available behavior from
+   non-goals, abandoned alternatives, and future milestones.
+3. **Discoverability:** index/persona entries and cross-links use canonical paths.
+4. **Examples:** ordered steps, consistent names and values, real output, and
+   explicit version-specific details.
+5. **Style and accessibility:** clear headings, short paragraphs, consistent API
+   formatting, descriptive links, readable tables, and image text alternatives.
+6. **Maintenance:** identify generated sources, avoid unnecessary version forks,
+   and remove stale instructions.
 
-When the implementation or KEP leaves a material question unanswered, record it
-as an open question and ask a maintainer instead of using generic wording.
+Record material unanswered questions and ask a maintainer.
 
 ## Validate the change
 
