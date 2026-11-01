@@ -302,6 +302,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
+			c.podTracker,
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
 		if err != nil {

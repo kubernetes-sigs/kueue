@@ -1082,7 +1082,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			} else {
 				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
 			}
-			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
@@ -2263,11 +2263,14 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		wantError        error
 		wantPodCondition *metav1.Condition
 	}{
-		"pending scale-up slice: PodsReady=False is set on the admitted slice": {
+		"pending scale-up probe with the default atomic strategy: readiness uses the admitted count": {
+			features: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 			workload:         admittedSlice.Clone().Obj(),
 			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
-			job:              (*job.Job)(elasticJob.Clone().Ready(0).Obj()),
-			wantPodCondition: &notReady,
+			job:              (*job.Job)(elasticJob.Clone().Ready(1).Obj()),
+			wantPodCondition: &ready,
 		},
 		"pending slice without an admitted slice: PodsReady=False stays on the pending slice": {
 			workload:         elasticWorkload.Clone().PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).Obj(),
@@ -2785,7 +2788,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			if diff := cmp.Diff(wantScheduled, apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPodsScheduled)); diff != "" {
 				t.Errorf("unexpected PodsScheduled condition (-want,+got):\n%s", diff)
 			}
-			gotPodCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, tc.wantPodCondition.Type)
+			gotPodCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPodsReady)
 			if diff := cmp.Diff(tc.wantPodCondition, gotPodCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")); diff != "" {
 				t.Errorf("unexpected PodsReady condition (-want,+got):\n%s", diff)
 			}
@@ -3233,6 +3236,7 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		ControllerReference(gvk, obj.Name, string(obj.UID)).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	// The successor starts without an owner reference and must be adopted by the job.
 	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
@@ -3251,7 +3255,7 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
 	mgj.EXPECT().IsActive().Return(true).AnyTimes()
 	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).AnyTimes()
 	mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(replacement.Spec.PodSets, nil).AnyTimes()
 	rec := NewReconciler(cl, &utiltesting.EventRecorder{})
 	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
@@ -3275,7 +3279,13 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("PodSets changed: %s", diff)
 		}
-		wantFinished := before.Name == "old"
+		if before.Name == replacement.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("prebuilt workload was not adopted by the worker job")
+		}
+		if before.Name == old.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("predecessor workload lost its controller reference")
+		}
+		wantFinished := before.Name == old.Name
 		if workloadfinish.IsFinished(got) != wantFinished {
 			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
 		}

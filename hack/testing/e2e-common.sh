@@ -136,12 +136,6 @@ function e2e_timestamp {
     date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
-# Returns success when the kind node Kubernetes version supports image volumes,
-# which are Beta and enabled by default from v1.35.
-function e2e_supports_image_volume {
-    [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
-}
-
 # Returns success when a failed `docker pull` is worth another attempt.
 #
 # $1 file holding the failed attempt's combined output
@@ -338,7 +332,7 @@ if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|manag
     export APPWRAPPER_IMAGE=quay.io/ibm/appwrapper:${APPWRAPPER_VERSION}
 fi
 
-if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export JOBSET_MANIFEST="https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml"
     export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
     export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
@@ -380,7 +374,7 @@ if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKG
     export E2E_TEST_REDIS_IMAGE=${E2E_TEST_REDIS_IMAGE_WITH_SHA%%@*}
 fi
 
-if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
     export LEADERWORKERSET_MANIFEST="https://github.com/kubernetes-sigs/lws/releases/download/${LEADERWORKERSET_VERSION}/manifests.yaml"
     export LEADERWORKERSET_IMAGE=registry.k8s.io/lws/lws:${LEADERWORKERSET_VERSION}
 fi
@@ -399,15 +393,9 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
-    # enabled by default, so the official image can be mounted directly; on older versions we
-    # use the self-built image whose binary an init container copies into a shared volume,
-    # because the official image does not ship a "cp" command.
-    if e2e_supports_image_volume; then
-        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
-    else
-        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
-    fi
+    # Image volumes are enabled by default on all tested k8s versions (Beta from 1.35), so the
+    # official secretreader image is mounted directly into the Kueue manager pod.
+    export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
 fi
 
 if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
@@ -419,7 +407,8 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
-    export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
+    export DRA_EXAMPLE_DRIVER_IMAGE=registry.k8s.io/dra-example-driver/dra-example-driver:${DRA_EXAMPLE_DRIVER_VERSION}
+    export DRA_EXAMPLE_DRIVER_HELM_CHART=oci://registry.k8s.io/dra-example-driver/charts/dra-example-driver
 fi
 
 # agnhost image to use for testing.
@@ -752,7 +741,7 @@ function prepare_docker_images {
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${APPWRAPPER_IMAGE}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${JOBSET_IMAGE}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -779,7 +768,7 @@ function prepare_docker_images {
             E2E_KIND_VERSION='' make -C "${ROOT_DIR}" kind-ray-project-mini-image-build
         fi
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -793,6 +782,9 @@ function prepare_docker_images {
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+    fi
+    if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
+        e2e_docker_pull_if_needed "${DRA_EXAMPLE_DRIVER_IMAGE}"
     fi
 }
 
@@ -825,7 +817,7 @@ function kind_load {
     if [[ -n ${APPWRAPPER_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(appwrapper|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_appwrapper" install_appwrapper "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${JOBSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jobset|tas|trainjob|managejobswithoutqueuename|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_jobset" install_jobset "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBEFLOW_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(jaxjob|pytorchjob) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -842,7 +834,7 @@ function kind_load {
     if [[ -n ${KUBEFLOW_MPI_VERSION:-} && ("$GINKGO_ARGS" =~ feature:mpijob || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_mpi" install_mpi "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
-    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
+    if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations|was-deepintegration) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_timed "${e2e_cluster_name}/install_lws" install_lws "${e2e_cluster_name}" "${e2e_kubeconfig}"
     fi
     if [[ -n ${KUBERAY_VERSION:-} && ("$GINKGO_ARGS" =~ feature:kuberay || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
@@ -1603,38 +1595,14 @@ function install_dra_example_driver {
         fi
     fi
 
-    local dra_driver_temp_dir
-    dra_driver_temp_dir=$(mktemp -d)
+    local dra_chart_dir
+    dra_chart_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
-    trap "rm -rf '$dra_driver_temp_dir'" RETURN
+    trap "rm -rf '$dra_chart_dir'" RETURN
     "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
-        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
-        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+        -- "$HELM" pull "${DRA_EXAMPLE_DRIVER_HELM_CHART}" --version "${expected_version#v}" --untar --untardir "$dra_chart_dir"
 
-    local dra_image_repo="dra-example-driver"
-    local dra_image_tag="${expected_version#v}"
-    dra_image_tag="${dra_image_tag//\//-}"
-    if [[ -z "${dra_image_tag}" ]]; then
-        dra_image_tag="local"
-    fi
-
-    local go_version
-    go_version=$(grep '^go ' "$dra_driver_temp_dir/go.mod" | awk '{print $2}' | cut -d. -f1,2)
-
-    echo "Building dra-example-driver image from source (Go ${go_version})..."
-    # Patch Makefile to ensure static build with CGO_ENABLED=0
-    sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
-        && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
-        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
-        --build-arg GO_VERSION="${go_version}" \
-        --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
-        -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
-        "$dra_driver_temp_dir"
-
-    cluster_kind_load_image "${name}" "${dra_image_repo}:${dra_image_tag}"
+    cluster_kind_load_image "${name}" "${DRA_EXAMPLE_DRIVER_IMAGE}"
 
     local -a extra_helm_args=()
     if [[ -n ${DRA_GPU_PARTITIONS:-} ]]; then
@@ -1648,13 +1616,11 @@ function install_dra_example_driver {
       --create-namespace \
       --namespace dra-example-driver \
       --kubeconfig="${kubeconfig}" \
-      --set image.repository="${dra_image_repo}" \
-      --set image.tag="${dra_image_tag}" \
       --set kubeletPlugin.containers.plugin.securityContext.privileged=true \
       "${extra_helm_args[@]}" \
       --wait \
       dra-example-driver \
-      "$dra_driver_temp_dir/deployments/helm/dra-example-driver"
+      "$dra_chart_dir/dra-example-driver"
 }
 
 

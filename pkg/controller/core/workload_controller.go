@@ -73,7 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
-	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -177,9 +177,10 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	sliceCache := dra.NewResourceSliceCache(r.client)
+	skipDeviceCheck := r.hasMultiKueueAdmissionCheck(wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
-	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
+	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
 	if len(fieldErrs) > 0 {
 		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
 		return done, result, nil, err
@@ -243,6 +244,22 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
+}
+
+func (r *WorkloadReconciler) hasMultiKueueAdmissionCheck(wl *kueue.Workload) bool {
+	if wl.Spec.QueueName == "" {
+		return false
+	}
+	cqName, ok := r.queues.ClusterQueueFromLocalQueue(qutil.KeyFromWorkload(wl))
+	if !ok {
+		return false
+	}
+	for _, ac := range r.cache.AdmissionChecksForClusterQueue(cqName) {
+		if ac.Controller == kueue.MultiKueueControllerName {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
@@ -818,8 +835,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					quotaReservedWaitTime.Seconds(),
 				)
 				priorityClassName := workloadpatching.PriorityClassName(&wl)
+				// The workload label values are derived on the fly instead of being stored in
+				// the custom labels storage, since these metrics are not gauges and nothing
+				// would clear the stored entry afterwards.
+				wlLabelVals := r.customLabels.MakeValsSet(config.SourceKindWorkload, wl.Labels, wl.Annotations)
+				cqWlCustomLabels := r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+					config.SourceKindClusterQueue: r.customLabels.CQGet(cqName),
+					config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+				})
 				r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
-				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
 				metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
 					lqRef := metrics.LQRefFromWorkload(&wl)
@@ -829,9 +854,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 						lqRef,
 						priorityClassName,
 						queuedWaitTime,
-						r.customLabels.GetFor(map[config.SourceKind]string{
-							config.SourceKindLocalQueue: string(lqKey),
-							config.SourceKindWorkload:   string(workload.Key(&wl)),
+						r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+							config.SourceKindLocalQueue: r.customLabels.LQGet(lqKey),
+							config.SourceKindWorkload:   wlLabelVals.OrderedList(),
 						}),
 						r.roleTracker,
 					)
@@ -1406,17 +1431,17 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 
 	prevQueue := e.ObjectOld.Spec.QueueName
 	if prevQueue != e.ObjectNew.Spec.QueueName {
-		log = log.WithValues("prevLocalQueue", klog.KRef(e.ObjectOld.Namespace, string(prevQueue)))
+		log = log.WithValues("previousLocalQueue", klog.KRef(e.ObjectOld.Namespace, string(prevQueue)))
 	}
 	prevStatus := workload.Status(e.ObjectOld)
 	if prevStatus != status {
-		log = log.WithValues("prevStatus", prevStatus)
+		log = log.WithValues("previousStatus", prevStatus)
 	}
 	if workload.HasQuotaReservation(e.ObjectNew) {
 		log = log.WithValues("clusterQueue", klog.KRef("", string(e.ObjectNew.Status.Admission.ClusterQueue)))
 	}
 	if workload.HasQuotaReservation(e.ObjectOld) && (!workload.HasQuotaReservation(e.ObjectNew) || e.ObjectNew.Status.Admission.ClusterQueue != e.ObjectOld.Status.Admission.ClusterQueue) {
-		log = log.WithValues("prevClusterQueue", klog.KRef("", string(e.ObjectOld.Status.Admission.ClusterQueue)))
+		log = log.WithValues("previousClusterQueue", klog.KRef("", string(e.ObjectOld.Status.Admission.ClusterQueue)))
 	}
 	if logV := log.V(3); logV.Enabled() {
 		if workload.HasUnhealthyNodes(e.ObjectNew) {
@@ -1739,20 +1764,44 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// determineTimeouts returns the timeout and recovery timeout for the workload,
-// giving precedence to the per-workload annotation over the cluster-level configuration.
-// It returns ok=false when no timeout and recovery timeout are configured at either level.
-func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
-	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
-	if err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "Failed to unmarshal WaitForPodsReady annotation; falling back to cluster-level configuration")
+// parseWorkloadTimeouts defines the workload timeouts either from workload
+// spec or the annotation.
+func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (time.Duration, *time.Duration) {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return 0, nil
 	}
+	cfg := wl.Spec.WaitForPodsReady
+	if cfg == nil {
+		// Not yet migrated to the spec field: fall back to the legacy annotation.
+		var err error
+		cfg, err = waitforpodsready.ParseWaitForPodsReady(wl)
+		if err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration")
+			return 0, nil
+		}
+	}
+	if cfg == nil {
+		return 0, nil
+	}
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	var recoveryTimeout *time.Duration
+	if cfg.RecoveryTimeoutSeconds != nil && *cfg.RecoveryTimeoutSeconds > 0 {
+		recoveryTimeout = new(time.Duration(*cfg.RecoveryTimeoutSeconds) * time.Second)
+	}
+	return timeout, recoveryTimeout
+}
+
+// determineTimeouts returns the timeout and recovery timeout for the workload.
+// It relies first on the per-workload spec, then on the legacy per-workload annotation,
+// and finally falls back to the cluster-level configuration.
+// It returns ok=false when no timeout and recovery timeout are configured at any level.
+func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
+	workloadTimeout, workloadRecoveryTimeout := parseWorkloadTimeouts(ctx, wl)
 	switch {
-	case cfg != nil:
-		timeout = cfg.Timeout
-		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
-			recoveryTimeout = cfg.RecoveryTimeout
-		} else if cfg.RecoveryTimeout == nil {
+	case workloadTimeout > 0:
+		timeout = workloadTimeout
+		recoveryTimeout = workloadRecoveryTimeout
+		if recoveryTimeout == nil && r.waitForPodsReady != nil {
 			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
 		}
 	case r.waitForPodsReady != nil:
@@ -2222,6 +2271,42 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			}, time.Second)
 		}
 	}
+
+	// LimitRange defaults are absent from the raw Workload resource index.
+	// Refresh pending workloads in namespaces whose defaults use an affected resource.
+	namespaces, err := h.namespacesWithDefaultedResources(ctx, resourceNames...)
+	if err != nil {
+		log.Error(err, "Could not list LimitRanges for extended resources", "resources", resourceNames)
+		return
+	}
+	resourceHandler := &resourceUpdatesHandler{r: h.r}
+	for namespace := range namespaces {
+		resourceHandler.queueReconcileForPending(ctx, q, client.InNamespace(namespace))
+	}
+}
+
+func (h *deviceClassHandler) namespacesWithDefaultedResources(ctx context.Context, resourceNames ...string) (sets.Set[string], error) {
+	limitRanges := corev1.LimitRangeList{}
+	if err := h.r.client.List(ctx, &limitRanges,
+		client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+		return nil, err
+	}
+	namespaces := sets.New[string]()
+	for _, lr := range limitRanges.Items {
+		for _, limit := range lr.Spec.Limits {
+			if limit.Type != corev1.LimitTypeContainer {
+				continue
+			}
+			for _, name := range resourceNames {
+				defaultRequest := limit.DefaultRequest[corev1.ResourceName(name)]
+				defaultLimit := limit.Default[corev1.ResourceName(name)]
+				if !defaultRequest.IsZero() || !defaultLimit.IsZero() {
+					namespaces.Insert(lr.Namespace)
+				}
+			}
+		}
+	}
+	return namespaces, nil
 }
 
 func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(

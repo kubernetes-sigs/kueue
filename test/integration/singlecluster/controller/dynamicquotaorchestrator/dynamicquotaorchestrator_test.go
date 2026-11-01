@@ -571,9 +571,8 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		cps = append(cps, cp)
 		createCapacityProvider(ctx, k8sClient, cp)
 
-		halfMultiplier := resource.MustParse("0.5")
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("filter-dqo").
-			DiscoveryProvider("filter-cp", &halfMultiplier).
+			DiscoveryProvider("filter-cp", new(resource.MustParse("0.5"))).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, dqo)
 

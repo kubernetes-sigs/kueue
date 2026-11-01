@@ -261,14 +261,13 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
 			childLWS.Finalizers = []string{metav1.FinalizerDeleteDependents}
-			isController := true
 			childLWS.OwnerReferences = []metav1.OwnerReference{
 				{
 					APIVersion: lwsGVK.GroupVersion().String(),
 					Kind:       lwsGVK.Kind,
 					Name:       parentLWS.Name,
 					UID:        parentLWS.UID,
-					Controller: &isController,
+					Controller: new(true),
 				},
 			}
 			behavioral.MustCreate(ctx, k8sClient, childLWS)
@@ -277,9 +276,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			// finalizers so it disappears from the API server immediately,
 			// simulating the "background delete while foreground chain is active"
 			// scenario described in the bug report.
-			background := metav1.DeletePropagationBackground
 			gomega.Expect(k8sClient.Delete(ctx, parentLWS, &client.DeleteOptions{
-				PropagationPolicy: &background,
+				PropagationPolicy: new(metav1.DeletePropagationBackground),
 			})).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {

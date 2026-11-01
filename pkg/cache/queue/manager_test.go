@@ -110,12 +110,11 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
-	tmplName := "claim-tmpl"
 	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
 		*utiltestingapi.MakePodSet("ps", 1).PodSpec(corev1.PodSpec{
 			ResourceClaims: []corev1.PodResourceClaim{{
 				Name:                      "rc",
-				ResourceClaimTemplateName: &tmplName,
+				ResourceClaimTemplateName: new("claim-tmpl"),
 			}},
 		}).Obj(),
 	).Obj()

@@ -1258,8 +1258,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
 
 	deletingCluster := baseCluster.DeepCopy()
-	now := metav1.Now()
-	deletingCluster.DeletionTimestamp = &now
+	deletingCluster.DeletionTimestamp = new(metav1.Now())
 
 	cases := map[string]struct {
 		invoke        func(p predicate.Predicate) bool
@@ -1774,7 +1773,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+	if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
 
@@ -1788,7 +1787,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 		defer writerDone.Store(true)
 		for i := range iterations {
 			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
-			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+			if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
 				writerErr = err
 				return
 			}
@@ -2048,10 +2047,9 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				KubeConfig(kueue.SecretLocationType, "worker1").
 				Generation(1).
 				Obj()
-			secret := makeTestSecret("worker1", testKubeconfig("worker1"))
 
 			c := getClientBuilder(ctx).
-				WithObjects(cluster, &secret).
+				WithObjects(cluster, new(makeTestSecret("worker1", testKubeconfig("worker1")))).
 				WithStatusSubresource(&kueue.MultiKueueCluster{}).
 				Build()
 

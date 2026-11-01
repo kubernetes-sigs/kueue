@@ -481,6 +481,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		Template: *ps.Template.DeepCopy(),
 	}
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
+	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -504,6 +505,39 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
 	return newPt, nil
+}
+
+// findDanglingVolumeMounts returns the names of volumes that are mounted by containers but missing from spec.Volumes.
+func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
+	volumes := sets.New[string]()
+	for _, v := range spec.Volumes {
+		volumes.Insert(v.Name)
+	}
+	var names []string
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			for _, m := range c.VolumeMounts {
+				if volumes.Has(m.Name) {
+					continue
+				}
+				volumes.Insert(m.Name)
+				names = append(names, m.Name)
+			}
+		}
+	}
+	return names
+}
+
+// addPlaceholderVolumes adds an emptyDir volume for each name. Controllers such as StatefulSet and
+// LeaderWorkerSet (volumeClaimTemplates) and JobSet (volumeClaimPolicies) add those volumes only to the
+// Pods they create, so the API server rejects a PodTemplate whose volumeMounts have no matching volume.
+// The placeholder is optimistic: it does not model the real volume's storage or topology constraints.
+// shortcut: volumeDevices (block-mode claims) are not handled; emptyDir cannot back a device, so they
+// need a PVC/ephemeral placeholder if required.
+func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
+	for _, name := range names {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
 }
 
 // setAdmissionCheckRetry sets the admission check to Retry using the
@@ -731,7 +765,9 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Returning would drop what the other checks stage in this patch.
+					log.V(4).Info("Skipping admission check without a ProvisioningRequest", "wl", klog.KObj(wl), "check", check)
+					continue
 				}
 				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 					"check", check,
@@ -1063,7 +1099,7 @@ type MergedPodSet struct {
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
 // ProvisioningRequest must subtract from its own counts, or nil when elastic
 // ProvisioningRequest support does not apply to wl.
-func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
 		return nil, nil
 	}
@@ -1086,7 +1122,7 @@ func mergePodSets(
 	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
-	previousCounts map[kueue.PodSetReference]int32,
+	previousCounts workload.PodSetsCounts,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)

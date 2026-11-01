@@ -22,6 +22,8 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -33,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,15 +44,17 @@ import (
 func NewPlanner(
 	wl *workload.Info,
 	snapshot *schedcache.Snapshot,
+	preemptor *preemption.Preemptor,
 ) assignment.Planner {
-	return &wasPlanner{wl: wl, snapshot: snapshot}
+	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor}
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
 
 type wasPlanner struct {
-	wl       *workload.Info
-	snapshot *schedcache.Snapshot
+	wl        *workload.Info
+	snapshot  *schedcache.Snapshot
+	preemptor *preemption.Preemptor
 }
 
 func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
@@ -57,10 +62,6 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		Assignment: initialAssignment,
 	}
 	if plan.Assignment.RepresentativeMode() == flavorassigner.NoFit {
-		return
-	}
-	if plan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
-		plan.Error = errors.New("WAS Planner does not support preemptions")
 		return
 	}
 
@@ -94,13 +95,12 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods)
-	if schedulingResult.Error != nil {
-		plan.Error = fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment)
+	if err != nil {
+		plan.Error = err
 		return
 	}
-
-	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
+	plan.PreemptionTargets = targets
 
 	if len(failures) > 0 {
 		// Record the scheduling failures of Pods that failed to secure any Placement.
@@ -117,6 +117,94 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementSummary)
 	plan.Assignment.UpdateForTASResult(log, cq, p.wl, tasAssignment)
 	return
+}
+
+func (p *wasPlanner) simulateWorkloadPlacement(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	assignment *flavorassigner.Assignment,
+) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
+	if assignment.RepresentativeMode() == flavorassigner.Fit {
+		placementSummary, failures, _, err = p.schedule(ctx, pods)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
+			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+		}
+	}
+	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
+		// Lower any remaining Fit resources to Preempt so candidate selection
+		// considers every resource the workload uses.
+		assignment.DemoteTo(flavorassigner.Preempt)
+		return p.scheduleWithPreemption(ctx, pods, *assignment)
+	}
+	return placementSummary, failures, nil, nil
+}
+
+// resolvePodSetFailures records the placement failure status on each failed
+// PodSet and lowers the mode of those PodSets and the assignment to targetMode.
+func resolvePodSetFailures(
+	assignment *flavorassigner.Assignment,
+	failures podSetFailureSummary,
+	targetMode flavorassigner.FlavorAssignmentMode,
+) {
+	for psRef, summary := range failures {
+		assignment.ResolvePodSetFailure(
+			psRef,
+			targetMode,
+			flavorassigner.NewStatus(summary.reasons...),
+		)
+	}
+}
+
+func (p *wasPlanner) schedule(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	opts ...simulator.ScheduleOption,
+) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, error) {
+	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
+	if schedulingResult.Error != nil {
+		return nil, nil, nil, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+	}
+	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
+	return placementSummary, failures, schedulingResult.PreemptionVictims, nil
+}
+
+func (p *wasPlanner) scheduleWithPreemption(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	assignment flavorassigner.Assignment,
+) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
+	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+		placementSummary, failures, preemptedWorkloads, err := p.schedule(
+			ctx,
+			pods,
+			simulator.WithPreemptionCandidates(strategy.Candidates()),
+		)
+		strategy.Reset()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if len(failures) == 0 {
+			targets, err := strategy.GetTargets(preemptedWorkloads)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if len(targets) > 0 {
+				return placementSummary, nil, targets, nil
+			}
+		}
+	}
+
+	// No preemption targets succeeded. Simulate against an empty cluster to check
+	// if the workload can fit at all and, if so, reserve TAS resources while waiting
+	// for quota so lower-priority workloads do not admit ahead of it.
+	placementSummary, failures, _, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return placementSummary, failures, nil, nil
 }
 
 func recordSimulationFailures(assignment *flavorassigner.Assignment, failures podSetFailureSummary) {
@@ -191,39 +279,36 @@ func (p *wasPlanner) calculateTopologyAssignment(
 }
 
 func (p *wasPlanner) addPodGroups(ctx context.Context, vPgs *wassim.WorkloadVirtualPodGroups) (func() error, error) {
-	for i, cpg := range vPgs.CompositePodGroups {
-		if err := p.snapshot.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
-			for _, added := range vPgs.CompositePodGroups[:i] {
-				_ = p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, added)
-			}
-			return nil, fmt.Errorf("unable to add composite pod group %q to simulator: %w", cpg.Name, err)
-		}
-	}
-	for i, pg := range vPgs.PodGroups {
-		if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
-			for _, added := range vPgs.PodGroups[:i] {
-				_ = p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, added)
-			}
-			for _, added := range vPgs.CompositePodGroups {
-				_ = p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, added)
-			}
-			return nil, fmt.Errorf("unable to add pod group %q to simulator: %w", pg.Name, err)
-		}
-	}
-
+	var addedPGs []*schedulingv1beta1.PodGroup
+	var addedCPGs []*schedulingv1alpha3.CompositePodGroup
 	revert := func() error {
 		var errs []error
-		for _, pg := range vPgs.PodGroups {
+		for _, pg := range addedPGs {
 			if err := p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, pg); err != nil {
 				errs = append(errs, fmt.Errorf("unable to remove pod group %q from simulator: %w", pg.Name, err))
 			}
 		}
-		for _, cpg := range vPgs.CompositePodGroups {
+		for _, cpg := range addedCPGs {
 			if err := p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg); err != nil {
 				errs = append(errs, fmt.Errorf("unable to remove composite pod group %q from simulator: %w", cpg.Name, err))
 			}
 		}
 		return errors.Join(errs...)
+	}
+
+	for _, cpg := range vPgs.CompositePodGroups {
+		if err := p.snapshot.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
+			revertErr := revert()
+			return nil, errors.Join(fmt.Errorf("unable to add composite pod group %q to simulator: %w", cpg.Name, err), revertErr)
+		}
+		addedCPGs = append(addedCPGs, cpg)
+	}
+	for _, pg := range vPgs.PodGroups {
+		if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+			revertErr := revert()
+			return nil, errors.Join(fmt.Errorf("unable to add pod group %q to simulator: %w", pg.Name, err), revertErr)
+		}
+		addedPGs = append(addedPGs, pg)
 	}
 
 	return revert, nil

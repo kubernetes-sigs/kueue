@@ -93,10 +93,11 @@ func Test_GetResourceRequests(t *testing.T) {
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		// mappings replaces the default res-1/res-2 mappings when set.
-		mappings     []configapi.DeviceClassMapping
-		featureGates map[featuregate.Feature]bool
-		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      field.ErrorList
+		mappings        []configapi.DeviceClassMapping
+		featureGates    map[featuregate.Feature]bool
+		skipDeviceCheck bool
+		want            map[kueue.PodSetReference]corev1.ResourceList
+		wantErr         field.ErrorList
 	}{
 		{
 			name: "An Exactly request on a logical resource named cpu is charged in whole units",
@@ -758,6 +759,48 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
+			name: "CEL selectors with unsatisfiable expression succeeds when skipDeviceCheck is true",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat-skip", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"nonexistent-driver\"").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-unsat-skip", ResourceClaimTemplateName: new("claim-tmpl-unsat-skip")},
+				}
+			},
+			lookup:          defaultLookup,
+			skipDeviceCheck: true,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("2")},
+			},
+		},
+		{
+			name: "Invalid CEL selector still returns error when skipDeviceCheck is true",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel-skip", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("this is not valid CEL!!!").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-badcel-skip", ResourceClaimTemplateName: new("claim-tmpl-badcel-skip")},
+				}
+			},
+			lookup:          defaultLookup,
+			skipDeviceCheck: true,
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
 			name: "Device constraints are pass-through and counted correctly",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
@@ -974,8 +1017,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testMapper = NewResourceMapper()
 			}
 			sliceCache := NewResourceSliceCache(baseClient)
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy)
-
+			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceCheck)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
 			}

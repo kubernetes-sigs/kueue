@@ -9418,3 +9418,127 @@ func TestResolveNoFitReason(t *testing.T) {
 		})
 	}
 }
+
+func TestAssignment_DemoteTo(t *testing.T) {
+	nonFitStatus := *NewStatus("insufficient quota")
+	cases := map[string]struct {
+		assignment             Assignment
+		targetMode             FlavorAssignmentMode
+		wantPodSets            []PodSetAssignment
+		wantRepresentativeMode FlavorAssignmentMode
+	}{
+		"lowers Fit and DeferredFit flavors to Preempt": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "leader",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+					{
+						Name:   "worker",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "flavor-a", Mode: DeferredFit},
+							corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+						},
+					},
+				},
+			},
+			targetMode: Preempt,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name: "leader",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+				{
+					Name:   "worker",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: Preempt},
+						corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: Preempt,
+		},
+		"does not promote NoFit flavors or NoFit representative mode": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "ps-fit",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+					{
+						Name:   "ps-nofit",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "flavor-a", Mode: NoFit},
+							corev1.ResourceMemory: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+				},
+			},
+			targetMode: Preempt,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name: "ps-fit",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+				{
+					Name:   "ps-nofit",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: NoFit},
+						corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: NoFit,
+		},
+		"no-op when all modes are already below target": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:   "main",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+						},
+					},
+				},
+			},
+			targetMode: Fit,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name:   "main",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: Preempt,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assignment := tc.assignment
+			assignment.DemoteTo(tc.targetMode)
+			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantRepresentativeMode {
+				t.Errorf("RepresentativeMode() = %v, want %v", gotMode, tc.wantRepresentativeMode)
+			}
+			if diff := cmp.Diff(tc.wantPodSets, assignment.PodSets, cmp.AllowUnexported(Status{}, FlavorAssignment{})); diff != "" {
+				t.Errorf("PodSets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
