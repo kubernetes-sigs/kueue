@@ -1725,6 +1725,43 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 	}
 }
 
+func TestBestEffortFIFOImmediateNoFitRequeueKeepsNewShapeActive(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq, _ := newClusterQueue(ctx,
+		&kueue.ClusterQueue{Spec: kueue.ClusterQueueSpec{QueueingStrategy: kueue.BestEffortFIFO}}, nil,
+		workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}, nil, nil)
+
+	// The first workload had the old shape. The second has refreshed DRA
+	// requests; its NoFit result must not bulk-move workloads with the new shape.
+	first := utiltestingapi.MakeWorkload("first-old-shape", defaultNamespace).Obj()
+	firstInfo := workload.NewInfo(log, first)
+	firstInfo.SchedulingHash = "old-shape"
+	cq.PushOrUpdate(firstInfo)
+
+	peer := utiltestingapi.MakeWorkload("third-new-shape", defaultNamespace).Obj()
+	peerInfo := workload.NewInfo(log, peer)
+	peerInfo.SchedulingHash = "new-shape"
+	cq.PushOrUpdate(peerInfo)
+
+	second := utiltestingapi.MakeWorkload("second-new-shape", defaultNamespace).Obj()
+	secondInfo := workload.NewInfo(log, second)
+	secondInfo.SchedulingHash = "new-shape"
+	if !cq.RequeueIfNotPresentImmediately(ctx, secondInfo, RequeueReasonNoFit, "") {
+		t.Fatal("failed to immediately requeue second workload")
+	}
+
+	if cq.workloads.GetActive(workload.Key(second)) == nil {
+		t.Error("second workload with refreshed charges did not stay active")
+	}
+	if cq.workloads.GetActive(workload.Key(peer)) == nil {
+		t.Error("peer with the refreshed shape was bulk-moved out of the active queue")
+	}
+	if cq.workloads.GetInadmissible(workload.Key(peer)) != nil {
+		t.Error("peer with the refreshed shape became inadmissible before evaluation")
+	}
+}
+
 func TestBestEffortFIFOFailedPreemptionNotSticky(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx,
