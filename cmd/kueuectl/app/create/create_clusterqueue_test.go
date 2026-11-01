@@ -129,6 +129,21 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should create one resource group with one flavor, zero nominalQuota and borrowingLimit set": {
+			quotaArgs:     []string{"alpha:cpu=0;memory=0"},
+			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "0", "1").
+							Resource("memory", "0", "1").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should fail when a flavor is set in borrowingLimit without nominalQuota": {
 			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
 			wantErr:       `misconfigured flavor "alpha": flavor is set in --borrowing-limit but has no matching --nominal-quota`,
