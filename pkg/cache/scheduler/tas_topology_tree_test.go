@@ -101,12 +101,11 @@ func makeTreeTestNode(name, block, rack string) *corev1.Node {
 }
 
 func treeTestBalancedRequests(name kueue.PodSetReference) FlavorTASRequests {
-	preferredLevel := treeTestRackLabel
 	return FlavorTASRequests{{
 		PodSet: &kueue.PodSet{
 			Name: name,
 			TopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: &preferredLevel,
+				Preferred: new(treeTestRackLabel),
 			},
 		},
 		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
@@ -220,7 +219,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 			for _, n := range []*corev1.Node{
 				makeTreeTestNode("n1", "b1", "r1"),
 				makeTreeTestNode("n2", "b1", "r1"),
@@ -271,7 +270,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 
 func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -309,7 +308,7 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -336,7 +335,7 @@ func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -369,7 +368,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -487,7 +486,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, resources.NewResourceFormatter())
 			tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 			tasCache.SyncNode(makeTreeTestNode("n2", "b2", "r2"))
 			fc := tasCache.NewTASFlavorCache(

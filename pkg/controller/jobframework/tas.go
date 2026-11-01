@@ -140,13 +140,18 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 // annotation in a PodSet group fails the job update, which Kueue retries,
 // instead of the user's request.
 func DefaultPodIndexOffsetForPodSetGroup(meta *metav1.ObjectMeta) {
-	if !features.Enabled(features.TopologyAwareScheduling) {
-		return
-	}
-	if _, grouped := meta.Annotations[kueue.PodSetGroupName]; !grouped {
-		return
-	}
-	if _, found := meta.Annotations[kueue.PodIndexOffsetAnnotation]; !found {
+	if NeedsDefaultPodIndexOffset(meta) {
 		meta.Annotations[kueue.PodIndexOffsetAnnotation] = "0"
 	}
+}
+
+// NeedsDefaultPodIndexOffset reports whether DefaultPodIndexOffsetForPodSetGroup
+// sets the Pod index offset annotation on a Pod template with this metadata.
+func NeedsDefaultPodIndexOffset(meta *metav1.ObjectMeta) bool {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return false
+	}
+	_, grouped := meta.Annotations[kueue.PodSetGroupName]
+	_, found := meta.Annotations[kueue.PodIndexOffsetAnnotation]
+	return grouped && !found
 }

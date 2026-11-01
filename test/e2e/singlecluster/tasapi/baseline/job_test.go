@@ -156,7 +156,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			})
 		})
 
-		ginkgo.It("Should admit a Job to TAS Block if Block required", func() {
+		ginkgo.It("Should admit a Job to TAS Block if Block required", ginkgo.Label("feature:was-deepintegration"), func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(3).
@@ -175,23 +175,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					tas.V1Beta2From(&tas.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []tas.TopologyDomainAssignment{
-							{
-								Values: []string{"kind-worker"},
-								Count:  1,
-							},
-							{
-								Values: []string{"kind-worker2"},
-								Count:  1,
-							},
-							{
-								Values: []string{"kind-worker3"},
-								Count:  1,
-							},
-						}})))
+				gotAssignment := e2e.ReadRankAssignmentsFromTopologyAssignment(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(3), "expected 3 assigned topology domains (1 per pod)")
+				e2e.ExpectSameTopologyDomain(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel,
+					gotAssignment["0"], gotAssignment["1"], gotAssignment["2"],
+				)
+			})
+			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 3, client.MatchingLabels{"job-name": sampleJob.Name})
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
@@ -203,7 +194,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 			})
 		})
 
-		ginkgo.It("Should allow to run a Job with parallelism < completions", func() {
+		ginkgo.It("Should allow to run a Job with parallelism < completions", ginkgo.Label("feature:was-deepintegration"), func() {
 			sampleJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Parallelism(2).
@@ -225,9 +216,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
+			ginkgo.By("ensure all pods are created, scheduled, and running", func() {
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 3, client.MatchingLabels{"job-name": sampleJob.Name})
+			})
 		})
 
-		ginkgo.It("Should place pods based on the ranks-ordering", func() {
+		ginkgo.It("Should place pods based on the ranks-ordering", ginkgo.Label("feature:was-deepintegration"), func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -275,17 +269,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
 					gotAssignment[index] = pod.Spec.NodeName
 				}
-				wantAssignment := map[string]string{
-					"0": "kind-worker",
-					"1": "kind-worker2",
-					"2": "kind-worker3",
-					"3": "kind-worker4",
-				}
-				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(numPods))
+				e2e.ExpectRanksOnIncreasingNodes(gotAssignment, []string{"0", "1", "2", "3"})
+				e2e.ExpectSameTopologyDomain(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel,
+					gotAssignment["0"], gotAssignment["1"], gotAssignment["2"], gotAssignment["3"],
+				)
 			})
 		})
 
-		ginkgo.It("Should place pods based on the ranks-ordering even if the Job has no TAS annotation (Implicit TAS)", func() {
+		ginkgo.It("Should place pods based on the ranks-ordering even if the Job has no TAS annotation (Implicit TAS)", ginkgo.Label("feature:was-deepintegration"), func() {
 			numPods := 4
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -332,13 +324,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shar
 					index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
 					gotAssignment[index] = pod.Spec.NodeName
 				}
-				wantAssignment := map[string]string{
-					"0": "kind-worker",
-					"1": "kind-worker2",
-					"2": "kind-worker3",
-					"3": "kind-worker4",
-				}
-				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(numPods))
+				e2e.ExpectRanksOnIncreasingNodes(gotAssignment, []string{"0", "1", "2", "3"})
 			})
 		})
 		ginkgo.It("should preserve topology assignment during scale-up with elastic jobs", func() {

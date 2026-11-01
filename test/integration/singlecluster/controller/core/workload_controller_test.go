@@ -808,8 +808,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				g.Expect(updatedQueueWorkload.Status.Conditions).ShouldNot(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			initialPriority := int32(200)
-			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
 
 			ginkgo.By("updating workloadPriorityClass")
 			updatedPriority := int32(150)

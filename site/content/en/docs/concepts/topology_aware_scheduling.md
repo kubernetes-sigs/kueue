@@ -10,7 +10,11 @@ description: >
 {{% alert title="Note" color="primary" %}}
 `TopologyAwareScheduling` is currently a beta feature and is enabled by default.
 
-You can disable it by editing the `TopologyAwareScheduling` feature gate. Refer to the
+To disable it, set `TopologyAwareScheduling: false` and set every enabled
+feature gate that depends on it to `false`. These are mostly the `TAS*` gates
+(see [Feature gates for alpha and beta features](/docs/installation/#feature-gates-for-alpha-and-beta-features));
+Kueue does not start while any dependent gate is still enabled, and the startup
+error lists each one. Refer to the
 [Installation guide](/docs/installation/#change-the-feature-gates-configuration)
 for instructions on configuring feature gates.
 {{% /alert %}}
@@ -101,7 +105,9 @@ following annotations set at the PodTemplate level:
 	the annotation. If the PodSet cannot fit within a given topology domain
 	then the next topology level up is considered. If the PodSet cannot fit
 	at the highest topology level, then it gets admitted as distributed
-	among multiple topology domains.
+	among multiple topology domains. Note that the label specified in the
+	annotation must still exist in the flavor's `Topology.spec.levels`; if the
+	requested level is not defined in the `Topology`, the flavor is rejected.
 - `kueue.x-k8s.io/podset-required-topology` - indicates that a PodSet
   requires Topology-Aware Scheduling, and requires scheduling all pods on nodes
 	within the same topology domain corresponding to the topology level
@@ -113,7 +119,12 @@ following annotations set at the PodTemplate level:
     on nodes across the cluster.
 - `kueue.x-k8s.io/podset-group-name` - indicates the name of the group of PodSets. PodSet Group
     is a unit of flavor assignment and topology domain fitting. This is useful when you want to
-    ensure that multiple PodSets are scheduled in the same topology domain.
+    ensure that multiple PodSets are scheduled in the same topology domain. This annotation must
+    be used together with `kueue.x-k8s.io/podset-required-topology` or
+    `kueue.x-k8s.io/podset-preferred-topology`.
+- `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size` - split a
+    PodSet into slices of the given size and require each slice to be scheduled within a single
+    topology domain at the level indicated by `podset-slice-required-topology`.
 - `kueue.x-k8s.io/podset-slice-required-topology-constraints` - defines multi-layer slice
     topology constraints as a JSON-encoded array. Each entry specifies a topology level and
     slice size, ordered from the outermost (coarsest) to the innermost (finest) layer. At most
@@ -139,6 +150,55 @@ spec:
 ```
 
 For detailed instructions and full examples on running TAS workloads as a batch user, see [Run Workloads with Topology-Aware Scheduling](/docs/tasks/run/topology_aware_scheduling/).
+
+#### Implicit TAS and mixed-flavor ClusterQueues
+
+Whether a PodSet without an explicit TAS annotation can use a TAS
+`ResourceFlavor` depends on how the target `ClusterQueue` is configured.
+
+If **every** `ResourceFlavor` referenced across all `spec.resourceGroups` of the
+`ClusterQueue` has `.spec.topologyName` set (a TAS-only `ClusterQueue`),
+unannotated PodSets implicitly use TAS with unconstrained placement at the
+lowest topology level (using the `LeastFreeCapacity` strategy when
+`TASProfileMixed` is enabled, as opposed to `BestFit` used by `required` and
+`preferred` annotations).
+
+If any `ResourceFlavor` listed in the `ClusterQueue` (even one with `0`
+`nominalQuota`) does not set `.spec.topologyName`, implicit TAS is disabled:
+unannotated PodSets can only be assigned non-TAS flavors
+(`Flavor "<name>" supports only TopologyAwareScheduling`), and PodSets with an
+explicit TAS annotation can only be assigned TAS flavors
+(`Flavor "<name>" does not support TopologyAwareScheduling`) for the resources
+they request. For example, in a `ClusterQueue` that offers both TAS and non-TAS
+flavors in the same `resourceGroup` (such as `[gpu-tas, gpu-standard]`, or
+`[gpu-tas, cpu-only]` where `cpu-only` has `0` `nvidia.com/gpu` quota),
+workloads that need the TAS flavor **must** set an explicit TAS annotation on
+the PodTemplate (see [User-facing APIs](#user-facing-apis)):
+
+```yaml
+spec:
+  resourceGroups:
+  - coveredResources: ["cpu", "nvidia.com/gpu"]
+    flavors:
+    - name: gpu-tas      # .spec.topologyName set (requires an explicit TAS annotation)
+      resources:
+      - { name: "cpu", nominalQuota: 64 }
+      - { name: "nvidia.com/gpu", nominalQuota: 8 }
+    - name: cpu-only     # .spec.topologyName unset (used by unannotated CPU-only Pods)
+      resources:
+      - { name: "cpu", nominalQuota: 64 }
+      - { name: "nvidia.com/gpu", nominalQuota: 0 }
+```
+
+{{% alert title="Warning" color="warning" %}}
+Because a PodSet cannot mix TAS and non-TAS flavors across the resources it
+requests, do **not** put `cpu` in a non-TAS `resourceGroup` and `nvidia.com/gpu`
+in a separate TAS `resourceGroup`: a Pod requesting both `cpu` and
+`nvidia.com/gpu` cannot be admitted with or without a TAS annotation. A separate
+non-TAS `resourceGroup` only works for quota-only resources not present in the
+Pod's `resources.requests` (such as resources added by
+`ResourceTransformations`).
+{{% /alert %}}
 
 ### ClusterAutoscaler support
 

@@ -47,8 +47,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -61,6 +63,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestShouldFailFastTASReplacement(t *testing.T) {
@@ -908,6 +911,925 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "contender", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "contender", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"PodSet group; node replacement; the leader stays in the rack of the remaining worker": {
+			// The leader and one worker ran on the failed node x1. The other worker on x2
+			// pins the group to r1, although r2 is the tighter fit for the leader alone.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"PodSet group; node replacement; evicted when the rack of the workers has no room for the leader": {
+			// The leader ran alone on the failed node x1. The workers on x2 and x3 pin the
+			// group to r1, which has no free node, so the Workload is evicted instead of
+			// moving the leader to r2.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x7").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x1").Obj(),
+			},
+		},
+		"PodSet group; node replacement; the workers stay in the rack of the leader": {
+			// Both workers ran on the failed node x1, so only the leader on x2 pins the
+			// group to r1, although r2 is the tighter fit for the workers alone.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x5").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x7").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"PodSet group; node replacement; the whole group ran on the failed node and is placed again together": {
+			// No Pod of the group remains on a healthy node, so the group is placed again
+			// as a whole. Placing the leader alone would pick r2, the tighter fit.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x5").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x7").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"PodSet group; node replacement; the whole group is placed again with the admitted count of a PodSet with reclaimable Pods": {
+			// One worker already succeeded, but the admission still counts it, so the group
+			// is placed again with as many workers as the previous assignment held.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x5").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x7").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "worker", Count: 1}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"PodSet group; node replacement; a worker left on a healthy node pins its own replacement": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x5").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							PodSetGroup("g").
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("worker").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"PodSets without a group; node replacement; a PodSet that lost its only node is placed on its own": {
+			// The PodSets are not grouped, so the PodSet on the failed node x1 may move to
+			// another rack than the other PodSet.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x4").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x5").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x6").
+					Label("tas-node", "true").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultTwoLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASTwoLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("a", 1).
+							RequiredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("b", 2).
+							RequiredTopologyRequest(tasRackLabel).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("a").
+									Assignment(corev1.ResourceCPU, "tas-default", "1").
+									Count(1).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("b").
+									Assignment(corev1.ResourceCPU, "tas-default", "2").
+									Count(2).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("a").
+							Assignment(corev1.ResourceCPU, "tas-default", "1").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x6"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("b").
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
 			},
 		},
 		"workload with unhealthyNode annotation; second pass; baseline scenario": {
@@ -4008,7 +4930,7 @@ type simulatorFactoryOverride struct {
 	simulatorOverride simulator.SchedulerSimulator
 }
 
-func (sfo *simulatorFactoryOverride) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+func (sfo *simulatorFactoryOverride) NewSimulator(_ context.Context, _ []*corev1.Node, _ *podtracker.Tracker, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	return sfo.simulatorOverride, nil
 }
 
@@ -4022,20 +4944,14 @@ type recordingSimulatorFactory struct {
 	recorder         recordingSchedulerSimulator
 }
 
-func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, options...)
+func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, pods, options...)
 	if err != nil {
 		return nil, err
 	}
 	s.recorder.SchedulerSimulator = schedulerSimulator
 	s.recorder.releasedNow = sets.New[workload.Reference]()
 	return &s.recorder, nil
-}
-func (s *recordingSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	s.simulatorFactory.TrackPod(ctx, pod)
-}
-func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.ObjectKey) string {
-	return s.simulatorFactory.UntrackPod(ctx, key)
 }
 
 type recordingSchedulerSimulator struct {
@@ -4228,7 +5144,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						cqCache.TASCache().SyncNode(&tc.nodes[i])
 					}
 					for i := range tc.pods {
-						cqCache.TASCache().TrackPod(ctx, &tc.pods[i])
+						cqCache.TrackPod(ctx, &tc.pods[i])
 					}
 					for i := range tc.admissionChecks {
 						cqCache.AddOrUpdateAdmissionCheck(log, &tc.admissionChecks[i])
@@ -4236,8 +5152,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					for _, flavor := range tc.resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 						if flavor.Spec.TopologyName != nil {
-							t := topologyByName[*flavor.Spec.TopologyName]
-							cqCache.AddOrUpdateTopology(log, &t)
+							cqCache.AddOrUpdateTopology(log, new(topologyByName[*flavor.Spec.TopologyName]))
 						}
 					}
 					for _, cohort := range tc.cohorts {
@@ -6571,6 +7486,318 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Message(`couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor tas-default, 1 more needed; couldn't assign flavors to pod set two: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 1; excluded: resource "memory": 1`).
 					Obj(),
 			},
+		},
+		"elastic replacement preempts with quota and topology pressure": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{*testingnode.MakeNode("x1").
+				Label("tas-node", "true").Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready().Obj()},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{*utiltestingapi.MakeClusterQueue("tas-main").
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "4").Obj()).Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set workers: insufficient unused quota for cpu in flavor tas-default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{Name: "workers", Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
+						Reason: "Preempted", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadPreempted, Status: metav1.ConditionTrue,
+						Reason: "InClusterQueue", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"tas-main": {"default/replacement"}},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"elastic replacement preempts with topology pressure only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{*testingnode.MakeNode("x1").
+				Label("tas-node", "true").Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("4"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready().Obj()},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{*utiltestingapi.MakeClusterQueue("tas-main").
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "20").Obj()).Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set workers: topology \"tas-single-level\" doesn't allow to fit any of 2 pod(s). Total nodes: 1; excluded: resource \"cpu\": 1. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{Name: "workers", Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
+						Reason: "Preempted", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadPreempted, Status: metav1.ConditionTrue,
+						Reason: "InClusterQueue", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"tas-main": {"default/replacement"}},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		},
+		"elastic replacement preempts with quota pressure only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{*testingnode.MakeNode("x1").
+				Label("tas-node", "true").Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("20"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready().Obj()},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{*utiltestingapi.MakeClusterQueue("tas-main").
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "4").Obj()).Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+					Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					PodSets(*utiltestingapi.MakePodSet("workers", 4).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set workers: insufficient unused quota for cpu in flavor tas-default, 2 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{Name: "workers", Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("victim", "default").UID("victim-uid").
+					Queue("tas-main").Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("workers", 2).
+						Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+						utiltestingapi.MakePodSetAssignment("workers").Count(2).
+							Assignment(corev1.ResourceCPU, "tas-default", "2").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
+						Reason: "Preempted", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadPreempted, Status: metav1.ConditionTrue,
+						Reason: "InClusterQueue", Message: "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main", LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"tas-main": {"default/replacement"}},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
 	}
 	runTASScheduleTestCases(t, tasScheduleTestConfig{

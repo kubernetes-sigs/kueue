@@ -99,8 +99,9 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := p.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
+			tasResult = asgn.FindTopologyAssignments(
 				ctx,
+				cq,
 				tasRequests,
 				schdcache.WithWorkloadInfo(p.wl),
 			)
@@ -113,8 +114,9 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			// in the next scheduling cycle by the waiting workload. To obtain
 			// a TAS assignment for reserving the resources we run the algorithm
 			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
+			tasResult = asgn.FindTopologyAssignments(
 				ctx,
+				cq,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
 				schdcache.WithWorkloadInfo(p.wl),

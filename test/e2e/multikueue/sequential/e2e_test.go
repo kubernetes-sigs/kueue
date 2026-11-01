@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
@@ -560,14 +559,11 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 		const (
-			volumeName          = "plugins"
-			volumeMountPath     = "/plugins"
-			pluginContainerName = "secretreader-plugin-init"
-			// secretReaderPath is the plugin executable path inside the shared volume. Both the
-			// official and self-built images ship the binary at /bin/secretreader-plugin, so when
-			// the image is mounted as an image volume at /plugins (k8s >= 1.35) the binary is at
-			// /plugins/bin/secretreader-plugin; the init-container fallback copies it to the same
-			// path, keeping the exec command independent of the k8s version.
+			volumeName      = "plugins"
+			volumeMountPath = "/plugins"
+			// secretReaderPath is the plugin executable path inside the image volume. The official
+			// secretreader image ships the binary at /bin/secretreader-plugin, and the image is
+			// mounted at /plugins.
 			secretReaderPath = "/plugins/bin/secretreader-plugin"
 		)
 		var (
@@ -583,13 +579,6 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 		ginkgo.BeforeAll(func() {
 			defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
-
-			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
-			// image can be mounted directly. On older versions we keep the init container that copies the
-			// binary from the self-built image, because the official image does not ship a "cp" command.
-			serverVersion, err := versionutil.ParseGeneric(e2e.GetKubernetesVersion(managerCfg))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			useImageVolume := serverVersion.AtLeast(versionutil.MustParseGeneric("v1.35.0"))
 
 			ginkgo.By("Creating Role and RoleBinding for secretreader-plugin", func() {
 				secretReaderRole = utiltesting.MakeRole("secretreader", kueueNS).
@@ -622,35 +611,18 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						}
 					}
 
-					if useImageVolume {
-						updatedDeployment.Spec.Template.Spec.Volumes = append(
-							updatedDeployment.Spec.Template.Spec.Volumes,
-							corev1.Volume{
-								Name: volumeName,
-								Image: &corev1.ImageVolumeSource{
-									Reference:  e2e.GetClusterProfilePluginImage(),
-									PullPolicy: corev1.PullIfNotPresent,
-								},
+					// Image volumes are enabled by default on all tested k8s versions (Beta from 1.35),
+					// so the official secretreader image is mounted directly.
+					updatedDeployment.Spec.Template.Spec.Volumes = append(
+						updatedDeployment.Spec.Template.Spec.Volumes,
+						corev1.Volume{
+							Name: volumeName,
+							Image: &corev1.ImageVolumeSource{
+								Reference:  e2e.GetClusterProfilePluginImage(),
+								PullPolicy: corev1.PullIfNotPresent,
 							},
-						)
-					} else {
-						updatedDeployment.Spec.Template.Spec.InitContainers = []corev1.Container{
-							*utiltesting.MakeContainer().
-								Name(pluginContainerName).
-								Image(e2e.GetClusterProfilePluginImage()).
-								ImagePullPolicy(corev1.PullIfNotPresent).
-								Command("sh", "-c", fmt.Sprintf("mkdir -p %s/bin && cp /bin/secretreader-plugin %s", volumeMountPath, secretReaderPath)).
-								VolumeMount(volumeName, volumeMountPath).
-								Obj(),
-						}
-						updatedDeployment.Spec.Template.Spec.Volumes = append(
-							updatedDeployment.Spec.Template.Spec.Volumes,
-							corev1.Volume{
-								Name:     volumeName,
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						)
-					}
+						},
+					)
 					g.Expect(k8sManagerClient.Update(ctx, updatedDeployment)).Should(gomega.Succeed())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})

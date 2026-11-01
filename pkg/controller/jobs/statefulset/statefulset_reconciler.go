@@ -339,11 +339,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	var waitForPodsReadyUpdated bool
+	var waitForPodsReadyEvent jobframework.WaitForPodsReadyEvent
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
-		if err != nil {
-			return 0, err
-		}
+		waitForPodsReadyUpdated, waitForPodsReadyEvent = jobframework.SyncWaitForPodsReady(ctx, sts, wl)
 		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
 	}
 
@@ -356,8 +354,8 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
-	if waitForPodsReadyUpdated {
-		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
+	if waitForPodsReadyEvent != jobframework.WaitForPodsReadyEventNone {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts, wl, waitForPodsReadyEvent)
 	}
 	if shouldPutOnHold {
 		hasActivePods, recheckAfter, err := r.hasActiveOwnedPods(ctx, sts, time.Now())

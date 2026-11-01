@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -351,6 +352,12 @@ func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid 
 
 func (w *WorkloadWrapper) Annotations(annotations map[string]string) *WorkloadWrapper {
 	w.ObjectMeta.Annotations = annotations
+	return w
+}
+
+// WaitForPodsReady sets the Spec.WaitForPodsReady configuration.
+func (w *WorkloadWrapper) WaitForPodsReady(cfg *kueue.WaitForPodsReady) *WorkloadWrapper {
+	w.Spec.WaitForPodsReady = cfg
 	return w
 }
 
@@ -1615,6 +1622,18 @@ func (ac *AdmissionCheckWrapper) Generation(num int64) *AdmissionCheckWrapper {
 	return ac
 }
 
+// Finalizers sets the finalizers on the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) Finalizers(fin ...string) *AdmissionCheckWrapper {
+	ac.ObjectMeta.Finalizers = fin
+	return ac
+}
+
+// DeletionTimestamp sets a deletion timestamp for the AdmissionCheck.
+func (ac *AdmissionCheckWrapper) DeletionTimestamp(t time.Time) *AdmissionCheckWrapper {
+	ac.AdmissionCheck.DeletionTimestamp = &metav1.Time{Time: t}
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
 	return ac
@@ -1839,6 +1858,62 @@ func (prc *ProvisioningRequestConfigWrapper) Clone() *ProvisioningRequestConfigW
 
 func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestConfig {
 	return &prc.ProvisioningRequestConfig
+}
+
+// ProvisioningRequestWrapper wraps a ProvisioningRequest.
+type ProvisioningRequestWrapper struct {
+	autoscaling.ProvisioningRequest
+}
+
+// MakeProvisioningRequest creates a wrapper for a ProvisioningRequest.
+func MakeProvisioningRequest(name, ns string) *ProvisioningRequestWrapper {
+	return &ProvisioningRequestWrapper{autoscaling.ProvisioningRequest{
+		Name:      name,
+		Namespace: ns,
+	}}
+}
+
+func (pr *ProvisioningRequestWrapper) Obj() *autoscaling.ProvisioningRequest {
+	return &pr.ProvisioningRequest
+}
+
+func (pr *ProvisioningRequestWrapper) UID(uid types.UID) *ProvisioningRequestWrapper {
+	pr.ProvisioningRequest.UID = uid
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) Label(k, v string) *ProvisioningRequestWrapper {
+	if pr.Labels == nil {
+		pr.Labels = make(map[string]string)
+	}
+	pr.Labels[k] = v
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *ProvisioningRequestWrapper {
+	AppendOwnerReference(&pr.ProvisioningRequest, gvk, name, uid, nil, nil)
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) PodSet(templateName string, count int32) *ProvisioningRequestWrapper {
+	pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
+		PodTemplateRef: autoscaling.Reference{Name: templateName},
+		Count:          count,
+	})
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) ProvisioningClass(pc string) *ProvisioningRequestWrapper {
+	pr.Spec.ProvisioningClassName = pc
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) WithParameter(key string, value autoscaling.Parameter) *ProvisioningRequestWrapper {
+	if pr.Spec.Parameters == nil {
+		pr.Spec.Parameters = make(map[string]autoscaling.Parameter, 1)
+	}
+	pr.Spec.Parameters[key] = value
+	return pr
 }
 
 type ClusterProfileWrapper struct {

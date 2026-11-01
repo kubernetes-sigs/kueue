@@ -698,23 +698,23 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 	cases := map[string]struct {
 		existing   []client.Object
 		current    *kueue.Workload
-		wantCounts map[kueue.PodSetReference]int32
+		wantCounts workload.PodSetsCounts
 		wantError  error
 	}{
 		"latest admitted finished slice is the baseline; pending intermediate is ignored": {
 			existing:   []client.Object{admitted, pending},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"reclaimed pods reduce the baseline": {
 			existing:   []client.Object{reclaimed},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"in-place scale-down uses the current spec, not the stale assignment": {
 			existing:   []client.Object{shrunk},
 			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+			wantCounts: workload.PodSetsCounts{"workers": 2},
 		},
 		"the workload itself is not its own baseline": {
 			existing: []client.Object{admitted},

@@ -122,7 +122,6 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 
 	ginkgo.It("Should admit Workload for Deployment Pods", func() {
 		deploymentKey := types.NamespacedName{Name: "deployment", Namespace: ns.Name}
-		replicas := int32(3)
 		aw := awtesting.MakeAppWrapper("aw", ns.Name).
 			Queue(lq.Name).
 			Suspend(true).
@@ -135,7 +134,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 					SetTypeMeta().
 					Obj(),
 				DeclaredPodSets: []awv1beta2.AppWrapperPodSet{{
-					Replicas: &replicas,
+					Replicas: new(int32(3)),
 					Path:     "template.spec.template",
 				}},
 			}).

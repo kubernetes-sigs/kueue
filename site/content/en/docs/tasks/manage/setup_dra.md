@@ -594,9 +594,8 @@ timeout, allowing them to be re-queued and retried.
 
 ## MultiKueue considerations
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
-MultiKueue syncs the workload and its owning job to worker clusters, but
-`ResourceClaimTemplate` and `DeviceClass` objects are not automatically
-synced. These must be created on each worker cluster separately. That support
-does not extend to `firstAvailable` requests. See the
-[limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except for `firstAvailable` requests. See the [limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+
+MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
+
+For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager.
