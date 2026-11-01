@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,6 +150,18 @@ func TestReconcileGenericJob(t *testing.T) {
 		}
 	}
 
+	const (
+		maxEventMessageLength  = 1024
+		truncatedMessageSuffix = " ..."
+	)
+	oversizedForbiddenError := apierrors.NewForbidden(
+		kueue.Resource("workloads"),
+		"job-test-job-ce737",
+		errors.New(strings.Repeat("x", maxEventMessageLength)),
+	)
+	oversizedMessage := fmt.Sprintf("Failed to create Workload: %v", oversizedForbiddenError)
+	truncatedOversizedMessage := oversizedMessage[:maxEventMessageLength-len(truncatedMessageSuffix)] + truncatedMessageSuffix
+
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
 		reconcilerOptions []Option
@@ -217,6 +230,20 @@ func TestReconcileGenericJob(t *testing.T) {
 				EventType: corev1.EventTypeWarning,
 				Reason:    ReasonFailedCreateWorkload,
 				Message:   fmt.Sprintf("Failed to create Workload: %v", forbiddenWorkloadCreateError),
+			}},
+		},
+		"truncate an oversized forbidden Workload creation event message": {
+			req:              baseReq,
+			job:              baseJob.DeepCopy(),
+			podSets:          basePodSets,
+			interceptorFuncs: workloadCreateInterceptor(oversizedForbiddenError),
+			wantErr:          apierrors.IsForbidden,
+			wantWorkloads:    []kueue.Workload{},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       baseReq,
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonFailedCreateWorkload,
+				Message:   truncatedOversizedMessage,
 			}},
 		},
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
