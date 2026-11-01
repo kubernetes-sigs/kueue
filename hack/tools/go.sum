@@ -97,6 +97,7 @@ github.com/Antonboom/nilnil v1.1.2 h1:aNlFuJhaEseXe4fHO3xbjXlSeEiQVYa2lEkWD2s2hA
 github.com/Antonboom/nilnil v1.1.2/go.mod h1:0ynwvphOLmAuMwTNDyBnDZmSwZoDpcFXmUHmzoHH2WA=
 github.com/Antonboom/testifylint v1.6.4 h1:gs9fUEy+egzxkEbq9P4cpcMB6/G0DYdMeiFS87UiqmQ=
 github.com/Antonboom/testifylint v1.6.4/go.mod h1:YO33FROXX2OoUfwjz8g+gUxQXio5i9qpVy7nXGbxDD4=
+github.com/Azure/azure-sdk-for-go v68.0.0+incompatible h1:fcYLmCpyNYRnvJbPerq7U0hS+6+I79yEDJBqVNcqUzU=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 h1:JXg2dwJUmPB9JmtVmdEB16APJ7jurfbY5jnfXpJoRMc=
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0/go.mod h1:YD5h/ldMsG0XiIw7PdyNhLxaM317eFh5yNLccNfGdyw=
 github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 h1:Hk5QBxZQC1jb2Fwj6mpzme37xbCDdNTxU7O9eb5+LB4=
@@ -1718,6 +1719,8 @@ k8s.io/kubelet v0.37.0 h1:VhaZanjlE5CkoAPAjKw0DH+Q0BYXVfYekZgzZDAJMMg=
 k8s.io/kubelet v0.37.0/go.mod h1:PHXfQuVqsTzFVqOeP67UUNv5Ajri+dLGoeaEnW6gGjE=
 k8s.io/metrics v0.37.1 h1:5lc7WH6ljoxaJ4dK6UHwskVsyH7aNdt/ajo6CLQ1l8Q=
 k8s.io/metrics v0.37.1/go.mod h1:mpnoLxJYJdBQoxPlgi1Y+gk/bxIuXf5SbS/8jkYzqEo=
+k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a h1:QIwhGhRO9ljNQBw9OWLDQaMvT63MuCUvALhsnhIZhGs=
+k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a/go.mod h1:shi21nhfyepCYU6mLwf6tab3NfJ3FLOTPZ2Xk2HI8EQ=
 k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 h1:jVkFFVfXdXP74B/zbO3hM3hpSFD0xvhQ5U686DPurkE=
 k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3/go.mod h1:M2s5JB1lIYP3jzZdorPLHXIPJzt9vv2muW5a6L9DtNM=
 mvdan.cc/gofumpt v0.12.0 h1:1Lbudkz2kpM9Cjz2pL4M19u7q+GaEhCTNf7N9mfpcho=

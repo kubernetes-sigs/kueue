@@ -13,6 +13,7 @@ tool (
 	gotest.tools/gotestsum
 	helm.sh/helm/v4/cmd/helm
 	k8s.io/code-generator
+	k8s.io/test-infra/gopherage
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kind
@@ -36,6 +37,7 @@ require (
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.3.1
 	k8s.io/code-generator v0.37.1 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
+	k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2
 	sigs.k8s.io/controller-tools v0.23.0
 	sigs.k8s.io/dra-example-driver v0.5.0

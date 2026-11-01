@@ -1,0 +1,255 @@
+# Uploads the unit-test coverage that Prow already produced to Codecov.
+#
+# The pull-kueue-test-unit-shard-*-main presubmits write their coverprofiles
+# to the public kubernetes-ci-logs bucket. This workflow downloads the
+# profiles of the builds that tested one commit's tree, merges and filters
+# them with gopherage, and uploads one report per commit:
+# - status: a pull request head, once every shard has succeeded on one base.
+# - push to main: each squash commit, from the presubmits (or Tide batch)
+#   that tested its exact tree before Tide merged it. No tests are rerun.
+# Scripts and codecov.yml always come from the default branch. Codecov applies
+# the YAML of the uploaded commit when it has one, so a pull request head is
+# uploaded if it has no Codecov YAML path (Codecov then applies the YAML saved
+# from main) or if every Codecov YAML path has the same blob as at its merge
+# base with main; otherwise it is skipped. A main commit is uploaded only if
+# codecov.yml is its only Codecov YAML.
+# The commit is checked out into target/ only as data: the Codecov CLI lists
+# its files to map paths and reads them to skip blank, comment, and
+# brace-only lines.
+# Nothing in target/ is executed.
+name: Codecov (Prow unit coverage)
+
+on:
+  # Prow posts a commit status when each shard finishes.
+  status:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit SHA: a pull request head (with pr) or a main commit. Default: the head of main."
+        type: string
+        required: false
+      pr:
+        description: "Pull request number, for a pull request head. Leave empty for a main commit."
+        type: string
+        required: false
+      force:
+        description: "Upload even if Codecov already has a processed unit upload for the commit. Codecov unions it with the earlier uploads; it does not replace them."
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  plan:
+    # Most status events come from other contexts; skip them before
+    # allocating a runner. The kubernetes-prow[bot] sender was checked against
+    # the statuses API at design time; at run time the trust anchor is the
+    # strict target_url regex plus the Prow metadata in GCS.
+    if: >-
+      github.repository == 'kubernetes-sigs/kueue' && (
+        github.event_name != 'status' || (
+          github.event.state == 'success' &&
+          github.event.sender.login == 'kubernetes-prow[bot]' &&
+          contains(fromJSON('["pull-kueue-test-unit-shard-0-main","pull-kueue-test-unit-shard-1-main"]'), github.event.context)
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      shas: ${{ steps.plan.outputs.shas }}
+    steps:
+      - name: List the commits to upload
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          STATUS_SHA: ${{ github.event.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          # Dispatch inputs are strings and only read on workflow_dispatch.
+          INPUT_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sha || '' }}
+          INPUT_PR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr || '' }}
+          MAX_PUSH_COMMITS: 10
+        run: |
+          case "${EVENT_NAME}" in
+            status)
+              mode="pr"
+              shas="${STATUS_SHA}"
+              ;;
+            workflow_dispatch)
+              mode="main"
+              if [[ -n "${INPUT_PR}" ]]; then
+                [[ "${INPUT_PR}" =~ ^[0-9]+$ && -n "${INPUT_SHA}" ]] || { echo "pr must be a number and needs sha." >&2; exit 1; }
+                mode="pr"
+              fi
+              shas="${INPUT_SHA:-$(gh api "repos/${REPO}/commits/main" --jq .sha)}"
+              ;;
+            push)
+              # Tide pushes each squash commit on its own. A longer
+              # fast-forward push uploads its newest MAX_PUSH_COMMITS commits.
+              mode="main"
+              shas="${AFTER}"
+              if [[ ! "${BEFORE}" =~ ^0+$ ]]; then
+                range=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" \
+                  --jq 'if .status == "ahead" then .commits[].sha else empty end')
+                [[ -z "${range}" ]] || shas=$(tail -n "${MAX_PUSH_COMMITS}" <<<"${range}")
+              fi
+              ;;
+          esac
+          for sha in ${shas}; do
+            [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || { echo "'${sha}' is not a 40-character commit SHA." >&2; exit 1; }
+          done
+          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+          echo "shas=$(jq -Rcn '[inputs | select(. != "")]' <<<"${shas}")" >> "${GITHUB_OUTPUT}"
+
+  upload:
+    needs: plan
+    if: needs.plan.outputs.shas != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        sha: ${{ fromJSON(needs.plan.outputs.shas) }}
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+      id-token: write # Codecov OIDC upload
+    concurrency:
+      # Runs for one commit run one at a time; cancelling could stop a run in
+      # the middle of its upload. GitHub keeps one pending run per group (a
+      # newer one replaces it). The pending run waits up to 5 minutes for
+      # Codecov to process the earlier upload, then skips (or uploads if it
+      # is still unfinished).
+      group: codecov-prow-${{ matrix.sha }}
+      cancel-in-progress: false
+    steps:
+      # Explicit ref, so that a dispatch from another branch cannot swap the
+      # scripts or codecov.yml.
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Find Prow builds and download coverprofiles
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          SHA: ${{ matrix.sha }}
+          INPUT_PR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr || '' }}
+          CODECOV_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' }}
+        run: |
+          out="${RUNNER_TEMP}/prow-coverage"
+          hack/testing/fetch-prow-unit-coverage.sh "${MODE}" "${SHA}" "${out}" > "${RUNNER_TEMP}/fetch.env"
+          if [[ -n "${INPUT_PR}" ]] && grep -qx "skip=false" "${RUNNER_TEMP}/fetch.env" \
+              && ! grep -qx "pr=${INPUT_PR}" "${RUNNER_TEMP}/fetch.env"; then
+            echo "The Prow builds for ${SHA} belong to a different pull request." >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/fetch.env" >> "${GITHUB_OUTPUT}"
+          echo "dir=${out}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Go
+        if: steps.fetch.outputs.skip == 'false'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: hack/tools/go.mod
+          cache: false
+
+      # The version pinned in hack/tools/go.mod, as in `make gopherage`.
+      # go list reads only go.mod, so this skips the full tools download that
+      # the make target does first.
+      - name: Install gopherage
+        if: steps.fetch.outputs.skip == 'false'
+        run: |
+          version=$(go -C hack/tools list -m -f '{{.Version}}' k8s.io/test-infra)
+          GOBIN="${RUNNER_TEMP}/bin" go install "k8s.io/test-infra/gopherage@${version}"
+
+      # gopherage fails if the shards disagree on a block (different source).
+      # The exclusions are Prow's filtered.cov ones (UNIT_COVERAGE_EXCLUDE in
+      # hack/make/test.mk) plus test/; keep them in sync with ignore in
+      # codecov.yml. Repeat --exclude-path: gopherage splits values at commas.
+      - name: Merge and filter shard coverprofiles
+        if: steps.fetch.outputs.skip == 'false'
+        env:
+          DIR: ${{ steps.fetch.outputs.dir }}
+        run: |
+          gopherage="${RUNNER_TEMP}/bin/gopherage"
+          "${gopherage}" merge -o "${RUNNER_TEMP}/merged.cov" "${DIR}"/cover-shard-*.out
+          "${gopherage}" filter \
+            --exclude-path='/zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/' \
+            --exclude-path='^sigs\.k8s\.io/kueue/test/' \
+            -o "${RUNNER_TEMP}/unit-coverage.out" "${RUNNER_TEMP}/merged.cov"
+          rm -rf "${DIR}" "${RUNNER_TEMP}/merged.cov"
+          # Informational only; a change in the junit output must not fail
+          # the upload.
+          total=$("${gopherage}" junit --threshold 0 "${RUNNER_TEMP}/unit-coverage.out" \
+            | grep -A2 'name="OVERALL"' | grep -o 'value="[^"]*"' | cut -d'"' -f2) || true
+          echo "Merged unit coverage: ${total:-n/a}% of statements" | tee -a "${GITHUB_STEP_SUMMARY}" || true
+
+      # The validated commit (PR head or main), so that Codecov maps the
+      # report onto the files of the commit it is attributed to. For a pull
+      # request, Prow tested the head merged into its base, so lines can
+      # drift if the pull request is not rebased.
+      - name: Check out the tested commit as data
+        if: steps.fetch.outputs.skip == 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.fetch.outputs.sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The Codecov CLI opens every tracked file whose name looks like source
+      # code. A symlink from the pull request (to /dev/zero, or dangling)
+      # could hang or crash it, so drop symlinks from the index and the tree.
+      - name: Remove symlinks from the tested commit
+        if: steps.fetch.outputs.skip == 'false'
+        working-directory: target
+        run: |
+          find . -path ./.git -prune -o -type l -print0 \
+            | xargs -0 -r git --literal-pathspecs rm -q --cached --ignore-unmatch --
+          find . -path ./.git -prune -o -type l -exec rm -f {} +
+
+      - name: Upload to Codecov
+        if: steps.fetch.outputs.skip == 'false'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          # The action checks the CLI against its GPG-signed SHA256SUM.
+          version: v11.2.8
+          use_oidc: true
+          files: ${{ runner.temp }}/unit-coverage.out
+          disable_search: true
+          # The CLI reads file fixes relative to its working directory, so run
+          # it in target/. cleanup: true makes the wrapper download the CLI to
+          # a mktemp directory, which keeps it out of target/.
+          working-directory: target
+          root_dir: ${{ github.workspace }}/target
+          cleanup: true
+          # Keep the CLI from reading a codecov.yml from target/ and from
+          # running coverage-generation plugins. Codecov itself can apply the
+          # commit's Codecov YAML, which the fetch step checks (see above).
+          codecov_yml_path: ${{ github.workspace }}/codecov.yml
+          plugins: noop
+          flags: unit
+          name: prow-unit
+          # The wrapper (dist/codecov.sh) sets IFS=, and expands the branch,
+          # build, and build URL unquoted, so a comma in them would split the
+          # value. The fetch script emits only plain values (check_outputs) and
+          # replaces a fork branch label that is not plain with pr-<number>.
+          override_commit: ${{ steps.fetch.outputs.sha }}
+          override_pr: ${{ steps.fetch.outputs.pr }}
+          override_branch: ${{ steps.fetch.outputs.branch }}
+          override_build: ${{ steps.fetch.outputs.build_id }}
+          override_build_url: ${{ steps.fetch.outputs.build_url }}
+          fail_ci_if_error: true

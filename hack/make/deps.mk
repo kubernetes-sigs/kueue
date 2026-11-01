@@ -21,6 +21,7 @@ CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Vers
 KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
+GOPHERAGE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' k8s.io/test-infra)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
@@ -52,6 +53,7 @@ CONTROLLER_GEN = $(BIN_DIR)/controller-gen
 KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
+GOPHERAGE = $(BIN_DIR)/gopherage
 KIND = $(BIN_DIR)/kind
 KUBECTL = $(BIN_DIR)/kubectl
 ENVTEST = $(BIN_DIR)/setup-envtest
@@ -111,6 +113,10 @@ ginkgo: gomod-download-tools ## Download ginkgo locally if necessary.
 .PHONY: gotestsum
 gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+
+.PHONY: gopherage
+gopherage: gomod-download-tools ## Download gopherage (Go coverprofile merge and filter) locally if necessary.
+	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install k8s.io/test-infra/gopherage@$(GOPHERAGE_VERSION)
 
 .PHONY: kind
 kind: gomod-download-tools ## Download kind locally if necessary.
