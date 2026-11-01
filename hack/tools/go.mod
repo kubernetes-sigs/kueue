@@ -5,6 +5,7 @@ go 1.27.0
 tool (
 	github.com/gohugoio/hugo
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	github.com/itchyny/gojq/cmd/gojq
 	github.com/kubernetes-sigs/reference-docs/genref
 	github.com/mikefarah/yq/v4
 	github.com/norwoodj/helm-docs/cmd/helm-docs
@@ -13,6 +14,7 @@ tool (
 	gotest.tools/gotestsum
 	helm.sh/helm/v4/cmd/helm
 	k8s.io/code-generator
+	k8s.io/test-infra/gopherage
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kind
@@ -25,6 +27,7 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.15.0
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.2.1
+	github.com/itchyny/gojq v0.12.19
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
 	github.com/mikefarah/yq/v4 v4.54.1
 	github.com/norwoodj/helm-docs v1.14.2
@@ -36,6 +39,7 @@ require (
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.3.1
 	k8s.io/code-generator v0.37.2 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
+	k8s.io/test-infra v0.0.0-20261030155755-ff912ee3635a
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2
 	sigs.k8s.io/controller-tools v0.23.0
 	sigs.k8s.io/dra-example-driver v0.5.0
@@ -296,6 +300,8 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20260724033716-83e58baca724 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/itchyny/go-yaml v0.0.0-20251001235044-fca9a0999f15 // indirect
+	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/jdkato/prose v1.2.1 // indirect
 	github.com/jgautheron/goconst v1.11.0 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect

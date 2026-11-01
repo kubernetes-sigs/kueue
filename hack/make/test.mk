@@ -128,6 +128,13 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
 
+# Run by the Prow jobs pull-kueue-test-unit-coverage-main and
+# post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+.PHONY: test-unit-coverage-merge
+test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) UNIT_TOTAL_SHARDS=$(or $(UNIT_TOTAL_SHARDS),2) \
+		UNIT_COVERAGE_EXCLUDE='$(UNIT_COVERAGE_EXCLUDE)' $(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
+
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
 FUZZTIME ?= 1000x
