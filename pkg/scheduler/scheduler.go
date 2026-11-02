@@ -660,12 +660,12 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// To get the projected cluster state after the in-flight evictions complete,
 	// simulate the removal of their workloads and their Pods. The simulation is
 	// reverted below as the snapshot is shared across the scheduling cycle.
-	revertRemoval := snapshot.SimulateRemovals(ctx, log, victims)
+	revertRemoval := snapshot.SimulateRemovals(ctx, log, victims.Workloads())
 	// Clear the flavor scan state so that the recomputation starts from the
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot, victims)
 	e.NominationMapping = nil
 	revertRemoval()
 	if err != nil {
@@ -699,13 +699,13 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 // inFlightEvictionVictims returns the workloads that are marked Evicted but
 // still hold usage in the snapshot, i.e. the victims of in-flight evictions
 // that are expected to free capacity once they complete.
-func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
-	var victims []*workload.Info
+func inFlightEvictionVictims(snapshot *schdcache.Snapshot) preemption.PreemptedWorkloads {
+	victims := make(preemption.PreemptedWorkloads)
 	for _, cq := range snapshot.ClusterQueues() {
 		for _, w := range cq.Workloads {
 			usage := w.Usage()
 			if workloadevict.IsEvicted(w.Obj) && (len(usage.Quota.Assigned) > 0 || len(usage.TAS) > 0) {
-				victims = append(victims, w)
+				victims[workload.Key(w.Obj)] = w
 			}
 		}
 	}
