@@ -778,18 +778,33 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 // requeues it with the DRA queue options from handleDRA.
 // Returns done=true when reconciliation should stop.
 func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Workload, draPreprocessed bool, draQueueOptions []workload.InfoOption) (done bool, result ctrl.Result, err error) {
-	if workload.HasQuotaReservation(wl) || wl.Status.RequeueState == nil || wl.Status.RequeueState.RequeueAt == nil {
+	if workload.HasQuotaReservation(wl) {
 		return false, ctrl.Result{}, nil
 	}
 
 	log := ctrl.LoggerFrom(ctx)
 
-	if requeueAfter := new(wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())); *requeueAfter > 0 {
-		log.V(3).Info("Waiting for backoff to finish", "backoff", *requeueAfter)
-		return true, reconcile.Result{RequeueAfter: *requeueAfter}, nil
+	if workloadevict.IsEvicted(wl) && workload.HasRejectedChecks(wl) {
+		_, err := r.reconcileCheckBasedEviction(ctx, wl)
+		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
+		if requeueAfter := wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now()); requeueAfter > 0 {
+			log.V(3).Info("Waiting for backoff to finish", "backoff", requeueAfter)
+			return true, reconcile.Result{RequeueAfter: requeueAfter}, nil
+		}
+	}
+	if workloadevict.IsEvicted(wl) && workload.HasRetryChecks(wl) {
+		// A check can request Retry after eviction has already reset the checks.
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+			return true, nil
+		}); err != nil {
+			return true, ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	}
 
-	if workload.Status(wl) == workload.StatusPending {
+	if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil && workload.Status(wl) == workload.StatusPending {
 		// Clear RequeueAt since backoff has elapsed
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			if wl.Status.RequeueState != nil {

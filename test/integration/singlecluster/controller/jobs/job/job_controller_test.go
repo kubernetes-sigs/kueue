@@ -4560,7 +4560,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		nodes         []corev1.Node
 		topology      *kueue.Topology
 		tasFlavor     *kueue.ResourceFlavor
-		check         *kueue.AdmissionCheck
+		checks        []*kueue.AdmissionCheck
 		clusterQueue  *kueue.ClusterQueue
 		localQueue    *kueue.LocalQueue
 	)
@@ -4578,7 +4578,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 
 	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-job-")
-		check = nil
+		checks = nil
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1").
@@ -4615,7 +4615,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		if check != nil {
+		for _, check := range checks {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -4626,13 +4626,21 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	})
 
 	ginkgo.It("releases quota and topology before admission check retry backoff expires", func() {
-		check = utiltestingapi.MakeAdmissionCheck("retry-backoff").ControllerName("test-controller").Obj()
-		behavioral.MustCreate(ctx, k8sClient, check)
-		behavioral.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+		checks = []*kueue.AdmissionCheck{
+			utiltestingapi.MakeAdmissionCheck("retry-backoff").ControllerName("test-controller").Obj(),
+			utiltestingapi.MakeAdmissionCheck("late-retry").ControllerName("test-controller").Obj(),
+		}
+		for _, check := range checks {
+			behavioral.MustCreate(ctx, k8sClient, check)
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+		}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 			clusterQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
-				AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: kueue.AdmissionCheckReference(check.Name)}},
+				AdmissionChecks: []kueue.AdmissionCheckStrategyRule{
+					{Name: kueue.AdmissionCheckReference(checks[0].Name)},
+					{Name: kueue.AdmissionCheckReference(checks[1].Name)},
+				},
 			}
 			clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1")
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
@@ -4661,7 +4669,9 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 
 		ginkgo.By("admitting the Job and marking it active", func() {
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
-			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, false)
+			for _, check := range checks {
+				behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, false)
+			}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
@@ -4679,7 +4689,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
-					Name:                kueue.AdmissionCheckReference(check.Name),
+					Name:                kueue.AdmissionCheckReference(checks[0].Name),
 					State:               kueue.CheckStateRetry,
 					RequeueAfterSeconds: new(int32(3600)),
 				}, behavioral.RealClock)
@@ -4725,6 +4735,25 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 		})
 
+		ginkgo.By("extending backoff when the second check requests Retry after quota release", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:                kueue.AdmissionCheckReference(checks[1].Name),
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: new(int32(7200)),
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.RequeueState).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.RequeueAt).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.RequeueAt.Time).To(gomega.BeTemporally(">", retryAt.Time))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			retryAt = *wl.Status.RequeueState.RequeueAt
+		})
+
 		ginkgo.By("honoring backoff even after the backfill workload finishes", func() {
 			integration.FinishWorkloads(ctx, k8sClient, other)
 			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
@@ -4742,17 +4771,22 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					// Expire both the late check's delay and the stored backoff deadline.
+					for i := range wl.Status.AdmissionChecks {
+						if wl.Status.AdmissionChecks[i].State == kueue.CheckStateRetry {
+							wl.Status.AdmissionChecks[i].LastTransitionTime = metav1.NewTime(time.Now().Add(-3 * time.Hour))
+						}
+					}
 					wl.Status.RequeueState.RequeueAt = new(metav1.NewTime(time.Now().Add(-time.Second)))
 					return true, nil
 				})).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
-			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, false)
+			for _, check := range checks {
+				behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, false)
+			}
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
-				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 		})
 	})
 
