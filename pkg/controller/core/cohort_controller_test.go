@@ -782,10 +782,11 @@ func (w *cohortUpdateRecorder) NotifyCohortUpdate(_, newCohort *kueue.Cohort) {
 }
 
 // The Cohort reconciler notifies its ClusterQueues when the Cohort changes
-// spec or quotas, and, with fair sharing, when a ClusterQueue under it is
-// created, deleted or changes spec or quotas. It does not when a ClusterQueue
-// only wrote its status: the ClusterQueues' own status writes would otherwise
-// requeue the Cohort and the Cohort would reconcile them all again, forever.
+// spec or quotas, and, with fair sharing, the tree when a ClusterQueue under it
+// is created, deleted or changes spec or quotas, and the tree a Cohort left. It
+// does not when a ClusterQueue only wrote its status: the ClusterQueues' own
+// status writes would otherwise requeue the Cohort and the Cohort would
+// reconcile them all again, forever.
 func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 	// Notifications after each step, with fair sharing off and on.
 	steps := []struct {
@@ -799,10 +800,13 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 		{"clusterqueue quota change", 1, 2},
 		{"clusterqueue created", 1, 3},
 		{"clusterqueue deleted", 1, 4},
-		{"clusterqueue moved", 1, 5},
-		{"cohort status write", 1, 5},
-		{"cohort quota change", 2, 6},
-		{"cohort deleted", 3, 7},
+		{"clusterqueue moved", 1, 6},
+		{"clusterqueue under the root quota change", 1, 7},
+		{"cohort status write", 1, 7},
+		{"cohort quota change", 2, 8},
+		{"cohort moved", 3, 10},
+		{"cohort deleted", 4, 11},
+		{"cohort delete event", 4, 12},
 	}
 	for name, fairSharing := range map[string]bool{"fair sharing off": false, "fair sharing on": true} {
 		t.Run(name, func(t *testing.T) {
@@ -810,12 +814,16 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 			cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
-			cl := utiltesting.NewClientBuilder().WithObjects(cohort, cq).WithStatusSubresource(cohort).Build()
+			rootCQ := utiltestingapi.MakeClusterQueue("root-cq").Cohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(cohort, cq, rootCQ).WithStatusSubresource(cohort).Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cache)
-			if err := cache.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("unexpected error adding ClusterQueue to cache: %v", err)
+			for _, cq := range []*kueue.ClusterQueue{cq, rootCQ} {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("unexpected error adding ClusterQueue to cache: %v", err)
+				}
 			}
 			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("other").Parent("root").Obj()); err != nil {
 				t.Fatalf("unexpected error adding Cohort to cache: %v", err)
@@ -827,27 +835,27 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
 
-			want := func(step string) int {
+			expectNotified := func(step string) {
 				t.Helper()
+				want := 0
 				for _, s := range steps {
 					if s.name == step {
+						want = s.wantOff
 						if fairSharing {
-							return s.wantOn
+							want = s.wantOn
 						}
-						return s.wantOff
 					}
 				}
-				t.Fatalf("unknown step %q", step)
-				return 0
+				if got := len(recorder.updates); got != want {
+					t.Fatalf("%s: ClusterQueues notified %d times, want %d", step, got, want)
+				}
 			}
 			runReconcile := func(step string) {
 				t.Helper()
 				if _, err := reconciler.Reconcile(ctx, req); err != nil {
 					t.Fatalf("%s: unexpected error reconciling cohort: %v", step, err)
 				}
-				if got := len(recorder.updates); got != want(step) {
-					t.Fatalf("%s: ClusterQueues notified %d times, want %d", step, got, want(step))
-				}
+				expectNotified(step)
 			}
 			forwardClusterQueue := func(step string, oldCQ, newCQ *kueue.ClusterQueue, wantRequeued ...kueue.CohortReference) {
 				t.Helper()
@@ -858,7 +866,7 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 					queue.Done(item)
 					requeued = append(requeued, kueue.CohortReference(item.Name))
 				}
-				if diff := cmp.Diff(wantRequeued, requeued, cmpopts.SortSlices(func(a, b kueue.CohortReference) bool { return a < b })); diff != "" {
+				if diff := cmp.Diff(wantRequeued, requeued, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b kueue.CohortReference) bool { return a < b })); diff != "" {
 					t.Fatalf("%s: unexpected Cohorts requeued (-want/+got)\n%s", step, diff)
 				}
 			}
@@ -889,6 +897,12 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			forwardClusterQueue("clusterqueue moved", cq, cqMoved, "other", "cohort")
 			runReconcile("clusterqueue moved")
 
+			// The root is not an ancestor to requeue, so the handler notifies the tree.
+			rootCQWithQuota := rootCQ.DeepCopy()
+			rootCQWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+			forwardClusterQueue("clusterqueue under the root quota change", rootCQ, rootCQWithQuota)
+			runReconcile("clusterqueue under the root quota change")
+
 			cohortWithStatus := cohort.DeepCopy()
 			cohortWithStatus.Status.FairSharing = &kueue.FairSharingStatus{WeightedShare: 1}
 			if reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithStatus}) {
@@ -903,6 +917,14 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			}
 			runReconcile("cohort quota change")
 
+			// The tree left is notified by the event, the tree joined by Reconcile.
+			cohortMoved := cohort.DeepCopy()
+			cohortMoved.Spec.ParentName = "other-root"
+			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortMoved}) {
+				t.Fatal("cohort parent update event was filtered out")
+			}
+			runReconcile("cohort moved")
+
 			if err := cl.Delete(ctx, cohort); err != nil {
 				t.Fatalf("unexpected error deleting cohort: %v", err)
 			}
@@ -910,6 +932,10 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			if recorder.updates[len(recorder.updates)-1] != nil {
 				t.Fatal("cohort deletion was not notified as a deletion")
 			}
+			if !reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: cohort}) {
+				t.Fatal("cohort delete event was filtered out")
+			}
+			expectNotified("cohort delete event")
 		})
 	}
 }
