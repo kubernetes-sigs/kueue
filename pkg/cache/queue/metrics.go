@@ -46,20 +46,20 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 }
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
-	active, inadmissible := cq.PendingBreakdown()
-	// The trackers keep label sets whose count dropped to zero, so the label sets of
-	// both trackers cover every series reported for this ClusterQueue, including
-	// series of a status the workloads moved out of when the ClusterQueue was
-	// stopped or resumed.
-	allLabelVals := metrics.MergedTracker(inadmissible, active)
 	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cq.name)
-	if !cqActive {
-		inadmissible = metrics.Copy(allLabelVals)
-		active = metrics.NewLabelValsTracker()
-	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
+		active, inadmissible := cq.PendingBreakdown()
+		// The trackers keep label sets whose count dropped to zero, so the label sets of
+		// both trackers cover every series reported for this ClusterQueue, including
+		// series of a status the workloads moved out of when the ClusterQueue was
+		// stopped or resumed.
+		allLabelVals := metrics.MergedTracker(inadmissible, active)
+		if !cqActive {
+			inadmissible = metrics.Copy(allLabelVals)
+			active = metrics.NewLabelValsTracker()
+		}
 		for wlLabelVals := range allLabelVals.Iter() {
 			customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
 				config.SourceKindClusterQueue: cqCustomLabels,
@@ -69,8 +69,13 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusInadmissible, inadmissible.Count(wlLabelVals), customLabels)
 		}
 	} else {
-		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active.Total(), cqCustomLabels, m.roleTracker)
-		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
+		active, inadmissible := cq.Pending()
+		if !cqActive {
+			inadmissible += active
+			active = 0
+		}
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active, cqCustomLabels, m.roleTracker)
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible, cqCustomLabels, m.roleTracker)
 	}
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) {

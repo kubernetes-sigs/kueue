@@ -2575,6 +2575,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"capacity source with CC gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2792,6 +2793,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.KueueDRAIntegrationExtendedResource,
 			) + "=false," + string(
 				features.KueueDRAIntegrationPartitionableDevices,
+			) + "=false," + string(
+				features.KueueDRAIntegrationConsumableCapacity,
 			) + "=false",
 		},
 		"cannot specify both feature gates": {
@@ -2963,6 +2966,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				// them report their own unmet dependency and bury the one under test.
 				string(features.KueueDRAIntegrationExtendedResource):         false,
 				string(features.KueueDRAIntegrationPartitionableDevices):     false,
+				string(features.KueueDRAIntegrationConsumableCapacity):       false,
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASGroupedPodSetSlicing):                     false,
