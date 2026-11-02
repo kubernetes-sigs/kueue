@@ -15,9 +15,20 @@ reviewers:
   - "@vladikkuzn"
   - "@reruno"
   - "@sweinberg-netflix"
+  - "@dkaluza"
+  - "@j-skiba"
+  - "@tenzen-y"
 approvers:
   - "@mimowo"
   - "@sohankunkerkar"
+
+see-also:
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/12100-partial-scaleup-for-elasticjob"
+  - "/keps/420-partial-admission"
+  - "/keps/78-dynamically-reclaiming-resources"
+  - "/keps/83-workload-preemption"
+  - "/keps/13396-configurable-preemptions"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
@@ -37,8 +48,10 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: PartialPreemption
+    components:
+      - kueue-controller-manager
 disable-supported: true
 
 # The following PRR answers are required at beta release
 metrics:
-  - partial_preemptions_total
+  - kueue_partially_preempted_workloads_total
