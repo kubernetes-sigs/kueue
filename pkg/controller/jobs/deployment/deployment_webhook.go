@@ -84,7 +84,7 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	}
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running Deployment that did not have them.
-	if oldDeploymentObj == nil || jobframework.CanSetQueueName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
+	if oldDeploymentObj == nil || jobframework.CanApplyDefaultLocalQueue(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}

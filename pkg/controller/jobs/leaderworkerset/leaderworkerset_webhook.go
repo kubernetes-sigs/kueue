@@ -91,7 +91,7 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	}
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running LeaderWorkerSet that did not have them.
-	if oldLWSObj == nil || jobframework.CanSetQueueName(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+	if oldLWSObj == nil || jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}
