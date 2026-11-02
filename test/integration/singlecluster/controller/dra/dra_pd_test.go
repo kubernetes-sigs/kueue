@@ -109,8 +109,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should admit MIG workload with correct counter-based gpu.memory charge", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-test-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-test-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -162,8 +170,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should multiply counter charge by request count", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-count-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-count-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -211,8 +227,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge MAX when CEL matches multiple profiles", func() {
 			ginkgo.By("Creating a ResourceSlice with different MIG profiles")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-broad-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-broad-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -258,8 +282,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should mark workload inadmissible when CEL matches no devices", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceSlice with devices")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-nomatch-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-nomatch-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -304,8 +336,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should admit workload with unified whole GPU and MIG charges", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU and MIG devices")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-unified-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-unified-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -441,8 +481,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-requeue-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-requeue-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -466,8 +514,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge consumesCounters for whole GPU request without CEL", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU device")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-whole-gpu-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-whole-gpu-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Obj()
@@ -552,8 +608,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-nomatch-observability-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counter-set", "memory", "40320Mi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice := utiltesting.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
 				Device("gpu-0-mig-1g5gb-0").Attribute("type", "mig").Attribute("profile", "1g.5gb").
@@ -625,8 +689,16 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
 
+			counterSetSlice := utiltesting.MakeResourceSlice("pd-borrow-slice-counters", "gpu.example.com").
+				Pool("node1-gpu0", 1, 2).
+				CounterSet("gpu-0-counters", "memory", "70Gi").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, counterSetSlice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, counterSetSlice)).To(gomega.Succeed())
+			})
 			slice = utiltesting.MakeResourceSlice("pd-borrow-slice", "gpu.example.com").
-				Pool("node1-gpu0", 1, 1).
+				Pool("node1-gpu0", 1, 2).
 				Device("mig-0").Attribute("type", "mig").Attribute("profile", "1g.10gb").
 				CounterConsumption("gpu-0-counters", "memory", "10Gi").
 				Device("mig-1").Attribute("type", "mig").Attribute("profile", "1g.10gb").
