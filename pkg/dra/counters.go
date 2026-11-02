@@ -161,10 +161,10 @@ func matchDevicesForSource(
 	if err != nil {
 		return nil, field.ErrorList{field.InternalError(reqPath, fmt.Errorf("failed to list ResourceSlices: %w", err))}
 	}
-	pools := groupSlicesByPool(sliceList, string(driver))
-	log.V(4).Info("Listed ResourceSlices for device matching", "driver", driver, "pools", len(pools), "slices", len(sliceList))
+	slices := eligibleSlices(ctx, sliceList)
+	log.V(4).Info("Listed ResourceSlices for device matching", "driver", driver, "slices", len(sliceList), "eligibleSlices", len(slices))
 
-	return matchDevicesWithSelectors(ctx, pools, string(driver), selectorSelectors, classSelectors, requestSelectors, reqPath)
+	return matchDevicesWithSelectors(ctx, slices, selectorSelectors, classSelectors, requestSelectors, reqPath)
 }
 
 // safeChargeValue converts a driver-published resource.Quantity to a safe int64
@@ -225,26 +225,18 @@ func processCounterCharge(
 
 func matchDevicesWithSelectors(
 	ctx context.Context,
-	pools map[string]*poolInfo,
-	driver string,
+	slices []*resourcev1.ResourceSlice,
 	selectorSelectors []dracel.CompilationResult,
 	classSelectors []dracel.CompilationResult,
 	requestSelectors []dracel.CompilationResult,
 	reqPath *field.Path,
 ) ([]resourcev1.Device, field.ErrorList) {
-	log := ctrl.LoggerFrom(ctx)
 	var allMatched []resourcev1.Device
-	for poolName, pool := range pools {
-		if !pool.isComplete() {
-			log.V(4).Info("Skipping incomplete pool", "pool", poolName)
-			continue
-		}
-		devices := pool.collectDevices()
-		log.V(4).Info("Evaluating devices in pool", "pool", poolName, "deviceCount", len(devices))
-		for i := range devices {
-			dev := &devices[i]
+	for _, slice := range slices {
+		for i := range slice.Spec.Devices {
+			dev := &slice.Spec.Devices[i]
 			celDev := dracel.Device{
-				Driver:     driver,
+				Driver:     slice.Spec.Driver,
 				Attributes: dev.Attributes,
 				Capacity:   dev.Capacity,
 			}
@@ -269,63 +261,6 @@ func matchDevicesWithSelectors(
 	}
 
 	return allMatched, nil
-}
-
-type poolInfo struct {
-	name               string
-	generation         int64
-	resourceSliceCount int64
-	slices             []resourcev1.ResourceSlice
-}
-
-func (p *poolInfo) isComplete() bool {
-	return int64(len(p.slices)) == p.resourceSliceCount
-}
-
-func (p *poolInfo) collectDevices() []resourcev1.Device {
-	var devices []resourcev1.Device
-	for i := range p.slices {
-		devices = append(devices, p.slices[i].Spec.Devices...)
-	}
-	return devices
-}
-
-func groupSlicesByPool(slices []resourcev1.ResourceSlice, driver string) map[string]*poolInfo {
-	pools := make(map[string]*poolInfo)
-
-	for i := range slices {
-		slice := &slices[i]
-		if slice.Spec.Driver != driver {
-			continue
-		}
-
-		poolName := slice.Spec.Pool.Name
-		gen := slice.Spec.Pool.Generation
-
-		existing, ok := pools[poolName]
-		if !ok {
-			pools[poolName] = &poolInfo{
-				name:               poolName,
-				generation:         gen,
-				resourceSliceCount: slice.Spec.Pool.ResourceSliceCount,
-				slices:             []resourcev1.ResourceSlice{*slice},
-			}
-			continue
-		}
-
-		if gen > existing.generation {
-			pools[poolName] = &poolInfo{
-				name:               poolName,
-				generation:         gen,
-				resourceSliceCount: slice.Spec.Pool.ResourceSliceCount,
-				slices:             []resourcev1.ResourceSlice{*slice},
-			}
-		} else if gen == existing.generation {
-			existing.slices = append(existing.slices, *slice)
-		}
-	}
-
-	return pools
 }
 
 func computeCounterCharges(
