@@ -155,6 +155,32 @@ func ExpectMultiKueueWorkloadsAdmittedTotalMetric(cq *kueue.ClusterQueue, cluste
 		cq.Name, cluster, roletracker.RoleStandalone)
 }
 
+// GetMultiKueueWorkloadNominationRounds reads the number of observations and
+// their sum from the multikueue_workload_nomination_rounds histogram, so tests
+// can assert on the delta and stay independent of earlier specs.
+func GetMultiKueueWorkloadNominationRounds(cq *kueue.ClusterQueue, dispatcherName string) (int, float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.MultiKueueWorkloadNominationRounds.WithLabelValues(cq.Name, dispatcherName, roletracker.RoleStandalone)
+	count, err := testutil.GetHistogramMetricCount(metric)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	sum, err := testutil.GetHistogramMetricValue(metric)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int(count), sum
+}
+
+func ExpectMultiKueueWorkloadNominationRoundsMetric(cq *kueue.ClusterQueue, dispatcherName string, count int, sum float64) {
+	ginkgo.GinkgoHelper()
+	metric := metrics.MultiKueueWorkloadNominationRounds.WithLabelValues(cq.Name, dispatcherName, roletracker.RoleStandalone)
+	gomega.Eventually(func(g gomega.Gomega) {
+		gotCount, err := testutil.GetHistogramMetricCount(metric)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		gotSum, err := testutil.GetHistogramMetricValue(metric)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(int(gotCount)).To(gomega.Equal(count), "observations of multikueue_workload_nomination_rounds")
+		g.Expect(gotSum).To(gomega.Equal(sum), "sum of multikueue_workload_nomination_rounds")
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.AdmissionWaitTime, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)

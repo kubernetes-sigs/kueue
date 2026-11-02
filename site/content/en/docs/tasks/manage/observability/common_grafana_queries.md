@@ -227,6 +227,19 @@ To see ClusterQueues that are not active (pending or terminating):
 kueue_cluster_queue_status{status!="active"} == 1
 ```
 
+## MultiKueue nomination rounds
+
+To see how often admissions needed more than one nomination round, for example because
+the Incremental dispatcher had to nominate further worker clusters:
+
+```promql
+1 - (
+  sum by (cluster_queue, dispatcher) (rate(multikueue_workload_nomination_rounds_bucket{le="1"}[1h]))
+  /
+  sum by (cluster_queue, dispatcher) (rate(multikueue_workload_nomination_rounds_count[1h]))
+)
+```
+
 ## What's next
 
 - See [Pending Workloads in Grafana](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_grafana) for visibility dashboards using the on-demand API.
