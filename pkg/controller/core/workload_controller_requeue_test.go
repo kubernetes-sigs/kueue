@@ -85,6 +85,13 @@ func TestReconcileRequeue(t *testing.T) {
 	}
 	rejectedRetry := lateRetry.Clone()
 	rejectedRetry.Status.AdmissionChecks[0].State = kueue.CheckStateRejected
+	removedCheck := rejectedRetry.Clone().RequeueState(nil, nil).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadRequeued,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadBackoffFinished,
+			Message: "The workload backoff was finished",
+		})
 
 	cases := map[string]reconcileTestCase{
 		"late retry is reset before enqueueing after backoff": {
@@ -115,7 +122,7 @@ func TestReconcileRequeue(t *testing.T) {
 			wantResult:   reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"late rejection takes precedence over retry after quota release": {
-			cq:       utiltestingapi.MakeClusterQueue("cq").Obj(),
+			cq:       utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("first", "late").Obj(),
 			lq:       utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
 			wantWorkload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Condition(metav1.Condition{
@@ -134,6 +141,12 @@ func TestReconcileRequeue(t *testing.T) {
 				Reason:    "AdmissionCheckRejected",
 				Message:   `Deactivated due to AdmissionCheck in Rejected state: "first"`,
 			}},
+		},
+		"removed admission checks do not deactivate an evicted workload": {
+			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().AdmissionChecks().Obj(),
 		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
