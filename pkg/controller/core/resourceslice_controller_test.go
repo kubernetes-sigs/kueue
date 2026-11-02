@@ -22,9 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -35,6 +33,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -80,9 +79,9 @@ func testResourceSliceConfig() *configapi.Configuration {
 
 func TestResourceSliceDriverEventRequests(t *testing.T) {
 	r := NewResourceSliceReconciler(nil, nil, testResourceSliceConfig(), nil)
-	a := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "a"}, Spec: resourcev1.ResourceSliceSpec{Driver: "driver-a.example.com"}}
-	b := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "b"}, Spec: resourcev1.ResourceSliceSpec{Driver: "driver-b.example.com"}}
-	unknown := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "unknown"}, Spec: resourcev1.ResourceSliceSpec{Driver: "other.example.com"}}
+	a := testingdra.MakeResourceSlice("a", "driver-a.example.com").Obj()
+	b := testingdra.MakeResourceSlice("b", "driver-b.example.com").Obj()
+	unknown := testingdra.MakeResourceSlice("unknown", "other.example.com").Obj()
 
 	if got := r.mapResourceSliceToDriver(t.Context(), a); len(got) != 1 || got[0].Name != "driver-a.example.com" || got[0].Namespace != "" {
 		t.Fatalf("driver-A event requests: %v", got)
@@ -118,7 +117,10 @@ func TestResourceSliceDriverMappedClusterQueues(t *testing.T) {
 		utiltestingapi.MakeClusterQueue("cq-a").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/a-capacity", "10").Obj()).Obj(),
 		utiltestingapi.MakeClusterQueue("cq-b").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/b-capacity", "10").Obj()).Obj(),
 		utiltestingapi.MakeClusterQueue("cq-shared").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/shared", "10").Obj()).Obj(),
-		utiltestingapi.MakeClusterQueue("cq-both").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/a-capacity", "10").Resource("example.com/b-capacity", "10").Obj()).Obj(),
+		utiltestingapi.MakeClusterQueue("cq-both").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource("example.com/a-capacity", "10").
+				Resource("example.com/b-capacity", "10").Obj()).Obj(),
 	}
 	for _, cq := range clusterQueues {
 		if err := cache.AddClusterQueue(ctx, cq); err != nil {
@@ -219,12 +221,12 @@ func TestResourceSliceReconcileRetriesOnlyAffectedDriver(t *testing.T) {
 			}
 			for _, head := range heads {
 				if !queues.RequeueWorkload(ctx, &head.Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota) {
-					t.Fatalf("could not make workload %s inadmissible", head.Info.Obj.Name)
+					t.Fatalf("could not make workload %s inadmissible", head.Obj.Name)
 				}
 			}
 
 			r := NewResourceSliceReconciler(queues, cache, testResourceSliceConfig(), nil)
-			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKey{Name: tc.driver}}); err != nil {
+			if _, err := r.Reconcile(ctx, reconcile.Request{Name: tc.driver}); err != nil {
 				t.Fatal(err)
 			}
 			requeuer.ProcessRequeues(ctx)
