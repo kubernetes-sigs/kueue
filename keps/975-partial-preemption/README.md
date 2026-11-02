@@ -138,12 +138,13 @@ again, Kueue starts the waiting executors. The Spark application keeps running t
 A RayCluster runs with two worker groups in a low-priority ClusterQueue with nominal quota and a
 borrowing limit. One worker group is baseline capacity, sized to run only using the queue's nominal
 quota, with `minReplicas` equal to its size, while the other is a `0..N` scalable group for
-opportunistic extra capacity. A high-priority
-job arrives and needs part of the borrowed quota. Instead of suspending the entire RayCluster,
-killing the head and all workers, Kueue removes as many opportunistic workers as the job needs.
-KubeRay recreates them, and Kueue keeps them gated until quota is available again. Once the removed
-workers have terminated, Kueue releases their quota and the high-priority job is admitted. The
-RayCluster, including its head and baseline worker group, continues running the entire time.
+opportunistic extra capacity, running 6 workers. A high-priority job arrives and needs the quota of
+2 opportunistic workers. Instead of suspending the entire RayCluster, killing the head and all
+workers, Kueue sets the opportunistic group's `preemptionTargetCount` to 4, the largest count that
+lets the job fit, and evicts that group's 2 newest workers through the Eviction API. KubeRay
+recreates them, and Kueue keeps the new Pods gated until quota is available again. Once the 2
+evicted workers have terminated, Kueue releases their quota and the high-priority job is admitted.
+The RayCluster, including its head and baseline worker group, continues running the entire time.
 
 #### Story 3: Preempting an interactive Ray cluster loses the user's notebook session
 
