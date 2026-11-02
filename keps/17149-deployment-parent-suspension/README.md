@@ -8,7 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1: LLM serving on GPU clusters](#story-1-llm-serving-on-gpu-clusters)
-    - [Story 2: GitOps health reporting](#story-2-gitops-health-reporting)
+    - [Story 2: Rollout health reporting](#story-2-rollout-health-reporting)
   - [Design](#design)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -33,29 +33,35 @@ When Kueue manages Deployment-owned pods via the pod integration, it uses the
 `kueue.x-k8s.io/admission` scheduling gate to hold pods while they wait for quota.
 The Kubernetes Deployment controller continues counting down
 `spec.progressDeadlineSeconds` (default 10m) and marks the Deployment
-`ProgressDeadlineExceeded`. GitOps tools (e.g. ArgoCD) interpret this as a failure.
+`ProgressDeadlineExceeded`. `kubectl rollout status` and continuous-delivery
+tooling read this as a failed rollout.
 
 This KEP adds an alpha feature gate (`DeploymentParentSuspension`, default off) that
 pauses the parent Deployment (`spec.paused = true`) while its pods are scheduling-gated.
-After admission, the Deployment is automatically unpaused.
+After admission, the Deployment is automatically unpaused. If a Pod fails while the
+Deployment is paused, Kueue unpauses it so the failure still surfaces as
+`ProgressDeadlineExceeded`.
 
 | State | `spec.paused` | `Progressing` condition | Pod |
 |---|---|---|---|
 | Waiting for quota (gate on) | `true` | `Unknown` / `DeploymentPaused` | `SchedulingGated` |
 | After admission (gate on) | `false` | `True` / `NewReplicaSetAvailable` | `Running` |
+| Failing Pod with gated siblings (gate on) | `false` | `Unknown` → `False` / `ProgressDeadlineExceeded` | `Running`, failing |
 | Waiting for quota (gate off) | `false` | `True` → `False` / `ProgressDeadlineExceeded` | `SchedulingGated` |
 
 ## Motivation
 
 Long-running serving workloads (LLM inference via vLLM/SGLang, etc.) on multi-tenant GPU
 clusters routinely wait for quota while other workloads release capacity. The Deployment
-looks "failed" to GitOps tooling even though it is functioning as intended. The only
+looks "failed" to rollout monitoring even though it is functioning as intended. The only
 Kubernetes-native mechanism that stops the progress deadline timer is `spec.paused`.
 
 ### Goals
 
 - Prevent `ProgressDeadlineExceeded` on Kueue-gated Deployments by pausing during quota wait.
-- Automatically unpause after admission.
+- Automatically unpause after the last gated Pod is admitted or deleted.
+- Surface real Pod failures: unpause when any Pod of the Deployment is in a failure
+  state, so the Deployment controller reports the failure as before.
 - Never override user-initiated pauses.
 - Clean up existing pauses when the feature gate is disabled (no orphaned state).
 - Detect template drift: if a user edits the pod template while paused, unpause so the
@@ -76,12 +82,12 @@ Kubernetes-native mechanism that stops the progress deadline timer is `spec.paus
 
 As a platform engineer running LLM inference Deployments on Kueue-managed GPU
 quota, I want the Deployment to report a paused state instead of
-`ProgressDeadlineExceeded` while its Pods wait for quota, so that my GitOps
-tooling does not flag the service as failed.
+`ProgressDeadlineExceeded` while its Pods wait for quota, so that rollout
+monitoring does not flag the service as failed.
 
-Today the Deployment hits `ProgressDeadlineExceeded` after 10 minutes of
-quota wait, turning ArgoCD red. With this feature, the Deployment shows
-`DeploymentPaused` — a non-error state.
+Today the Deployment hits `ProgressDeadlineExceeded` after 10 minutes of quota
+wait, and `kubectl rollout status` exits with an error. With this feature, the
+Deployment shows `DeploymentPaused` — a non-error state.
 
 ```yaml
 apiVersion: apps/v1
@@ -108,14 +114,15 @@ spec:
               nvidia.com/gpu: "1"
 ```
 
-#### Story 2: GitOps health reporting
+#### Story 2: Rollout health reporting
 
-As an ArgoCD user, I want Kueue-paused Deployments to report a suspended
-(non-error) state instead of degraded, so that quota waits do not trigger
-alerts or sync issues.
+As a user of continuous-delivery tooling, I want Kueue-paused Deployments to
+report a suspended (non-error) state instead of a failed rollout, so that quota
+waits do not trigger alerts or sync issues.
 
-ArgoCD reports paused Deployments as `Suspended`. Without this feature,
-`ProgressDeadlineExceeded` is reported as `Degraded`.
+Without this feature, a quota wait ends with `Progressing: False`
+(`ProgressDeadlineExceeded`) — an error. With this feature, the condition reads
+`DeploymentPaused` (Unknown) — suspended, not failed.
 
 ```yaml
 apiVersion: apps/v1
@@ -148,22 +155,38 @@ unaffected.
 
 **When the pause happens:** While a Pod's Workload is suspended and not admitted
 (waiting for quota), the Pod integration pauses the parent Deployment and records the
-tracking annotation `kueue.x-k8s.io/paused-by-kueue`. This step is gated by the
-`DeploymentParentSuspension` feature gate and is idempotent — an already-paused
-Deployment is left untouched.
+tracking annotation `kueue.x-k8s.io/paused-by-kueue`. The pause is applied only while
+no Pod of the Deployment is in a failure state, so gated sibling Pods cannot re-hide
+a failure that already surfaced. This step is gated by the `DeploymentParentSuspension`
+feature gate and is idempotent — an already-paused Deployment is left untouched.
+
+**Failure states:** A Pod is in a failure state when one of its containers (including
+init containers) is crash-looping or cannot pull or start its image, when the Pod
+cannot be scheduled onto any node, or when its phase is Failed. A Pod that is running
+but not yet Ready — for example a serving Pod still loading a model — is not in a
+failure state; unpausing for it would reintroduce the deadline errors this KEP removes.
+Gated Pods are never in a failure state; they are not running.
 
 **When the unpause happens:** The unpause is attempted on every reconciliation in which
 a Pod's Workload is admitted, and when a Pod is deleted. It traverses Pod → ReplicaSet →
 Deployment via owner references (with UID validation at each hop), unpauses only if the
 tracking annotation is present (user-initiated pauses are never touched), and only when
-no other Pods of the Deployment remain scheduling-gated. The unpause paths are **not**
-gated by the feature gate.
+no other Pods of the Deployment remain scheduling-gated — or when any Pod of the
+Deployment is in a failure state, even while sibling Pods remain gated, so the failure
+surfaces in the old way. The unpause paths are **not** gated by the feature gate.
+
+**Failure reporting:** When Kueue unpauses because a Pod failed, Kubernetes measures
+`progressDeadlineSeconds` from the resume, so a Pod that keeps failing is reported
+`ProgressDeadlineExceeded` within `progressDeadlineSeconds` of the unpause. Users who
+want faster failure reports for serving Deployments can set `progressDeadlineSeconds`
+below the 10-minute default.
 
 **Disabling the feature gate:** Because only the pause is gated, an admin disabling
 `DeploymentParentSuspension` while Deployments are paused-by-Kueue does not create
 orphaned pauses: each paused Deployment is unpaused as soon as any of its Pods is
-admitted or deleted, since those paths always run. Users observe: already-paused
-Deployments with still-gated Pods stay paused until their Pods are admitted or deleted;
+admitted, deleted, or enters a failure state, since the unpause paths always run.
+Users observe: already-paused Deployments with still-gated Pods stay paused until
+their Pods are admitted or deleted, or until a Pod fails;
 newly gated Pods no longer pause their Deployment, so the pre-feature behavior —
 `ProgressDeadlineExceeded` after `progressDeadlineSeconds` — returns.
 
@@ -181,10 +204,11 @@ on ReplicaSets.
 
 **Workload deletion while paused:** Each Pod has its own Workload. When a Workload is
 deleted while its Deployment is paused, the Pod integration stops the Pod, which deletes
-the gated Pod. The Deployment is unpaused only when no Pods matching its selector remain
-gated — sibling Pods still waiting for quota keep the pause in place. Every Pod's
-reconciliation attempts the resume when its Workload is admitted or when the Pod is
-deleted, so the last Pod to leave the gated state is the one that removes the pause. A
+the gated Pod. The Deployment is unpaused when no Pods matching its selector remain gated
+(sibling Pods still waiting for quota keep the pause in place) or when any Pod is
+in a failure state. Every Pod's reconciliation attempts the resume when its Workload
+is admitted or when the Pod is deleted, so the last Pod to leave the gated state is
+the one that removes the pause. A
 replacement Pod created after an unpause is gated by Kueue again, gets a new Workload,
 and re-pauses the Deployment. The pause is therefore never orphaned; the transient
 unpause window lasts seconds, negligible against the default 10-minute progress deadline.
@@ -194,6 +218,15 @@ the resume is retried on subsequent reconciliations.
 **Template drift while paused:** The Deployment controller cannot create a new ReplicaSet
 while paused. Mitigated by the Deployment reconciler, which detects template drift and
 unpauses. New pods are then gated by Kueue, and re-paused if they remain gated.
+
+**Real failures while paused:** A paused Deployment never reports
+`ProgressDeadlineExceeded`, so a failing admitted Pod would stay hidden while its
+gated siblings wait for quota. The failure-state check unpauses the Deployment when
+any Pod fails, so failures surface in the old way. Two residual cases stay hidden
+while paused: a Pod that runs but never becomes Ready without a failure signal (a
+hung process), and a Pod deleted by node pressure before it reports a failure, whose
+replacement is gated again. `WaitForPodsReady` requeueing covers not-Ready Pods when
+enabled.
 
 ## Design Details
 
@@ -218,15 +251,19 @@ to implement this enhancement.
 #### Unit tests
 
 - Pod integration: parent lookup and owner-reference traversal (including UID validation),
-  pause, unpause, and the gated-siblings check.
+  pause, unpause, the gated-siblings check, and the failure-state check.
 - Deployment integration: template drift detection and template comparison.
 
 #### Integration tests
 
 - Pause on gate, unpause on admission, unpause on template drift, unpause on pod
   deletion, no-op when the gate is off, and workload deletion recovery: the gated Pod
-  is deleted, the pause is removed only when no sibling Pods remain gated, and a
+  is deleted, the pause is removed when no sibling Pods remain gated, and a
   replacement gated Pod re-pauses the Deployment.
+- Partial admission: when an admitted Pod enters a failure state while sibling Pods
+  remain gated, the Deployment is unpaused and is not re-paused by the gated siblings
+  while the failure persists; once the failing Pod recovers with siblings still gated,
+  the Deployment is paused again.
 
 #### e2e tests
 
@@ -240,8 +277,10 @@ scenarios are added in Beta.
 #### Alpha
 
 - Feature gate `DeploymentParentSuspension` (default off).
-- Pause the Deployment while its Pods are scheduling-gated; unpause after admission;
-  never override user-initiated pauses.
+- Pause the Deployment while its Pods are scheduling-gated; unpause after the last
+  gated Pod is admitted or deleted; never override user-initiated pauses.
+- Unpause when any Pod of the Deployment is in a failure state, even while sibling
+  Pods remain gated, so real failures surface as before; covered by integration tests.
 - Cleanup of Kueue-managed pauses when the feature gate is disabled, including on Pod
 deletion. A failure to resume during finalization blocks removal of the finalizer, so
 the resume is retried on subsequent reconciliations.
