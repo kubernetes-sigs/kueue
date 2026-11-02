@@ -22,10 +22,12 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
@@ -233,14 +236,25 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		return nil, err
 	}
 	if suspend {
+		var in workload.AdjustmentInputs
+		if features.Enabled(features.AllowChangingPodTemplateInitContainers) &&
+			initContainersChanged(&newLeaderWorkerSet.Spec.LeaderWorkerTemplate, &oldLeaderWorkerSet.Spec.LeaderWorkerTemplate) {
+			// The quota of the Workloads includes the defaults of the LimitRanges,
+			// so the effective requests of the pods have to include them too.
+			if in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, wh.client, newLeaderWorkerSet.Namespace); err != nil {
+				return nil, err
+			}
+		}
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			in,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			in,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -341,12 +355,56 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
+		newPodSpec, oldPodSpec := newPodTemplateSpec.Spec, oldPodTemplateSpec.Spec
+		if features.Enabled(features.AllowChangingPodTemplateInitContainers) {
+			// The quota of the Workloads depends only on the effective requests of
+			// the pods, so the init containers can change as long as these requests
+			// stay the same.
+			allErrors = append(allErrors, validateInitContainersUpdate(&newPodSpec, &oldPodSpec, in, fieldPath.Child("spec", "initContainers"))...)
+			newPodSpec.InitContainers, oldPodSpec.InitContainers = nil, nil
+		}
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
+}
+
+// initContainersChanged reports whether the init containers of any pod template changed.
+func initContainersChanged(newTemplate, oldTemplate *leaderworkersetv1.LeaderWorkerTemplate) bool {
+	if !equality.Semantic.DeepEqual(newTemplate.WorkerTemplate.Spec.InitContainers, oldTemplate.WorkerTemplate.Spec.InitContainers) {
+		return true
+	}
+	return newTemplate.LeaderTemplate != nil && oldTemplate.LeaderTemplate != nil &&
+		!equality.Semantic.DeepEqual(newTemplate.LeaderTemplate.Spec.InitContainers, oldTemplate.LeaderTemplate.Spec.InitContainers)
+}
+
+func validateInitContainersUpdate(newPodSpec, oldPodSpec *corev1.PodSpec, in workload.AdjustmentInputs, fieldPath *field.Path) field.ErrorList {
+	var allErrors field.ErrorList
+	// Compare against the old app containers, so that only the init containers
+	// can change the effective requests. They are computed as for the quota of
+	// the Workloads: limits are used as missing requests, then the defaults of
+	// the LimitRanges are applied.
+	withNewInitContainers := *oldPodSpec
+	withNewInitContainers.InitContainers = newPodSpec.InitContainers
+	newRequests := resources.NewRequestsFromPodSpec(new(workload.EffectivePodSpec(&withNewInitContainers, in)))
+	oldRequests := resources.NewRequestsFromPodSpec(new(workload.EffectivePodSpec(oldPodSpec, in)))
+	if !resources.Equal(newRequests, oldRequests) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath, "init containers cannot change the effective resource requests of the pods while the LeaderWorkerSet is managed by Kueue"))
+	}
+	if !initContainerPorts(newPodSpec).Equal(initContainerPorts(oldPodSpec)) {
+		allErrors = append(allErrors, field.Forbidden(fieldPath, "init container ports cannot be changed while the LeaderWorkerSet is managed by Kueue"))
+	}
+	return allErrors
+}
+
+func initContainerPorts(podSpec *corev1.PodSpec) sets.Set[corev1.ContainerPort] {
+	ports := sets.New[corev1.ContainerPort]()
+	for _, c := range podSpec.InitContainers {
+		ports.Insert(c.Ports...)
+	}
+	return ports
 }

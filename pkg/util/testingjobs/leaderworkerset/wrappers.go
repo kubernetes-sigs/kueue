@@ -141,6 +141,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecAnnotation(k, v string) *Lead
 	return w
 }
 
+// WorkerTemplateSpecInitContainer adds an init container to the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecInitContainer(c corev1.Container) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers, c)
+	return w
+}
+
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)

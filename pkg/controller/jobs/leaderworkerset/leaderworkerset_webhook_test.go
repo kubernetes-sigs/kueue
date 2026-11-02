@@ -36,6 +36,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -1028,6 +1029,176 @@ func TestValidateUpdate(t *testing.T) {
 				Size(2).
 				Obj(),
 		},
+		"add init container that fits in the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}}}).
+				Obj(),
+		},
+		"replace init container that fits in the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}}}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "other", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("300m")}}}).
+				Obj(),
+		},
+		"add init container that increases the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add init container with limits above the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add init container with a LimitRange default above the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init"}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add init container with a LimitRange default that fits in the effective requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "500m").Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init"}).
+				Obj(),
+		},
+		"add sidecar container with requests when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "sidecar", RestartPolicy: new(corev1.ContainerRestartPolicyAlways), Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}}}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change init container ports when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Ports: []corev1.ContainerPort{{ContainerPort: 8080}}}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init", Ports: []corev1.ContainerPort{{ContainerPort: 9090}}}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add init container and change resources when managed": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init"}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add init container when managed and the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				WorkerTemplateSpecInitContainer(corev1.Container{Name: "init"}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec", "initContainers").String(),
+				},
+			}.ToAggregate(),
+		},
 		"change size when unmanaged": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1430,6 +1601,7 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"change resources in init containers": {
+			featureGates: map[featuregate.Feature]bool{features.AllowChangingPodTemplateInitContainers: false},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -1673,7 +1845,10 @@ func TestValidateUpdate(t *testing.T) {
 				integrationManager.EnableIntegration(integration)
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			client := utiltesting.NewClientBuilder().WithRuntimeObjects(tc.objs...).Build()
+			client := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithRuntimeObjects(tc.objs...).
+				Build()
 			wh := &Webhook{integrationManager: integrationManager, client: client}
 
 			ctx, _ := utiltesting.ContextWithLog(t)

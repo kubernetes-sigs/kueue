@@ -20,11 +20,14 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -37,10 +40,13 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(
-			leaderworkerset.SetupWebhook,
-			jobframework.WithManageJobsWithoutQueueName(false),
-		))
+		fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+			// The webhook reads the LimitRanges through the index of the manager cache.
+			if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
+				return err
+			}
+			return leaderworkerset.SetupWebhook(mgr, opts...)
+		}, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-webhook-")
 	})
 	ginkgo.AfterEach(func() {
@@ -106,6 +112,82 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
 					createdLws.Spec.Replicas = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow adding an init container that keeps the effective requests", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding an init container within the effective requests is accepted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{{
+						Name:      "init",
+						Image:     createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image,
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}},
+					}}
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should reject adding an init container that increases the effective requests", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding an init container above the effective requests is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{{
+						Name:      "init",
+						Image:     createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image,
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+					}}
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.initContainers")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should reject adding an init container whose LimitRange default increases the effective requests", func() {
+			limitRange := utiltesting.MakeLimitRange("limits", ns.Name).
+				WithValue("DefaultRequest", corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, limitRange)
+
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding an init container without requests is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers = []corev1.Container{{
+						Name:  "init",
+						Image: createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image,
+					}}
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.initContainers")),
+					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
