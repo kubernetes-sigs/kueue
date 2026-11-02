@@ -302,6 +302,73 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should keep counter-based workload at DRAResourcesUnresolved on a MultiKueue ClusterQueue when no matching ResourceSlices exist", framework.SlowSpec, func() {
+			ginkgo.By("Creating an active MultiKueue AdmissionCheck and ClusterQueue")
+			ac := utiltestingapi.MakeAdmissionCheck("pd-mk-ac").
+				ControllerName(kueue.MultiKueueControllerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ac)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			}()
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			mkCq := utiltestingapi.MakeClusterQueue("").GeneratedName("pd-mk-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("cpu", "8").
+						Resource("memory", "16Gi").
+						Resource("gpu.memory", "160Gi").
+						Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, mkCq)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkCq, true)
+			}()
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, mkCq)
+
+			mkLq := utiltestingapi.MakeLocalQueue("pd-mk-lq", ns.Name).
+				ClusterQueue(mkCq.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, mkLq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, mkLq)
+
+			ginkgo.By("Creating RCT with CEL selector when no matching ResourceSlices exist")
+			rct := utiltesting.MakeResourceClaimTemplate("mig-mk-nomatch", ns.Name).
+				DeviceRequest("gpu", "mig.example.com", 1).
+				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating workload targeting the MultiKueue LocalQueue")
+			wl := utiltestingapi.MakeWorkload("pd-mk-nomatch-wl", ns.Name).
+				Queue("pd-mk-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "mig", ResourceClaimTemplateName: new("mig-mk-nomatch")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "mig"},
+			}
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}()
+
+			ginkgo.By("Verifying counter-based workload stays inadmissible at DRAResourcesUnresolved")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
+				)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should admit workload with unified whole GPU and MIG charges", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU and MIG devices")
 			slice := testingdra.MakeResourceSlice("pd-unified-slice", "gpu.example.com").

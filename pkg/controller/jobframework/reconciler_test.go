@@ -3236,6 +3236,7 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		ControllerReference(gvk, obj.Name, string(obj.UID)).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	// The successor starts without an owner reference and must be adopted by the job.
 	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
@@ -3278,7 +3279,13 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("PodSets changed: %s", diff)
 		}
-		wantFinished := before.Name == "old"
+		if before.Name == replacement.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("prebuilt workload was not adopted by the worker job")
+		}
+		if before.Name == old.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("predecessor workload lost its controller reference")
+		}
+		wantFinished := before.Name == old.Name
 		if workloadfinish.IsFinished(got) != wantFinished {
 			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
 		}
