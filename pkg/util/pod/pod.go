@@ -173,12 +173,16 @@ func SpecShape(podSpec *corev1.PodSpec) (result map[string]any) {
 
 func ContainersShape(containers []corev1.Container) (result []map[string]any) {
 	for _, c := range containers {
-		result = append(result, map[string]any{
+		cShape := map[string]any{
 			"resources": map[string]any{
 				"requests": c.Resources.Requests,
 			},
 			"ports": c.Ports,
-		})
+		}
+		if c.RestartPolicy != nil {
+			cShape["restartPolicy"] = *c.RestartPolicy
+		}
+		result = append(result, cShape)
 	}
 	return result
 }
