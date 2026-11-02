@@ -338,6 +338,70 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 	})
 
+	ginkgo.When("Workload with a RuntimeClass tolerating a flavor's taint", func() {
+		var (
+			taintedFlavor   *kueue.ResourceFlavor
+			untaintedFlavor *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			taintedFlavor = utiltestingapi.MakeResourceFlavor("rc-sandbox-pool").
+				NodeLabel("pool", "sandbox").
+				Taint(corev1.Taint{Key: "sandbox", Value: "true", Effect: corev1.TaintEffectNoSchedule}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, taintedFlavor)
+			untaintedFlavor = utiltestingapi.MakeResourceFlavor("rc-default-pool").NodeLabel("pool", "default").Obj()
+			behavioral.MustCreate(ctx, k8sClient, untaintedFlavor)
+
+			// The RuntimeClass admission controller merges this toleration into every Pod
+			// admitted with the class, so the tainted flavor, tried first, can hold them.
+			runtimeClass = utiltesting.MakeRuntimeClass("kata-sandbox", "bar-handler").
+				Scheduling(nil, corev1.Toleration{
+					Key:      "sandbox",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "true",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, runtimeClass)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(taintedFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(untaintedFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, localQueue)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, taintedFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, untaintedFlavor, true)
+		})
+
+		ginkgo.It("Should assign the tainted flavor the RuntimeClass tolerates", func() {
+			wl = utiltestingapi.MakeWorkload("one", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass("kata-sandbox").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+				g.Expect(read.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(read.Status.Admission.PodSetAssignments[0].Flavors).Should(
+					gomega.HaveKeyWithValue(corev1.ResourceCPU, kueue.ResourceFlavorReference(taintedFlavor.Name)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
 		ginkgo.BeforeEach(func() {
 			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
