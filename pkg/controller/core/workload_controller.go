@@ -785,6 +785,16 @@ func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Wor
 	log := ctrl.LoggerFrom(ctx)
 
 	if workloadevict.IsEvicted(wl) && workload.HasRejectedChecks(wl) {
+		// A check removed from the ClusterQueue must not deactivate the workload.
+		if cqName, cqOk := r.queues.ClusterQueueForWorkload(wl); cqOk {
+			cq := &kueue.ClusterQueue{}
+			if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, cq); err != nil {
+				return true, ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			if updated, err := r.reconcileSyncAdmissionChecks(ctx, wl, cq); updated || err != nil {
+				return true, ctrl.Result{}, err
+			}
+		}
 		_, err := r.reconcileCheckBasedEviction(ctx, wl)
 		return true, ctrl.Result{}, client.IgnoreNotFound(err)
 	}
