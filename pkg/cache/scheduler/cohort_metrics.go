@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -285,12 +286,57 @@ func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 // The gauge carries each ClusterQueue's custom labels, so a Cohort has a
 // series per ClusterQueue below it. Clearing from the root down before
 // reporting drops the series of ClusterQueues that have moved away.
+//
+// Per-label totals are accumulated in one bottom-up pass so a rebuild does
+// not walk the subtree once per ClusterQueue. Workload events still report
+// through reportCohortSubtreeAdmittedActiveWorkloads.
 func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+	reportAdmittedByLabels(cohort)
+}
+
+// cqLabelKey is a comparable ClusterQueue custom-label value set.
+type cqLabelKey struct {
+	vals [metrics.MaxCustomLabelsForSourceKind]string
+	n    int
+}
+
+func cqLabelKeyOf(clVals []string) cqLabelKey {
+	var k cqLabelKey
+	k.n = copy(k.vals[:], clVals)
+	return k
+}
+
+func (k cqLabelKey) values() []string {
+	if k.n == 0 {
+		return nil
+	}
+	return k.vals[:k.n]
+}
+
+// reportAdmittedByLabels walks the subtree once, accumulating admitted
+// Workload counts per ClusterQueue label set, and reports each Cohort.
+func reportAdmittedByLabels(cohort *cohort) (map[cqLabelKey]int, *roletracker.RoleTracker) {
 	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	totals := make(map[cqLabelKey]int)
+	var tracker *roletracker.RoleTracker
+
 	for _, child := range cohort.ChildCohorts() {
-		reportTreeAdmittedActiveWorkloads(child)
+		childTotals, childTracker := reportAdmittedByLabels(child)
+		for key, count := range childTotals {
+			totals[key] += count
+		}
+		if tracker == nil {
+			tracker = childTracker
+		}
 	}
 	for _, cq := range cohort.ChildCQs() {
-		cq.reportCohortSubtreeAdmittedActiveWorkloads()
+		totals[cqLabelKeyOf(cq.GetCustomLabelValues())] += cq.admittedWorkloadsCount
+		if tracker == nil {
+			tracker = cq.roleTracker
+		}
 	}
+	for key, count := range totals {
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, key.values(), tracker)
+	}
+	return totals, tracker
 }
