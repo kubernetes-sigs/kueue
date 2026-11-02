@@ -409,3 +409,139 @@ tests:
       kueue.managerConfig.mode: yaml
       kueue.managerConfig.structuredOverrides: invalid
     asserts: *invalidOverrides
+
+  - it: should inherit structured overrides with null YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should inherit YAML with null mode with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: 'managedJobsNamespaceSelector: {matchLabels: {team: legacy}}'
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *legacySelector
+
+  - it: should inherit structured overrides with null mode with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use defaults with null structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should use defaults with all null inputs with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should use defaults in YAML mode with null YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should use defaults in structured mode with null overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 'managedJobsNamespaceSelector: {matchLabels: {team: legacy}}'
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should preserve empty YAML with null mode and overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: ''
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should inherit structured overrides with null YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should inherit YAML with null mode with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: 'managedJobsNamespaceSelector: {matchLabels: {team: legacy}}'
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *legacySelector
+
+  - it: should inherit structured overrides with null mode with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use defaults with null structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should use defaults with all null inputs with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should use defaults in YAML mode with null YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: null
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should use defaults in structured mode with null overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 'managedJobsNamespaceSelector: {matchLabels: {team: legacy}}'
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector
+
+  - it: should preserve empty YAML with null mode and overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: null
+      kueue.managerConfig.controllerManagerConfigYaml: ''
+      kueue.managerConfig.structuredOverrides: null
+    asserts: *defaultSelector

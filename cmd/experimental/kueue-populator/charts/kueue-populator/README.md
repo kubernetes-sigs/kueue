@@ -170,9 +170,11 @@ This chart includes the official `kueue` chart as a dependency. You can configur
     back to excluding `kube-system` and the configured Kueue or release namespace.
 
 Unknown keys directly under `kueue.managerConfig` are rejected. If supplied,
-mode must be `yaml` or `structured`. When supplied,
-`structuredOverrides` must be a map and `controllerManagerConfigYaml` must be a
-string, even when that input is not selected. Correct unknown keys or incorrectly
+non-null mode must be `yaml` or `structured`. Non-null
+`structuredOverrides` must be a map and non-null `controllerManagerConfigYaml`
+must be a string, even when that input is not selected. Null values for these
+three inputs are treated as absent with the subchart enabled or disabled.
+An empty YAML string still selects an empty configuration. Correct unknown keys or incorrectly
 typed inputs before upgrading.
 
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.

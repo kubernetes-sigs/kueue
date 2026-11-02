@@ -113,7 +113,9 @@ When `managerConfig.mode` is omitted, a supplied
 `managerConfig.controllerManagerConfigYaml` takes precedence as a
 complete configuration, including an explicitly empty string. Otherwise,
 `managerConfig.structuredOverrides` merges with chart defaults. The manager and
-job webhooks use the same resolved configuration.
+job webhooks use the same resolved configuration. Null values for `mode`,
+`controllerManagerConfigYaml`, or `structuredOverrides` are treated as absent
+when selecting the configuration.
 
 | Inputs (mode omitted) | Behavior |
 |---|---|
@@ -126,7 +128,7 @@ Select an input explicitly with optional `managerConfig.mode`:
 
 | Mode | Behavior |
 |---|---|
-| Omitted | Use the precedence above. |
+| Omitted or `null` | Use the precedence above. |
 | `structured` | Merge structured overrides with chart defaults; ignore YAML. |
 | `yaml` | Use supplied YAML, including `""`; otherwise use chart defaults. Ignore structured overrides. |
 
@@ -147,9 +149,9 @@ managerConfig:
 Maps merge recursively, lists and scalars replace, and `null` removes fields
 inside `structuredOverrides`. For removals during upgrades, follow
 [Removing overrides during upgrades](#removing-overrides-during-upgrades) below.
-When structured configuration is selected, absent or empty `structuredOverrides`
-uses chart defaults when no saved overrides are reused. `structuredOverrides: null`
-is invalid. The two inputs are never merged together. Existing certificate-management
+When structured configuration is selected, absent, null, or empty
+`structuredOverrides` uses chart defaults when no saved overrides are reused.
+The two inputs are never merged together. Existing certificate-management
 defaults still apply when `internalCertManagement` is not set.
 
 The active defaults are defined only in
@@ -188,13 +190,20 @@ subsequent upgrades. To switch back, explicitly set `mode: yaml` and supply the
 full YAML configuration; omitting mode from a file does not clear a saved mode
 when reusing values.
 
+To drop the old chart's inherited YAML default while reusing values, you can
+also set `controllerManagerConfigYaml: null` alongside your structured overrides.
+Helm may retain this null in saved release values; subsequent upgrades treat it
+as absent. Unlike null, `controllerManagerConfigYaml: ""` still selects an empty
+YAML configuration. Removing explicitly saved settings is subject to Helm's
+value-merging rules; see [Removing overrides during upgrades](#removing-overrides-during-upgrades).
+
 Alternatively, leave mode unset, remove the `controllerManagerConfigYaml` key,
 and use `--reset-values` with a values file containing all customizations you
 want to retain, including settings outside `managerConfig`. Setting YAML to
 `""` still selects an empty YAML configuration, not structured overrides.
 Ensure that a parent chart or another values file does not supply the YAML key.
 
-Without explicit structured mode, the first `--reuse-values` upgrade can carry
+Without explicit structured mode, any `--reuse-values` upgrade can carry
 the old chart's default YAML even if you never supplied it, causing structured
 overrides to be ignored. Supply mode in your upgrade values; new wrapper defaults
 alone may not take effect with reuse. Mode does not change Helm's handling of
@@ -209,12 +218,12 @@ When Kueue is a dependency, nest the settings under its dependency name or alias
 | No reuse or reset flag | Helm retains saved values if no new values are supplied; supplying nonempty new values replaces the saved inputs. |
 
 Helm rejects unknown keys directly under `managerConfig`. The only allowed keys
-are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. If supplied,
-mode must be `yaml` or `structured`. Both configuration inputs must
-have the correct type even when not selected: `structuredOverrides` is a map,
-and `controllerManagerConfigYaml` is a string. Empty maps and empty strings are
-valid. Fields inside the selected configuration are validated by Kueue when it
-loads the configuration. Run `helm lint <chart> --values values.yaml` before
+are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. Each accepts
+`null`, meaning absent. Non-null mode must be `yaml` or `structured`. Non-null
+configuration inputs must have the correct type even when not selected:
+`structuredOverrides` is a map, and `controllerManagerConfigYaml` is a string.
+Empty maps and empty YAML strings are valid. Fields inside the selected
+configuration are validated by Kueue when it loads the configuration. Run `helm lint <chart> --values values.yaml` before
 upgrading and review the rendered configuration.
 
 When upgrading, remove or correct unknown manager input keys and incorrectly
