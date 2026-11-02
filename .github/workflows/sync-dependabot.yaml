@@ -73,12 +73,14 @@ jobs:
             exit 0
           fi
           git apply --index "$patch"
-          if git diff --cached --name-only \
-            | grep -vqE '^(netlify\.toml|config/components/.+\.yaml|charts/kueue/templates/.+)$'; then
-            echo "::error::The patch changes unexpected files"
+          unexpected=$(git diff --cached --name-only --no-renames \
+            | grep -vE '^(netlify\.toml|config/components/.+\.yaml|charts/kueue/templates/.+)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::The patch changes files outside the allowlist. If they are expected, add them to the allowlist in this workflow:"
+            echo "$unexpected"
             exit 1
           fi
           git config user.name "$(git log -1 --pretty=%an)"
           git config user.email "$(git log -1 --pretty=%ae)"
           git commit -m "Sync generated files"
-          git push origin "HEAD:refs/heads/$HEAD_REF"
+          git push origin "HEAD:$HEAD_REF"
