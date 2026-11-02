@@ -1116,7 +1116,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	AssignQueueLabelsForPods: {
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
