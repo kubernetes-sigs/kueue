@@ -210,11 +210,20 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 
 ### Notes/Constraints/Caveats
 
+- The victim must opt in, and exactly one of its PodSets must be above its `preemptionMinCount` (see
+  [Eligibility](#eligibility)); otherwise it is evicted whole.
 - `preemptionTargetCount` is owned by Kueue and is not a user-set field. An in-flight target is
   reused until the Pods above it are gone; a later preemption may then lower it, but never raises
   it.
 - Workloads with gang semantics, such as Spark barrier stages, MPI or non-elastic distributed
   training, should not opt in, or should set their floor to the gang size.
+- After a shrink, the job's spec still shows its original size, and the replacement Pods stay
+  `Pending` with the `kueue.x-k8s.io/elastic-job` scheduling gate until quota is available.
+- The floor is the job's own minimum (`minReplicas`, `minExecutors`), so it also bounds the
+  framework's autoscaler; a separate preemption floor is a Beta criterion.
+- A preemptor is admitted only after the evicted Pods' termination grace period, and a
+  PodDisruptionBudget that blocks evictions leads to whole eviction once `partialPreemption.timeout`
+  expires.
 
 ### Risks and Mitigations
 
@@ -632,7 +641,7 @@ Configuration validation rejects a `partialPreemption.timeout` that is not posit
 | Fair Sharing | The fair-sharing strategies simulate the victim at its target count, as classical preemption does. |
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
-| Topology-Aware Scheduling | In Alpha, a PodSet with a topology assignment is not eligible. |
+| Topology-Aware Scheduling | In Alpha, a PodSet with a topology assignment is not eligible, so partial preemption never applies in a ClusterQueue that uses TAS. |
 | MultiKueue | Not supported in Alpha: a Workload dispatched by MultiKueue is evicted whole. |
 | `ElasticJobsViaWorkloadSlicesForProvisioningRequests` | No change for the shrink. The scale-up slice requests only the increment, as for any scale-up. |
 
@@ -733,6 +742,7 @@ make this code solid enough prior to committing the changes necessary to impleme
 
 - The gate is enabled by default, and all reported bugs are fixed.
 - Shrink more than one PodSet per Workload.
+- A preemption floor separate from the job's own minimum.
 - Support PodSets with a topology assignment, and MultiKueue.
 - Shrink victims selected by `PreemptionConfig` rules.
 - Cover batch/Job and the other elastic integrations.
