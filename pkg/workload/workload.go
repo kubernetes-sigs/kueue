@@ -1300,8 +1300,9 @@ type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
 
-// GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
-// be the workload creation time or the last time a PodsReady timeout has occurred.
+// GetQueueOrderTimestamp returns the timestamp used to order the Workload. It is the
+// Workload creation time, or the eviction time when the Workload is evicted due to a
+// PodsReady timeout (if configured) or an AdmissionCheck.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
 		if evictedCond, evictedByTimeout := workloadevict.IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
@@ -1310,15 +1311,6 @@ func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	}
 	if evictedCond, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(w); evictedByCheck {
 		return &evictedCond.LastTransitionTime
-	}
-	if !features.Enabled(features.PrioritySortingWithinCohort) {
-		if preemptedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPreempted); preemptedCond != nil &&
-			preemptedCond.Status == metav1.ConditionTrue &&
-			preemptedCond.Reason == kueue.InCohortReclaimWhileBorrowingReason {
-			// We add an epsilon to make sure the timestamp of the preempted
-			// workload is strictly greater that the preemptor's
-			return &metav1.Time{Time: preemptedCond.LastTransitionTime.Add(time.Millisecond)}
-		}
 	}
 	return &w.CreationTimestamp
 }

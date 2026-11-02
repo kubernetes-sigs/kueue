@@ -9850,49 +9850,20 @@ func TestEntryOrdering(t *testing.T) {
 		wantOrder        []string
 	}{
 		{
-			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
+			name:             "Using pods-ready Eviction timestamp (default)",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
+			name:             "Using pods-ready Creation timestamp",
 			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
 			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing", "high_pri_borrowing_more"},
 		},
 		{
-			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
-			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
-		},
-		{
-			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
-			input:            input,
-			featureGates:     map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
-			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing", "high_pri_borrowing_more"},
-		},
-		{
-			name:         "Some workloads are preempted; Priority sorting is disabled",
-			input:        inputForOrderingPreemptedWorkloads,
-			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
-			wantOrder: []string{
-				"old-mid-recently-preempted-in-queue",
-				"old-mid-not-preempted-yet",
-				"old-mid-recently-reclaimed-while-borrowing",
-				"preemptor",
-				"old-mid-more-recently-reclaimed-while-borrowing",
-			},
-		},
-		{
-			name:         "Some workloads are preempted; Priority sorting is enabled",
-			input:        inputForOrderingPreemptedWorkloads,
-			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: true},
+			name:  "Some workloads are preempted",
+			input: inputForOrderingPreemptedWorkloads,
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
@@ -9905,7 +9876,6 @@ func TestEntryOrdering(t *testing.T) {
 			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
 			input: inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
 				features.PrioritizePreemptorWorkloads: false,
 			},
 			wantOrder: []string{
@@ -9918,7 +9888,6 @@ func TestEntryOrdering(t *testing.T) {
 			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
 			input: inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:  true,
 				features.PrioritizePreemptorWorkloads: true,
 			},
 			wantOrder: []string{
