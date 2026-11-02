@@ -83,6 +83,7 @@ var errSimulator = errors.New("simulator failure")
 
 type scheduleWorkloadCall struct {
 	consumedCandidates []client.ObjectKey
+	committedVictims   []client.ObjectKey
 	simulateEmpty      bool
 }
 
@@ -139,6 +140,7 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 	}
 	f.receivedCalls = append(f.receivedCalls, scheduleWorkloadCall{
 		consumedCandidates: consumedCandidates,
+		committedVictims:   scheduleOpts.CommittedPreemptionVictims,
 		simulateEmpty:      scheduleOpts.SimulateEmpty,
 	})
 	return res
@@ -353,9 +355,10 @@ func TestPlan(t *testing.T) {
 
 	cases := map[string]struct {
 		// flavorQuotas are the ClusterQueue's flavors, in order. See newTestSnapshot.
-		flavorQuotas   []kueue.FlavorQuotas
-		podSets        []testPodSet
-		unhealthyNodes []string
+		flavorQuotas     []kueue.FlavorQuotas
+		podSets          []testPodSet
+		unhealthyNodes   []string
+		committedVictims []client.ObjectKey
 		// initialMode documents the quota-based mode computed by the flavor assigner.
 		initialMode flavorassigner.FlavorAssignmentMode
 		// When set as Nil, ScheduleWorkload is expected not to be called.
@@ -509,6 +512,31 @@ func TestPlan(t *testing.T) {
 					Mode:                  flavorassigner.NoFit,
 					PreemptionPossibility: new(policy.Preempt),
 					NoFitReason:           kueue.WorkloadQuotaReservedReasonSimulationFailed,
+				}},
+			}},
+		},
+		"initial assignment fits quota, ScheduleWorkload succeeds with committed victims: demotes to DeferredFit and fits": {
+			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			committedVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			},
+			wantMode: flavorassigner.DeferredFit,
+			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{committedVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				TopologyAssignment: onNodes(domain(testNode1, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor: testFlavor,
+					Mode:   flavorassigner.Fit,
 				}},
 			}},
 		},
@@ -1015,8 +1043,12 @@ func TestPlan(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
+			var opts []assignment.PlannerOption
+			if len(tc.committedVictims) > 0 {
+				opts = append(opts, assignment.WithCommittedPreemptionVictims(tc.committedVictims))
+			}
 			planner := NewPlanner(wl, snapshot, preemptor)
-			gotPlan := planner.Plan(ctx, &initialAssignment)
+			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
 
 			// Then
 			if gotPlan.Assignment != &initialAssignment {
@@ -1500,7 +1532,20 @@ func TestPlan_CommittedVictims(t *testing.T) {
 		wantPreemptionTargets  []client.ObjectKey
 		wantTopologyAssignment *tas.TopologyAssignment
 	}{
-		"committed victim alone allows fit without preempting candidates": {
+		"committed victim not needed for placement: fits immediately on free capacity": {
+			cqQuota: "12",
+			admittedWorkloads: []*kueue.Workload{
+				committed6Node1.Clone().Obj(),
+			},
+			committedVictims: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "committed-victim"},
+			},
+			requestedCPU:           "6",
+			initialMode:            flavorassigner.Fit,
+			wantMode:               flavorassigner.Fit,
+			wantTopologyAssignment: onNodes(domain(testNode2, 1)),
+		},
+		"committed victim needed for placement: deferred fit without preempting candidates": {
 			cqQuota: "12",
 			admittedWorkloads: []*kueue.Workload{
 				committed6Node1.Clone().Obj(),
@@ -1511,7 +1556,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			},
 			requestedCPU:           "6",
 			initialMode:            flavorassigner.Fit,
-			wantMode:               flavorassigner.Fit,
+			wantMode:               flavorassigner.DeferredFit,
 			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
 		},
 		"committed victim and one preemption candidate needed to fit when quota fits": {
@@ -1655,7 +1700,10 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, tc.wantMode)
 			}
-			wantFit := tc.wantMode == flavorassigner.Fit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
+			if gotFlavorMode := gotPlan.Assignment.PodSets[0].Flavors[corev1.ResourceCPU].Mode; gotFlavorMode != tc.wantMode {
+				t.Errorf("Plan() PodSets[0].Flavors[cpu].Mode = %v, want %v", gotFlavorMode, tc.wantMode)
+			}
+			wantFit := tc.wantMode == flavorassigner.Fit || tc.wantMode == flavorassigner.DeferredFit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
 			if gotFit := gotPlan.CanFit(); gotFit != wantFit {
 				t.Errorf("Plan() CanFit() = %v, want %v", gotFit, wantFit)
 			}

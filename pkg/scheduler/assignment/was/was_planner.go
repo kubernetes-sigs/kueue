@@ -134,9 +134,14 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	}
 
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		placementSummary, failures, _, err = p.schedule(ctx, pods, schedOpts...)
+		var preemptionVictims []client.ObjectKey
+		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, schedOpts...)
 		if err != nil {
 			return nil, nil, nil, err
+		}
+		if len(failures) == 0 && len(preemptionVictims) > 0 {
+			assignment.DemoteTo(flavorassigner.DeferredFit)
+			return placementSummary, nil, nil, nil
 		}
 		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
 			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
