@@ -47,6 +47,10 @@ type Assignment struct {
 	// for reuse in subsequent scheduling attempts.
 	FlavorScanState workload.FlavorScanState
 
+	// WaitingForResidualTASPods distinguishes physical cleanup from overlapping
+	// preemptions, so the next cycle can explore another flavor while waiting.
+	WaitingForResidualTASPods bool
+
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
 	// is set, this represents only the delta usage (new - old) to avoid double-counting

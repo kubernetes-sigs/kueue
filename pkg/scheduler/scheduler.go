@@ -488,15 +488,16 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		if e.assignment.WaitingForResidualTASPods {
+			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
+		} else {
+			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+			// Restart after overlapping preemptions; residual waits keep progress
+			// so an alternate flavor can be explored while Pods remain bound.
+			e.FlavorScanState = nil
+		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		// Clear FlavorScanState to force a full re-evaluation of all flavors in the next cycle.
-		// Since we are deferring admission until in-flight preemptions complete, the cluster
-		// state will change. Retaining the current assignment could lock the workload into a
-		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
-		// become available.
-		e.FlavorScanState = nil
 		bookUsage(log, snapshot, cq, e)
 		return
 	}
@@ -779,6 +780,9 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) bool {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
+		return false
+	}
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
@@ -920,7 +924,16 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
-	fullAssignment := flvAssigner.Assign(ctx, nil)
+	assign := func(counts workload.PodSetsCounts) flavorassigner.Assignment {
+		assignment := flvAssigner.AssignFlavors(ctx, log.FromContext(ctx), counts)
+		quotaMode := assignment.RepresentativeMode()
+		flvAssigner.AssignTopology(ctx, log.FromContext(ctx), &assignment)
+		if assignment.RepresentativeMode() != flavorassigner.Fit {
+			s.deferForResidualTASPods(ctx, wl, snap, &assignment, quotaMode)
+		}
+		return assignment
+	}
+	fullAssignment := assign(nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -936,13 +949,13 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 
 	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts workload.PodSetsCounts) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, nextCounts)
+			assignment := assign(nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
 
-			if mode == flavorassigner.Preempt {
+			if mode == flavorassigner.Preempt && !fullAssignment.WaitingForResidualTASPods {
 				preemptionTargets := s.preemptor.GetTargets(ctx, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
@@ -955,6 +968,65 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 	return fullAssignment, nil
+}
+
+func (s *Scheduler) deferForResidualTASPods(
+	ctx context.Context,
+	wl *workload.Info,
+	snapshot *schdcache.Snapshot,
+	assignment *flavorassigner.Assignment,
+	quotaMode flavorassigner.FlavorAssignmentMode,
+) bool {
+	log := log.FromContext(ctx)
+	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+	if !features.Enabled(features.TASResidualPodAccounting) || !features.Enabled(features.TopologyAwareScheduling) || quotaMode == flavorassigner.NoFit ||
+		(!workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) && !cq.IsTASOnly()) {
+		return false
+	}
+	tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
+	if len(tasRequests) == 0 {
+		return false
+	}
+	for _, ps := range assignment.PodSets {
+		if ps.Status.IsError() {
+			return false
+		}
+	}
+	restoreResidual, found := snapshot.SimulateResidualTASPodRelease(ctx, log, wl)
+	defer restoreResidual()
+	if !found {
+		return false
+	}
+	result := assignment.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkload(wl.Obj))
+	if quotaMode != flavorassigner.Fit || result.Failure() != nil {
+		// Quota can be released by different victims in different cycles. Wait
+		// only when the normal selector requires no additional eviction.
+		targets := s.preemptor.GetTargets(ctx, *wl, *assignment, snapshot)
+		if len(targets) == 0 {
+			return false
+		}
+		victims := make([]*workload.Info, 0, len(targets))
+		for _, target := range targets {
+			if !workloadevict.IsEvicted(target.WorkloadInfo.Obj) {
+				return false
+			}
+			victims = append(victims, target.WorkloadInfo)
+		}
+		restoreUsage := snapshot.SimulateWorkloadRemoval(victims)
+		defer restoreUsage()
+		result = assignment.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkload(wl.Obj))
+	}
+	if result.Failure() != nil {
+		return false
+	}
+	for i := range assignment.PodSets {
+		assignment.PodSets[i].Status = flavorassigner.Status{}
+	}
+	assignment.NoFitReason = ""
+	assignment.UpdateForTASResult(log, cq, wl, result)
+	assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	assignment.WaitingForResidualTASPods = true
+	return true
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {

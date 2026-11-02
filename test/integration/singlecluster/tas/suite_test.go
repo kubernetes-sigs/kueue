@@ -49,10 +49,11 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg            *rest.Config
+	k8sClient      client.Client
+	ctx            context.Context
+	fwk            *framework.Framework
+	schedulerCache *schdcache.Cache
 	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
 	qManager *qcache.Manager
 )
@@ -118,6 +119,7 @@ func managerSetupWithClientTransform(
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+		schedulerCache = cCache
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithResourceTransformations(resourceTransformations),

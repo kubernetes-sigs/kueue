@@ -290,7 +290,9 @@ func New(
 func (a *FlavorAssigner) Assign(ctx context.Context, counts workload.PodSetsCounts) Assignment {
 	log := log.FromContext(ctx)
 
-	return a.assignFlavors(ctx, log, counts)
+	assignment := a.AssignFlavors(ctx, log, counts)
+	a.AssignTopology(ctx, log, &assignment)
+	return assignment
 }
 
 type indexedPodSet struct {
@@ -299,7 +301,8 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts workload.PodSetsCounts) Assignment {
+// AssignFlavors selects flavors and checks quota before topology placement.
+func (a *FlavorAssigner) AssignFlavors(ctx context.Context, log logr.Logger, counts workload.PodSetsCounts) Assignment {
 	// Second-pass requests follow admission order, while flavor scan state follows
 	// spec order. Use the request's spec index for the lookups below.
 	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
@@ -516,6 +519,14 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		return assignment
 	}
 
+	return assignment
+}
+
+// AssignTopology applies topology placement to a quota assignment.
+func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
+	if assignment.RepresentativeMode() == NoFit {
+		return
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
@@ -569,7 +580,6 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		assignment.resolveNoFitReason(a.cq)
 	}
-	return assignment
 }
 
 // resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors

@@ -5070,6 +5070,17 @@ func TestAssignFlavors(t *testing.T) {
 					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 				}
 
+				split := flvAssigner.AssignFlavors(ctx, log, tc.counts)
+				flvAssigner.AssignTopology(ctx, log, &split)
+				if diff := cmp.Diff(assignment, split,
+					cmpopts.EquateEmpty(), cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
+					statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
+				); diff != "" {
+					t.Errorf("split phases changed Assign result (-wrapper,+split):\n%s", diff)
+				}
+				if assignment.FlavorScanState.PendingFlavors() != split.FlavorScanState.PendingFlavors() {
+					t.Error("split phases changed flavor scan progress")
+				}
 				flexAssertConsidered(t, tc.wantAssignment, assignment, cmpOpts...)
 			})
 		}
