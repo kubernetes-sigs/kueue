@@ -1135,6 +1135,9 @@ func TestScheduleWorkload(t *testing.T) {
 	key := func(name string) client.ObjectKey {
 		return client.ObjectKey{Namespace: ns, Name: name}
 	}
+	failedPlacement := func(reason string) *simulator.PodPlacement {
+		return &simulator.PodPlacement{Error: errors.New(reason), Reasons: []string{reason}}
+	}
 
 	// otherSchedulerPod is a workload Pod naming a scheduler the simulator does not build.
 	otherSchedulerPod := workloadPod("p", "pg").Obj()
@@ -1190,7 +1193,7 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
 			wantPlacements: simulator.PodPlacements{
-				key("p"): {Reasons: []string{FailedReasonSkipped}},
+				key("p"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
 			},
 		},
 		"pods of the workload are each placed on their feasible node": {
@@ -1214,13 +1217,15 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Reasons: []string{FailedReasonSkipped}},
-				key("p2"): {Reasons: []string{FailedReasonSkipped}},
+				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
 			},
 		},
 		// The library tries the Pods in order and stops at the first one that
-		// does not fit; when the PodGroup fails to schedule, PodResults is empty
-		// so all pods are reported as skipped.
+		// does not fit:
+		//   - "fits" fits tentatively, then gets the PodGroup's unschedulable status;
+		//   - "errors" fails with preFilterErrorPlugin's error;
+		//   - "skipped1" and "skipped2" are not tried and also get the PodGroup's status.
 		"pods placed, errored and skipped by the library": {
 			podGroups:     []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
 			simulatorOpts: []testSimulatorOption{withPreFilterErrorPlugin},
@@ -1231,10 +1236,10 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("skipped2", "pg").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("fits"):     {Reasons: []string{FailedReasonSkipped}},
-				key("errors"):   {Reasons: []string{FailedReasonSkipped}},
-				key("skipped1"): {Reasons: []string{FailedReasonSkipped}},
-				key("skipped2"): {Reasons: []string{FailedReasonSkipped}},
+				key("fits"):     failedPlacement("pod group is unschedulable"),
+				key("errors"):   failedPlacement(`running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
+				key("skipped1"): failedPlacement("pod group is unschedulable"),
+				key("skipped2"): failedPlacement("pod group is unschedulable"),
 			},
 		},
 		"node resources: only one of two pods fits: the workload fails": {
@@ -1253,8 +1258,8 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Reasons: []string{FailedReasonSkipped}},
-				key("p2"): {Reasons: []string{FailedReasonSkipped}},
+				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("0/2 nodes are available: 2 Insufficient cpu."),
 			},
 		},
 		// Ensure 6cpu pod ends up on the 8cpu node, and 3cpu pod on the 4cpu node.
@@ -1459,8 +1464,8 @@ func TestScheduleWorkload(t *testing.T) {
 				simulator.WithCommittedPreemptionVictims([]client.ObjectKey{key("victim1"), key("victim2"), key("no-pod-workload")}),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Reasons: []string{FailedReasonSkipped}},
-				key("p2"): {Reasons: []string{FailedReasonSkipped}},
+				key("p1"): failedPlacement("0/2 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector."),
+				key("p2"): failedPlacement("pod group is unschedulable"),
 			},
 		},
 		"preemption: pod fits on node after preempting candidate workload": {
@@ -1585,8 +1590,8 @@ func TestScheduleWorkload(t *testing.T) {
 				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1")})),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Reasons: []string{FailedReasonSkipped}},
-				key("p2"): {Reasons: []string{FailedReasonSkipped}},
+				key("p1"): failedPlacement("0/1 nodes are available: 1 Insufficient cpu."),
+				key("p2"): failedPlacement("pod group is unschedulable"),
 			},
 		},
 		"preemption with filter: pod fits on free node, filter selects minimal initial segment of victims and reprieves unneeded ones": {
@@ -1699,7 +1704,7 @@ func TestScheduleWorkload(t *testing.T) {
 				simulator.WithSimulateEmpty(true),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p"): {Reasons: []string{FailedReasonSkipped}},
+				key("p"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
 			},
 		},
 	}

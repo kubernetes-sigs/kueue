@@ -1116,7 +1116,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-						Message:            `couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: skipped. Pending the preemption of 1 workload(s)`,
+						Message:            `couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: 0/1 nodes are available: 1 Insufficient cpu.. Pending the preemption of 1 workload(s)`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1184,7 +1184,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 					Message("Preempted workload default/low-priority-admitted (UID: low-priority-admitted-uid) in ClusterQueue tas-main; preemptor effective priority: 3 (base: 3, boost: 0); preemptee effective priority: 1 (base: 1, boost: 0)").
 					Obj(),
 				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, "Warning").
-					Message(`couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: skipped. Pending the preemption of 1 workload(s)`).
+					Message(`couldn't assign flavors to pod set one: pod: default/virtual-foo-one-0-2da20, failure reason: 0/1 nodes are available: 1 Insufficient cpu.. Pending the preemption of 1 workload(s)`).
 					Obj(),
 			},
 		},
