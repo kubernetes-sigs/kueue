@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -258,7 +257,7 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
-		reportTreeAdmittedActiveWorkloads(root)
+		c.reportTreeAdmittedActiveWorkloads(root)
 	}
 }
 
@@ -273,13 +272,13 @@ func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort)
 	if oldParent == newParent {
 		return
 	}
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
-	reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
+	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
 }
 
-func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+func (c *Cache) reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 	if cohort != nil && !hierarchy.HasCycle(cohort) {
-		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+		c.reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
 	}
 }
 
@@ -290,53 +289,17 @@ func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 // Per-label totals are accumulated in one bottom-up pass so a rebuild does
 // not walk the subtree once per ClusterQueue. Workload events still report
 // through reportCohortSubtreeAdmittedActiveWorkloads.
-func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
-	reportAdmittedByLabels(cohort)
-}
-
-// cqLabelKey is a comparable ClusterQueue custom-label value set.
-type cqLabelKey struct {
-	vals [metrics.MaxCustomLabelsForSourceKind]string
-	n    int
-}
-
-func cqLabelKeyOf(clVals []string) cqLabelKey {
-	var k cqLabelKey
-	k.n = copy(k.vals[:], clVals)
-	return k
-}
-
-func (k cqLabelKey) values() []string {
-	if k.n == 0 {
-		return nil
-	}
-	return k.vals[:k.n]
-}
-
-// reportAdmittedByLabels walks the subtree once, accumulating admitted
-// Workload counts per ClusterQueue label set, and reports each Cohort.
-func reportAdmittedByLabels(cohort *cohort) (map[cqLabelKey]int, *roletracker.RoleTracker) {
+func (c *Cache) reportTreeAdmittedActiveWorkloads(cohort *cohort) *metrics.LabelValsTracker {
 	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
-	totals := make(map[cqLabelKey]int)
-	var tracker *roletracker.RoleTracker
-
+	totals := metrics.NewLabelValsTracker()
 	for _, child := range cohort.ChildCohorts() {
-		childTotals, childTracker := reportAdmittedByLabels(child)
-		for key, count := range childTotals {
-			totals[key] += count
-		}
-		if tracker == nil {
-			tracker = childTracker
-		}
+		totals = metrics.MergedTracker(totals, c.reportTreeAdmittedActiveWorkloads(child))
 	}
 	for _, cq := range cohort.ChildCQs() {
-		totals[cqLabelKeyOf(cq.GetCustomLabelValues())] += cq.admittedWorkloadsCount
-		if tracker == nil {
-			tracker = cq.roleTracker
-		}
+		totals.Add(metrics.ValsSetFrom(cq.GetCustomLabelValues()), cq.admittedWorkloadsCount)
 	}
-	for key, count := range totals {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, key.values(), tracker)
+	for ls, count := range totals.Iter() {
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(cohort.Name, count, ls.OrderedList(), c.roleTracker)
 	}
-	return totals, tracker
+	return totals
 }

@@ -727,6 +727,16 @@ func TestLabelValsTracker(t *testing.T) {
 	}
 }
 
+func TestValsSetFrom(t *testing.T) {
+	got := ValsSetFrom([]string{"v1", "v2"})
+	if diff := cmp.Diff([]string{"v1", "v2"}, got.OrderedList()); diff != "" {
+		t.Errorf("unexpected OrderedList: %s", diff)
+	}
+	if ValsSetFrom(nil) != EmptyValsSet() {
+		t.Error("expected ValsSetFrom(nil) to equal EmptyValsSet")
+	}
+}
+
 var allSourceKinds = []configapi.SourceKind{
 	configapi.SourceKindClusterQueue,
 	configapi.SourceKindLocalQueue,

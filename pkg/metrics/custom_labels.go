@@ -427,6 +427,13 @@ func EmptyValsSet() labelValsSet {
 	return labelValsSet{}
 }
 
+// ValsSetFrom wraps a custom-label value list as a comparable set.
+func ValsSetFrom(vals []string) labelValsSet {
+	var ls labelValsSet
+	ls.size = copy(ls.vals[:], vals)
+	return ls
+}
+
 func (s *labelValsSet) OrderedList() []string {
 	return s.vals[:s.size]
 }
