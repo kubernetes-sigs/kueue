@@ -66,7 +66,13 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey], c
 }
 
 func (s *wasSimulator) committedVictims(victimWorkloads []client.ObjectKey) []schedlib.PreemptionVictim {
-	cv := make([]schedlib.PreemptionVictim, 0)
+	trackerVictims := s.pods.PreempteePods()
+	totalVictims := len(victimWorkloads) + len(trackerVictims)
+	if totalVictims == 0 {
+		return nil
+	}
+
+	cv := make([]schedlib.PreemptionVictim, 0, totalVictims)
 	present := sets.New[client.ObjectKey]()
 	for _, preemptedWlKey := range victimWorkloads {
 		if present.Has(preemptedWlKey) {
