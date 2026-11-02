@@ -139,17 +139,23 @@ type WorkloadSchedulingResult struct {
 	//   - [fwk.Success]: the workload fits on the initial attempt without preemption (or the input pod slice is empty).
 	//   - [fwk.Unschedulable]: the workload does not fit without preemption (either on the initial
 	//     scheduling attempt or according to [PreemptionFilter.MayFit]). If preemption was successful,
-	//     status will be Unschedulable and [WorkloadSchedulingResult.PodResults] and
-	//     [WorkloadSchedulingResult.PreemptionVictims] will be set.
+	//     status will be Unschedulable, [WorkloadSchedulingResult.PreemptionVictims] will be set, and
+	//     [WorkloadSchedulingResult.PodResults] will contain the proposed pod assignments.
+	//     If preemption was not configured or was unsuccessful, [WorkloadSchedulingResult.PreemptionVictims]
+	//     will be empty and [WorkloadSchedulingResult.PodResults] will contain per-pod failure statuses
+	//     from the initial scheduling attempt (or be empty if the initial attempt was skipped by [PreemptionFilter.MayFit]).
 	//   - [fwk.UnschedulableAndUnresolvable]: a root-level PlacementGenerate or Permit plugin rejected the workload
 	//     as unresolvable (preemption is skipped).
 	//   - [fwk.Error]: hierarchy validation, framework resolution, plugin execution, or preemption failed with an error.
 	Status *fwk.Status
 
-	// PodResults stores assignments from pods to nodes.
-	// If both scheduling and preemption were unsuccessful, this will be empty.
-	// It is a subset of pods specified in the input.
-	// In particular, it can contain fewer pods than provided when the hierarchy satisfies the gang quorum without needing to schedule every pod.
+	// PodResults stores per-pod scheduling outcomes.
+	// When scheduling or preemption succeeds, each entry carries the assigned SelectedNodeName and a nil (Success) Status.
+	// When both scheduling and preemption are unsuccessful, it contains the pods from the initial attempt,
+	// with empty SelectedNodeName and Status explaining why each pod or its pod group could not be scheduled
+	// (or is empty when the initial attempt was skipped by [PreemptionFilter.MayFit] or when Status has code [fwk.Error]).
+	// On success, it can be a subset of pods specified in the input when the hierarchy satisfies the gang quorum
+	// without needing to schedule every pod.
 	PodResults []SchedulingResult
 
 	// PreemptionVictims is the final set of victims determined by the scheduling algorithm to be required for the workload to fit.
