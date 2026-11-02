@@ -1122,14 +1122,8 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 		// from several unhealthy nodes at once. Drop every node the new
 		// assignment no longer uses; a node that is still assigned is kept for a
 		// later pass.
-		usedNodes := assignedNodeNames(wl)
 		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
-			if n.Name == replacedNodeName {
-				return true
-			}
-			// Without a hostname-scoped assignment the remaining nodes cannot be
-			// mapped back, so only the head is dropped.
-			return usedNodes != nil && !usedNodes.Has(n.Name)
+			return n.Name == replacedNodeName || !utiltas.HasTASAssignmentOnNode(wl.Status.Admission, n.Name)
 		})
 		log.V(5).Info("Dropping the unhealthy nodes the new topology assignment no longer uses",
 			"replacedNode", replacedNodeName,
@@ -1138,33 +1132,6 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 	}
 	log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
 	wl.Status.UnhealthyNodes = nil
-}
-
-// assignedNodeNames returns the nodes the admitted Workload places pods on.
-// Only hostname-scoped assignments map a domain back to a node name, so the
-// result is nil when the Workload has none.
-func assignedNodeNames(wl *kueue.Workload) sets.Set[string] {
-	if wl.Status.Admission == nil {
-		return nil
-	}
-	used := sets.New[string]()
-	hostnameScoped := false
-	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		ta := psa.TopologyAssignment
-		if ta == nil || !utiltas.IsLowestLevelHostname(ta.Levels) {
-			continue
-		}
-		hostnameScoped = true
-		for domain := range utiltas.InternalSeqFrom(ta) {
-			if domain.Count > 0 && len(domain.Values) > 0 {
-				used.Insert(domain.Values[len(domain.Values)-1])
-			}
-		}
-	}
-	if !hostnameScoped {
-		return nil
-	}
-	return used
 }
 
 func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) {
