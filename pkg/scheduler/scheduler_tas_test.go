@@ -170,7 +170,7 @@ func TestUpdateUnhealthyNodesAfterTASReplacement(t *testing.T) {
 			wl:   makeWorkload([]string{"x1"}, hostnameAssignment("leader", 1, "x2")),
 			want: nil,
 		},
-		"without a hostname-scoped assignment only the head is dropped": {
+		"without a hostname-scoped assignment no unhealthy node maps back": {
 			multipleNodes: true,
 			wl: makeWorkload([]string{"x1", "x2"},
 				utiltestingapi.MakePodSetAssignment("leader").
@@ -179,7 +179,7 @@ func TestUpdateUnhealthyNodesAfterTASReplacement(t *testing.T) {
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
 						Obj()).
 					Obj()),
-			want: []kueue.UnhealthyNode{{Name: "x2"}},
+			want: nil,
 		},
 	}
 	for name, tc := range cases {
