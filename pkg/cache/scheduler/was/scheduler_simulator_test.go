@@ -39,6 +39,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -50,8 +51,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -1098,54 +1099,36 @@ func newTestSimulatorWithPodGroups(
 	opts ...testSimulatorOption,
 ) *wasSimulator {
 	t.Helper()
-	kubeClient := fake.NewSimpleClientset()
-	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
-	_ = informerFactory.Core().V1().Nodes().Informer()
-	_ = informerFactory.Core().V1().Pods().Informer()
 	cfg := newWASSchedulerConfig()
 	registry := frameworkruntime.Registry{}
 	for _, opt := range opts {
 		opt(&cfg.Profiles[0], registry)
 	}
-	comps, err := upstreamsync.NewFrameworkComponents(ctx, kubeClient, informerFactory,
-		upstreamsync.WithProfiles(cfg.Profiles...),
-		upstreamsync.WithFrameworkOutOfTreeRegistry(registry))
+	roClient, err := schedLibSimulator.NewReadonlyClient(&rest.Config{Host: offlineHost})
 	if err != nil {
-		t.Fatalf("NewFrameworkComponents failed: %v", err)
+		t.Fatalf("NewReadonlyClient failed: %v", err)
 	}
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
-		t.Fatalf("WaitForCacheSync failed: %v", err)
-	}
-	if err := comps.WaitForHandlersSync(ctx); err != nil {
-		t.Fatalf("WaitForHandlersSync failed: %v", err)
-	}
-
-	snap := cache.NewTestSnapshotWithPodGroups(existingPods, nodes, podGroups)
-	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+	factory, err := newWASSimulatorFactory(ctx, cfg, roClient, schedLibSimulator.WithOutOfTreeRegistry(registry))
 	if err != nil {
-		t.Fatalf("NewFrameworkMap failed: %v", err)
+		t.Fatalf("newWASSimulatorFactory failed: %v", err)
 	}
-	framework.ApplySimulationNeutralizers(profiles)
+	clusterSnap, err := factory.newSnapshot(ctx, existingPods, nodes, podGroups)
+	if err != nil {
+		t.Fatalf("newSnapshot failed: %v", err)
+	}
 
 	tracker := &podtracker.Tracker{}
 	for _, pod := range existingPods {
 		tracker.Track(pod)
 	}
 	sim := &wasSimulator{
-		wasSnapshot:        schedLibSnapshot.New(snap, profiles),
+		wasSnapshot:        clusterSnap,
 		pods:               tracker,
 		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
 		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}
-	sim.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
-		emptySnap := cache.NewTestSnapshotWithPodGroups(podsNotManagedByKueue(existingPods), nodes, podGroups)
-		emptyProfiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, emptySnap)
-		if err != nil {
-			return nil, err
-		}
-		framework.ApplySimulationNeutralizers(emptyProfiles)
-		return schedLibSnapshot.New(emptySnap, emptyProfiles), nil
+	sim.emptyCluster.build = func(ctx context.Context) (schedLibSimulator.Simulator, error) {
+		return factory.newSnapshot(ctx, podsNotManagedByKueue(existingPods), nodes, podGroups)
 	}
 	return sim
 }
