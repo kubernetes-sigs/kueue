@@ -34,6 +34,20 @@ func TestFeatureGate(t *testing.T) {
 	}
 }
 
+func TestTASResidualPodAccountingAlphaDefault(t *testing.T) {
+	specs := defaultVersionedFeatureGates[TASResidualPodAccounting]
+	if len(specs) != 1 {
+		t.Fatalf("feature has %d version entries, want one Alpha entry", len(specs))
+	}
+	spec := specs[0]
+	if spec.Default || spec.PreRelease != featuregate.Alpha || spec.Version.Major() != 0 || spec.Version.Minor() != 20 {
+		t.Errorf("feature spec = %+v, want default-disabled Alpha for 0.20", spec)
+	}
+	if Enabled(TASResidualPodAccounting) {
+		t.Error("Alpha residual Pod accounting must be disabled by default")
+	}
+}
+
 func TestSetFeatureGatesDuringTest(t *testing.T) {
 	cases := map[string]struct {
 		input     map[featuregate.Feature]bool
@@ -48,6 +62,10 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				TopologyAwareScheduling:          true,
 				TASFailedNodeReplacement:         true,
 			},
+		},
+		"enable residual accounting sets TAS": {
+			input:     map[featuregate.Feature]bool{TASResidualPodAccounting: true},
+			wantState: map[featuregate.Feature]bool{TASResidualPodAccounting: true, TopologyAwareScheduling: true},
 		},
 		"enable multiple node replacement sets parents": {
 			input: map[featuregate.Feature]bool{
@@ -66,6 +84,7 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 			wantState: map[featuregate.Feature]bool{
 				TopologyAwareScheduling:          false,
 				TASFailedNodeReplacementFailFast: false,
+				TASResidualPodAccounting:         false,
 			},
 		},
 		"explicit map values take precedence over implicit dependency resolution": {
