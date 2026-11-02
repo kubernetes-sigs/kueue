@@ -90,8 +90,7 @@ type CohortReconciler struct {
 	roleTracker        *roletracker.RoleTracker
 	customLabels       *metrics.CustomLabels
 	// cqNotifyPending holds the Cohorts whose ClusterQueues the next Reconcile
-	// notifies: the Cohort's spec or quotas changed, or, with fair sharing, a
-	// ClusterQueue under it was created, deleted or changed its spec or quotas.
+	// notifies, because the Cohort was created or changed its spec or quotas.
 	// A Cohort requeued because a ClusterQueue wrote its status does not notify
 	// its ClusterQueues: that reconciled every ClusterQueue in the tree, and
 	// their status writes requeued the Cohort again.
@@ -225,6 +224,9 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 	if specOrQuotaUpdated {
 		r.addOrUpdateCohortInMemory(e.ObjectNew)
 		r.markClusterQueueNotification(kueue.CohortReference(e.ObjectNew.GetName()))
+		if e.ObjectOld.Spec.ParentName != e.ObjectNew.Spec.ParentName {
+			r.notifyTreeLeft(e.ObjectOld.Spec.ParentName)
+		}
 	}
 	return true
 }
@@ -238,8 +240,18 @@ func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool 
 		log.V(2).Info("Cohort delete event")
 		r.removeCohortInMemory(log, kueue.CohortReference(e.Object.GetName()))
 		r.clearClusterQueueNotification(kueue.CohortReference(e.Object.GetName()))
+		r.notifyTreeLeft(e.Object.Spec.ParentName)
 	}
 	return true
+}
+
+// notifyTreeLeft notifies the ClusterQueues of the tree a Cohort left with its
+// quota, which, with fair sharing, their weighted shares divided by. Reconcile
+// notifies the tree the Cohort joined.
+func (r *CohortReconciler) notifyTreeLeft(oldParent kueue.CohortReference) {
+	if r.fairSharingEnabled && oldParent != "" {
+		r.notifyWatchers(nil, &kueue.Cohort{Name: string(oldParent)})
+	}
 }
 
 // addOrUpdateCohortInMemory adds or updates the Cohort in the scheduler cache
@@ -384,7 +396,8 @@ func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQ
 // status and metrics follow its usage. Other ClusterQueues' status depends on
 // it only through fair sharing, whose weighted share divides borrowing by the
 // tree's lendable quota, so only then does a ClusterQueue created, deleted or
-// changed in spec or quotas make the ancestors notify their ClusterQueues.
+// changed in spec or quotas notify its tree. The handler notifies the tree
+// itself, since the ancestors leave out the root.
 type cohortCqHandler struct {
 	reconciler *CohortReconciler
 }
@@ -411,16 +424,19 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.TypedGenericEvent
 		return
 	}
 
-	ancestors := h.ancestors(ctx, cq)
+	cqs := []*kueue.ClusterQueue{cq}
 	// A ClusterQueue that moved leaves its old tree to update too.
 	if oldCQ != nil && newCQ != nil && oldCQ.Spec.CohortName != newCQ.Spec.CohortName {
-		ancestors = append(ancestors, h.ancestors(ctx, oldCQ)...)
+		cqs = append(cqs, oldCQ)
 	}
-	if h.reconciler.fairSharingEnabled && (oldCQ == nil || newCQ == nil || clusterQueueSpecOrQuotaUpdated(oldCQ, newCQ)) {
-		h.reconciler.markClusterQueueNotification(ancestors...)
-	}
-	for _, ancestor := range ancestors {
-		q.Add(reconcile.Request{Name: string(ancestor)})
+	notifyTree := h.reconciler.fairSharingEnabled && (oldCQ == nil || newCQ == nil || clusterQueueSpecOrQuotaUpdated(oldCQ, newCQ))
+	for _, cq := range cqs {
+		for _, ancestor := range h.ancestors(ctx, cq) {
+			q.Add(reconcile.Request{Name: string(ancestor)})
+		}
+		if notifyTree && cq.Spec.CohortName != "" {
+			h.reconciler.notifyWatchers(nil, &kueue.Cohort{Name: string(cq.Spec.CohortName)})
+		}
 	}
 }
 
