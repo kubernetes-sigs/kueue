@@ -1,0 +1,512 @@
+{
+  "checkpoints": [
+    {
+      "assertion": "ClusterQueue preemption-cq Active=True; Workload pr-evidence/wl-admitted Admitted=True",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 0,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "0"
+                }
+              ]
+            }
+          ],
+          "name": "preemption-cq",
+          "pendingWorkloads": 0,
+          "reservingWorkloads": 0
+        }
+      ],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-admitted",
+            "namespace": "pr-evidence"
+          },
+          "message": "Quota reserved in ClusterQueue preemption-cq, wait time since queued was <duration>",
+          "order": 0,
+          "reason": "QuotaReserved",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-admitted",
+            "namespace": "pr-evidence"
+          },
+          "message": "Admitted by ClusterQueue preemption-cq, wait time since reservation was <duration>",
+          "order": 1,
+          "reason": "Admitted",
+          "type": "Normal"
+        }
+      ],
+      "index": 0,
+      "localQueues": [
+        {
+          "admittedWorkloads": 0,
+          "clusterQueue": "preemption-cq",
+          "name": "preemption-queue",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 0,
+          "reservingWorkloads": 0
+        }
+      ],
+      "name": "admitted",
+      "workloads": [
+        {
+          "admission": {
+            "clusterQueue": "preemption-cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "The workload is admitted",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            },
+            {
+              "message": "Quota reserved in ClusterQueue preemption-cq",
+              "reason": "QuotaReserved",
+              "status": "True",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-admitted",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        }
+      ]
+    },
+    {
+      "assertion": "Workload pr-evidence/wl-pending QuotaReserved=False; ClusterQueue preemption-cq status.pendingWorkloads == 1",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 1,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "2"
+                }
+              ]
+            }
+          ],
+          "name": "preemption-cq",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-pending",
+            "namespace": "pr-evidence"
+          },
+          "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+          "order": 2,
+          "reason": "WaitingForQuota",
+          "type": "Warning"
+        }
+      ],
+      "index": 1,
+      "localQueues": [
+        {
+          "admittedWorkloads": 1,
+          "clusterQueue": "preemption-cq",
+          "name": "preemption-queue",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "name": "second-pending",
+      "workloads": [
+        {
+          "admission": {
+            "clusterQueue": "preemption-cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "The workload is admitted",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            },
+            {
+              "message": "Quota reserved in ClusterQueue preemption-cq",
+              "reason": "QuotaReserved",
+              "status": "True",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-admitted",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        },
+        {
+          "admission": null,
+          "conditions": [
+            {
+              "message": "The workload has no reservation",
+              "reason": "NoReservation",
+              "status": "False",
+              "type": "Admitted"
+            },
+            {
+              "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+              "reason": "WaitingForQuota",
+              "status": "False",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-pending",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        }
+      ]
+    },
+    {
+      "assertion": "Workload pr-evidence/wl-admitted Evicted=True (Preempted)",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 1,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "2"
+                }
+              ]
+            }
+          ],
+          "name": "preemption-cq",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-admitted",
+            "namespace": "pr-evidence"
+          },
+          "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq",
+          "order": 3,
+          "reason": "EvictedDueToPreempted",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-admitted",
+            "namespace": "pr-evidence"
+          },
+          "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq; preemptor effective priority: 0 (base: 0, boost: 0); preemptee effective priority: -100 (base: 0, boost: -100)",
+          "order": 4,
+          "reason": "Preempted",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-pending",
+            "namespace": "pr-evidence"
+          },
+          "message": "Preempted workload pr-evidence/wl-admitted (UID: <uid>) in ClusterQueue preemption-cq; preemptor effective priority: 0 (base: 0, boost: 0); preemptee effective priority: -100 (base: 0, boost: -100)",
+          "order": 5,
+          "reason": "PreemptedWorkload",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-pending",
+            "namespace": "pr-evidence"
+          },
+          "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+          "order": 6,
+          "reason": "WaitingForPreemptedWorkloads",
+          "type": "Warning"
+        }
+      ],
+      "index": 2,
+      "localQueues": [
+        {
+          "admittedWorkloads": 1,
+          "clusterQueue": "preemption-cq",
+          "name": "preemption-queue",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "name": "boosted-preempted",
+      "workloads": [
+        {
+          "admission": {
+            "clusterQueue": "preemption-cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "The workload is admitted",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            },
+            {
+              "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq",
+              "reason": "Preempted",
+              "status": "True",
+              "type": "Evicted"
+            },
+            {
+              "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq",
+              "reason": "InClusterQueue",
+              "status": "True",
+              "type": "Preempted"
+            },
+            {
+              "message": "Quota reserved in ClusterQueue preemption-cq",
+              "reason": "QuotaReserved",
+              "status": "True",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-admitted",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        },
+        {
+          "admission": null,
+          "conditions": [
+            {
+              "message": "The workload has no reservation",
+              "reason": "NoReservation",
+              "status": "False",
+              "type": "Admitted"
+            },
+            {
+              "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+              "reason": "WaitingForPreemptedWorkloads",
+              "status": "False",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-pending",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        }
+      ]
+    },
+    {
+      "assertion": "Workload pr-evidence/wl-admitted is evicted; Workload pr-evidence/wl-pending QuotaReserved=True",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 1,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "2"
+                }
+              ]
+            }
+          ],
+          "name": "preemption-cq",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-pending",
+            "namespace": "pr-evidence"
+          },
+          "message": "Quota reserved in ClusterQueue preemption-cq, wait time since queued was <duration>",
+          "order": 7,
+          "reason": "QuotaReserved",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-pending",
+            "namespace": "pr-evidence"
+          },
+          "message": "Admitted by ClusterQueue preemption-cq, wait time since reservation was <duration>",
+          "order": 8,
+          "reason": "Admitted",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "wl-admitted",
+            "namespace": "pr-evidence"
+          },
+          "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+          "order": 9,
+          "reason": "WaitingForQuota",
+          "type": "Warning"
+        }
+      ],
+      "index": 3,
+      "localQueues": [
+        {
+          "admittedWorkloads": 1,
+          "clusterQueue": "preemption-cq",
+          "name": "preemption-queue",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "name": "pending-reserved",
+      "workloads": [
+        {
+          "admission": null,
+          "conditions": [
+            {
+              "message": "The workload has no reservation",
+              "reason": "NoReservation",
+              "status": "False",
+              "type": "Admitted"
+            },
+            {
+              "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq",
+              "reason": "Preempted",
+              "status": "True",
+              "type": "Evicted"
+            },
+            {
+              "message": "Preempted to accommodate a workload (UID: <uid>, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /preemption-cq; preemptee path: /preemption-cq",
+              "reason": "InClusterQueue",
+              "status": "True",
+              "type": "Preempted"
+            },
+            {
+              "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+              "reason": "WaitingForQuota",
+              "status": "False",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-admitted",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        },
+        {
+          "admission": {
+            "clusterQueue": "preemption-cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "The workload is admitted",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            },
+            {
+              "message": "Quota reserved in ClusterQueue preemption-cq",
+              "reason": "QuotaReserved",
+              "status": "True",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-pending",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        }
+      ]
+    }
+  ],
+  "run": {
+    "baseSha": "602de8f1b432103478558cd54de9377146603855",
+    "featureGates": {
+      "PriorityBoost": true
+    },
+    "headSha": "e691e542aa8737bbe1b9c1b0a31238ea4523c2ce",
+    "k8sVersion": "1.37.0",
+    "producer": "kueue-pr-evidence-state-diff",
+    "runner": "envtest",
+    "scenario": "priority-boost-no-wpc",
+    "sha": "e691e542aa8737bbe1b9c1b0a31238ea4523c2ce",
+    "side": "head",
+    "test": "test/integration/singlecluster/scheduler/scheduler_test.go: when PriorityBoost is enabled, boosting an admitted Workload without a WorkloadPriorityClass, re-evaluates pending Workloads"
+  },
+  "schemaVersion": "pr-evidence.capture/v1"
+}

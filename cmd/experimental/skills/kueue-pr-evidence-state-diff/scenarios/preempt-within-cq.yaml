@@ -1,0 +1,78 @@
+# Within-ClusterQueue preemption: two low-priority Workloads fill a 4-CPU queue.
+# A higher-priority Workload evicts only the lowest-priority one (-2), and that
+# victim goes back to pending. Reduced from the single-ClusterQueue spec.
+name: preempt-within-cq
+description: >-
+  A higher-priority Workload preempts only the lowest-priority admitted Workload
+  in its own ClusterQueue, and the victim becomes pending.
+test: "test/integration/singlecluster/scheduler/preemption_test.go: In a single ClusterQueue, Should preempt Workloads with lower priority when there is not enough quota"
+namespaces: [pr-evidence]
+timeout: 10s
+steps:
+  - apply: |
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ResourceFlavor
+      metadata: {name: alpha}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ClusterQueue
+      metadata: {name: cq}
+      spec:
+        namespaceSelector: {}
+        resourceGroups:
+        - coveredResources: [cpu]
+          flavors:
+          - name: alpha
+            resources:
+            - {name: cpu, nominalQuota: "4"}
+        preemption:
+          withinClusterQueue: LowerPriority
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: LocalQueue
+      metadata: {name: q}
+      spec: {clusterQueue: cq}
+  - waitFor: {kind: ClusterQueue, name: cq, condition: Active, status: "True"}
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: low-1}
+      spec:
+        queueName: q
+        priority: -1
+        podSets: &pod-2cpu
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "2"}}
+  - waitFor: {kind: Workload, name: low-1, condition: Admitted, status: "True"}
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: low-2}
+      spec:
+        queueName: q
+        priority: -2
+        podSets: *pod-2cpu
+  - waitFor: {kind: Workload, name: low-2, condition: Admitted, status: "True"}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.admittedWorkloads, equals: 2}
+  - capture: both-low-admitted
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: high}
+      spec:
+        queueName: q
+        priority: 1
+        podSets: *pod-2cpu
+  - waitFor: {kind: Workload, name: low-2, condition: Evicted, status: "True", reason: Preempted}
+  - capture: low-preempted
+  - finishEviction: {name: low-2}
+  - waitFor: {kind: Workload, name: high, condition: QuotaReserved, status: "True"}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.pendingWorkloads, equals: 1}
+  - capture: high-admitted

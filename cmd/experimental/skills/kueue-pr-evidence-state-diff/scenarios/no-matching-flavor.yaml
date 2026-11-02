@@ -1,0 +1,118 @@
+# Workloads that cannot be placed stay pending: one asks for more CPU than the
+# flavor's nominal quota, one asks for a resource the ClusterQueue does not cover,
+# and one has a nodeSelector that no flavor's nodeLabels satisfy (the only flavor
+# is instance: alpha). A fitting Workload is admitted alongside them. No direct
+# upstream spec.
+name: no-matching-flavor
+description: >-
+  A Workload above the flavor's nominal quota, requesting a resource the
+  ClusterQueue does not cover, or with a nodeSelector no flavor matches stays
+  pending while a fitting Workload is admitted.
+namespaces: [pr-evidence]
+timeout: 10s
+steps:
+  - apply: |
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ResourceFlavor
+      metadata: {name: alpha}
+      spec:
+        nodeLabels: {instance: alpha}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ClusterQueue
+      metadata: {name: cq}
+      spec:
+        namespaceSelector: {}
+        resourceGroups:
+        - coveredResources: [cpu]
+          flavors:
+          - name: alpha
+            resources:
+            - {name: cpu, nominalQuota: "4"}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: LocalQueue
+      metadata: {name: q}
+      spec: {clusterQueue: cq}
+  - waitFor: {kind: ClusterQueue, name: cq, condition: Active, status: "True"}
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: fits}
+      spec:
+        queueName: q
+        priority: 0
+        podSets: &pod-1cpu
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "1"}}
+  - waitFor: {kind: Workload, name: fits, condition: Admitted, status: "True"}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.admittedWorkloads, equals: 1}
+  - capture: fits-admitted
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: too-big}
+      spec:
+        queueName: q
+        priority: 0
+        podSets:
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "8"}}
+  - waitFor: {kind: Workload, name: too-big, condition: QuotaReserved, status: "False"}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.pendingWorkloads, equals: 1}
+  - capture: too-big-pending
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: wrong-resource}
+      spec:
+        queueName: q
+        priority: 0
+        podSets:
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "1", example.com/gpu: "1"}}
+  - waitFor: {kind: Workload, name: wrong-resource, condition: QuotaReserved, status: "False"}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.pendingWorkloads, equals: 2}
+  - capture: uncovered-resource-pending
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: node-selector-mismatch}
+      spec:
+        queueName: q
+        priority: 0
+        podSets:
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              nodeSelector: {instance: gamma}
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "1"}}
+  - waitFor: {kind: Workload, name: node-selector-mismatch, condition: QuotaReserved, status: "False", reason: NoMatchingFlavor}
+  - waitFor: {kind: ClusterQueue, name: cq, field: status.pendingWorkloads, equals: 3}
+  - capture: node-selector-pending

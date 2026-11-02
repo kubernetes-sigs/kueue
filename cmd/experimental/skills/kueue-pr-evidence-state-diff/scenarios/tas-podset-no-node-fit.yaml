@@ -1,0 +1,110 @@
+# Derived from pkg/scheduler/scheduler_tas_test.go (kueue PR #17398):
+# one PodSet needs preemption for quota, the other fits no node.
+name: tas-podset-no-node-fit
+description: >-
+  A two-PodSet TAS Workload where PodSet "one" only fits the cpu quota after
+  preempting a lower-priority Workload and PodSet "two" needs more memory than
+  any node has: it stays pending, evicts nothing, and reports
+  TopologyPlacementFailed.
+test: "pkg/scheduler/scheduler_tas_test.go: workload with one PodSet needing preemption and another fitting no node reports TopologyPlacementFailed"
+suite: tas
+namespaces: [pr-evidence]
+steps:
+  - apply: |
+      apiVersion: v1
+      kind: Node
+      metadata:
+        name: x1
+        labels: {tas-node: "true", kubernetes.io/hostname: x1}
+      status:
+        allocatable: {cpu: "8", memory: 4Gi, pods: "10"}
+        conditions:
+        - {type: Ready, status: "True", reason: KubeletReady, message: ready}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Topology
+      metadata: {name: tas-single-level}
+      spec:
+        levels:
+        - nodeLabel: kubernetes.io/hostname
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ResourceFlavor
+      metadata: {name: tas-default}
+      spec:
+        nodeLabels: {tas-node: "true"}
+        topologyName: tas-single-level
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ClusterQueue
+      metadata: {name: tas-main}
+      spec:
+        namespaceSelector: {}
+        preemption: {withinClusterQueue: LowerPriority}
+        resourceGroups:
+        - coveredResources: [cpu, memory]
+          flavors:
+          - name: tas-default
+            resources:
+            - {name: cpu, nominalQuota: "5"}
+            - {name: memory, nominalQuota: 50Gi}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: LocalQueue
+      metadata: {name: tas-main}
+      spec: {clusterQueue: tas-main}
+  - waitFor: {kind: ClusterQueue, name: tas-main, condition: Active}
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: low-priority}
+      spec:
+        queueName: tas-main
+        priority: 1
+        podSets:
+        - name: one
+          count: 1
+          topologyRequest: {required: kubernetes.io/hostname}
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "4"}}
+  - waitFor: {kind: Workload, name: low-priority, condition: Admitted}
+  - capture: low-priority-admitted
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: foo}
+      spec:
+        queueName: tas-main
+        priority: 3
+        podSets:
+        - name: one
+          count: 1
+          topologyRequest: {required: kubernetes.io/hostname}
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "2"}}
+        - name: two
+          count: 1
+          topologyRequest: {required: kubernetes.io/hostname}
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {memory: 6Gi}}
+  # Both sides queue foo; only the reported reason differs, so wait on the count.
+  - waitFor: {kind: ClusterQueue, name: tas-main, field: status.pendingWorkloads, equals: 1}
+  - capture: foo-pending
+  - waitFor: {kind: Workload, name: foo, condition: QuotaReserved, status: "False", reason: TopologyPlacementFailed}
+  - waitFor: {kind: Workload, name: low-priority, condition: Admitted}
+  - capture: topology-failure-reported

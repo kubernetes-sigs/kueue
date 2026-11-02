@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+
+# Copyright 2026 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""kueue-pr-evidence-state-diff: run one scenario on the merge base and the head, diff state.
+
+Usage:
+  state-diff list
+  state-diff compile --scenario NAME|PATH [--api v1beta2]
+  state-diff run --scenario NAME|PATH [--base SHA --head SHA | --commit SHA]
+                 [--repo DIR] [--out DIR] [--runner auto|envtest|kind]
+                 [--verdict TEXT] [--keep-worktrees] [--parallel]
+                 [--pr N|URL | --body-in FILE]
+  state-diff render --dir OUT/state-diff/<scenario> [--verdict TEXT]
+                 [--out FILE] [--pr N|URL | --body-in FILE]
+
+`run` resolves MERGE_BASE/HEAD_SHA with kueue-pr-evidence-common's
+merge-base.sh (unless --base/--head/--commit), creates a kueue-worktree.sh tree
+for each side, overlays the generic envtest driver (untracked) into the scenario's
+integration suite package, runs it, normalizes both sides to
+pr-evidence.capture/v1, and renders the reviewer block.
+
+Outputs (stable; kueue-pr-evidence-timeline reads the captures):
+  <out>/state-diff/<scenario>/capture.base.json   capture.head.json
+  <out>/state-diff/<scenario>/run.json            raw.{base,head}.json, {base,head}.log
+  <out>/kueue-pr-evidence-state-diff.md           block content for inject-pr-notes
+<out> defaults to ${XDG_CACHE_HOME:-~/.cache}/kueue-pr-evidence/<head sha12>.
+
+With --pr or --body-in the block is previewed via inject-pr-notes --dry-run
+ONLY. Publishing is a separate, human-approved inject-pr-notes call.
+
+Exit: 0 evidence rendered (base may fail an assertion: that is evidence);
+2 usage/scenario error; 3 head failed an assertion or the run broke.
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import json
+import os
+import platform
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import state_diff_lib as L  # noqa: E402
+
+SKILL_DIR = HERE.parent
+SCENARIOS = SKILL_DIR / "scenarios"
+COMMON = SKILL_DIR.parent / "kueue-pr-evidence-common" / "scripts"
+DRIVER_TMPL = HERE / "driver" / "driver_test.go.tmpl"
+DRIVER_FILE = "zz_pr_evidence_state_diff_test.go"
+REPO_SKILLS = "cmd/experimental/skills"
+REPRO_PREFIX = f"{REPO_SKILLS}/kueue-pr-evidence-state-diff/scripts/state-diff"
+
+
+def log(msg: str) -> None:
+    print(f"state-diff: {msg}", file=sys.stderr, flush=True)
+
+
+def die(msg: str, code: int = 2) -> None:
+    log(f"ERROR: {msg}")
+    sys.exit(code)
+
+
+def sh(cmd: list[str], cwd: Path | None = None, env: dict | None = None, logf: Path | None = None,
+       check: bool = True) -> subprocess.CompletedProcess:
+    if logf:
+        with logf.open("a") as fh:
+            fh.write(f"\n$ {shlex.join(cmd)}\n")
+            fh.flush()
+            p = subprocess.run(cmd, cwd=cwd, env=env, stdout=fh, stderr=subprocess.STDOUT, text=True)
+    else:
+        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
+    if check and p.returncode != 0:
+        tail = tail_of(logf) if logf else (p.stderr or p.stdout)[-3000:]
+        raise RuntimeError(f"command failed ({p.returncode}): {shlex.join(cmd)}\n{tail}")
+    return p
+
+
+def tail_of(path: Path | None, n: int = 60) -> str:
+    if not path or not path.exists():
+        return ""
+    return "\n".join(path.read_text(errors="replace").splitlines()[-n:])
+
+
+# ---------------------------------------------------------------- scenario
+
+
+def resolve_scenario(arg: str) -> tuple[Path, str]:
+    """Path and the repro token (built-in name or the path as given)."""
+    p = Path(arg)
+    if p.suffix in (".yaml", ".yml") and p.exists():
+        return p.resolve(), arg
+    builtin = SCENARIOS / f"{arg}.yaml"
+    if builtin.exists():
+        return builtin, arg
+    die(f"scenario not found: {arg} (built-ins: {', '.join(sorted(x.stem for x in SCENARIOS.glob('*.yaml')))})")
+    raise AssertionError
+
+
+def cmd_list(_: argparse.Namespace) -> int:
+    for f in sorted(SCENARIOS.glob("*.yaml")):
+        sc = L.load_scenario_file(f)
+        runner, _ = L.select_runner(sc)
+        desc = " ".join(str(sc.get("description", "")).split())
+        print(f"{f.stem:28} {runner:8} {desc}")
+    return 0
+
+
+def cmd_compile(a: argparse.Namespace) -> int:
+    path, _ = resolve_scenario(a.scenario)
+    try:
+        sc = L.load_scenario_file(path)
+        print(L.dumps(L.compile_scenario(sc, a.api)), end="")
+        runner, why = L.select_runner(sc)
+        log(f"runner: {runner} ({why})")
+    except L.ScenarioError as e:
+        die(f"{path}: {e}")
+    return 0
+
+
+# ---------------------------------------------------------------- tree
+
+
+def go_module(wt: Path) -> str:
+    m = re.search(r"^module\s+(\S+)", (wt / "go.mod").read_text(), re.M)
+    return m.group(1) if m else "sigs.k8s.io/kueue"
+
+
+def find_func_pkg(wt: Path, func: str) -> str | None:
+    pat = re.compile(rf"^func {func}\(", re.M)
+    for f in sorted((wt / "test").rglob("*.go")):
+        if f.name.endswith("_test.go"):
+            continue
+        if pat.search(f.read_text(errors="replace")):
+            return f"{go_module(wt)}/{f.parent.relative_to(wt).as_posix()}"
+    return None
+
+
+def inspect_tree(wt: Path, suite: str, setup_override: str | None = None) -> dict:
+    suite_dir = wt / "test" / "integration" / "singlecluster" / suite
+    if not suite_dir.is_dir():
+        suite_dir = wt / "test" / "integration" / suite
+    st = suite_dir / "suite_test.go"
+    if not st.exists():
+        raise RuntimeError(f"suite {suite!r} not found at {suite_dir}")
+    src = st.read_text()
+    pkg = re.search(r"^package\s+(\w+)", src, re.M).group(1)
+    setup = L.manager_setup(src, setup_override)
+    for var in ("k8sClient", "ctx") + (("fwk", "cfg") if setup else ()):
+        if not re.search(rf"^\s*{var}\s", src, re.M):
+            raise RuntimeError(f"{st}: package var {var} not found; the driver reuses the suite's {var}")
+    feat = (wt / "pkg" / "features" / "kube_features.go")
+    gates = set(re.findall(r'^\s*\w+\s+featuregate\.Feature\s*=\s*"(\w+)"', feat.read_text(), re.M)) if feat.exists() else set()
+    env_ver = None
+    for mk in (wt / "hack" / "make" / "test.mk", wt / "Makefile"):
+        if mk.exists():
+            m = re.search(r"^ENVTEST_K8S_VERSION\s*\?=\s*(\S+)", mk.read_text(), re.M)
+            if m:
+                env_ver = m.group(1)
+                break
+    info = {
+        "api": "v1beta2" if (wt / "apis" / "kueue" / "v1beta2").is_dir() else "v1beta1",
+        "evictPkg": find_func_pkg(wt, "FinishEvictionForWorkloads"),
+        "finishPkg": find_func_pkg(wt, "FinishWorkloads"),
+        "package": pkg, "suiteDir": suite_dir, "managerSetup": setup,
+        # Suites such as tas/ load external operator CRDs from dep-crds/.
+        "depCRDs": "DepCRDPaths" in src, "gates": gates, "envtestVersion": env_ver,
+    }
+    for k in ("evictPkg", "finishPkg"):
+        if not info[k]:
+            raise RuntimeError(f"{wt}: helper for {k} not found under test/ (FinishEvictionForWorkloads/FinishWorkloads)")
+    return info
+
+
+def render_driver(info: dict) -> str:
+    t = DRIVER_TMPL.read_text()
+    hooks = "suite's BeforeSuite starts the manager"
+    if info.get("managerSetup"):
+        # Gates must be set before the manager starts; prevdRun sets them again (idempotent).
+        hooks = ("driver starts the manager\n"
+                 "\tginkgo.BeforeAll(func() {\n\t\tprevdSetGates()\n"
+                 f"\t\tfwk.StartManager(ctx, cfg, {info['managerSetup']})\n\t}})\n"
+                 "\tginkgo.AfterAll(func() { fwk.StopManager(ctx) })")
+    for k, v in {"PACKAGE": info["package"], "KUEUE_API_VERSION": info["api"],
+                 "EVICT_HELPER_PKG": info["evictPkg"], "FINISH_HELPER_PKG": info["finishPkg"],
+                 "MANAGER_HOOKS": hooks}.items():
+        t = t.replace("{{" + k + "}}", v)
+    return t
+
+
+# ---------------------------------------------------------------- envtest
+
+
+def cache_root() -> Path:
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "kueue-pr-evidence"
+
+
+def worktree_root() -> Path:
+    """A root of our own, so another skill's `kueue-worktree.sh gc` on the shared
+    root cannot delete a tree mid-run (and the other way around)."""
+    if os.environ.get("PR_EVIDENCE_STATE_DIFF_WORKTREE_ROOT"):
+        return Path(os.environ["PR_EVIDENCE_STATE_DIFF_WORKTREE_ROOT"])
+    return cache_root() / "state-diff-worktrees"
+
+
+def worktree_env() -> dict:
+    return {**os.environ, "PR_EVIDENCE_WORKTREE_ROOT": str(worktree_root())}
+
+
+def run_envtest(side: str, sha: str, sc: dict, repo: Path, work: Path, keep: bool) -> dict:
+    """Run one side in its own throwaway worktree. Returns a side result dict."""
+    logf = work / f"{side}.log"
+    logf.write_text(f"# {side} {sha}\n")
+    raw_path = work / f"raw.{side}.json"
+    raw_path.unlink(missing_ok=True)
+    wt = Path(sh([str(COMMON / "kueue-worktree.sh"), "add", sha, "--repo", str(repo)], env=worktree_env()).stdout.strip())
+    log(f"{side}: worktree {wt} @ {sha[:12]}")
+    try:
+        info = inspect_tree(wt, sc.get("suite", "scheduler"), sc.get("managerSetup"))
+        log(f"{side}: manager: " + (f"driver starts it with {info['managerSetup']}" if info["managerSetup"]
+                                     else "started by the suite's BeforeSuite"))
+        wanted = dict(sc.get("featureGates") or {})
+        known = {k: v for k, v in wanted.items() if k in info["gates"]}
+        unknown = sorted(set(wanted) - set(known))
+        if unknown and side == "head":
+            raise RuntimeError(f"feature gates unknown at head: {unknown}")
+        compiled = L.compile_scenario(sc, info["api"], gates=known)
+        scen_json = work / f"scenario.{side}.json"
+        scen_json.write_text(L.dumps(compiled))
+        (info["suiteDir"] / DRIVER_FILE).write_text(render_driver(info))
+
+        env = dict(os.environ)
+        bindir = wt / "bin"
+        env.update(BIN_DIR=str(bindir), PROJECT_DIR=f"{wt}/")
+        env.pop("GOFLAGS", None)
+        targets = ["compile-crd-manifests", "envtest"] + (["dep-crds"] if info["depCRDs"] else [])
+        log(f"{side}: make {' '.join(targets)} (log: {logf})")
+        sh(["make", "-C", str(wt), f"BIN_DIR={bindir}", *targets], env=env, logf=logf)
+        ver = info["envtestVersion"] or "1.34"
+        assets = sh([str(bindir / "setup-envtest"), "use", ver, "-p", "path"], env=env).stdout.strip()
+        if not assets:
+            raise RuntimeError("setup-envtest returned no KUBEBUILDER_ASSETS path")
+        m = re.search(r"(\d+\.\d+\.\d+)", Path(assets).name)
+        k8s_version = m.group(1) if m else ver
+        env.update(KUBEBUILDER_ASSETS=assets, KUEUE_BIN=str(bindir), ENVTEST_K8S_VERSION=ver,
+                   TEST_LOG_LEVEL="-3", API_LOG_LEVEL="0",
+                   PR_EVIDENCE_STATE_DIFF_SCENARIO=str(scen_json), PR_EVIDENCE_STATE_DIFF_OUT=str(raw_path))
+        if platform.system() == "Darwin":
+            env["GOFLAGS"] = "-ldflags=-linkmode=internal"
+        pkg = "./" + info["suiteDir"].relative_to(wt).as_posix() + "/"
+        log(f"{side}: go test {pkg} (envtest k8s {k8s_version})")
+        p = sh(["go", "test", pkg, "-count=1", "-timeout=20m", f"-ginkgo.focus={L.DRIVER_FOCUS}",
+                "-ginkgo.v", "-ginkgo.no-color"], cwd=wt, env=env, logf=logf, check=False)
+        if not raw_path.exists():
+            raise RuntimeError(f"{side}: driver produced no output (go test exit {p.returncode}); log tail:\n{tail_of(logf)}")
+        raw = json.loads(raw_path.read_text())
+        if p.returncode != 0 and not raw.get("failure"):
+            raise RuntimeError(f"{side}: go test failed after the scenario finished; log tail:\n{tail_of(logf)}")
+        return {"side": side, "sha": sha, "raw": raw, "compiled": compiled, "k8sVersion": k8s_version,
+                "featureGates": known, "gatesUnknown": unknown, "worktree": str(wt)}
+    finally:
+        if keep:
+            log(f"{side}: kept worktree {wt} (remove: PR_EVIDENCE_WORKTREE_ROOT={worktree_root()} "
+                f"{COMMON / 'kueue-worktree.sh'} remove {wt})")
+        else:
+            # dep-crds/ and bin/ hold read-only copies from the Go module cache.
+            sh(["chmod", "-R", "u+w", str(wt)], check=False)
+            sh([str(COMMON / "kueue-worktree.sh"), "remove", str(wt)], env=worktree_env(), check=False)
+
+
+# ---------------------------------------------------------------- run
+
+
+def git(repo: Path, *args: str) -> str:
+    return sh(["git", "-C", str(repo), *args]).stdout.strip()
+
+
+def resolve_shas(a: argparse.Namespace, repo: Path) -> tuple[str, str]:
+    if a.commit:
+        head = git(repo, "rev-parse", "--verify", f"{a.commit}^{{commit}}")
+        return git(repo, "rev-parse", f"{head}^1"), head
+    if a.base or a.head:
+        if not (a.base and a.head):
+            die("--base and --head go together")
+        return (git(repo, "rev-parse", "--verify", f"{a.base}^{{commit}}"),
+                git(repo, "rev-parse", "--verify", f"{a.head}^{{commit}}"))
+    out = sh([str(COMMON / "merge-base.sh"), "--worktree", str(repo)]).stdout
+    kv = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    return kv["MERGE_BASE"], kv["HEAD_SHA"]
+
+
+def preview_injection(block: Path, base: str, head: str, a: argparse.Namespace) -> int:
+    cmd = [str(COMMON / "inject-pr-notes"), "--skill", L.SKILL, "--file", str(block),
+           "--base", base, "--head", head, "--dry-run"]
+    cmd += ["--body-in", a.body_in] if a.body_in else ["--pr", a.pr]
+    log("preview: " + shlex.join(cmd))
+    return subprocess.run(cmd).returncode
+
+
+def shown_path(p: Path) -> str:
+    """Path for the PR body: relative to cwd when possible (never leak $HOME)."""
+    try:
+        return str(p.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        home = Path.home().resolve()
+        rp = p.resolve()
+        return "~/" + str(rp.relative_to(home)) if rp.is_relative_to(home) else str(rp)
+
+
+def finish(sdir: Path, out_root: Path, meta: dict, verdict: str | None, a: argparse.Namespace) -> int:
+    meta = {**meta, "captures": ", ".join(f"`{shown_path(sdir / f'capture.{s}.json')}`" for s in ("base", "head"))}
+    base = json.loads((sdir / "capture.base.json").read_text())
+    head = json.loads((sdir / "capture.head.json").read_text())
+    diff = L.diff_captures(base, head, meta.get("baseFailure"), meta.get("headFailure"))
+    (sdir / "diff.json").write_text(L.dumps(diff))
+    content = L.render_block(diff, meta, verdict)
+    block = Path(a.out_file) if getattr(a, "out_file", None) else out_root / f"{L.SKILL}.md"
+    block.parent.mkdir(parents=True, exist_ok=True)
+    block.write_text(content)
+    n = L.visible_lines(content) + 1
+    print(content, flush=True)
+    log(f"block: {block} ({n} visible lines incl. header; budget {L.BUDGET})")
+    if n > L.BUDGET:
+        die("block exceeds the visible-line budget", 3)
+    rc = 0
+    if a.pr or a.body_in:
+        rc = preview_injection(block, meta["baseSha"], meta["headSha"], a)
+    else:
+        log("next (dry-run first): " + shlex.join([f"{REPO_SKILLS}/kueue-pr-evidence-common/scripts/inject-pr-notes",
+            "--pr", "<num>", "--skill", L.SKILL, "--file", str(block), "--base", meta["baseSha"],
+            "--head", meta["headSha"], "--dry-run"]))
+    if meta.get("headFailure"):
+        log("head failed an assertion: fix the scenario or the PR before publishing")
+        return 3
+    return rc
+
+
+def cmd_run(a: argparse.Namespace) -> int:
+    path, token = resolve_scenario(a.scenario)
+    try:
+        sc = L.load_scenario_file(path)
+        L.compile_scenario(sc)  # validate early, before any worktree
+        runner, why = L.select_runner(sc, a.runner)
+    except L.ScenarioError as e:
+        die(f"{path}: {e}")
+    print(f"runner: {runner} — {why}", flush=True)
+    if runner != "envtest":
+        die("kind runner is not automated yet: run the scenario's steps against an E2E_MODE=dev "
+            "cluster per side (see SKILL.md 'kind runner'), or drop `requires` if envtest suffices", 2)
+    if not shutil.which("go"):
+        die("go not found in PATH")
+
+    repo = Path(a.repo or git(Path.cwd(), "rev-parse", "--show-toplevel")).resolve()
+    base_sha, head_sha = resolve_shas(a, repo)
+    log(f"base {base_sha[:12]} → head {head_sha[:12]} (repo {repo})")
+    out_root = Path(a.out).resolve() if a.out else cache_root() / head_sha[:12]
+    sdir = out_root / "state-diff" / sc["name"]
+    sdir.mkdir(parents=True, exist_ok=True)
+
+    results: dict[str, dict] = {}
+    errors: dict[str, str] = {}
+    jobs = [("base", base_sha), ("head", head_sha)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2 if a.parallel else 1) as ex:
+        futs = {ex.submit(run_envtest, side, sha, sc, repo, sdir, a.keep_worktrees): side for side, sha in jobs}
+        for f in concurrent.futures.as_completed(futs):
+            side = futs[f]
+            try:
+                results[side] = f.result()
+            except Exception as e:  # noqa: BLE001 - surface every side's failure loudly
+                errors[side] = str(e)
+    for side, err in errors.items():
+        log(f"{side}: RUN BROKEN\n{err}")
+    if errors:
+        return 3
+
+    meta = {"scenario": sc["name"], "runner": runner, "runnerReason": why, "baseSha": base_sha, "headSha": head_sha,
+            "featureGates": results["head"]["featureGates"], "gatesUnknownAtBase": results["base"]["gatesUnknown"],
+            "k8sVersion": results["head"]["k8sVersion"], "scenarioYaml": path.read_text(),
+            "repro": f"{REPRO_PREFIX} run --scenario {token} --base {base_sha[:12]} --head {head_sha[:12]}"}
+    caps = {}
+    for side, r in results.items():
+        run = {"producer": L.SKILL, "scenario": sc["name"], "side": side, "sha": r["sha"], "baseSha": base_sha,
+               "headSha": head_sha, "runner": runner, "k8sVersion": r["k8sVersion"], "featureGates": r["featureGates"]}
+        if sc.get("test"):
+            run["test"] = sc["test"]
+        cap, failure = L.normalize(r["raw"], r["compiled"], run)
+        caps[side] = cap
+        (sdir / f"capture.{side}.json").write_text(L.dumps(cap))
+        meta[f"{side}Failure"] = failure
+        status = "ok" if not failure else f"FAILED at step {failure['step']} ({failure['action']}): {failure['assertion']}"
+        log(f"{side}: {len(cap['checkpoints'])} checkpoints, {status}")
+        if failure:
+            print(f"{side}: assertion failed — {failure['assertion'] or failure['action']}\n{failure['message']}", file=sys.stderr)
+    meta["checkpoints"] = len(L.capture_names(results["head"]["compiled"]))
+    (sdir / "run.json").write_text(L.dumps(meta))
+    if meta["baseFailure"] and meta["headFailure"]:
+        log("both sides failed: the scenario is broken, not evidence")
+        return 3
+    return finish(sdir, out_root, meta, a.verdict, a)
+
+
+def cmd_render(a: argparse.Namespace) -> int:
+    sdir = Path(a.dir).resolve()
+    meta_path = sdir / "run.json"
+    if not meta_path.exists():
+        die(f"{meta_path} missing (produced by `state-diff run`)")
+    meta = json.loads(meta_path.read_text())
+    out_root = sdir.parent.parent
+    return finish(sdir, out_root, meta, a.verdict, a)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="state-diff", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list", help="list built-in scenarios")
+    c = sub.add_parser("compile", help="validate a scenario and print the driver JSON")
+    c.add_argument("--scenario", required=True)
+    c.add_argument("--api", default="v1beta2")
+    for name in ("run", "render"):
+        p = sub.add_parser(name)
+        p.add_argument("--verdict", help="one-line verdict (default: generated from the diff)")
+        g = p.add_mutually_exclusive_group()
+        g.add_argument("--pr", help="preview injection into this PR (inject-pr-notes --dry-run)")
+        g.add_argument("--body-in", help="preview injection into this body file (offline --dry-run)")
+        if name == "run":
+            p.add_argument("--scenario", required=True)
+            p.add_argument("--base")
+            p.add_argument("--head")
+            p.add_argument("--commit", help="merged commit: base = COMMIT^1, head = COMMIT")
+            p.add_argument("--repo", help="kueue git checkout/worktree (default: cwd toplevel)")
+            p.add_argument("--out", help="output root (default: ${XDG_CACHE_HOME:-~/.cache}/kueue-pr-evidence/<head sha12>)")
+            p.add_argument("--runner", default="auto", choices=["auto", "envtest", "kind"])
+            p.add_argument("--keep-worktrees", action="store_true")
+            p.add_argument("--parallel", action="store_true", help="run base and head concurrently (default: sequential; the second build reuses the Go cache and needs less disk)")
+        else:
+            p.add_argument("--dir", required=True, help="<out>/state-diff/<scenario>")
+            p.add_argument("--out-file", help="block path (default: <out>/kueue-pr-evidence-state-diff.md)")
+    a = ap.parse_args(argv)
+    try:
+        return {"list": cmd_list, "compile": cmd_compile, "run": cmd_run, "render": cmd_render}[a.cmd](a)
+    except RuntimeError as e:
+        die(str(e), 3)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

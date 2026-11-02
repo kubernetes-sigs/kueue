@@ -1,0 +1,100 @@
+# Cohort reclaim: a Workload in cq-b borrows the idle nominal quota of cq-a.
+# An owner Workload in cq-a reclaims it (reclaimWithinCohort: Any), evicting the
+# borrower with reason Preempted. The owner is admitted and the borrower stays pending.
+# Reduced from the cohort spec in preemption_test.go to two ClusterQueues.
+name: cohort-reclaim
+description: >-
+  A Workload borrowing idle cohort quota is evicted when the lending ClusterQueue
+  reclaims its nominal quota.
+test: "test/integration/singlecluster/scheduler/preemption_test.go: In a ClusterQueue that is part of a cohort, Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than nominal quota"
+namespaces: [pr-evidence]
+timeout: 10s
+steps:
+  - apply: |
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ResourceFlavor
+      metadata: {name: alpha}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ClusterQueue
+      metadata: {name: cq-a}
+      spec:
+        namespaceSelector: {}
+        cohortName: all
+        resourceGroups:
+        - coveredResources: [cpu]
+          flavors:
+          - name: alpha
+            resources:
+            - {name: cpu, nominalQuota: "2"}
+        preemption:
+          withinClusterQueue: LowerPriority
+          reclaimWithinCohort: Any
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: ClusterQueue
+      metadata: {name: cq-b}
+      spec:
+        namespaceSelector: {}
+        cohortName: all
+        resourceGroups:
+        - coveredResources: [cpu]
+          flavors:
+          - name: alpha
+            resources:
+            - {name: cpu, nominalQuota: "2"}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: LocalQueue
+      metadata: {name: qa}
+      spec: {clusterQueue: cq-a}
+      ---
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: LocalQueue
+      metadata: {name: qb}
+      spec: {clusterQueue: cq-b}
+  - waitFor: {kind: ClusterQueue, name: cq-a, condition: Active, status: "True"}
+  - waitFor: {kind: ClusterQueue, name: cq-b, condition: Active, status: "True"}
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: borrower}
+      spec:
+        queueName: qb
+        priority: 0
+        podSets:
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "4"}}
+  - waitFor: {kind: Workload, name: borrower, condition: Admitted, status: "True"}
+  - waitFor: {kind: ClusterQueue, name: cq-b, field: status.admittedWorkloads, equals: 1}
+  - capture: borrowing
+  - apply:
+      apiVersion: kueue.x-k8s.io/v1beta2
+      kind: Workload
+      metadata: {name: owner}
+      spec:
+        queueName: qa
+        priority: 0
+        podSets:
+        - name: main
+          count: 1
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: c
+                image: registry.k8s.io/pause:3.10
+                resources: {requests: {cpu: "2"}}
+  - waitFor: {kind: Workload, name: borrower, condition: Evicted, status: "True", reason: Preempted}
+  - capture: reclaimed
+  - finishEviction: {name: borrower}
+  - waitFor: {kind: Workload, name: owner, condition: QuotaReserved, status: "True"}
+  - waitFor: {kind: Workload, name: borrower, condition: QuotaReserved, status: "False"}
+  - capture: owner-admitted

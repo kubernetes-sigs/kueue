@@ -1,0 +1,149 @@
+{
+  "checkpoints": [
+    {
+      "assertion": "a1",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 1,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "2"
+                }
+              ]
+            }
+          ],
+          "name": "cq",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "ClusterQueue",
+            "name": "cq",
+            "namespace": ""
+          },
+          "message": "m",
+          "order": 0,
+          "reason": "Active",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "a",
+            "namespace": "pr-evidence"
+          },
+          "message": "m",
+          "order": 1,
+          "reason": "QuotaReserved",
+          "type": "Normal"
+        },
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "a",
+            "namespace": "pr-evidence"
+          },
+          "message": "m",
+          "order": 2,
+          "reason": "Admitted",
+          "type": "Normal"
+        }
+      ],
+      "index": 0,
+      "localQueues": [
+        {
+          "admittedWorkloads": 0,
+          "clusterQueue": "cq",
+          "name": "q",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 0
+        }
+      ],
+      "name": "ready",
+      "workloads": [
+        {
+          "admission": {
+            "clusterQueue": "cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "ok",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            }
+          ],
+          "name": "a",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "q",
+          "requeueState": {
+            "count": 1
+          }
+        },
+        {
+          "admission": null,
+          "conditions": [
+            {
+              "message": "x",
+              "reason": "Pending",
+              "status": "False",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "b",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "q"
+        }
+      ]
+    },
+    {
+      "assertion": "a2",
+      "clusterQueues": [],
+      "events": [
+        {
+          "involvedObject": {
+            "kind": "Workload",
+            "name": "a",
+            "namespace": "pr-evidence"
+          },
+          "message": "m",
+          "order": 3,
+          "reason": "Preempted",
+          "type": "Warning"
+        }
+      ],
+      "index": 1,
+      "localQueues": [],
+      "name": "preempted",
+      "workloads": []
+    }
+  ],
+  "run": {
+    "side": "base",
+    "skill": "kueue-pr-evidence-state-diff"
+  },
+  "schemaVersion": "pr-evidence.capture/v1"
+}
