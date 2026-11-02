@@ -86,7 +86,7 @@ As a cluster operator, I already use `metrics.customLabels` with a `sourceAnnota
 
 ### Notes/Constraints/Caveats
 
-Precedence. For a single job object, annotations are copied before Kueue writes its own, such as `kueue.x-k8s.io/job-owner-gvk`; for a pod group, they are copied after `kueue.x-k8s.io/is-group-workload` and `kueue.x-k8s.io/admission-gated-by` are written. Neither order is relied on: reserved keys are removed from the copy set whatever their source, so no copied key can collide with an annotation Kueue manages. ProvisioningRequest annotations (`provreq.kueue.x-k8s.io/`) keep being copied by the existing prefix rule; since they are in the reserved domain, they cannot also be listed.
+No collisions. Keys in the `kueue.x-k8s.io` domain and its subdomains never enter the copy set. They are rejected in `annotationKeysToCopy` and removed from the metric sources, so a copied annotation can never collide with an annotation Kueue writes. ProvisioningRequest annotations (`provreq.kueue.x-k8s.io/`) keep being copied by the existing prefix rule, which is separate from this copy set. Because they are reserved, they cannot also be listed.
 
 Downgrade. The Configuration is decoded strictly, so a configuration that sets `annotationKeysToCopy` fails to load on a Kueue version without the field. Operators must remove the field before downgrading. A feature gate would not change this, since the field would still be unknown to the older version.
 
