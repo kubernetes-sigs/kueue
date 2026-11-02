@@ -43,7 +43,10 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-const multikueueTestFlavor kueue.ResourceFlavorReference = "default"
+const (
+	multikueueTestFlavor   kueue.ResourceFlavorReference = "default"
+	externalDispatcherName                               = "example.com/custom-mk-dispatcher"
+)
 
 var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
@@ -150,6 +153,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
+		roundsCountBefore, roundsSumBefore := behavioral.GetMultiKueueWorkloadNominationRounds(managerCq, config.MultiKueueDispatcherModeIncremental)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -198,6 +202,10 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 				g.Expect(createdWorkload.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster1.Name)))
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking a single nomination round is reported, as the step size covers both workers", func() {
+			behavioral.ExpectMultiKueueWorkloadNominationRoundsMetric(managerCq, config.MultiKueueDispatcherModeIncremental, roundsCountBefore+1, roundsSumBefore+1)
 		})
 
 		ginkgo.By("setting the check conditions for eviction", func() {
@@ -249,7 +257,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 
 	ginkgo.BeforeAll(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, "example.com/custom-mk-dispatcher")
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, externalDispatcherName)
 		})
 	})
 
@@ -329,6 +337,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
+		roundsCountBefore, roundsSumBefore := behavioral.GetMultiKueueWorkloadNominationRounds(managerCq, externalDispatcherName)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -428,6 +437,10 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 				g.Expect(createdWorkload.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster2.Name)))
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeEmpty())
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking both nomination rounds of the external dispatcher are reported", func() {
+			behavioral.ExpectMultiKueueWorkloadNominationRoundsMetric(managerCq, externalDispatcherName, roundsCountBefore+1, roundsSumBefore+2)
 		})
 
 		ginkgo.By("setting the check conditions for eviction", func() {

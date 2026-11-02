@@ -496,6 +496,21 @@ func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	}
 }
 
+func TestReportMultiKueueWorkloadNominationRounds(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportMultiKueueWorkloadNominationRounds("rounds-cq1", "incremental", 1, leaderTracker)
+	ReportMultiKueueWorkloadNominationRounds("rounds-cq1", "incremental", 3, leaderTracker)
+	ReportMultiKueueWorkloadNominationRounds("rounds-cq1", "all-at-once", 1, leaderTracker)
+
+	expectHistogramSampleSum(t, MultiKueueWorkloadNominationRounds, 4, "rounds-cq1", "incremental", roletracker.RoleLeader)
+	expectHistogramSampleSum(t, MultiKueueWorkloadNominationRounds, 1, "rounds-cq1", "all-at-once", roletracker.RoleLeader)
+
+	// A nil tracker must be reported as standalone and not panic.
+	ReportMultiKueueWorkloadNominationRounds("rounds-cq2", "incremental", 2, nil)
+	expectHistogramSampleSum(t, MultiKueueWorkloadNominationRounds, 2, "rounds-cq2", "incremental", roletracker.RoleStandalone)
+}
+
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
 	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
 	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)
