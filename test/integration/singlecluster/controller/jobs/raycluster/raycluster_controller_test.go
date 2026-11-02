@@ -1323,6 +1323,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 				BlockAdmission: new(false),
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					BackoffBaseSeconds: new(int32(60)),
+					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
 				},
 			}
 			// Stop the restarted manager before restoring its per-spec feature gate.
