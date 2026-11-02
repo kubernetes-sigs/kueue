@@ -109,6 +109,7 @@ type domainState struct {
 	leaderCount        int32
 
 	// affinityScore is the sum of weights of all preferred affinity terms that match the node.
+	// For a PodSet group, the leader's score is added on the leaves the leader can run on.
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
 
@@ -303,8 +304,7 @@ type podSetMatchKey struct {
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
 	// affinityScores are the scores of leaves, by index. The leaves read their score
-	// from domain state, which every pass clears. The leader's entry has none, because
-	// only its leaves are read.
+	// from domain state, which every pass clears.
 	affinityScores []int64
 	stats          *tasExclusionStats
 }
@@ -2784,7 +2784,8 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	return podRequirements, nil
 }
 
-// fillLeaderFeasibleLeaves records which leaves suit the leader. It asks about every
+// fillLeaderFeasibleLeaves records which leaves suit the leader and adds the leader's
+// preferred affinity score to them, on top of the workers'. It asks about every
 // leaf rather than only the workers', because the group shares the domain the assignment
 // names, not the leaf: with a required level above the leaf, or with the hostname level
 // injected, the leader and the workers can sit on different nodes of the same domain.
@@ -2798,54 +2799,51 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
 		return nil
 	}
-	if leaves, found := s.cachedLeaderLeaves(requirements); found {
-		state.leaderFeasibleLeaves = leaves
-		return nil
+	leaderLeaves, leaderScores, err := s.findLeaderLeaves(ctx, requirements)
+	if err != nil {
+		return err
+	}
+	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
+	for i, leaf := range leaderLeaves {
+		state.leaderFeasibleLeaves.Insert(leaf.GetID())
+		s.domainStateOf(&s.leaves[leaf.GetID()].domain).affinityScore += leaderScores[i]
+	}
+	return nil
+}
+
+// findLeaderLeaves returns the leaves that suit the leader and the leader's affinity
+// score on each, leaving the workers' scores in domain state as they were.
+func (s *TASFlavorSnapshot) findLeaderLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, []int64, error) {
+	key, cacheable := requirements.leaderMatchKey()
+	if cacheable {
+		if entry, found := s.matchingLeavesCache[key]; found {
+			return entry.leaves, entry.affinityScores, nil
+		}
 	}
 	allLeaves := slices.Collect(s.candidates())
-	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
-	// this pass only wants the feasible set, so the workers' scores are put back.
-	scores := make([]int64, len(allLeaves))
+	// The simulator writes the leader's scores into the domain state holding the
+	// workers', and may add to what is there, so the workers' are set aside.
+	workerScores := make([]int64, len(allLeaves))
 	for i, leaf := range allLeaves {
-		scores[i] = leaf.GetAffinityScore()
+		workerScores[i] = leaf.GetAffinityScore()
+		leaf.SetAffinityScore(0)
 	}
 	leaderStats := newTASExclusionStats()
 	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
 		&leaderStats.NodeExclusionStats)
+	leaderScores := affinityScoresOf(leaderLeaves)
 	for i, leaf := range allLeaves {
-		leaf.SetAffinityScore(scores[i])
+		leaf.SetAffinityScore(workerScores[i])
 	}
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range leaderLeaves {
-		state.leaderFeasibleLeaves.Insert(leaf.GetID())
+	if cacheable {
+		s.storeMatchingLeaves(key, leaderLeaves, leaderScores, leaderStats)
 	}
-	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
-	}
-	return nil
-}
-
-// cachedLeaderLeaves returns the leaves an earlier call found for these leader filters,
-// as a fresh set so that a caller cannot write through it into the cache.
-func (s *TASFlavorSnapshot) cachedLeaderLeaves(requirements *topologyAssignmentPodRequirements) (sets.Set[utiltas.TopologyDomainID], bool) {
-	key, ok := requirements.leaderMatchKey()
-	if !ok {
-		return nil, false
-	}
-	entry, found := s.matchingLeavesCache[key]
-	if !found {
-		return nil, false
-	}
-	leaves := sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range entry.leaves {
-		leaves.Insert(leaf.GetID())
-	}
-	return leaves, true
+	return leaderLeaves, leaderScores, nil
 }
 
 // leaderMatchKey is the workers' key marked as the leader's. The leader is asked about
