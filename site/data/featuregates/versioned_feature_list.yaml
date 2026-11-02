@@ -643,6 +643,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: TASLeaderPodSetFeasibility
   versionedSpecs:
   - default: true
@@ -687,6 +691,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: TASRecomputeAssignmentWithinSchedulingCycle
   versionedSpecs:
   - default: true

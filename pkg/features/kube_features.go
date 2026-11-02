@@ -932,6 +932,13 @@ func init() {
 	runtime.Must(utilfeature.DefaultMutableFeatureGate.AddDependencies(defaultFeatureGateDependencies))
 }
 
+// defaultFeatureGateDependencies defines feature gate dependencies.
+//
+// TAS sub-features that graduate to GA (e.g., TASProfileMixed,
+// TASHandleOverlappingFlavors) are omitted here because a locked GA gate cannot
+// depend on TopologyAwareScheduling while it remains in Beta as an on/off
+// switch. Those features remain inactive when TopologyAwareScheduling is disabled.
+//
 // TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions intentionally has
 // no dependencies. It is on by default in 0.21, but its path is only reachable
 // through the existing fail-fast gate. Adding prerequisites here would make
@@ -951,10 +958,8 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASGroupedPodSetSlicing:                             {TopologyAwareScheduling},
 	TASRejectFalseUnconstrainedTopology:                 {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:                   {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                         {TopologyAwareScheduling},
 	TASNodeFeasibilityForAllLevels:                      {TopologyAwareScheduling},
 	TASLeaderPodSetFeasibility:                          {TopologyAwareScheduling},
-	TASProfileMixed:                                     {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
@@ -1035,7 +1040,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
 	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -1238,7 +1244,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASHandleOverlappingFlavors: {
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
 	},
 	TASResidualPodAccounting: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},

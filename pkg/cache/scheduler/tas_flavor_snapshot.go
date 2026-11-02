@@ -437,8 +437,8 @@ func (s *TASFlavorSnapshot) usageDomain(domainID utiltas.TopologyDomainID) *doma
 }
 
 // addTASUsageForHeldDomains adds usage only for the usage domains this snapshot
-// holds. With TASHandleOverlappingFlavors, usages can cover far more domains
-// than the flavor selects, so it walks whichever side is smaller.
+// holds. Cross-flavor aggregation can cover far more domains than the flavor
+// selects, so it walks whichever side is smaller.
 func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
 	if len(s.usageDomains()) < len(usages) {
 		for domainID := range s.usageDomains() {
@@ -878,11 +878,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	var sharedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		sharedDomainUsages = opts.aggregatedDomainUsages
-	}
-	assumedUsage := newAssumedUsage(sharedDomainUsages)
+	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
 
 	// opts.workload is unset on some call paths (e.g. simulateEmpty probing).
 	var wlObj *kueue.Workload
@@ -1224,9 +1220,9 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 // TopologyAssignment names; a node named after a domain would otherwise share
 // its entry.
 type assumedUsage struct {
-	// perDomain is keyed the way TopologyAssignment values are. With
-	// TASHandleOverlappingFlavors it is shared with the sibling flavors, see
-	// WithAggregatedDomainUsages.
+	// perDomain is keyed the way TopologyAssignment values are, and is shared
+	// with the sibling flavors when cross-flavor aggregation is active (see
+	// WithAggregatedDomainUsages).
 	perDomain map[utiltas.TopologyDomainID]resources.Requests
 
 	// perLeaf is keyed by leaf, and is filled only when the hostname level is
@@ -2221,7 +2217,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return unconstrained && features.Enabled(features.TASProfileMixed)
+	return unconstrained
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned
