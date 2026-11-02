@@ -47,6 +47,8 @@ resources:
 - multikueueconfig_viewer_role.yaml
 - provisioningrequestconfig_editor_role.yaml
 - provisioningrequestconfig_viewer_role.yaml
+- capacitybufferconfig_editor_role.yaml
+- capacitybufferconfig_viewer_role.yaml
 - workloadpriorityclass_editor_role.yaml
 - workloadpriorityclass_viewer_role.yaml
 - preemptionconfig_editor_role.yaml

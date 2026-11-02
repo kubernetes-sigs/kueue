@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1alpha1
 
+// CapacityBufferConfigListerExpansion allows custom methods to be added to
+// CapacityBufferConfigLister.
+type CapacityBufferConfigListerExpansion interface{}
+
 // CapacityProviderListerExpansion allows custom methods to be added to
 // CapacityProviderLister.
 type CapacityProviderListerExpansion interface{}

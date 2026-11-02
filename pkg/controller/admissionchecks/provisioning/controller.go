@@ -646,7 +646,7 @@ func hasManagedResources(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfi
 	managedResources := sets.New(prc.Spec.ManagedResources...)
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
-		if ps.Count <= 0 || (managedResources.Len() > 0 && !podUses(&ps.Template.Spec, managedResources)) {
+		if ps.Count <= 0 || (managedResources.Len() > 0 && !admissioncheck.PodUsesResources(&ps.Template.Spec, managedResources)) {
 			continue
 		}
 		psa, found := assignments[ps.Name]
@@ -665,39 +665,11 @@ func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []
 	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
-		if ps.Count > 0 && (len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet)) {
+		if ps.Count > 0 && (len(resources) == 0 || admissioncheck.PodUsesResources(&ps.Template.Spec, resourcesSet)) {
 			users = append(users, ps.Name)
 		}
 	}
 	return users
-}
-
-func podUses(pod *corev1.PodSpec, resourceSet sets.Set[corev1.ResourceName]) bool {
-	for i := range pod.InitContainers {
-		if containerUses(&pod.InitContainers[i], resourceSet) {
-			return true
-		}
-	}
-	for i := range pod.Containers {
-		if containerUses(&pod.Containers[i], resourceSet) {
-			return true
-		}
-	}
-	return false
-}
-
-func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceName]) bool {
-	for r := range cont.Resources.Requests {
-		if resourceSet.Has(r) {
-			return true
-		}
-	}
-	for r := range cont.Resources.Limits {
-		if resourceSet.Has(r) {
-			return true
-		}
-	}
-	return false
 }
 
 // updateCheckMessage sets the message of the check, reporting whether it changed. An empty message

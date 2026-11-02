@@ -55,6 +55,8 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("capacitybufferconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().CapacityBufferConfigs().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("capacityproviders"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().CapacityProviders().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("dynamicquotaorchestrators"):

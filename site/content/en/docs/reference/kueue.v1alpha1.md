@@ -10,10 +10,39 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1alpha1.
 ## Resource Types 
 
 
+- [CapacityBufferConfig](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig)
 - [CapacityProvider](#kueue-x-k8s-io-v1alpha1-CapacityProvider)
 - [DynamicQuotaOrchestrator](#kueue-x-k8s-io-v1alpha1-DynamicQuotaOrchestrator)
 - [PreemptionConfig](#kueue-x-k8s-io-v1alpha1-PreemptionConfig)
   
+
+## `CapacityBufferConfig`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig}
+    
+
+**Appears in:**
+
+
+
+<p>CapacityBufferConfig is the Schema for the capacitybufferconfig API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1alpha1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>CapacityBufferConfig</code></td></tr>
+    
+  
+<tr><td><code>spec</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec"><code>CapacityBufferConfigSpec</code></a>
+</td>
+<td>
+   <p>spec is the specification of the CapacityBufferConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `CapacityProvider`     {#kueue-x-k8s-io-v1alpha1-CapacityProvider}
     
@@ -109,6 +138,48 @@ DQO uses this capacity only when CapacitySynchronized=True.</p>
 </td>
 <td>
    <p>spec defines the preemption rules of the PreemptionConfig.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `CapacityBufferConfigSpec`     {#kueue-x-k8s-io-v1alpha1-CapacityBufferConfigSpec}
+    
+
+**Appears in:**
+
+- [CapacityBufferConfig](#kueue-x-k8s-io-v1alpha1-CapacityBufferConfig)
+
+
+<p>CapacityBufferConfigSpec defines the desired state of CapacityBufferConfig</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>managedResources</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>[]k8s.io/api/core/v1.ResourceName</code></a>
+</td>
+<td>
+   <p>managedResources contains the list of resources managed by this check.</p>
+<p>If empty, all resources are considered managed.</p>
+<p>If not empty, CapacityBuffers are created only for the podsets that are
+requesting at least one of them, one CapacityBuffer per podset.</p>
+<p>If none of the workload's podsets is requesting at least a managed resource,
+the workload is considered ready.</p>
+</td>
+</tr>
+<tr><td><code>timeoutSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>timeoutSeconds is how long Kueue waits for the CapacityBuffers to reach
+FitsExistingCapacity before setting the AdmissionCheck to Retry, which
+evicts the workload and releases its quota. The timeout is measured from
+the creation of the CapacityBuffers.</p>
+<p>If unset, Kueue waits indefinitely.</p>
 </td>
 </tr>
 </tbody>

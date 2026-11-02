@@ -28,6 +28,7 @@ import (
 
 type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	CapacityBufferConfigsGetter
 	CapacityProvidersGetter
 	DynamicQuotaOrchestratorsGetter
 	PreemptionConfigsGetter
@@ -36,6 +37,10 @@ type KueueV1alpha1Interface interface {
 // KueueV1alpha1Client is used to interact with features provided by the kueue.x-k8s.io group.
 type KueueV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *KueueV1alpha1Client) CapacityBufferConfigs() CapacityBufferConfigInterface {
+	return newCapacityBufferConfigs(c)
 }
 
 func (c *KueueV1alpha1Client) CapacityProviders() CapacityProviderInterface {

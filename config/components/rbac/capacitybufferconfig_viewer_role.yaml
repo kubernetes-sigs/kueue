@@ -1,0 +1,18 @@
+# permissions for end users to view capacitybufferconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capacitybufferconfig-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/role: "capacitybufferconfig-viewer"
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - capacitybufferconfigs
+  verbs:
+  - get
+  - list
+  - watch

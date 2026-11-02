@@ -40,6 +40,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	capacitybuffer "k8s.io/autoscaler/cluster-autoscaler/apis/capacitybuffer/autoscaling.x-k8s.io/v1beta1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -178,6 +179,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = autoscaling.AddToScheme(f.scheme)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = capacitybuffer.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kftrainer.AddToScheme(f.scheme)
