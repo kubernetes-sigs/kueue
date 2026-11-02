@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -50,7 +51,7 @@ var (
 
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
-	wasSnapshot *schedlib.ClusterSnapshot
+	wasSnapshot schedLibSimulator.Simulator
 	// pods is this cycle's tracker, including unmanaged and virtual Pods.
 	// PreemptWorkload only releases Pods indexed by Workload.
 	pods *podtracker.Tracker
@@ -68,14 +69,14 @@ type wasSimulator struct {
 // pay for it.
 type lazyCluster struct {
 	// build produces the cluster. It runs at most once.
-	build func(context.Context) (*schedlib.ClusterSnapshot, error)
+	build func(context.Context) (schedLibSimulator.Simulator, error)
 	once  sync.Once
 	// value and err hold what build returned, and are only read after once has run.
-	value *schedlib.ClusterSnapshot
+	value schedLibSimulator.Simulator
 	err   error
 }
 
-func (s *wasSimulator) getEmptyCluster(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
+func (s *wasSimulator) getEmptyCluster(ctx context.Context) (schedLibSimulator.Simulator, error) {
 	s.emptyCluster.once.Do(func() {
 		cluster, err := s.emptyCluster.build(ctx)
 		if err != nil {
@@ -214,7 +215,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
-func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (schedLibSimulator.Simulator, error) {
 	if scheduleOpts.SimulateEmpty {
 		return s.getEmptyCluster(ctx)
 	}
