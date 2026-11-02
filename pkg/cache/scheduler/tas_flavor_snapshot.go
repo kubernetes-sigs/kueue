@@ -306,6 +306,19 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
 }
 
+// adjustNonTASUsage is used only by a temporary scheduling probe, after the
+// initial snapshot has been built. Cached capacities must be invalidated on
+// both the release and its restoration.
+func (s *TASFlavorSnapshot) adjustNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, release bool) {
+	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
+	if release {
+		leafCapacity.freeCapacity.Add(usage)
+	} else {
+		leafCapacity.freeCapacity.Sub(usage)
+	}
+	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+}
+
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(count)}))
