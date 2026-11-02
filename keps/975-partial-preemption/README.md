@@ -460,11 +460,10 @@ Otherwise, target selection decides how far to shrink the PodSet this round, wit
 The scheduler binary-searches the `[minTargetCount, maxTargetCount]` window for the largest target
 count that makes the preemptor fit, so it reclaims only the replicas needed. This adds at most
 `ceil(log2(maxTargetCount - minTargetCount + 2))` fit simulations per candidate visit. With the
-max-reclaimed-count annotation, a candidate is visited at most
-`ceil((used - preemptionMinCount) / maxReclaimedCount)` times. If the
-candidate alone is insufficient, it is reduced to `minTargetCount`, later candidates contribute, and
-reductions accumulate across victims and rounds. A candidate that has reached its floor can later be
-handled as a normal whole-eviction candidate.
+max-reclaimed-count annotation, a candidate is visited at most `ceil((used - preemptionMinCount) /
+maxReclaimedCount)` times. If the candidate alone is insufficient, it is reduced to
+`minTargetCount`, later candidates contribute, and reductions accumulate across victims and rounds.
+A candidate that has reached its floor can later be handled as a normal whole-eviction candidate.
 
 Setting the max-reclaimed-count annotation to 1 takes at most one Pod from each victim per round,
 which spreads the loss across victims.
