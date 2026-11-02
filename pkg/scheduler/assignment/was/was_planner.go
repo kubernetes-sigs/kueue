@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -144,7 +146,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		// Lower any remaining Fit resources to Preempt so candidate selection
 		// considers every resource the workload uses.
 		assignment.DemoteTo(flavorassigner.Preempt)
-		return p.scheduleWithPreemption(ctx, pods, *assignment, schedOpts...)
+		return p.scheduleWithPreemption(ctx, pods, *assignment, sets.New(committedVictims...), schedOpts...)
 	}
 	return placementSummary, failures, nil, nil
 }
@@ -182,6 +184,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
+	committedVictims sets.Set[client.ObjectKey],
 	opts ...simulator.ScheduleOption,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
@@ -194,6 +197,9 @@ func (p *wasPlanner) scheduleWithPreemption(
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl client.ObjectKey) bool {
+			return committedVictims.Has(wl)
+		})
 		if len(failures) == 0 {
 			targets, err := strategy.GetTargets(preemptedWorkloads)
 			if err != nil {
