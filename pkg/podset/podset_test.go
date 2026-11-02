@@ -288,6 +288,7 @@ func TestMergeRestore(t *testing.T) {
 		featureGates       map[featuregate.Feature]bool
 		podSet             *kueue.PodSet
 		info               PodSetInfo
+		options            []MergeOption
 		wantError          bool
 		wantPodSet         *kueue.PodSet
 		wantRestoreChanges bool
@@ -566,6 +567,28 @@ func TestMergeRestore(t *testing.T) {
 			},
 			wantError: true,
 		},
+		"conflicting node selector with WithIgnoreNodeSelectorConflicts": {
+			podSet: basePodSet.DeepCopy(),
+			info: PodSetInfo{
+				NodeSelector: map[string]string{
+					"ns0": "ns0v1",
+					"ns1": "ns1v",
+				},
+			},
+			options: []MergeOption{WithIgnoreNodeSelectorConflicts()},
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
+				NodeSelector(map[string]string{"ns0": "ns0v", "ns1": "ns1v"}).
+				Labels(map[string]string{"l0": "l0v"}).
+				Annotations(map[string]string{"a0": "a0v"}).
+				Toleration(corev1.Toleration{
+					Key:      "t0",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "t0v",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
 		"podset with scheduling gate; empty info": {
 			podSet: utiltestingapi.MakePodSet("", 1).
 				SchedulingGates(corev1.PodSchedulingGate{
@@ -626,7 +649,7 @@ func TestMergeRestore(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			orig := tc.podSet.DeepCopy()
 
-			gotError := Merge(utiltesting.NewLogger(t), &tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info)
+			gotError := Merge(utiltesting.NewLogger(t), &tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, tc.info, tc.options...)
 
 			if tc.wantError != (gotError != nil) {
 				t.Errorf("Unexpected error status want: %v", tc.wantError)
