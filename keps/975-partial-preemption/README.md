@@ -173,8 +173,10 @@ It runs at a lower priority than production jobs in the same ClusterQueue, `rese
 
 Currently, Kueue suspends the whole RayCluster in step 2.
 KubeRay deletes the head with the workers, so the notebook server goes down, unsaved work is lost, and so is everything in the kernel's memory.
-Handling SIGTERM does not save it either: a grace period can save files, but not the kernel's memory or the processes I started.
-The RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free.
+Evicting the whole RayCluster gracefully would not save my session either.
+A grace period lets my code write files or a checkpoint, but the kernel's memory, the objects in Ray's object store and the processes I started are still lost, and I have to rebuild my environment.
+It also takes more than the job needs: the RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free, although it could keep running on 16.
+With partial preemption, I lose only the tasks that ran on the 2 removed workers, and my session keeps running.
 
 #### Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline
 
