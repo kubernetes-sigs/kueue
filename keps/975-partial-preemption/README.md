@@ -21,9 +21,11 @@
   - [Scheduler / Preemption](#scheduler--preemption)
     - [Eligibility](#eligibility)
     - [Candidate ordering](#candidate-ordering)
+    - [Consuming candidates across rounds](#consuming-candidates-across-rounds)
     - [Target selection](#target-selection)
     - [Issuing preemptions](#issuing-preemptions)
     - [No-fit behavior](#no-fit-behavior)
+    - [Example](#example)
   - [Webhook](#webhook)
   - [Job runtime contract](#job-runtime-contract)
   - [Test Plan](#test-plan)
@@ -285,6 +287,20 @@ normal whole-eviction handling.
 
 ### Scheduler / Preemption
 
+Whole eviction picks candidates in one pass: order them, then evict in order until the preemptor
+fits. Partial preemption keeps that shape but splits the decision into three stages, because a
+candidate is no longer "evict or not" but "shrink by how much":
+
+1. **Ordering** — produce a total order over the candidates ([Candidate ordering](#candidate-ordering)).
+2. **Consumption** — walk that order, possibly over several rounds, so one victim can be shrunk
+   incrementally and several victims can accumulate reductions ([Consuming candidates across
+   rounds](#consuming-candidates-across-rounds)).
+3. **Target selection** — for each visited candidate, decide the target count for this round
+   ([Target selection](#target-selection)).
+
+With the `PartialPreemption` gate off, all three collapse to today's single forward pass that evicts
+whole candidates in order, so there is no behavioral change.
+
 #### Eligibility
 
 A candidate is eligible for partial preemption when: the `PartialPreemption` gate is enabled, the
@@ -295,27 +311,101 @@ for simulation.
 
 #### Candidate ordering
 
-Within the existing preemption candidate ordering, in-flight partial targets are considered early.
-After priority, an eligible partial-preemptible candidate is preferred over a whole-eviction-only
-candidate, and among partial-preemptible peers the candidate with higher effective used count is
-preferred. Priority still dominates, and with the gate off these criteria are no-ops.
+Partial preemption adds three criteria to the existing candidate comparator:
+
+1. **Resume an in-flight reduction first.** A candidate whose current count is still above an
+   in-flight `reclaimTargetCount` sorts just after already-evicting candidates, so a reduction
+   already in progress is resumed before a fresh victim is picked. This is what keeps the scheduler
+   from spreading reductions across new victims while an earlier target is still converging (see
+   [Consuming candidates across rounds](#consuming-candidates-across-rounds)).
+2. **Prefer shrinking over evicting.** Once priority ties, an eligible partial-preemptible candidate
+   is preferred over a whole-eviction-only one, because shrinking a PodSet is cheaper than evicting a
+   whole Workload.
+3. **Among partial peers, prefer the one that can give back more.** The tie-break key is how far the
+   candidate's effective used count exceeds its `ReclaimMinCount` (capped by any in-flight
+   `reclaimTargetCount`) — the number of replicas it can still shed — not the raw used count. Because
+   this key is recomputed each scheduling cycle, a victim that was already shrunk falls behind its
+   peers, so repeated rounds rotate across candidates and spread the reduction instead of repeatedly
+   hitting the same Workload.
+
+With the gate off, these fields are all false/0, so the order is identical to today's.
+
+#### Consuming candidates across rounds
+
+The preemptor simulates preempting candidates in the order above and stops as soon as it fits. Whole
+eviction needs only a single forward pass, since each candidate is removed in full. A partial
+candidate, by contrast, may only be shrunk partway toward its floor in one visit, so one pass is not
+always enough even when enough quota could eventually be reclaimed. Partial preemption therefore
+lets the scheduler re-walk the still-reducible partial candidates over additional rounds, deepening
+their reductions until the preemptor fits or no candidate can shed further.
+
+**Why 6 segments.** In whole-eviction preemption each visited candidate gives up all of its quota,
+so a single pass is always enough. With partial preemption a candidate may give up only part of its
+quota, which creates a risk: a partial candidate visited early might contribute just a fraction of
+what is needed, increasing the chance that the preemptor ends up reaching higher-priority or
+non-hierarchy candidates that should have been avoided. The segment layout addresses this by grouping
+candidates so that the ones the scheduler should prefer are exhausted first, before crossing into
+groups that carry a higher disruption cost.
+
+**Candidate groups and the 6-segment layout.** The iterator arranges candidates into six ordered
+segments:
+
+1. Evicted / pending-reclaim candidates with hierarchical advantage
+2. Evicted / pending-reclaim candidates with priority advantage (lower-priority, same cohort)
+3. Evicted / pending-reclaim candidates from the same queue
+4. Non-evicted candidates with hierarchical advantage
+5. Non-evicted candidates with priority advantage
+6. Non-evicted candidates from the same queue
+
+Segments 1-3 are walked once in a single leading pass, resuming in-progress reductions before
+touching any fresh victim. Segments 4-6 run the multi-round walk. Because candidates are consumed
+segment-by-segment, the scheduler fully exhausts one segment before moving to the next — it never
+reaches higher-disruption candidates while lower-disruption ones can still contribute. This mirrors
+how whole-eviction preemption works, just extended across multiple rounds.
+
+Within each multi-round segment, candidates are ordered by `used - ReclaimMinCount` (capped by any
+in-flight target), so the one that can shed the most is visited first. This key is recomputed each
+cycle, so a victim already shrunk in a prior cycle falls behind its peers and the load spreads
+across victims.
+
+The `partialPreemption.enableStrictPriorityPreemption` flag controls whether rounds within a segment
+cross priority boundaries. When off (the default), a round walks the entire segment regardless of
+priority, spreading the reduction across all priorities and avoiding over-reducing a single
+low-priority victim. When on, a round is bounded to the priority of the first candidate returned and
+only advances to higher-priority candidates once the lower-priority ones in the segment are
+exhausted.
+
+With the gate off the walk degenerates to the single forward pass of today's whole-eviction
+preemption, and the segment layout and `enableStrictPriorityPreemption` have no effect.
 
 #### Target selection
 
-By default, for an eligible candidate the scheduler reduces the PodSet straight to its per-round
-floor: the PodSet's `ReclaimMinCount`, or higher if the optional max-reclaimed-count annotation caps
-how much a single round may reclaim. If the candidate alone is insufficient, later candidates can
-contribute; reductions can accumulate across multiple victims and repeated candidate rounds. An
-existing in-flight target is simulated and preserved until it clears. If partial reductions are
-still insufficient, a candidate that has reached its floor can later be handled as a normal
-whole-eviction candidate.
+If the candidate has an in-flight `reclaimTargetCount` from a previous scheduling cycle and the
+current used count is still above it, target selection reuses that target directly and skips the
+window calculation below. This is the target-selection counterpart to ordering criterion 1 and the
+leading-round consumption of in-flight candidates: the same target is consistently pursued across
+cycles until the runtime converges.
 
-The `partialPreemption.enableOnDemandPreemption` configuration flag switches target selection to an
-alternative mode: instead of dropping straight to the floor, the scheduler searches between the
-candidate's current effective used count and the floor, and selects the largest target count that
-already makes the preemptor fit, so it reclaims only the replicas actually needed. Both modes are
-gated by the same `PartialPreemption` feature gate; with the flag unset, the default floor-based
-reduction above is used.
+Otherwise, target selection decides how far to shrink the PodSet this round, within a
+`[minTargetCount, maxTargetCount]` window:
+
+- `maxTargetCount` (least reduction) is `used - 1`.
+- `minTargetCount` (most reduction) is the PodSet's `ReclaimMinCount`. The optional
+  `kueue.x-k8s.io/partial-preemption-max-reclaimed-count` annotation raises this floor to
+  `used - maxReclaimedCount`, limiting how many replicas a single round may reclaim. The scheduler
+  then visits the candidate in later rounds, deepening the target by up to `maxReclaimedCount` each
+  time, until the preemptor fits or `ReclaimMinCount` is reached.
+
+By default the scheduler reduces straight to `minTargetCount`. If the candidate alone is
+insufficient, later candidates contribute and reductions accumulate across victims and rounds; a
+candidate that has reached its floor can later be handled as a normal whole-eviction candidate.
+
+The `partialPreemption.enableOnDemandPreemption` configuration flag switches to an on-demand mode:
+instead of dropping straight to the floor, the scheduler binary-searches the
+`[minTargetCount, maxTargetCount]` window for the largest target count that already makes the
+preemptor fit, so it reclaims only the replicas actually needed. The search runs extra fit
+simulations per candidate, which may cost scheduling-cycle performance, so it is a separate opt-in
+flag; with the flag unset, the default floor-based reduction is used.
 
 #### Issuing preemptions
 
@@ -328,6 +418,31 @@ here (that is the release phase of the two-phase model).
 Partial targets are issued only when the resulting target set makes the preemptor fit. If the
 preemptor still does not fit, tentative partial and whole-eviction targets are discarded, no
 preemption is issued, and the preemptor remains `Pending` for a later scheduling cycle.
+
+#### Example
+
+All victims below belong to the same ClusterQueue as the arriving preemptor, so they all fall in
+the same-queue segment; no hierarchical or cross-queue priority advantage applies, and the ordering
+shown below is the priority tie-break within that single segment.
+
+A cohort is fully used by three partial-preemptible victims: `L1` and `L2` at low priority and `H`
+at medium priority. `L1` can shed 4 executors above its `ReclaimMinCount`, `L2` can shed 3. A
+higher-priority preemptor arrives, `enableOnDemandPreemption` and `enableStrictPriorityPreemption`
+are both on, and each PodSet caps a single round's reduction at a max-reclaimed-count of 2. The three
+stages interact as follows:
+
+1. **Ordering** puts the low-priority band `{L1, L2}` ahead of `H`; within the band the
+   reclaimable-count tie-break puts `L1` ahead of `L2`. Order: `L1`, `L2`, then `H`.
+2. **Consumption** with `enableStrictPriorityPreemption` on keeps the walk inside the low band, so
+   `H` is never considered while `L1`/`L2` can still contribute. Round 1 shrinks `L1` then `L2`, each
+   by the per-round cap of 2. If that is still short, `L2` being partial triggers a second round over
+   the same band; round 2 returns to `L1` first (its reclaimable count is still highest).
+3. **Target selection** in round 2 reuses the target already signaled for `L1` in round 1 and only
+   deepens it (never raises it), stopping at the largest target that makes the preemptor fit.
+
+`H` keeps running untouched. While `L1`/`L2` have in-flight targets whose executors have not yet
+exited, ordering criterion 1 keeps them at the front across the scheduling cycles the reduction takes
+to converge, so the preemptor resumes the same victims instead of starting new ones.
 
 ### Webhook
 
