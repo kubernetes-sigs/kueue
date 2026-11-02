@@ -166,7 +166,13 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
 			want:           testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
 		},
-		"update of a ready statefulset that drops the queue-name label sets the default LocalQueue": {
+		"update of a ready statefulset that drops a non-default queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").Queue("foo").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready statefulset that drops the default queue-name label sets the default LocalQueue": {
 			defaultLqExist: true,
 			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").Queue("default").ReadyReplicas(1).Obj(),
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),

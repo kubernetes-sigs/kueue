@@ -92,7 +92,7 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 	}
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running StatefulSet that did not have them.
-	if oldSTSObj == nil || jobframework.CanSetQueueName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
+	if oldSTSObj == nil || jobframework.CanApplyDefaultLocalQueue(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}

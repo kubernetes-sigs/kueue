@@ -132,7 +132,13 @@ func TestDefault(t *testing.T) {
 			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
 			want:           testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
 		},
-		"update of a ready deployment that drops the queue-name label sets the default LocalQueue": {
+		"update of a ready deployment that drops a non-default queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Queue("foo").ReadyReplicas(1).Obj(),
+			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready deployment that drops the default queue-name label sets the default LocalQueue": {
 			defaultLqExist: true,
 			oldDeployment:  testingdeployment.MakeDeployment("test-pod", "default").Queue("default").ReadyReplicas(1).Obj(),
 			deployment:     testingdeployment.MakeDeployment("test-pod", "default").ReadyReplicas(1).Obj(),

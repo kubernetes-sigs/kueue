@@ -282,13 +282,6 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
-// CanSetQueueName reports whether an update can leave the queue-name label set.
-// The label cannot be added to a non-suspended (running) workload that did not
-// have it before the update.
-func CanSetQueueName(isSuspended bool, oldObj client.Object) bool {
-	return isSuspended || QueueNameForObject(oldObj) != ""
-}
-
 // CanSetWorkloadPriorityClassName reports whether an update can leave the
 // WorkloadPriorityClass label set. The label cannot be added to a non-suspended
 // (running) workload that did not have it before the update.

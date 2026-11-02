@@ -162,7 +162,23 @@ func TestDefault(t *testing.T) {
 				ReadyReplicas(1).
 				Obj(),
 		},
-		"update of a ready LeaderWorkerSet that drops the queue-name label sets the default LocalQueue": {
+		"update of a ready LeaderWorkerSet that drops a non-default queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("foo").
+				ReadyReplicas(1).
+				Obj(),
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				ReadyReplicas(1).
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"update of a ready LeaderWorkerSet that drops the default queue-name label sets the default LocalQueue": {
 			defaultLqExist: true,
 			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
