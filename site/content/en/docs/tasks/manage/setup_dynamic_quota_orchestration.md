@@ -22,6 +22,26 @@ Make sure the following conditions are met:
 - [Kueue is installed](/docs/installation) in version 0.20 or later.
 - You can create cluster-scoped objects and write their status.
 
+## Install the alpha APIs
+
+CapacityProvider and DynamicQuotaOrchestrator are alpha APIs. Kueue does not
+install their CRDs by default. Install them before you enable the feature gate.
+
+If you installed Kueue with kubectl, run:
+
+```shell
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/alpha-crds.yaml
+```
+
+If you installed Kueue with Helm, set `enableAlphaAPIs` to `true`:
+
+```shell
+helm upgrade kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueue-{{< param "chart_version" >}}.tgz \
+  --namespace kueue-system \
+  --reuse-values \
+  --set enableAlphaAPIs=true
+```
+
 ## Enable the feature gate
 
 `DynamicQuotaOrchestration` is an alpha feature and is disabled by default.
@@ -53,7 +73,8 @@ this example, you write it by hand.
 First, get the generation of the CapacityProvider:
 
 ```shell
-kubectl get capacityprovider demo-provider -o jsonpath='{.metadata.generation}'
+GENERATION=$(kubectl get capacityprovider demo-provider -o jsonpath='{.metadata.generation}')
+echo $GENERATION
 ```
 
 The output is similar to the following:
@@ -62,9 +83,8 @@ The output is similar to the following:
 1
 ```
 
-Then write the status. Set `observedGeneration` on the condition to the
-generation from the previous step. If it does not match, Kueue treats the
-status as stale.
+Then write the status. `observedGeneration` on the condition must match this
+generation. If it does not match, Kueue treats the status as stale.
 
 ```shell
 kubectl patch capacityprovider demo-provider --subresource=status --type=merge -p '{
@@ -75,7 +95,7 @@ kubectl patch capacityprovider demo-provider --subresource=status --type=merge -
       "status": "True",
       "reason": "Synchronized",
       "message": "Capacity written by hand for the demo",
-      "observedGeneration": 1,
+      "observedGeneration": '"$GENERATION"',
       "lastTransitionTime": "2026-10-30T00:00:00Z"
     }]
   }
