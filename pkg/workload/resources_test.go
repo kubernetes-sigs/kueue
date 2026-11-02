@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -860,6 +861,28 @@ func TestValidateRuntimeClassScheduling(t *testing.T) {
 						Obj(),
 				).
 				Obj(),
+		},
+		"a StatefulSet Workload that also gained its Pods as owners is still checked": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), "sts", "uid-sts").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "sts-0", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+			wantError: field.ErrorList{
+				field.Invalid(
+					PodSetsPath.Index(0).Child("template").Child("spec").Child("nodeSelector"),
+					map[string]string{"pool": "cpu"},
+					"conflict for key=pool, value1=cpu, value2=gpu",
+				),
+			},
 		},
 	}
 	for name, tc := range cases {
