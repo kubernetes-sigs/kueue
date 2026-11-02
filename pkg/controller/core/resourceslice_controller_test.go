@@ -17,7 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -85,13 +84,13 @@ func TestResourceSliceDriverEventRequests(t *testing.T) {
 	b := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "b"}, Spec: resourcev1.ResourceSliceSpec{Driver: "driver-b.example.com"}}
 	unknown := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "unknown"}, Spec: resourcev1.ResourceSliceSpec{Driver: "other.example.com"}}
 
-	if got := r.mapResourceSliceToDriver(context.Background(), a); len(got) != 1 || got[0].Name != "driver-a.example.com" || got[0].Namespace != "" {
+	if got := r.mapResourceSliceToDriver(t.Context(), a); len(got) != 1 || got[0].Name != "driver-a.example.com" || got[0].Namespace != "" {
 		t.Fatalf("driver-A event requests: %v", got)
 	}
-	if got := r.mapResourceSliceToDriver(context.Background(), unknown); len(got) != 0 {
+	if got := r.mapResourceSliceToDriver(t.Context(), unknown); len(got) != 0 {
 		t.Fatalf("unconfigured driver requests: %v", got)
 	}
-	if got := r.mapResourceSliceToDriver(context.Background(), b); len(got) != 1 || got[0].Name != "driver-b.example.com" {
+	if got := r.mapResourceSliceToDriver(t.Context(), b); len(got) != 1 || got[0].Name != "driver-b.example.com" {
 		t.Fatalf("driver-B event requests: %v", got)
 	}
 	if !r.Create(event.TypedCreateEvent[*resourcev1.ResourceSlice]{Object: a}) ||
