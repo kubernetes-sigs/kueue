@@ -59,30 +59,35 @@ type ProcessSummary struct {
 func ListPods(ctx context.Context, c client.Client, namespaces []string, ch chan<- corev1.Pod) error {
 	defer close(ch)
 	for _, ns := range namespaces {
-		lst := &corev1.PodList{}
-		log := ctrl.LoggerFrom(ctx).WithValues("namespace", ns)
-		log.V(3).Info("Begin pods list")
-		defer log.V(3).Info("End pods list")
-		page := 0
-		for {
-			err := c.List(ctx, lst, listOptions(ns, lst.Continue)...)
-			if err != nil {
-				log.Error(err, "list")
-				return fmt.Errorf("listing pods in %s, page %d: %w", ns, page, err)
-			}
+		if err := func() error {
+			lst := &corev1.PodList{}
+			log := ctrl.LoggerFrom(ctx).WithValues("namespace", ns)
+			log.V(3).Info("Begin pods list")
+			defer log.V(3).Info("End pods list")
+			page := 0
+			for {
+				err := c.List(ctx, lst, listOptions(ns, lst.Continue)...)
+				if err != nil {
+					log.Error(err, "list")
+					return fmt.Errorf("listing pods in %s, page %d: %w", ns, page, err)
+				}
 
-			for _, p := range lst.Items {
-				if utilpod.IsTerminated(&p) {
-					log.V(2).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
-				} else {
-					ch <- p
+				for _, p := range lst.Items {
+					if utilpod.IsTerminated(&p) {
+						log.V(2).Info("Skip pod", "pod", klog.KObj(&p), "phase", p.Status.Phase)
+					} else {
+						ch <- p
+					}
+				}
+				page++
+				if lst.Continue == "" {
+					log.V(2).Info("No more pods", "pages", page)
+					break
 				}
 			}
-			page++
-			if lst.Continue == "" {
-				log.V(2).Info("No more pods", "pages", page)
-				break
-			}
+			return nil
+		}(); err != nil {
+			return err
 		}
 	}
 	return nil
