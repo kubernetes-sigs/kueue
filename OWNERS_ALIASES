@@ -17,6 +17,8 @@ aliases:
     - j-skiba
   kueuectl-approvers:
     - mbobrovskyi
+  kueuectl-reviewers:
+    - henry3260
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
