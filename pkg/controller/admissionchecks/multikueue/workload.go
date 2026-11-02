@@ -865,9 +865,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 9. Report why no worker reserved quota. This runs before the nomination, which
 	// patches the local workload and so invalidates acs.
 	reportErr := w.syncQuotaReservationFailures(ctx, group, acs)
-	if reportErr != nil {
-		log.V(2).Error(reportErr, "Reporting quota reservation failures of the workers")
-	}
 
 	if err := w.nominateAndSynchronizeWorkers(ctx, group); err != nil {
 		return reconcile.Result{}, errors.Join(resetErr, reportErr, err)
@@ -881,7 +878,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 // other transitions, such as the reset to Pending after an eviction.
 func (w *wlReconciler) syncQuotaReservationFailures(ctx context.Context, group *wlGroup, acs *kueue.AdmissionCheckState) error {
 	message := group.quotaReservationFailuresMessage()
-	if message == acs.Message || (message == "" && !strings.HasPrefix(acs.Message, noWorkerReservedQuotaMessagePrefix)) {
+	if message == acs.Message {
+		return nil
+	}
+	// Keep messages set on other transitions, e.g. the reset to Pending after an eviction.
+	if message == "" && !strings.HasPrefix(acs.Message, noWorkerReservedQuotaMessagePrefix) {
 		return nil
 	}
 	return workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
