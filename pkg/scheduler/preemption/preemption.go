@@ -207,7 +207,7 @@ func New(
 		workloadOrdering:       workloadOrdering,
 		enableFairSharing:      fairsharing.Enabled(fs),
 		fsStrategies:           parseStrategies(fs),
-		fsReclaimOnly:          reclaimOnly(fs),
+		fsReclaimOnly:          fairsharing.ReclaimOnly(fs),
 		enabledAfs:             enabledAfs,
 		roleTracker:            tracker,
 		customLabels:           customLabels,
@@ -521,7 +521,7 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 	if fs == nil || len(fs.PreemptionStrategies) == 0 {
 		return []fairsharing.Strategy{fairsharing.LessThanOrEqualToFinalShare, fairsharing.LessThanInitialShare}
 	}
-	if reclaimOnly(fs) {
+	if fairsharing.ReclaimOnly(fs) {
 		// ReclaimOnly doesn't compare DominantResourceShares; see iterateReclaimOnly.
 		return nil
 	}
@@ -540,10 +540,6 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 // reclaimOnly reports whether the FairSharing preemption is restricted to
 // reclaiming nominal quota. Configuration validation only allows ReclaimOnly
 // as the single strategy.
-func reclaimOnly(fs *config.FairSharing) bool {
-	return fs != nil && slices.Equal(fs.PreemptionStrategies, []config.PreemptionStrategy{config.ReclaimOnly})
-}
-
 // fsStrategyUnsatisfiable reports whether, given the preemptor's and the
 // target's shares before any workload is removed, no candidate workload in
 // the target ClusterQueue can pass either FairSharing strategy. When it
