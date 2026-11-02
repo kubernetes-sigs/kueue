@@ -21,11 +21,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -52,15 +50,9 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-				kueuectl.SetOut(output)
-				kueuectl.SetErr(output)
-
-				kueuectl.SetArgs([]string{"delete", "workload", wlName, "--namespace", ns.Name, "--yes"})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
+					commandOutput: commandOutputCombined,
+				})
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
@@ -77,15 +69,9 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete kueueworkload with --yes", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-				kueuectl.SetOut(output)
-				kueuectl.SetErr(output)
-
-				kueuectl.SetArgs([]string{"delete", "kueueworkload", wlName, "--namespace", ns.Name, "--yes"})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				executeKueuectl(cfg, []string{"delete", "kueueworkload", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
+					commandOutput: commandOutputCombined,
+				})
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
@@ -102,15 +88,9 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete kueueworkloads with --yes", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-				kueuectl.SetOut(output)
-				kueuectl.SetErr(output)
-
-				kueuectl.SetArgs([]string{"delete", "kueueworkloads", wlName, "--namespace", ns.Name, "--yes"})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				executeKueuectl(cfg, []string{"delete", "kueueworkloads", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
+					commandOutput: commandOutputCombined,
+				})
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
@@ -133,15 +113,9 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-				kueuectl.SetOut(output)
-				kueuectl.SetErr(output)
-
-				kueuectl.SetArgs([]string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				executeKueuectl(cfg, []string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
+					commandOutput: commandOutputCombined,
+				})
 			})
 
 			ginkgo.By("Verify the Job is removed from the cluster", func() {
@@ -164,17 +138,11 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload without --yes (declined confirmation)", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-				kueuectl.SetOut(output)
-				kueuectl.SetErr(output)
-
 				// Stdin is empty; confirmation prompt receives no input, which the
 				// command treats as decline and prints "Deletion is canceled".
-				kueuectl.SetArgs([]string{"delete", "workload", wlName, "--namespace", ns.Name})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				output, _ := executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name}, kueuectlRunOptions{
+					commandOutput: commandOutputCombined,
+				})
 				gomega.Expect(output.String()).To(gomega.ContainSubstring("Deletion is canceled"))
 			})
 

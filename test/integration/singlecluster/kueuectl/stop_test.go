@@ -23,13 +23,11 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -64,13 +62,9 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 			})
 
 			ginkgo.By("Stop the created Workload", func() {
-				streams, _, output, _ := genericiooptions.NewTestIOStreams()
-				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
-
-				kueuectl.SetArgs([]string{"stop", "workload", wl.Name, "--namespace", ns.Name})
-				err := kueuectl.Execute()
-				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				executeKueuectl(cfg, []string{"stop", "workload", wl.Name, "--namespace", ns.Name}, kueuectlRunOptions{
+					clock: testingclock.NewFakeClock(time.Now()),
+				})
 			})
 
 			ginkgo.By("Check that the Workload successfully stopped", func() {
@@ -100,13 +94,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop created LocalQueue", func() {
-					streams, _, output, _ := genericiooptions.NewTestIOStreams()
-					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-
-					kueuectl.SetArgs(append([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, stopCmdArgs...))
-					err := kueuectl.Execute()
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+					executeKueuectl(cfg, append([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, stopCmdArgs...), kueuectlRunOptions{})
 				})
 
 				ginkgo.By("Check that the LocalQueue is successfully stopped", func() {
@@ -145,13 +133,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
-					streams, _, output, _ := genericiooptions.NewTestIOStreams()
-					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-
-					kueuectl.SetArgs([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
-					err := kueuectl.Execute()
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+					executeKueuectl(cfg, []string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
 				})
 
 				ginkgo.By("Check that the LocalQueue is still active", func() {
@@ -186,13 +168,9 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop created ClusterQueue", func() {
-					streams, _, output, _ := genericiooptions.NewTestIOStreams()
-					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
-
-					kueuectl.SetArgs(append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...))
-					err := kueuectl.Execute()
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+					executeKueuectl(cfg, append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...), kueuectlRunOptions{
+						clock: testingclock.NewFakeClock(time.Now()),
+					})
 				})
 
 				ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
@@ -233,13 +211,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
-					streams, _, output, _ := genericiooptions.NewTestIOStreams()
-					configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
-					kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
-
-					kueuectl.SetArgs([]string{"stop", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
-					err := kueuectl.Execute()
-					gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+					executeKueuectl(cfg, []string{"stop", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
 				})
 
 				ginkgo.By("Check that the ClusterQueue is still active", func() {
