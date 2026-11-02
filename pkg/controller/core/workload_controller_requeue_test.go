@@ -148,6 +148,11 @@ func TestReconcileRequeue(t *testing.T) {
 			workload:     removedCheck.Clone().Obj(),
 			wantWorkload: removedCheck.Clone().AdmissionChecks().Obj(),
 		},
+		"missing local queue does not deactivate an evicted workload": {
+			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().Obj(),
+		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
