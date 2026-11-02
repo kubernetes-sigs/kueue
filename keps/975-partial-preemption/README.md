@@ -259,25 +259,29 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 
 The target and the quota release are intentionally decoupled to avoid any over-subscription window:
 
-- **request:** Kueue writes the selected `preemptionTargetCount` on the victim's admission and
-  evicts the Pods above it (see [Shrinking the PodSet](#shrinking-the-podset)). It does **not**
-  change `status.admission` otherwise and does **not** release quota.
+- **request:** Kueue writes the selected `preemptionTargetCount` on the victim's admission, stops
+  ungating the PodSet's Pods above it, and evicts the Pods above it (see [Shrinking the
+  PodSet](#shrinking-the-podset)). It does **not** change `status.admission` otherwise and does
+  **not** release quota.
 - **release:** Once no Pod above the target is left, including terminating ones, Kueue sets the
   PodSet's entry in `status.reclaimablePods` to `max(0, spec count - preemptionTargetCount)`. Kueue
   already subtracts reclaimable Pods from a Workload's usage
   ([KEP-78](/keps/78-dynamically-reclaiming-resources)), so this releases their quota.
+
+If the release does not happen in time, see [Timeout](#timeout).
 
 ```mermaid
 sequenceDiagram
     participant P as preemptor
     participant K as Kueue
     participant WL as victim Workload
+    participant Pods as victim Pods
     participant J as job controller
     P->>K: needs quota, triggers preemption
     K->>WL: request phase writes preemptionTargetCount, quota stays charged
     K-->>P: keep Pending
-    K->>J: evict the Pods above the target
-    J->>J: recreate Pods, which stay gated
+    K->>Pods: evict the Pods above the target
+    J->>Pods: recreate Pods, which stay gated
     K->>WL: after the evicted Pods terminate, set reclaimablePods
     K->>P: admit preemptor after quota is released
 ```
