@@ -407,11 +407,11 @@ type CapacityDistribution struct {
     // effectiveQuotaTTL is how long the effective quota written by this DQO
     // stays valid without renewal. DQO sets status.effectiveQuotas.validUntil
     // to the time of a successful distribution plus this value.
-    // Defaults to 10m. The minimum is 1m.
+    // Defaults to 10m. The minimum is 1m and the maximum is 24h.
     //
     // +optional
     // +kubebuilder:default="10m"
-    // +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m')",message="effectiveQuotaTTL must be at least 1m"
+    // +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('24h')",message="effectiveQuotaTTL must be between 1m and 24h"
     EffectiveQuotaTTL *metav1.Duration `json:"effectiveQuotaTTL,omitempty"`
 }
 
@@ -874,7 +874,8 @@ controller reaction time after the last successful distribution.
 Falling back to `spec.resourceGroups` may increase the quota above the
 capacity which was last reported, for example when the capacity was reduced.
 Administrators who prefer to keep the last distributed quota during an outage
-can set a longer `effectiveQuotaTTL`.
+can set a longer `effectiveQuotaTTL`, up to 24h. The maximum keeps an
+abandoned effective quota from staying in effect for days.
 
 #### Clock skew
 
