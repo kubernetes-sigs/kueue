@@ -794,9 +794,10 @@ func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Wor
 			if updated, err := r.reconcileSyncAdmissionChecks(ctx, wl, cq); updated || err != nil {
 				return true, ctrl.Result{}, err
 			}
+			_, err := r.reconcileCheckBasedEviction(ctx, wl)
+			return true, ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		_, err := r.reconcileCheckBasedEviction(ctx, wl)
-		return true, ctrl.Result{}, client.IgnoreNotFound(err)
+		return true, ctrl.Result{}, nil
 	}
 	if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
 		if requeueAfter := wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now()); requeueAfter > 0 {

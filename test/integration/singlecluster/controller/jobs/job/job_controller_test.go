@@ -58,6 +58,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -4707,7 +4708,6 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			retryAt = *wl.Status.RequeueState.RequeueAt
 		})
 
 		ginkgo.By("retaining reservations while the suspended Job is still active", func() {
@@ -4749,7 +4749,9 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).NotTo(gomega.BeNil())
 				g.Expect(wl.Status.RequeueState.RequeueAt).NotTo(gomega.BeNil())
-				g.Expect(wl.Status.RequeueState.RequeueAt.Time).To(gomega.BeTemporally(">", retryAt.Time))
+				check := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(checks[1].Name))
+				g.Expect(check).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.RequeueAt.Time).To(gomega.BeTemporally("==", check.LastTransitionTime.Add(2*time.Hour)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			retryAt = *wl.Status.RequeueState.RequeueAt
 		})
