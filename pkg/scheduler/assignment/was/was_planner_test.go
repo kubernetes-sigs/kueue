@@ -34,6 +34,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/klog/v2"
+	kubefeatures "k8s.io/kubernetes/pkg/features"
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -45,6 +47,7 @@ import (
 	wascache "sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -1411,6 +1414,260 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			}
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, tc.wantMode)
+			}
+			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
+				t.Errorf("Plan() modified snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
+			}
+		})
+	}
+}
+
+func TestPlan_CommittedVictims(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:             true,
+		features.TopologyAwareScheduling:         true,
+		features.SchedulerLibraryIntegration:     true,
+		features.SchedulerLibraryDeepIntegration: true,
+	})
+
+	simulatorFactory, err := wascache.NewWASSimulatorFactory(klog.NewContext(t.Context(), logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory() unexpected error: %v", err)
+	}
+
+	now := time.Now()
+	const highPriority = 100
+	nodeCPUs := map[string]string{
+		testNode1: "9",
+		testNode2: "6",
+	}
+
+	committed6Node1 := utiltestingapi.MakeWorkload("committed-victim", testNamespace).
+		Priority(highPriority).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "6").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(testCQ).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, testFlavor, "6").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{testNode1}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now)
+
+	candidate6Node2 := utiltestingapi.MakeWorkload("candidate-1", testNamespace).
+		Priority(10).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "6").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(testCQ).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, testFlavor, "6").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{testNode2}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now)
+
+	committed3Node1 := utiltestingapi.MakeWorkload("committed-victim", testNamespace).
+		Priority(highPriority).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "3").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(testCQ).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, testFlavor, "3").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{testNode1}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now)
+
+	blocker6Node2 := candidate6Node2.Clone().Name("blocker").Priority(highPriority)
+
+	cases := map[string]struct {
+		cqQuota           string
+		admittedWorkloads []*kueue.Workload
+		committedVictims  []client.ObjectKey
+		requestedCPU      string
+		initialMode       flavorassigner.FlavorAssignmentMode
+
+		wantMode               flavorassigner.FlavorAssignmentMode
+		wantPreemptionTargets  []client.ObjectKey
+		wantTopologyAssignment *tas.TopologyAssignment
+	}{
+		"committed victim alone allows fit without preempting candidates": {
+			cqQuota: "12",
+			admittedWorkloads: []*kueue.Workload{
+				committed6Node1.Clone().Obj(),
+				candidate6Node2.Clone().Obj(),
+			},
+			committedVictims: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "committed-victim"},
+			},
+			requestedCPU:           "6",
+			initialMode:            flavorassigner.Fit,
+			wantMode:               flavorassigner.Fit,
+			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
+		},
+		"committed victim and one preemption candidate needed to fit when quota fits": {
+			cqQuota: "18",
+			admittedWorkloads: []*kueue.Workload{
+				committed3Node1.Clone().Obj(),
+				committed3Node1.Clone().Name("candidate-1").Priority(10).Obj(),
+				committed3Node1.Clone().Name("candidate-2").Priority(20).Obj(),
+				blocker6Node2.Clone().Obj(),
+			},
+			committedVictims: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "committed-victim"},
+			},
+			requestedCPU: "6",
+			initialMode:  flavorassigner.Fit,
+			wantMode:     flavorassigner.Preempt,
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "candidate-1"},
+			},
+			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
+		},
+		"committed victim and one preemption candidate needed to fit when quota requires preemption": {
+			cqQuota: "15",
+			admittedWorkloads: []*kueue.Workload{
+				committed3Node1.Clone().Obj(),
+				committed3Node1.Clone().Name("candidate-1").Priority(10).Obj(),
+				committed3Node1.Clone().Name("candidate-2").Priority(20).Obj(),
+				blocker6Node2.Clone().Obj(),
+			},
+			committedVictims: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "committed-victim"},
+			},
+			requestedCPU: "6",
+			initialMode:  flavorassigner.Preempt,
+			wantMode:     flavorassigner.Preempt,
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "candidate-1"},
+			},
+			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
+		},
+		"committed victim and preemption candidates insufficient: falls back to empty-cluster simulation": {
+			cqQuota: "24",
+			admittedWorkloads: []*kueue.Workload{
+				committed3Node1.Clone().Obj(),
+				committed6Node1.Clone().Name("blocker-1").Obj(),
+				blocker6Node2.Clone().Obj(),
+			},
+			committedVictims: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "committed-victim"},
+			},
+			requestedCPU:           "7",
+			initialMode:            flavorassigner.Fit,
+			wantMode:               flavorassigner.Preempt,
+			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			log := testr.New(t)
+			ctx := ctrllog.IntoContext(t.Context(), log)
+
+			cache := schdcache.New(utiltesting.NewFakeClient(), schdcache.WithSimulatorFactory(simulatorFactory))
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(testFlavor).
+				NodeLabel("tas", testFlavor).TopologyName("topology").Obj())
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(testBlockLabel, corev1.LabelHostname).Obj())
+			for _, node := range []string{testNode1, testNode2} {
+				cache.TASCache().SyncNode(testingnode.MakeNode(node).
+					Label("tas", testFlavor).
+					Label(testBlockLabel, testBlock).
+					Label(corev1.LabelHostname, node).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse(nodeCPUs[node]),
+						corev1.ResourcePods: resource.MustParse("32"),
+					}).
+					Ready().
+					Obj())
+			}
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue(testCQ).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				ResourceGroup(cpuQuota(testFlavor, tc.cqQuota)).
+				Obj()); err != nil {
+				t.Fatalf("adding ClusterQueue: %v", err)
+			}
+			for _, w := range tc.admittedWorkloads {
+				if !cache.AddOrUpdateWorkload(ctx, log, w) {
+					t.Fatalf("adding workload %q to cache", w.Name)
+				}
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("building snapshot: %v", err)
+			}
+			var toRemove []*workload.Info
+			for _, cv := range tc.committedVictims {
+				wlInfo := snapshot.ClusterQueue(testCQ).Workloads[workload.NewReference(cv.Namespace, cv.Name)]
+				if wlInfo == nil {
+					t.Fatalf("workload %q not found in snapshot", cv)
+				}
+				toRemove = append(toRemove, wlInfo)
+			}
+			if len(toRemove) > 0 {
+				snapshot.SimulateWorkloadRemoval(toRemove)
+			}
+
+			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
+				Priority(incomingPriority).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, tc.requestedCPU).
+					Obj()).
+				Obj())
+			wl.ClusterQueue = testCQ
+
+			preemptor := preemption.New(
+				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
+				clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil,
+			)
+			assigner := flavorassigner.New(
+				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
+				preemption.NewOracle(preemptor, snapshot), nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+			)
+			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+			if gotInitialMode := initialAssignment.RepresentativeMode(); gotInitialMode != tc.initialMode {
+				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
+			}
+			freeCapacityBefore := freeCapacity(t, snapshot)
+
+			var opts []assignment.PlannerOption
+			if len(tc.committedVictims) > 0 {
+				opts = append(opts, assignment.WithCommittedPreemptionVictims(tc.committedVictims))
+			}
+			planner := NewPlanner(wl, snapshot, preemptor)
+			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
+
+			if gotPlan.Error != nil {
+				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
+			}
+			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, tc.wantMode)
+			}
+			wantFit := tc.wantMode == flavorassigner.Fit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
+			if gotFit := gotPlan.CanFit(); gotFit != wantFit {
+				t.Errorf("Plan() CanFit() = %v, want %v", gotFit, wantFit)
+			}
+			var gotTargets []client.ObjectKey
+			for _, target := range gotPlan.PreemptionTargets {
+				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantTopologyAssignment, gotPlan.Assignment.PodSets[0].TopologyAssignment); diff != "" {
+				t.Errorf("Plan() TopologyAssignment mismatch (-want +got):\n%s", diff)
 			}
 			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
 				t.Errorf("Plan() modified snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
