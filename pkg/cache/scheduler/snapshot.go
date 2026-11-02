@@ -513,7 +513,10 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
 	// nothing to take out of it and nothing cached to drop.
-	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+	// TODO(#18163): remove features.Enabled(features.SchedulerLibraryDeepIntegration)
+	// after https://github.com/kubernetes-sigs/scheduler-library/pull/70 merges
+	// and kueue is updated to use this version of scheduler-library.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) || features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))
