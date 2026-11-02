@@ -148,13 +148,13 @@ The RayCluster, including its head and baseline worker group, continues running 
 
 #### Story 3: Preempting an interactive Ray cluster loses the user's notebook session
 
-As a researcher, I use a RayCluster as an interactive workspace: a Jupyter notebook runs on the head, and I submit Ray tasks to GPU workers from it.
-When a higher-priority job needs GPUs, I want to give back GPU workers, not lose my session.
-Partial preemption must never disrupt the head: it runs my notebook server, and I need it running to save my development work.
+A researcher uses a RayCluster as an interactive workspace: a Jupyter notebook runs on the head and submits Ray tasks to GPU workers.
+When a higher-priority job needs GPUs, the researcher wants to give back GPU workers, not lose the notebook session.
+Partial preemption must never disrupt the head: it runs the notebook server, which must keep running so the researcher can save their development work.
 
 The head requests 8 CPUs and 32 GiB of memory and runs the notebook server.
 The GPU worker group uses the Ray autoscaler, and each GPU worker uses a whole 8-GPU node.
-My RayCluster opts in to partial preemption and sets `minReplicas: 0` on the GPU worker group.
+The RayCluster opts in to partial preemption and sets `minReplicas: 0` on the GPU worker group.
 It runs at a lower priority than production jobs in the same ClusterQueue, `research`; CPU and memory quota are not a constraint in this example:
 
 | `research`              |                                            |
@@ -163,31 +163,31 @@ It runs at a lower priority than production jobs in the same ClusterQueue, `rese
 | `withinClusterQueue`    | `LowerPriority`                            |
 | WorkloadPriorityClasses | `interactive` (100), `production` (1000)   |
 
-1. My RayCluster runs at priority `interactive` with its head and 4 GPU workers (32 GPUs).
+1. The RayCluster runs at priority `interactive` with its head and 4 GPU workers (32 GPUs).
    A production fine-tuning job uses the other 32 GPUs.
 2. A second production job needs 16 GPUs.
-   Kueue removes 2 of my GPU workers; the head keeps running.
+   Kueue removes 2 of its GPU workers; the head keeps running.
 3. The two GPU worker Pods terminate, and KubeRay recreates them; Kueue keeps the new Pods waiting until quota is available.
-   My notebook kernel and the results it has already collected are kept, and Ray recomputes task results that were stored only on the removed workers.
+   The notebook kernel and the results it has already collected are kept, and Ray recomputes task results that were stored only on the removed workers.
 4. When the fine-tuning job finishes, Kueue starts the 2 waiting GPU workers.
 
 Currently, Kueue suspends the whole RayCluster in step 2.
 KubeRay deletes the head with the workers, so the notebook server goes down, unsaved work is lost, and so is everything in the kernel's memory.
-Evicting the whole RayCluster gracefully would not save my session either.
-A grace period lets my code write files or a checkpoint, but the kernel's memory, the objects in Ray's object store and the processes I started are still lost, and I have to rebuild my environment.
+Evicting the whole RayCluster gracefully would not save the session either.
+A grace period lets the researcher's code write files or a checkpoint, but the kernel's memory, the objects in Ray's object store and the processes the researcher started are still lost, and the environment has to be rebuilt.
 It also takes more than the job needs: the RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free, although it could keep running on 16.
-With partial preemption, I lose only the tasks that ran on the 2 removed workers, and my session keeps running.
+With partial preemption, the researcher loses only the tasks that ran on the 2 removed workers, and the session keeps running.
 
 #### Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline
 
-As a user running a continuous Ray Data pipeline as a RayJob, I want the pipeline to use whatever GPU quota is spare in its Cohort.
-When part of that quota is reclaimed, I want the Ray cluster and the pipeline to keep running with fewer GPU workers.
+A team runs a continuous Ray Data pipeline as a RayJob and wants it to use whatever GPU quota is spare in its Cohort.
+When part of that quota is reclaimed, the Ray cluster and the pipeline should keep running with fewer GPU workers.
 
 The pipeline reads from an unbounded source, so it never completes and never releases its quota on its own.
 The Ray cluster has a CPU-only head, requesting 16 CPUs and 64 GiB of memory, and one worker group of GPU Pods.
 Each GPU worker uses a whole 8-GPU node, and the GPU worker group sets `minReplicas: 1`.
-My RayJob opts in to partial preemption.
-My ClusterQueue, `data`, has no GPU nominal quota; every GPU the RayJob uses is borrowed.
+The RayJob opts in to partial preemption.
+Its ClusterQueue, `data`, has no GPU nominal quota; every GPU the RayJob uses is borrowed.
 It shares a Cohort with `training`, which owns 16 GPU nodes; CPU and memory quota are not a constraint in this example:
 
 |                       | `data`  | `training` |
@@ -202,7 +202,7 @@ It shares a Cohort with `training`, which owns 16 GPU nodes; CPU and memory quot
    Removing every GPU worker would leave the head running with nothing to do, so Kueue evicts the whole RayJob, as it does today.
 
 Some pipelines keep state on the head that is expensive to rebuild, such as the driver's progress through the source.
-For those, I set `minReplicas: 0`.
+For those pipelines, the GPU worker group sets `minReplicas: 0`.
 In step 3, Kueue then removes the last 4 GPU workers instead: processing pauses, and the head keeps running until Kueue can start the waiting workers again.
 
 Currently, Kueue suspends the whole RayJob in step 2.
