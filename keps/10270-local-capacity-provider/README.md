@@ -12,6 +12,7 @@
     - [Story 3: Team shares must follow a pool that changes size](#story-3-team-shares-must-follow-a-pool-that-changes-size)
     - [Story 4: Quota lags behind nodes moved between clusters](#story-4-quota-lags-behind-nodes-moved-between-clusters)
     - [Story 5: MultiKueue worker quotas drift from the workers' nodes](#story-5-multikueue-worker-quotas-drift-from-the-workers-nodes)
+    - [Story 6: Low-priority jobs reuse the nodes of ProvisioningRequests](#story-6-low-priority-jobs-reuse-the-nodes-of-provisioningrequests)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Quota based on current nodes blocks ProvisioningRequest scale-up](#quota-based-on-current-nodes-blocks-provisioningrequest-scale-up)
@@ -242,6 +243,41 @@ this KEP. It belongs to the MultiKueue capacity provider of
 read the workers' `effectiveQuotas`: with DQO, a worker's spec `nominalQuota` may
 hold only a ratio (Story 3).
 
+#### Story 6: Low-priority jobs reuse the nodes of ProvisioningRequests
+
+As a cluster administrator, I use ProvisioningRequests for high-priority jobs.
+Nodes come in fixed sizes, so a request for 5 CPUs may get an 8-CPU machine and
+3 CPUs stay unused. Today I write static quota for a second ClusterQueue that
+runs low-priority jobs on these nodes, and it drifts as ProvisioningRequests come
+and go.
+
+With this KEP, the high-priority ClusterQueue keeps its static quota and its
+ProvisioningRequest admission check, so it can still trigger scale-up. The
+low-priority ClusterQueue uses a second ResourceFlavor with the same `nodeLabels`
+and tracks it with the provider:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: pr-nodes-low-priority
+spec:
+  nodeLabels:
+    example.com/pool: provisioned
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: CapacityProvider
+metadata:
+  name: nodes
+spec:
+  controllerName: kueue.x-k8s.io/local-capacity
+  orchestratedFlavors:
+  - name: pr-nodes-low-priority
+```
+
+Only `pr-nodes-low-priority` is orchestrated, so the two flavors do not overlap
+in the sense of [Overlapping flavors would count a node twice](#overlapping-flavors-would-count-a-node-twice).
+
 ### Notes/Constraints/Caveats
 
 - **Only node resources belong on an orchestrated flavor.** A provider
@@ -265,15 +301,19 @@ The risks below are specific to deriving capacity from Nodes.
 Kueue's ProvisioningRequest flow needs quota above the current capacity to
 trigger scale-up, and quota based on current nodes never exceeds it.
 
-Mitigation: document that this provider is for fixed or externally scaled pools,
-and emit a warning event when a tracked flavor is used by a ClusterQueue with a
-ProvisioningRequest admission check.
+Mitigation: document that this provider is for fixed or externally scaled pools.
+Kueue does not reject a flavor that is also used by a ClusterQueue with a
+ProvisioningRequest admission check, because the nodes it provisions can be
+reused on purpose, as in [Story 6](#story-6-low-priority-jobs-reuse-the-nodes-of-provisioningrequests).
 
 #### A node can label itself into a flavor
 
 A kubelet that self-applies a flavor label gets its node's capacity counted for
 that flavor and the flavor's workloads placed on it. This risk already exists for
 placement; counting capacity from the same labels widens its impact to quota.
+Exploiting it needs administrator privileges on the node or a compromised
+infrastructure provider. The same access already lets an attacker steer TAS and
+the scheduler, so DQO adds no new trust boundary.
 
 Mitigation: document that flavor labels must be set only by a trusted component,
 as described in [Which nodes count](#which-nodes-count).
@@ -397,6 +437,9 @@ None.
   even when more nodes join.
 - Deleting an overlapping provider brings the remaining provider back to
   `Synchronized`.
+- An orchestrated flavor and a non-orchestrated flavor with the same `nodeLabels`
+  do not set `Misconfigured`, and the quota follows the nodes of the orchestrated
+  flavor.
 - For a TAS flavor, a missing Topology sets `Misconfigured`; once it exists,
   only nodes with all its level labels count.
 - `effectiveCapacityMultiplier` scales the distributed quota (for example 80
@@ -434,6 +477,9 @@ None.
 - A Node cache transform that keeps only the fields the provider and TAS read,
   agreed with TAS owners because the Node informer is shared.
 - Freshness and expiry of effective quota are revisited together with DQO.
+- Support overlapping flavors, for example to represent Node reservations. This
+  may need a policy API that says how a Node's resources are split between the
+  flavors that match it. Until then, overlap sets `Misconfigured`.
 - Decide whether any of the knobs listed under Alternatives are needed.
 
 ## Implementation History
@@ -489,8 +535,9 @@ built-in provider.
 
 ## Examples
 
-These examples reuse the `h100` ResourceFlavor and the `nodes` CapacityProvider
-from [Story 1](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending).
+These are usage examples, not alternatives. They reuse the `h100` ResourceFlavor
+and the `nodes` CapacityProvider from
+[Story 1](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending).
 
 ### Shared pool for several teams
 
