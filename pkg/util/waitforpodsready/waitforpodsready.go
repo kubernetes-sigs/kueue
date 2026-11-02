@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 func Enabled(cfg *configapi.WaitForPodsReady) bool {
@@ -38,6 +39,16 @@ func Enabled(cfg *configapi.WaitForPodsReady) bool {
 func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 	return cfg != nil && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
+}
+
+// RecoveryTimeout returns the configured recovery timeout, or nil when no
+// recovery eviction is possible and the regular timeout alone applies.
+func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
+	if !Enabled(cfg) || cfg.RecoveryTimeout == nil || cfg.RecoveryTimeout.Duration <= 0 {
+		return nil
+	}
+	timeout := cfg.RecoveryTimeout.Duration
+	return &timeout
 }
 
 // WorkloadLevelConfig holds the parsed content of the WaitForPodsReadyAnnotation,
@@ -65,12 +76,19 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 		return nil, err
 	}
 	cfg := &WorkloadLevelConfig{
-		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
+		Timeout: secondsToDuration(raw.TimeoutSeconds),
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
-		cfg.RecoveryTimeout = new(time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second)
+		cfg.RecoveryTimeout = new(secondsToDuration(*raw.RecoveryTimeoutSeconds))
 	}
 	return cfg, nil
+}
+
+// secondsToDuration converts seconds to a time.Duration, saturating instead of
+// wrapping around on overflow. A wrapped value could turn a huge, user-provided
+// number of seconds into a small positive Duration that passes validation.
+func secondsToDuration(seconds int64) time.Duration {
+	return time.Duration(utilmath.SaturatingMul(seconds, int64(time.Second)))
 }
 
 func WorkloadLevelWaitForPodsReadyEnabled() bool {

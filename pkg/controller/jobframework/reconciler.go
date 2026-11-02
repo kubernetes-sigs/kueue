@@ -2214,9 +2214,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			info.Labels[kueue.MultiKueueWorkerWorkloadPodLabel] = kueue.MultiKueueWorkerWorkloadPodValue
 		}
 
-		if features.Enabled(features.AssignQueueLabelsForPods) {
-			assignQueueLabels(ctx, info.Labels, w)
-		}
+		assignQueueLabels(ctx, info.Labels, w)
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
