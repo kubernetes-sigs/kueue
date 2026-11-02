@@ -128,7 +128,7 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
 
 # Time budget for fuzzing each individual fuzz target.
-# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
 FUZZTIME ?= 1000x
 
 .PHONY: test-fuzz
