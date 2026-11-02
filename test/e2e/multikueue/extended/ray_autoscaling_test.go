@@ -765,8 +765,7 @@ func runRayClusterPreemptionBeforeRepointTest(
 ) {
 	const (
 		workerResource = "worker-unit"
-		actorA         = "raycluster-preempted-before-repoint-actor-a"
-		actorB         = "raycluster-preempted-before-repoint-actor-b"
+		actor          = "raycluster-preempted-before-repoint-actor"
 		markerKey      = "kueue.x-k8s.io/prebuilt-workload-name"
 	)
 	rayCluster := testingraycluster.MakeCluster("raycluster-preempted-before-repoint", managerNs.Name).
@@ -782,10 +781,10 @@ func runRayClusterPreemptionBeforeRepointTest(
 				Value: "1",
 			}},
 		}).
-		FirstWorkerGroupReplicas(1, 1, 2).
+		FirstWorkerGroupReplicas(0, 0, 1).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
 		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
 		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
@@ -794,7 +793,7 @@ func runRayClusterPreemptionBeforeRepointTest(
 		TerminationGracePeriod(1).
 		Obj()
 
-	ginkgo.By("Creating the low-priority elastic RayCluster with one worker", func() {
+	ginkgo.By("Creating the low-priority elastic RayCluster with zero initial workers", func() {
 		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
 	})
 
@@ -804,9 +803,9 @@ func runRayClusterPreemptionBeforeRepointTest(
 		Namespace: managerNs.Name,
 	}
 	admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
-	// The head Pod (Ray and autoscaler containers) plus the initial worker request
-	// 1250m in total, exceeding worker2's 1200m ClusterQueue quota. This ensures
-	// placement on worker1, which has quota for the 1500m scale-up.
+	// The Ray and autoscaler containers in the head Pod request 1250m in total,
+	// exceeding worker2's 1200m ClusterQueue quota. This ensures placement on
+	// worker1, which has quota for the 1500m scale-up.
 	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
 	admittedWorker := kubernetesClients[admittedWorkerName]
 	workerClient := admittedWorker.client
@@ -815,15 +814,13 @@ func runRayClusterPreemptionBeforeRepointTest(
 	var workerRayClusterUID types.UID
 	// The manager keeps the quota of an evicted RayCluster while the status
 	// copied from the worker reports it as ready.
-	ginkgo.By("Waiting for the one-worker RayCluster to be ready on the worker and on the manager", func() {
+	ginkgo.By("Waiting for the zero-worker RayCluster to be ready on the worker and on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerRayCluster := &rayv1.RayCluster{}
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
 			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
 			g.Expect(workerRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
-			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(workerPods).To(gomega.HaveLen(1))
+			g.Expect(workerRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
 			workerRayClusterUID = workerRayCluster.UID
 
 			managerRayCluster := &rayv1.RayCluster{}
@@ -891,12 +888,9 @@ func runRayClusterPreemptionBeforeRepointTest(
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.By("Creating two actors so the worker-side autoscaler scales from one worker to two", func() {
+	ginkgo.By("Creating an actor so the worker-side autoscaler scales from zero workers to one", func() {
 		e2e.CreateDetachedRayActor(
-			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
-		)
-		e2e.CreateDetachedRayActor(
-			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB, workerResource,
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actor, workerResource,
 		)
 	})
 
