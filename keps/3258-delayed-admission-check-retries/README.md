@@ -417,31 +417,36 @@ To ensure proper implementation of admission check controllers, the following do
 
 ### Graduation Criteria
 
-The feature was released in v0.15 without a feature gate. Both new fields are
-optional, and Kueue only delays a retry when an admission check controller sets
-`requeueAfterSeconds`. A controller that does not set it keeps the previous
-behavior, where the Workload is requeued without a delay. There is no
-Configuration API setting for the feature.
+The feature was released in v0.15 without a feature gate and is enabled for all users,
+so v0.15 covers both Alpha and Beta.
+Both new fields are optional, and Kueue only delays a retry when an admission check controller sets `requeueAfterSeconds`.
+A controller that does not set it keeps the previous behavior, where the Workload is requeued without a delay.
+There is no Configuration API setting for the feature.
 
-**Alpha:**
+**Alpha (v0.15):**
 
-- rework delaying mechanism to support multiple updates to `requeueState.requeueAt` (done in v0.15)
-- add new fields (`requeueAfterSeconds` and `retryCount`) to admission check state (done in v0.15)
-- update kueue logic to take new admission check state fields into account (done in v0.15)
-- first iteration of admission check documentation
+- rework delaying mechanism to support multiple updates to `requeueState.requeueAt`
+- add new fields (`requeueAfterSeconds` and `retryCount`) to admission check state
+- update kueue logic to take new admission check state fields into account
 
-**Beta:**
+**Beta (v0.15):**
 
-- fix all reported bugs
-- enhance admission check documentation based on community feedback
-- re-evaluate the migration of the `ProvisioningRequest` to the new API (done in v0.15:
+- re-evaluate the migration of the `ProvisioningRequest` to the new API:
   the ProvisioningRequest admission check sets `requeueAfterSeconds` from its retry strategy
-  and uses `retryCount` to count attempts)
-- add metrics to track retry behavior
+  and uses `retryCount` to count attempts
 
 **GA:**
 
-- fix all reported bugs
+These items were planned for Alpha or Beta and were not done in v0.15:
+
+- admission check documentation, including best practices for setting retry delays,
+  enhanced based on community feedback
+- add metrics to track retry behavior
+
+Also required for GA:
+
+- fix all reported bugs, including that a Workload keeps its quota reservation while it waits
+  for the retry delay ([#18116](https://github.com/kubernetes-sigs/kueue/pull/18116))
 
 ## Implementation History
 
@@ -449,7 +454,7 @@ Configuration API setting for the feature.
 - 2025-10-31: KEP merged as provisional ([#6210](https://github.com/kubernetes-sigs/kueue/pull/6210))
 - 2025-11-17: Implementation merged ([#7620](https://github.com/kubernetes-sigs/kueue/pull/7620)),
   including the move of the ProvisioningRequest admission check to the new fields
-- 2025-11-28: Released in v0.15.0 without a feature gate
+- 2025-11-28: Released in v0.15.0 as Beta (enabled by default), without a feature gate
 
 ## Drawbacks
 

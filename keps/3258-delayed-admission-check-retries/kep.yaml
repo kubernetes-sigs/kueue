@@ -22,7 +22,7 @@ latest-milestone: "v0.15"
 
 milestone:
   alpha: "v0.15"
-  beta: TBD
+  beta: "v0.15"
   stable: TBD
 
 # List the feature gate name and the components for which it must be enabled
