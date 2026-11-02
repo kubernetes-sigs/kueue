@@ -1193,23 +1193,23 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 	m.workloadUpdateWatchers = append(m.workloadUpdateWatchers, watcher)
 }
 
-func (m *Manager) unadmittedQueueInfo(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
+func (m *Manager) unadmittedQueueInfo(wl *kueue.Workload) (kueue.ClusterQueueReference, bool, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
+	cqName, cqExists := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	return cqName, lqExists
+	return cqName, cqExists, lqExists
 }
 
 func (m *Manager) UpdateUnadmittedWorkload(log logr.Logger, wl *kueue.Workload) {
-	cqName, lqExists := m.unadmittedQueueInfo(wl)
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	cqName, cqExists, lqExists := m.unadmittedQueueInfo(wl)
+	m.unadmittedWorkloads.update(log, wl, cqName, cqExists, lqExists, m)
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
+	cqName, cqExists := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	m.unadmittedWorkloads.update(log, wl, cqName, cqExists, lqExists, m)
 }
 
 func (m *Manager) RemoveUnadmittedWorkload(log logr.Logger, wlKey workload.Reference) {
