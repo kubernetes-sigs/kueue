@@ -19,9 +19,12 @@ package queue
 import (
 	"testing"
 
+	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -227,5 +230,71 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+	cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	})
+	ctx, log := utiltesting.ContextWithLog(t)
+	metrics.InitMetricVectors(cLabels)
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Label("team", "alpha").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq, wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
+
+	addClusterQueue := func() {
+		t.Helper()
+		cLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Adding ClusterQueue: %v", err)
+		}
+	}
+	setUnadmittedCause := func(reason string) {
+		t.Helper()
+		wl.Status.Conditions = []metav1.Condition{{
+			Type:   kueue.WorkloadQuotaReserved,
+			Status: metav1.ConditionFalse,
+			Reason: reason,
+		}}
+		manager.UpdateUnadmittedWorkload(log, wl)
+	}
+
+	addClusterQueue()
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+	manager.UpdateUnadmittedWorkload(log, wl)
+
+	// Mirrors the order of the ClusterQueue delete event handler.
+	manager.DeleteClusterQueue(log, cq)
+	cLabels.CQDelete(kueue.ClusterQueueReference(cq.Name))
+
+	setUnadmittedCause(kueue.WorkloadQuotaReservedReasonMisconfigured)
+
+	addClusterQueue()
+	setUnadmittedCause(kueue.WorkloadQuotaReservedReasonPendingEvaluation)
+
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": cq.Name})
+	want := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"cluster_queue":    cq.Name,
+			"reason":           kueue.WorkloadAdmittedReasonNoReservation,
+			"underlying_cause": kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			"replica_role":     "standalone",
+			"custom_team_cq":   "alpha",
+		},
+		Value: 1,
+	}}
+	if diff := gocmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected unadmitted workloads series (-want,+got):\n%s", diff)
 	}
 }

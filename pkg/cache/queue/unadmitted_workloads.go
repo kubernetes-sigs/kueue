@@ -75,7 +75,7 @@ func (u *unadmittedWorkloads) update(
 	log logr.Logger,
 	wl *kueue.Workload,
 	cqName kueue.ClusterQueueReference,
-	lqExists bool,
+	cqExists, lqExists bool,
 	m *Manager,
 ) {
 	u.rwm.Lock()
@@ -101,12 +101,13 @@ func (u *unadmittedWorkloads) update(
 	log.V(4).Info("Updating unadmitted workload tracking", "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
-		u.decrementStatusCounts(log, oldStatus, lqExists, m)
+		// The old status may belong to a different ClusterQueue, which cqExists says nothing about.
+		u.decrementStatusCounts(log, oldStatus, cqExists || oldStatus.ClusterQueue != cqName, lqExists, m)
 		delete(u.statuses, wlKey)
 	}
 	if status != nil {
 		u.statuses[wlKey] = *status
-		u.incrementStatusCounts(log, *status, lqExists, m)
+		u.incrementStatusCounts(log, *status, cqExists, lqExists, m)
 	}
 }
 
@@ -121,7 +122,7 @@ func (u *unadmittedWorkloads) remove(
 	oldStatus, ok := u.statuses[wlKey]
 	if ok {
 		log.V(4).Info("Removing workload from unadmitted tracking", "workload", wlKey, "status", oldStatus)
-		u.decrementStatusCounts(log, oldStatus, true, m)
+		u.decrementStatusCounts(log, oldStatus, true, true, m)
 		delete(u.statuses, wlKey)
 	} else {
 		log.V(4).Info("Workload to remove was not tracked as unadmitted", "workload", wlKey)
@@ -131,26 +132,26 @@ func (u *unadmittedWorkloads) remove(
 func (u *unadmittedWorkloads) incrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
+	cqExists, lqExists bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, 1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, 1, cqExists, lqExists, m)
 }
 
 func (u *unadmittedWorkloads) decrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
+	cqExists, lqExists bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, -1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, -1, cqExists, lqExists, m)
 }
 
 func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	diff int,
-	lqExists bool,
+	cqExists, lqExists bool,
 	m *Manager,
 ) {
 	cqKey := status.ClusterQueueStatus()
@@ -160,7 +161,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	if count <= 0 {
 		delete(u.perCQ, cqKey)
 	}
-	if status.ClusterQueue != "" {
+	if status.ClusterQueue != "" && cqExists {
 		cqCustomLabels := m.customLabels.CQGet(status.ClusterQueue)
 		if count <= 0 {
 			log.V(4).Info("Clearing CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey)
@@ -183,7 +184,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 			)
 		}
 	} else {
-		log.V(4).Info("Skipping CQ unadmitted metric report due to empty ClusterQueue", "status", status)
+		log.V(4).Info("Skipping CQ unadmitted metric report due to missing ClusterQueue", "status", status, "cqExists", cqExists)
 	}
 
 	if !m.lqMetrics.IsEnabled() {
