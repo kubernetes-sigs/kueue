@@ -1112,6 +1112,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 				BlockAdmission: new(false),
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					BackoffBaseSeconds: new(int32(60)),
+					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
 				},
 			}
 			fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
