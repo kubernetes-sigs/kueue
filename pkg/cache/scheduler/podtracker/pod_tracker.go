@@ -41,6 +41,14 @@ type Tracker struct {
 	workloadPods podsByWorkload
 }
 
+// Pod returns the latest observation for key, or nil if it is not tracked.
+// The returned Pod is read-only.
+func (t *Tracker) Pod(key client.ObjectKey) *corev1.Pod {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.pods[key]
+}
+
 // PodsForWorkload returns the Pods annotated with the given Workload name in
 // its namespace, in unspecified order. Returned Pods are read-only.
 func (t *Tracker) PodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
