@@ -61,10 +61,9 @@ spec:
                 description: |-
                   quotaManagement specifies the management of ClusterQueue quotas
                   in the manager cluster.
-                  Supported modes:
-                  - `Manual`: Quota automation is manual.
-                  - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-                  If unspecified, defaults to `Manual`.
+
+                  Deprecated: This field is ignored. Use MultiKueueCapacityProviderConfig,
+                  CapacityProvider, and DynamicQuotaOrchestrator instead.
                 enum:
                 - Manual
                 - Automated

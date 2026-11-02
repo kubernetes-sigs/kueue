@@ -194,10 +194,9 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
-		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
-		err = cqRec.setupWithManager(mgr)
-		if err != nil {
+	if features.Enabled(features.MultiKueueCapacityProvider) {
+		cpRec := newCapacityProviderReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
+		if err := cpRec.setupWithManager(mgr); err != nil {
 			return err
 		}
 	}

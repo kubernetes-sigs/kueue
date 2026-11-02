@@ -41,12 +41,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -802,7 +804,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
-	ginkgo.Context("Manager quota automation", func() {
+	ginkgo.Context("MultiKueue capacity provider", func() {
+		var (
+			mkcpc *kueuealpha.MultiKueueCapacityProviderConfig
+			cp    *kueuealpha.CapacityProvider
+			dqo   *kueuealpha.DynamicQuotaOrchestrator
+		)
+
 		ginkgo.BeforeEach(func() {
 			ginkgo.By("set up resource groups and flavor quotas on worker1 and worker2 ClusterQueues")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -833,28 +841,52 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, w2Cq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("enable quota automation on the MultiKueueConfig")
-			gomega.Eventually(func(g gomega.Gomega) {
-				mkc := &kueue.MultiKueueConfig{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(managerMultiKueueConfig), mkc)).To(gomega.Succeed())
-				mkc.Spec.QuotaManagement = new(kueue.QuotaManagementAutomated)
-				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkc)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			ginkgo.By("create MultiKueueCapacityProviderConfig, CapacityProvider, and DynamicQuotaOrchestrator on the manager")
+			mkcpc = &kueuealpha.MultiKueueCapacityProviderConfig{
+				Name: "mkcpc",
+				Spec: kueuealpha.MultiKueueCapacityProviderConfigSpec{
+					ManagerSubtreeRootRef: kueuealpha.CapacityDistributionSubtreeRootRef{
+						Kind: kueuealpha.ClusterQueueSubtreeRootRefKind,
+						Name: managerCq.Name,
+					},
+				},
+			}
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mkcpc)
 
-			ginkgo.By("verify manager ClusterQueue CPU quota is aggregated")
+			cp = utiltestingalpha.MakeCapacityProvider("multikueue-cp").
+				ControllerName(kueuealpha.MultiKueueCapacityProviderControllerName).
+				OrchestratedFlavors(string(multikueueTestFlavor)).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, kueuealpha.MultiKueueCapacityProviderConfigKind, mkcpc.Name).
+				Obj()
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, cp)
+
+			dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("multikueue-dqo").
+				DiscoveryProvider(cp.Name, nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, managerCq.Name).
+				Obj()
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, dqo)
+
+			ginkgo.By("verify manager ClusterQueue effective CPU quota is aggregated via DQO")
 			cqKey := client.ObjectKeyFromObject(managerCq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources).To(gomega.HaveLen(1))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
+				g.Expect(cq.Status.EffectiveQuotas).NotTo(gomega.BeNil())
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups).To(gomega.HaveLen(1))
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors).To(gomega.HaveLen(1))
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources).To(gomega.HaveLen(1))
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].Name).To(gomega.Equal(corev1.ResourceCPU))
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("20"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should update manager ClusterQueue quota when worker ClusterQueue quota changes", func() {
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, dqo, true)
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cp, true)
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, mkcpc, true)
+		})
+
+		ginkgo.It("Should update manager ClusterQueue effective quota when worker ClusterQueue quota changes", func() {
 			ginkgo.By("decrease worker1 ClusterQueue quota")
 			gomega.Eventually(func(g gomega.Gomega) {
 				w1Cq := &kueue.ClusterQueue{}
@@ -863,25 +895,27 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, w1Cq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verify manager ClusterQueue quota drops accordingly")
+			ginkgo.By("verify manager ClusterQueue effective quota drops accordingly")
 			cqKey := client.ObjectKeyFromObject(managerCq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("15"))
+				g.Expect(cq.Status.EffectiveQuotas).NotTo(gomega.BeNil())
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("15"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should update manager ClusterQueue quota when worker LocalQueue is removed", func() {
+		ginkgo.It("Should update manager ClusterQueue effective quota when worker LocalQueue is removed", func() {
 			ginkgo.By("delete worker1 LocalQueue")
 			behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq, true)
 
-			ginkgo.By("verify manager ClusterQueue quota drops accordingly")
+			ginkgo.By("verify manager ClusterQueue effective quota drops accordingly")
 			cqKey := client.ObjectKeyFromObject(managerCq)
 			gomega.Eventually(func(g gomega.Gomega) {
 				cq := &kueue.ClusterQueue{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, cqKey, cq)).To(gomega.Succeed())
-				g.Expect(cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("10"))
+				g.Expect(cq.Status.EffectiveQuotas).NotTo(gomega.BeNil())
+				g.Expect(cq.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.String()).To(gomega.Equal("10"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -1378,7 +1412,7 @@ func (c *interceptedCache) hasWatch(kind string) bool {
 	return c.requestedWatches.Has(kind)
 }
 
-var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("MultiKueue capacity provider feature gate", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const cqTypeName = "*v1beta2.ClusterQueue"
 
 	ginkgo.AfterEach(func() {
@@ -1387,7 +1421,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 
 	ginkgo.When("Feature gate disabled", func() {
 		ginkgo.It("Should not watch manager-side ClusterQueues", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueCapacityProvider, false)
 
 			ic, newCacheFunc := newInterceptedCache()
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
@@ -1422,7 +1456,7 @@ var _ = ginkgo.Describe("Manager quota automation feature gate", ginkgo.Label("a
 	// which should be checked in the "FG disabled" case just above.
 	ginkgo.When("Feature gate enabled", func() {
 		ginkgo.It("Should watch manager-side ClusterQueues", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueCapacityProvider, true)
 
 			ic, newCacheFunc := newInterceptedCache()
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
