@@ -213,9 +213,14 @@ When Kueue is a dependency, nest the settings under its dependency name or alias
 
 | Subsequent upgrade options | Behavior |
 |---|---|
-| `--reuse-values` or `--reset-then-reuse-values` | Keep saved settings, including YAML and structured overrides. New values replace matching settings; omitted saved settings remain. For removals, follow the instructions below. |
+| `--reuse-values` | Reuse the previous release's Helm values, including its chart defaults, then merge new values. This can retain the old chart's YAML default. Omitted saved settings remain. For removals, follow the instructions below. |
+| `--reset-then-reuse-values` | Start from the new chart's defaults, then merge saved settings and new values. This drops an old chart's YAML default, but retains YAML explicitly saved by the user. Omitted saved settings remain. For removals, follow the instructions below. |
 | `--reset-values` | Use chart defaults and the supplied values. Include all customizations you want to retain. |
 | No reuse or reset flag | Helm retains saved values if no new values are supplied; supplying nonempty new values replaces the saved inputs. |
+
+These flags control Helm values. When structured configuration is selected,
+settings without an override in the effective values still follow the target
+chart's manager configuration defaults.
 
 Helm rejects unknown keys directly under `managerConfig`. The only allowed keys
 are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. Each accepts
@@ -223,8 +228,9 @@ are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`. Each accep
 configuration inputs must have the correct type even when not selected:
 `structuredOverrides` is a map, and `controllerManagerConfigYaml` is a string.
 Empty maps and empty YAML strings are valid. Fields inside the selected
-configuration are validated by Kueue when it loads the configuration. Run `helm lint <chart> --values values.yaml` before
-upgrading and review the rendered configuration.
+configuration are validated by Kueue when it loads the configuration. Run
+`helm lint <chart> --values values.yaml` before upgrading and review the rendered
+configuration.
 
 When upgrading, remove or correct unknown manager input keys and incorrectly
 typed inputs. These values may previously have been ignored.
