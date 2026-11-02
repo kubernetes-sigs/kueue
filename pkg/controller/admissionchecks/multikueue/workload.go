@@ -120,6 +120,11 @@ type wlReconciler struct {
 	// The sets are replaced, never modified in place, so a reader can range over one
 	// without holding the lock.
 	previousClusterNames *utilmaps.SyncMap[string, sets.Set[string]]
+
+	// nominationRounds counts how many times the nominated worker clusters of a
+	// workload changed since it was last admitted. It is filled from update events
+	// rather than in the dispatchers, so it also covers external dispatchers.
+	nominationRounds *utilmaps.SyncMap[string, int]
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -927,6 +932,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		}
 		if !wasReady && acs.State == kueue.CheckStateReady {
 			metrics.ReportMultiKueueWorkloadAdmitted(admittedClusterQueue(group.local), admittingRemote, w.roleTracker)
+			w.reportNominationRounds(group.local)
 		}
 		if syncDeferred {
 			// The local Job is still suspended; requeue short so the next SyncJob
@@ -1346,6 +1352,7 @@ func (w *wlReconciler) Delete(de event.DeleteEvent) bool {
 		// Dropped here rather than in Reconcile, which can return early for a deleted workload.
 		// The garbage collector removes the remote objects of a deleted workload.
 		w.previousClusterNames.Delete(key)
+		w.nominationRounds.Delete(key)
 		if !de.DeleteStateUnknown {
 			w.deletedWlCache.Add(key, wl)
 		}
@@ -1360,6 +1367,13 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
 			w.addPreviousClusterName(client.ObjectKeyFromObject(newWl).String(), clusterName)
 		}
+		// Clearing the nominations, for example after admission, does not open a round.
+		newNominated := sets.New(newWl.Status.NominatedClusterNames...)
+		if newNominated.Len() > 0 && !newNominated.Equal(sets.New(oldWl.Status.NominatedClusterNames...)) {
+			w.nominationRounds.Update(client.ObjectKeyFromObject(newWl).String(), func(rounds int, _ bool) int {
+				return rounds + 1
+			})
+		}
 	}
 	return true
 }
@@ -1370,6 +1384,20 @@ func (w *wlReconciler) addPreviousClusterName(key, clusterName string) {
 	w.previousClusterNames.Update(key, func(clusterNames sets.Set[string], _ bool) sets.Set[string] {
 		return sets.New(clusterName).Union(clusterNames)
 	})
+}
+
+// reportNominationRounds observes the rounds the workload needed for this
+// admission and resets its count, so a re-admission after eviction starts from 0.
+// No rounds are known for a workload whose dispatch started before a manager restart.
+func (w *wlReconciler) reportNominationRounds(wl *kueue.Workload) {
+	var rounds int
+	w.nominationRounds.UpdateOrDelete(client.ObjectKeyFromObject(wl).String(), func(existing int) (int, bool) {
+		rounds = existing
+		return 0, true
+	})
+	if rounds > 0 {
+		metrics.ReportMultiKueueWorkloadNominationRounds(admittedClusterQueue(wl), w.dispatcherName, rounds, w.roleTracker)
+	}
 }
 
 func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
@@ -1396,6 +1424,7 @@ func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 		roleTracker:       roleTracker,
 
 		previousClusterNames: utilmaps.NewSyncMap[string, sets.Set[string]](0),
+		nominationRounds:     utilmaps.NewSyncMap[string, int](0),
 	}
 	for _, option := range options {
 		option(r)
