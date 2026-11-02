@@ -359,7 +359,7 @@ CEL expression has a syntax or type error. Check the expression against the
 
 ## Set up capacity-based quota (consumable capacity)
 
-{{< feature-state state="alpha" for_version="v0.19" >}}
+{{< feature-state state="beta" for_version="v0.21" >}}
 
 Use this when your cluster has devices that allow multiple allocations
 (e.g., GPU time-slicing or MPS) and you want quota to reflect consumed
@@ -368,12 +368,8 @@ capacity rather than device count. This requires Kubernetes 1.36+ with the
 `Capacity` and `AllowMultipleAllocations` on devices in `ResourceSlice`
 objects.
 
-Enable the feature gate in Kueue Configuration:
-
-```yaml
-featureGates:
-  KueueDRAIntegrationConsumableCapacity: true
-```
+The `KueueDRAIntegrationConsumableCapacity` feature gate is enabled by default
+since v0.21.
 
 ### 1. Configure capacity sources
 
@@ -383,8 +379,6 @@ Configure a `capacity` source entry in `deviceClassMappings`. Follow the
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  KueueDRAIntegrationConsumableCapacity: true
 resources:
   deviceClassMappings:
   - name: gpu.memory                   # Logical resource name for quota
@@ -455,6 +449,11 @@ Kueue rounds capacity requests according to the device's `RequestPolicy`:
 
 If the rounded value exceeds `Max` or all valid values, the workload is
 marked inadmissible.
+
+If the Kubernetes `DRAFractionalCapacityRange` feature gate is enabled,
+kube-scheduler aligns a fractional `ValidRange` in milli units, while Kueue
+rounds `Min` and `Step` to whole units first. The quota Kueue charges can then
+be higher or lower than what the device consumes.
 
 ### Troubleshooting capacity-based quota
 
@@ -594,9 +593,8 @@ timeout, allowing them to be re-queued and retried.
 
 ## MultiKueue considerations
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
-MultiKueue syncs the workload and its owning job to worker clusters, but
-`ResourceClaimTemplate` and `DeviceClass` objects are not automatically
-synced. These must be created on each worker cluster separately. That support
-does not extend to `firstAvailable` requests. See the
-[limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except for `firstAvailable` requests. See the [limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+
+MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
+
+For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager.

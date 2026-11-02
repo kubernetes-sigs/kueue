@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,7 +38,6 @@ import (
 )
 
 type objAsPtr[T any] interface {
-	metav1.Object
 	client.Object
 	*T
 }

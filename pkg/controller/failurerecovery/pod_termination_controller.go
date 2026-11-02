@@ -166,7 +166,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	totalDeletionGracePeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0)) + r.forcefulTerminationGracePeriod
+	totalDeletionGracePeriod := time.Duration(ptr.Deref(pod.DeletionGracePeriodSeconds, 0))*time.Second + r.forcefulTerminationGracePeriod
 	eventMessage := fmt.Sprintf(
 		"Pod forcefully terminated after %s grace period due to unreachable node `%s` (triggered by `%s` annotation)",
 		totalDeletionGracePeriod,

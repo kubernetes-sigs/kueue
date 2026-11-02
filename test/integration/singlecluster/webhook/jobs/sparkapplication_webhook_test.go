@@ -25,7 +25,6 @@ import (
 
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingspark "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -45,54 +44,24 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 			fwk.StopManager(ctx)
 		})
 
-		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, true)
-			})
+		ginkgo.It("should reject removing the queue name from an unsuspended SparkApplication", func() {
+			app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
+			behavioral.MustCreate(ctx, k8sClient, app)
 
-			ginkgo.It("should reject removing the queue name from an unsuspended SparkApplication", func() {
-				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
-				behavioral.MustCreate(ctx, k8sClient, app)
+			lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
+			createdApp := &sparkappv1beta2.SparkApplication{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
 
-				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
-				createdApp := &sparkappv1beta2.SparkApplication{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
+			// Simulate an unsuspended application updating other fields while retaining the queue name.
+			createdApp.Spec.Suspend = new(false)
+			gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
 
-				// Simulate an unsuspended application updating other fields while retaining the queue name.
-				createdApp.Spec.Suspend = new(false)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-				delete(createdApp.Labels, controllerconstants.QueueLabel)
-				err := k8sClient.Update(ctx, createdApp)
-				gomega.Expect(err).Should(gomega.HaveOccurred())
-				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
-			})
-		})
-
-		ginkgo.When("ValidateRayAndSparkJobUpdates is disabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, false)
-			})
-
-			ginkgo.It("should allow removing the queue name from an unsuspended SparkApplication", func() {
-				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
-				behavioral.MustCreate(ctx, k8sClient, app)
-
-				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
-				createdApp := &sparkappv1beta2.SparkApplication{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application updating other fields while retaining the queue name.
-				createdApp.Spec.Suspend = new(false)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-				delete(createdApp.Labels, controllerconstants.QueueLabel)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
-			})
+			// Simulate an unsuspended application dropping its queue name to become unmanaged.
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
+			delete(createdApp.Labels, controllerconstants.QueueLabel)
+			err := k8sClient.Update(ctx, createdApp)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 	})
 })
