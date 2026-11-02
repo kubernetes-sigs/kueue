@@ -1,0 +1,38 @@
+<!-- Thank you for contributing! Check CONTRIBUTING.md for details. -->
+
+#### What type of PR is this?
+
+/kind bug
+
+#### What this PR does / why we need it?
+
+Fix requeue after eviction.
+
+Fixes #1234
+
+#### Useful notes for your reviewer
+
+<!-- pr-evidence:kueue-pr-evidence-state-diff:start -->
+**kueue-pr-evidence-state-diff** base aaaaaaaaaaaa -> head bbbbbbbbbbbb
+
+| checkpoint | base | head |
+|---|---|---|
+| after-evict | `Requeued=False` | `Requeued=True` |
+
+<details><summary>full diff</summary>
+
+```diff
+- Requeued: False
++ Requeued: True
+```
+
+</details>
+<!-- pr-evidence:kueue-pr-evidence-state-diff:end -->
+
+
+#### Release note
+
+<!-- Describe the behavior change accurately from the user's perspective. -->
+```release-note
+Fix requeue after eviction.
+```

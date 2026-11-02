@@ -1,0 +1,21 @@
+#### What this PR does / why we need it?
+
+Fix requeue after eviction.
+
+#### Useful notes for your reviewer
+
+Please look at the scheduler change first.
+
+<!-- pr-evidence:kueue-pr-evidence-state-diff:start -->
+**kueue-pr-evidence-state-diff** base 000000000000 -> head 111111111111
+
+OLD STATE DIFF
+<!-- pr-evidence:kueue-pr-evidence-state-diff:end -->
+
+Trailing user note.
+
+#### Release note
+
+```release-note
+NONE
+```

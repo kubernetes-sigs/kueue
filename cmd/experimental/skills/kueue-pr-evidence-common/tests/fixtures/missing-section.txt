@@ -1,0 +1,9 @@
+#### What this PR does / why we need it?
+
+Fix requeue after eviction.
+
+#### Release note
+
+```release-note
+NONE
+```

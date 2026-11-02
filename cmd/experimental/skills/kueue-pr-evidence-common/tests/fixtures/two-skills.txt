@@ -1,0 +1,22 @@
+#### Useful notes for your reviewer
+
+User intro.
+
+<!-- pr-evidence:kueue-pr-evidence-state-diff:start -->
+**kueue-pr-evidence-state-diff** base 000000000000 -> head 111111111111
+
+STATE DIFF
+<!-- pr-evidence:kueue-pr-evidence-state-diff:end -->
+
+<!-- pr-evidence:kueue-pr-evidence-red-green:start -->
+**kueue-pr-evidence-red-green** base 000000000000 -> head 111111111111
+
+#### Not a section end (inside a block)
+RED GREEN
+<!-- pr-evidence:kueue-pr-evidence-red-green:end -->
+
+#### Release note
+
+```release-note
+Scheduler: fix requeue.
+```
