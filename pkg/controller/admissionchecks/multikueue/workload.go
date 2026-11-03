@@ -320,6 +320,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
+	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
+	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
+		log.V(4).Info("Skip replaced workload slice")
+		return reconcile.Result{}, nil
+	}
+
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err
