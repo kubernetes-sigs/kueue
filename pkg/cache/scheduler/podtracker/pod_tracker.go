@@ -49,7 +49,7 @@ func (t *Tracker) PodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
 	return t.workloadPods[wlKey].toSlice()
 }
 
-// PodsForWorkload returns all Pods annotated with Workload name in
+// PodsByWorkload returns all Pods annotated with Workload name in
 // its namespace, grouped by Workload, in unspecified order. Returned Pods are read-only.
 func (t *Tracker) PodsByWorkload() map[client.ObjectKey][]*corev1.Pod {
 	t.mu.RLock()
