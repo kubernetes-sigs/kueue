@@ -869,10 +869,13 @@ func remoteObjectsRemoved(wl *kueue.Workload) bool {
 
 // markRemoteObjectsRemoved records that the remote objects of a finished workload were
 // removed from every worker cluster.
-// TODO(kevin85421): this condition can also be used for evicted workloads once the eviction
-// is made atomic.
 func (w *wlReconciler) markRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload) error {
-	if !workloadfinish.IsFinished(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
+	if !workloadfinish.IsFinished(wl) {
+		// TODO(kevin85421): this condition can also be used for evicted workloads once the
+		// eviction is made atomic.
+		return nil
+	}
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
 		return nil
 	}
 	return workloadpatching.PatchStatus(ctx, w.client, wl, remoteObjectsRemovedFieldOwner, func(wl *kueue.Workload) (bool, error) {
