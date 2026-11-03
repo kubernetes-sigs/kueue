@@ -130,16 +130,30 @@
 # ==============================================================================
 # Adopters Page Strings
 # ==============================================================================
+- id: adopters_page_title
+  translation: "Community Adopters"
+- id: adopters_page_subtitle
+  translation: "Below is a list of organizations using Kueue in production. If your organization is utilizing Kueue, we would love to feature you! Feel free to <a href=\"https://github.com/kubernetes-sigs/kueue/edit/main/site/data/adopters.yaml\" target=\"_blank\" rel=\"noopener\" class=\"text-info\" style=\"text-decoration: none; font-weight: 600;\">open a pull request <i class=\"fas fa-arrow-right fs-6 ms-1\"></i></a> to add your organization to this growing list."
 - id: adopters_search_placeholder
-  translation: "Search by name or technology (e.g., Ray, IBM, GKE)..."
+  translation: "Search by organization, use case, or talk..."
 - id: adopters_count_text
   translation: "Showing <span id=\"visibleCount\">0</span> of <span id=\"totalCount\">0</span> organizations"
+- id: adopters_filter_all
+  translation: "All Organizations"
+- id: adopters_filter_with_talks
+  translation: "With Talks, Case Studies & Tutorials"
 - id: adopters_badge_end_user
   translation: "End User"
 - id: adopters_badge_provider
   translation: "Provider"
 - id: adopters_footer_contact
   translation: "Community Contact:"
+- id: adopters_talks_label
+  translation: "Talks, Case Studies & Tutorials:"
+- id: adopters_more_talks
+  translation: "+ {{ .Count }} more in Talks, Case Studies & Tutorials"
+- id: homepage_badge_adopters
+  translation: "Adopters"
 
 # Homepage Badge Labels
 - id: homepage_badge_latest
@@ -153,7 +167,7 @@
 - id: community_page_title
   translation: "Kueue Community"
 - id: community_page_subtitle
-  translation: "Kueue is an open, collaborative, CNCF sandbox project. Join our community of users, operators, and contributors."
+  translation: "Kueue is a Kubernetes SIG Scheduling subproject built by an open community of users, operators, and contributors."
 
 # UI Elements
 - id: ui_search

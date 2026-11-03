@@ -129,16 +129,30 @@
 # ==============================================================================
 # Adopters Page Strings (Chinese)
 # ==============================================================================
+- id: adopters_page_title
+  translation: "社区采用者"
+- id: adopters_page_subtitle
+  translation: "以下是在生产环境中使用了 Kueue 的组织列表。如果您的组织也正在使用 Kueue，我们非常期待您的加入！欢迎随时 <a href=\"https://github.com/kubernetes-sigs/kueue/edit/main/site/data/adopters.yaml\" target=\"_blank\" rel=\"noopener\" class=\"text-info\" style=\"text-decoration: none; font-weight: 600;\">提交 Pull Request <i class=\"fas fa-arrow-right fs-6 ms-1\"></i></a> 将您的组织添加到这个不断增长的列表中。"
 - id: adopters_search_placeholder
-  translation: "按名称或技术栈搜索（例如：Ray、IBM、GKE）..."
+  translation: "按组织名称、场景或演讲搜索..."
 - id: adopters_count_text
   translation: "显示 <span id=\"visibleCount\">0</span> / <span id=\"totalCount\">0</span> 个组织"
+- id: adopters_filter_all
+  translation: "全部组织"
+- id: adopters_filter_with_talks
+  translation: "含演讲、案例与教程"
 - id: adopters_badge_end_user
   translation: "最终用户"
 - id: adopters_badge_provider
   translation: "服务商"
 - id: adopters_footer_contact
   translation: "社区联系人:"
+- id: adopters_talks_label
+  translation: "演讲、案例研究与教程:"
+- id: adopters_more_talks
+  translation: "+ {{ .Count }} 项更多内容见于演讲、案例研究与教程"
+- id: homepage_badge_adopters
+  translation: "采用者"
 
 # Homepage Badge Labels (Chinese)
 - id: homepage_badge_latest
@@ -152,7 +166,7 @@
 - id: community_page_title
   translation: "Kueue 社区"
 - id: community_page_subtitle
-  translation: "Kueue 是一个开放、协作的 CNCF 沙箱项目。加入我们的用户、运营商和贡献者社区。"
+  translation: "Kueue 是由开放的用户、运维人员和贡献者社区共同构建的 Kubernetes SIG Scheduling 子项目。"
 
 # UI Elements (Chinese)
 - id: ui_search
