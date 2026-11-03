@@ -81,6 +81,12 @@ func (w *DynamicQuotaOrchestratorWrapper) DeletionTimestamp(t time.Time) *Dynami
 	return w
 }
 
+// Finalizers sets the finalizers of the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) Finalizers(finalizers ...string) *DynamicQuotaOrchestratorWrapper {
+	w.ObjectMeta.Finalizers = finalizers
+	return w
+}
+
 // DiscoveryProvider adds a CapacityDiscoveryProviderContribution to the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multiplier *resource.Quantity) *DynamicQuotaOrchestratorWrapper {
 	w.Spec.CapacityDiscovery.Providers = append(w.Spec.CapacityDiscovery.Providers, kueuealpha.CapacityDiscoveryProviderContribution{
@@ -92,12 +98,22 @@ func (w *DynamicQuotaOrchestratorWrapper) DiscoveryProvider(name string, multipl
 
 // SubtreeRoot sets the subtree root of the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) SubtreeRoot(kind kueuealpha.SubtreeRootRefKind, name string) *DynamicQuotaOrchestratorWrapper {
-	w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{
-		SubtreeRootQuotaRef: kueuealpha.CapacityDistributionSubtreeRootRef{
-			Kind: kind,
-			Name: name,
-		},
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
 	}
+	w.Spec.CapacityDistribution.SubtreeRootQuotaRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
+}
+
+// EffectiveQuotaTTL sets spec.capacityDistribution.effectiveQuotaTTLSeconds.
+func (w *DynamicQuotaOrchestratorWrapper) EffectiveQuotaTTL(ttl time.Duration) *DynamicQuotaOrchestratorWrapper {
+	if w.Spec.CapacityDistribution == nil {
+		w.Spec.CapacityDistribution = &kueuealpha.CapacityDistribution{}
+	}
+	w.Spec.CapacityDistribution.EffectiveQuotaTTLSeconds = new(int32(ttl / time.Second))
 	return w
 }
 

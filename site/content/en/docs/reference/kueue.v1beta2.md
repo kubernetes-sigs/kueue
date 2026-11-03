@@ -1132,8 +1132,8 @@ This is recorded only when Fair Sharing is enabled in the Kueue configuration.</
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-the quotas of whole flavors.</p>
+present, unless the EffectiveQuotaActive condition is False. It is set by
+Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1276,6 +1276,15 @@ if FairSharing is enabled in the Kueue configuration.</p>
 <tbody>
     
   
+<tr><td><code>conditions</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#condition-v1-meta"><code>[]k8s.io/apimachinery/pkg/apis/meta/v1.Condition</code></a>
+</td>
+<td>
+   <p>conditions hold the latest available observations of the Cohort
+current state.
+conditions are limited to 16 elements.</p>
+</td>
+</tr>
 <tr><td><code>fairSharing</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FairSharingStatus"><code>FairSharingStatus</code></a>
 </td>
@@ -1290,8 +1299,8 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-the quotas of whole flavors.</p>
+present, unless the EffectiveQuotaActive condition is False. It is set by
+Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1459,6 +1468,16 @@ For these resources, DQO limits any configured ClusterQueue lendingLimit
 to the new nominalQuota.
 An empty list is valid. The scheduler uses it without falling back to
 spec.resourceGroups.</p>
+</td>
+</tr>
+<tr><td><code>validUntil</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>validUntil is the time after which the effective quota expires. Kueue
+then ignores resourceGroups and uses spec.resourceGroups. The component
+managing the effective quota extends it while it keeps managing it.
+When omitted, the effective quota does not expire.</p>
 </td>
 </tr>
 </tbody>

@@ -222,6 +222,20 @@ discovered capacity from this provider. It defaults to 1.</p>
    <p>subtreeRootQuotaRef identifies the root of the quota subtree.</p>
 </td>
 </tr>
+<tr><td><code>effectiveQuotaTTLSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>effectiveQuotaTTLSeconds is how long, in seconds, the effective quota
+written by this DQO stays valid without renewal. When set, DQO sets
+status.effectiveQuotas.validUntil to the time it writes the effective quota
+plus this value, and renews it while distribution keeps succeeding.
+When not set, DQO writes the effective quota without validUntil, so it
+does not expire. A change applies the next time DQO writes the effective
+quota, so during an outage an existing validUntil stays as it is.</p>
+<p>Must be between 60 (1 minute) and 604800 (7 days).</p>
+</td>
+</tr>
 </tbody>
 </table>
 
