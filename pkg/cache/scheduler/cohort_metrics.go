@@ -293,7 +293,7 @@ func (c *Cache) reportTreeAdmittedActiveWorkloads(cohort *cohort) *metrics.Label
 	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
 	totals := metrics.NewLabelValsTracker()
 	for _, child := range cohort.ChildCohorts() {
-		totals = metrics.MergedTracker(totals, c.reportTreeAdmittedActiveWorkloads(child))
+		totals.Merge(c.reportTreeAdmittedActiveWorkloads(child))
 	}
 	for _, cq := range cohort.ChildCQs() {
 		totals.Add(metrics.ValsSetFrom(cq.GetCustomLabelValues()), cq.admittedWorkloadsCount)

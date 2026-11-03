@@ -1584,6 +1584,60 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 				{labels: cohortOnly("root"), value: 3},
 			},
 		},
+		"one-pass rebuild sums sibling cohorts with different labels": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("left").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("right").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("left").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("right").Label("team", "beta").Obj(),
+				cq3.Clone().Cohort("right").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				baseWorkload.Clone().Name("cq1-wl").Obj(),
+				baseWorkload.Clone().Name("cq2-wl").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now).AdmittedAt(true, now).Obj(),
+				baseWorkload.Clone().Name("cq3-wl").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq3").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now).AdmittedAt(true, now).Obj(),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("root").Obj()); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantValues: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: teamLabels("left", "alpha"), value: 1},
+				{labels: teamLabels("right", "alpha"), value: 1},
+				{labels: teamLabels("right", "beta"), value: 1},
+				{labels: teamLabels("root", "alpha"), value: 2},
+				{labels: teamLabels("root", "beta"), value: 1},
+			},
+			wantSums: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: cohortOnly("left"), value: 1},
+				{labels: cohortOnly("right"), value: 2},
+				{labels: cohortOnly("root"), value: 3},
+			},
+			wantCounts: []struct {
+				labels map[string]string
+				count  int
+			}{
+				{labels: teamLabels("left", "beta"), count: 0},
+			},
+		},
 		"deleting a cluster queue drops its series": {
 			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
 			cqs: []*kueue.ClusterQueue{
