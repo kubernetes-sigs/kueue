@@ -18,12 +18,16 @@ filters:
   "go\\.(mod|sum)$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - pbundyra
 
   # Any directory depth: package.json or package-lock.json
   "package(-lock)?\\.json$":
     approvers:
       - dependency-approvers
       - release-team
+    emeritus_approvers:
+      - pbundyra
 
   "^Makefile$":
     approvers:
@@ -52,6 +56,8 @@ filters:
   "^hack/make/deps\\.mk$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - pbundyra
 
   "^netlify\\.toml$":
     approvers:
@@ -61,6 +67,8 @@ filters:
   "^vendor/.*$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - pbundyra
 
   # Any directory depth: *_test.go
   "_test\\.go$":
