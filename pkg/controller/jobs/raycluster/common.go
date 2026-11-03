@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -387,6 +388,24 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	}
 
 	return allErrors
+}
+
+// EquivalenceOptions returns the ComparePodSetsOption shared by all Ray job
+// types. Unless KubeRayEvictOnInconsistentTopologyRequest is enabled, it
+// ignores the TopologyRequest index and subgroup fields, so that workloads
+// created before rank-based ordering was added are not evicted as out of sync.
+func EquivalenceOptions() []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
+
+// CanDefaultManagedBy reports whether the spec.managedBy of a Ray job can be
+// defaulted to MultiKueue: it must be unset or set to the KubeRay controller.
+func CanDefaultManagedBy(managedBy *string) bool {
+	return features.Enabled(features.MultiKueue) &&
+		(managedBy == nil || *managedBy == rayutils.KubeRayController)
 }
 
 func ValidateTopologyRequest(
