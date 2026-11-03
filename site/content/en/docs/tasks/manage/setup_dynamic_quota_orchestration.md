@@ -19,7 +19,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation) in version 0.20 or later.
+- [Kueue is installed](/docs/installation) in version 0.20.4 or later.
 - You can create cluster-scoped objects and write their status.
 
 ## Install the alpha APIs
@@ -49,7 +49,9 @@ helm upgrade kueue https://github.com/kubernetes-sigs/kueue/releases/download/{{
 Follow the
 [feature gates configuration instructions](/docs/installation/#change-the-feature-gates-configuration)
 to enable the `DynamicQuotaOrchestration` feature gate in the Kueue controller
-manager.
+manager. If you installed Kueue with Helm, add the gate to
+`controllerManager.featureGates` in your values instead, so that the next
+`helm upgrade` keeps it.
 
 ## Create the queues and a CapacityProvider
 
@@ -216,10 +218,10 @@ metrics report the effective values. `kueue_cluster_queue_nominal_quota` needs
 See [Prometheus Metrics](/docs/reference/metrics/).
 
 ```
-kueue_cluster_queue_info{cluster_queue="team-a",dynamic_quota_orchestrator="org-dqo",parent_cohort="org",replica_role="standalone",root_cohort="org"} 1
-kueue_cluster_queue_nominal_quota{cluster_queue="team-a",cohort="org",flavor="default-flavor",replica_role="standalone",resource="cpu"} 16
-kueue_cluster_queue_nominal_quota{cluster_queue="team-b",cohort="org",flavor="default-flavor",replica_role="standalone",resource="cpu"} 32
-kueue_cohort_subtree_quota{cohort="org",flavor="default-flavor",replica_role="standalone",resource="cpu"} 48
+kueue_cluster_queue_info{cluster_queue="team-a",dynamic_quota_orchestrator="org-dqo",parent_cohort="org",replica_role="leader",root_cohort="org"} 1
+kueue_cluster_queue_nominal_quota{cluster_queue="team-a",cohort="org",flavor="default-flavor",replica_role="leader",resource="cpu"} 16
+kueue_cluster_queue_nominal_quota{cluster_queue="team-b",cohort="org",flavor="default-flavor",replica_role="leader",resource="cpu"} 32
+kueue_cohort_subtree_quota{cohort="org",flavor="default-flavor",replica_role="leader",resource="cpu"} 48
 ```
 
 ## Troubleshooting
@@ -230,9 +232,9 @@ kueue_cohort_subtree_quota{cohort="org",flavor="default-flavor",replica_role="st
 | `EffectiveCapacityComputed=False` | `Misconfigured` | A name in `spec.capacityDiscovery.providers` does not match a CapacityProvider. |
 | `EffectiveCapacityComputed=False` | `AggregationFailed` | The total has more than 128 flavors, or more than 64 resources in one flavor. |
 | `Distributed=False` | `EffectiveCapacityNotComputed` | Fix discovery first. The existing effective quotas stay in place. |
-| `Distributed=False` | `ConflictingDynamicQuotaOrchestrator` | Another orchestrator has a higher root, or the same root and an older `creationTimestamp`. |
-| `Distributed=False` | `EffectiveQuotasConflict` | A ClusterQueue or Cohort in the subtree is managed by another orchestrator. |
-| `Distributed=False` | `Misconfigured` | The `subtreeRootQuotaRef` does not exist. |
+| `Distributed=False` | `ConflictingDynamicQuotaOrchestrator` | Another orchestrator has a higher root, or the same root and an earlier `creationTimestamp`. With equal timestamps, the smaller UID wins. |
+| `Distributed=False` | `EffectiveQuotasConflict` | A ClusterQueue or Cohort in the subtree has effective quotas from another active orchestrator, or from a controller that is not DQO. Usually this is a leftover after the object moved or the other orchestrator's `subtreeRootQuotaRef` changed. Clear the object's `status.effectiveQuotas`, or delete the other orchestrator. |
+| `Distributed=False` | `Misconfigured` | The ClusterQueue or Cohort object named in `subtreeRootQuotaRef` does not exist. A Cohort that is only named in a ClusterQueue's `spec.cohortName` does not count. Create a Cohort object for it. |
 
 For example, if the provider condition is stale, the output is similar to the
 following:
