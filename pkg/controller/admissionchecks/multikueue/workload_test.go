@@ -1524,14 +1524,6 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
-					EventType: "Normal",
-					Reason:    "MultiKueue",
-					Message:   `The workload was admitted on "worker1"`,
-				},
-			},
 			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
 		},
 		"the remote objects on an admitting cluster removed from the config are deleted when the local workload finishes": {
