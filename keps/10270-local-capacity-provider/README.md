@@ -33,16 +33,16 @@
     - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-  - [A LocalCapacity configuration API](#a-localcapacity-configuration-api)
-  - [Write quota into spec](#write-quota-into-spec)
-  - [External controller only](#external-controller-only)
 - [Examples](#examples)
   - [Shared pool for several teams](#shared-pool-for-several-teams)
   - [Proportional team shares](#proportional-team-shares)
   - [Several GPU types in one cluster](#several-gpu-types-in-one-cluster)
   - [Headroom for DaemonSets](#headroom-for-daemonsets)
   - [Reported capacity as nodes change](#reported-capacity-as-nodes-change)
+- [Alternatives](#alternatives)
+  - [A LocalCapacity configuration API](#a-localcapacity-configuration-api)
+  - [Write quota into spec](#write-quota-into-spec)
+  - [External controller only](#external-controller-only)
 <!-- /toc -->
 
 ## Summary
@@ -121,7 +121,7 @@ which was closed in favour of building on DQO.
    finds the matching Nodes using the ResourceFlavor's `nodeLabels` and, for
    TAS flavors, the levels of its Topology, and reports the sum of their
    allocatable resources.
-3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
+3. A new feature gate, `DQOLocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
    Enabling it without `DynamicQuotaOrchestration` fails at startup.
 
@@ -456,7 +456,7 @@ None.
 
 #### Alpha
 
-- The controller and the `LocalCapacityProvider` feature gate are implemented.
+- The controller and the `DQOLocalCapacityProvider` feature gate are implemented.
 - The tests above are implemented.
 - Documentation describes the shared-Cohort setup and the user stories.
 
@@ -497,41 +497,6 @@ None.
 - The quota in effect is in status rather than spec, which is less obvious to
   administrators. This is inherent to DQO.
 - Resources that nodes do not advertise cannot share an orchestrated flavor.
-
-## Alternatives
-
-### A LocalCapacity configuration API
-
-A cluster-scoped `LocalCapacity` object, referenced from
-`CapacityProvider.spec.parameters`, could hold:
-
-- an explicit resource list, which would let the provider publish explicit zeros
-  per resource and lift the 64-resource limit (planned for Beta);
-- a per-node reserve for DaemonSets;
-- required resources, such as GPUs, before a node counts;
-- a delay before newly Ready nodes count;
-- an extra node selector.
-
-**Reasons for deferring:** it keeps the first version simple and adds a new API
-object that users must understand. Because `parameters` is optional, adding it
-later is backward compatible.
-
-### Write quota into spec
-
-The closed proposal in #10745 updated `nominalQuota` in ClusterQueue or Cohort
-spec.
-
-**Reasons for rejecting:** it conflicts with GitOps and mixes administrator
-intent with computed values. DQO's `effectiveQuotas` in status solves both.
-
-### External controller only
-
-Leave node-based capacity entirely to external controllers, which DQO already
-supports.
-
-**Reasons for rejecting:** node capacity is the most common use case, and
-KEP-12382 already uses `kueue.x-k8s.io/local-capacity` as its example of a
-built-in provider.
 
 ## Examples
 
@@ -636,3 +601,38 @@ multiplier is 1.
 | 3 nodes leave | 72 / 1080 / 8100Gi |
 | All nodes gone | flavor published with empty `resources`; all resources count as 0 |
 | A 16-GPU job starts | no change |
+
+## Alternatives
+
+### A LocalCapacity configuration API
+
+A cluster-scoped `LocalCapacity` object, referenced from
+`CapacityProvider.spec.parameters`, could hold:
+
+- an explicit resource list, which would let the provider publish explicit zeros
+  per resource and lift the 64-resource limit (planned for Beta);
+- a per-node reserve for DaemonSets;
+- required resources, such as GPUs, before a node counts;
+- a delay before newly Ready nodes count;
+- an extra node selector.
+
+**Reasons for deferring:** it keeps the first version simple and adds a new API
+object that users must understand. Because `parameters` is optional, adding it
+later is backward compatible.
+
+### Write quota into spec
+
+The closed proposal in #10745 updated `nominalQuota` in ClusterQueue or Cohort
+spec.
+
+**Reasons for rejecting:** it conflicts with GitOps and mixes administrator
+intent with computed values. DQO's `effectiveQuotas` in status solves both.
+
+### External controller only
+
+Leave node-based capacity entirely to external controllers, which DQO already
+supports.
+
+**Reasons for rejecting:** node capacity is the most common use case, and
+KEP-12382 already uses `kueue.x-k8s.io/local-capacity` as its example of a
+built-in provider.
