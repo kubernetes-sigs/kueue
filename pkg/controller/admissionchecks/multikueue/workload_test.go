@@ -577,9 +577,10 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"admitting remote is kept when another worker's remote is out of sync": {
-			// Regression: an out-of-sync remote on a non-admitting worker is deleted, but the
-			// workload is still admitted on its admitting worker. It must converge onto that
-			// admitting remote, not retry as if the reservation were lost.
+			// Regression: the workload is still admitted on its admitting worker even with an
+			// out-of-sync remote on another worker. It must converge onto that admitting remote,
+			// not retry as if the reservation were lost. Only the admitting worker is read, so
+			// the remote on the other worker is left in place.
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
@@ -613,6 +614,74 @@ func TestWlReconcile(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()). // out of sync vs. the manager spec
 					Obj(),
 			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PodSets(*utiltestingapi.MakePodSet("different-name", 1).Obj()).
+					Obj(),
+			},
+		},
+		"admitted workload reads only the admitting worker": {
+			// The remote workload on the admitting worker is admitted and in sync, so the other
+			// worker is not read: a failing read there does not fail the reconcile.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			useSecondWorker:   true,
+			worker2OnGetError: errFake,
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{

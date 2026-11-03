@@ -121,6 +121,9 @@ type wlGroup struct {
 	jobAdapter          jobframework.MultiKueueAdapter
 	controllerKey       types.NamespacedName
 	unavailableClusters []string
+	// unreadRemotes are the clusters in remoteClients whose remote workload is not read
+	// yet. readGroup reads none, so a reconcile only reads the clusters it needs.
+	unreadRemotes sets.Set[string]
 }
 
 type Option func(reconciler *wlReconciler)
@@ -337,6 +340,9 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if isDeleted {
+		if err := grp.readAllRemotes(ctx); err != nil {
+			return reconcile.Result{}, err
+		}
 		for cluster := range grp.remotes {
 			err := grp.removeUnsharedRemoteObjects(ctx, cluster)
 			if err != nil {
@@ -499,18 +505,63 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 		unavailableClusters: unavailable,
 	}
 
-	for remote, rClient := range rClients {
-		wl := &kueue.Workload{}
-		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
-		if client.IgnoreNotFound(err) != nil {
-			return nil, err
-		}
-		if err != nil {
-			wl = nil
-		}
-		grp.remotes[remote] = wl
-	}
+	grp.unreadRemotes = sets.KeySet(rClients)
 	return &grp, nil
+}
+
+// readRemote reads the remote workload on cluster, unless it was already read.
+func (g *wlGroup) readRemote(ctx context.Context, cluster string) error {
+	if !g.unreadRemotes.Has(cluster) {
+		return nil
+	}
+	wl := &kueue.Workload{}
+	err := g.remoteClients[cluster].getClient().Get(ctx, client.ObjectKeyFromObject(g.local), wl)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	if err != nil {
+		wl = nil
+	}
+	g.remotes[cluster] = wl
+	g.unreadRemotes.Delete(cluster)
+	return nil
+}
+
+// readAllRemotes reads the remote workloads on all the clusters that were not read yet.
+func (g *wlGroup) readAllRemotes(ctx context.Context) error {
+	for _, cluster := range sets.List(g.unreadRemotes) {
+		if err := g.readRemote(ctx, cluster); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readRemotes reads the remote workloads that reconcileGroup needs. A workload that is
+// admitted on a worker only needs the remote workload there, as long as that one is still
+// admitted, not finished or evicted, and in sync: the remote workloads on the other
+// workers were removed when it was admitted, so reading them would not change anything.
+// In any other case all the remote workloads are read.
+func (w *wlReconciler) readRemotes(ctx context.Context, group *wlGroup, acs *kueue.AdmissionCheckState) error {
+	admitting := ptr.Deref(group.local.Status.ClusterName, "")
+	if acs != nil && acs.State == kueue.CheckStateReady && admitting != "" && group.unreadRemotes.Has(admitting) &&
+		!group.IsFinished() && workload.HasQuotaReservation(group.local) {
+		if err := group.readRemote(ctx, admitting); err != nil {
+			return err
+		}
+		if remWl := group.remotes[admitting]; remWl != nil &&
+			apimeta.IsStatusConditionTrue(remWl.Status.Conditions, kueue.WorkloadAdmitted) &&
+			!apimeta.IsStatusConditionTrue(remWl.Status.Conditions, kueue.WorkloadFinished) &&
+			!apimeta.IsStatusConditionTrue(remWl.Status.Conditions, kueue.WorkloadEvicted) &&
+			!isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+			ctrl.LoggerFrom(ctx).V(4).Info("Read only the admitting remote workload", "workerCluster", admitting, "skippedClusters", sets.List(group.unreadRemotes))
+			// The other clusters stay unread and out of group.remotes, so the rest of the
+			// reconcile treats them as having no remote workload.
+			group.unreadRemotes = nil
+			return nil
+		}
+	}
+	return group.readAllRemotes(ctx)
 }
 
 func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
@@ -531,6 +582,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
 			scaleUpInProgress) {
 		return reconcile.Result{}, nil
+	}
+
+	if err := w.readRemotes(ctx, group, acs); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
