@@ -188,7 +188,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 				// Copy the index only when it survives the read that Workload construction
 				// performs later. A value that fails there arrives as an invalid index
 				// rather than as "no index", and that fails the whole group.
-				if index, err := pod.readPodIndex(labelKey); err == nil {
+				index, err := pod.readPodIndex(labelKey)
+				if err != nil {
+					log.V(3).Info("Ignoring unusable Pod index label", "label", labelKey, "error", err)
+				} else {
 					pod.pod.Labels[kueue.PodGroupPodIndexLabel] = index
 				}
 			}
