@@ -49,7 +49,6 @@
   - [Release quota by lowering the admitted count](#release-quota-by-lowering-the-admitted-count)
   - [Store the target in an annotation](#store-the-target-in-an-annotation)
   - [Delete Pods instead of evicting them](#delete-pods-instead-of-evicting-them)
-  - [Keep today's candidate order](#keep-todays-candidate-order)
   - [Drain each victim to its floor](#drain-each-victim-to-its-floor)
 - [Future Work Ideas](#future-work-ideas)
   - [Proactive downscaling](#proactive-downscaling)
@@ -466,9 +465,6 @@ insufficient, it is reduced to `minTargetCount`, later candidates contribute, an
 accumulate across victims and rounds.
 A candidate that has reached its floor can later be handled as a normal whole-eviction candidate.
 
-Setting the max-reclaimed-count annotation to 1 takes at most one Pod from each victim per round,
-which spreads the loss across victims.
-
 #### Issuing preemptions
 
 For a partial target, Kueue does **not** evict the Workload or call `stopJob`. It patches the
@@ -799,13 +795,6 @@ value cannot be validated like a status field.
 
 A plain delete skips PodDisruptionBudgets and sets no `DisruptionTarget` condition, so a Job's
 `podFailurePolicy` cannot tell a removed Pod from a failure.
-
-### Keep today's candidate order
-
-Partial preemption could keep today's candidate order and only shrink the victims it picks, instead
-of evicting them. The KEP adds ordering criteria because shrinking is cheaper than evicting an
-equal-priority peer, and because the fallback to whole eviction can only be decided after the
-partial candidates have been tried.
 
 ### Drain each victim to its floor
 
