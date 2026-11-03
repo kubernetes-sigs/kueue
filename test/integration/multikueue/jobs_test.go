@@ -750,12 +750,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
 
 		ginkgo.By("removing worker2 from the MultiKueueConfig", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				mkConfig := &kueue.MultiKueueConfig{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.managerMultiKueueConfig), mkConfig)).To(gomega.Succeed())
-				mkConfig.Spec.Clusters = []string{f.workerCluster1.Name}
-				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, mkConfig)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			f.updateConfigClusters(f.workerCluster1.Name)
 		})
 
 		ginkgo.By("the workload stays admitted on worker2 and is not dispatched to worker1", func() {
