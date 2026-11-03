@@ -19,6 +19,7 @@ limitations under the License.
 package was
 
 import (
+	"errors"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,9 @@ import (
 type preemptionVictim struct {
 	wlKey client.ObjectKey
 	pods  []*corev1.Pod
+	// TODO(#18163):  after https://github.com/kubernetes-sigs/scheduler-library/pull/70
+	// remove the field, as committed victims will no longer be returned as output.
+	committedVictim bool
 }
 
 var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
@@ -70,40 +74,47 @@ func (s *wasSimulator) committedVictims(victimWorkloads []client.ObjectKey) []sc
 	if victimCount == 0 {
 		return nil
 	}
-	cv := make([]schedlib.PreemptionVictim, 0, victimCount)
-	present := sets.New[client.ObjectKey]()
+	allVictims := make(map[client.ObjectKey][]*corev1.Pod, victimCount)
 	for _, preemptedWlKey := range victimWorkloads {
-		if present.Has(preemptedWlKey) {
+		if _, alreadyProcessed := allVictims[preemptedWlKey]; alreadyProcessed {
 			continue
 		}
-		present.Insert(preemptedWlKey)
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
-			cv = append(cv, &preemptionVictim{
-				wlKey: preemptedWlKey,
-				pods:  victimPods,
-			})
+			allVictims[preemptedWlKey] = victimPods
 		}
 	}
 	for preemptedWlKey, victimPods := range s.pastCyclesCommittedVictims {
+		// pastCyclesCommittedVictims are absent from the tracker.
+		// We can safely append the pods listed here under the workload, if the workload is already present.
+		if len(victimPods) > 0 {
+			allVictims[preemptedWlKey] = append(allVictims[preemptedWlKey], victimPods...)
+		}
+	}
+
+	cv := make([]schedlib.PreemptionVictim, 0, len(allVictims))
+	for wl, pods := range allVictims {
 		cv = append(cv, &preemptionVictim{
-			wlKey: preemptedWlKey,
-			pods:  victimPods,
+			wlKey:           wl,
+			pods:            pods,
+			committedVictim: true,
 		})
 	}
 	return cv
 }
 
-func toPreemptionVictims(victims []schedlib.PreemptionVictim) []client.ObjectKey {
+func (s *wasSimulator) toPreemptionVictims(victims []schedlib.PreemptionVictim) ([]client.ObjectKey, error) {
 	if len(victims) == 0 {
-		return nil
+		return nil, nil
 	}
 	preemptionVictims := make([]client.ObjectKey, 0, len(victims))
 	for _, victim := range victims {
-		if wlVictim, ok := victim.(*preemptionVictim); ok {
+		if wlVictim, ok := victim.(*preemptionVictim); !ok {
+			return nil, errors.New("scheduler-library returned illegal preemption victim type")
+		} else if !wlVictim.committedVictim {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)
 		}
 	}
-	return preemptionVictims
+	return preemptionVictims, nil
 }
 
 type preemptionFilterAdapter struct {

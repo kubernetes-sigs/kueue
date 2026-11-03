@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
@@ -200,15 +201,20 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	}
 
 	allPods := tracker.Pods()
+	// Victim pods are removed from the tracker. For now, they need to be re-added when creating the cluster snapshot.
+	// TODO(#18163):  remove after https://github.com/kubernetes-sigs/scheduler-library/pull/70
+	for victimPods := range maps.Values(opts.CommittedVictims) {
+		allPods = append(allPods, victimPods...)
+	}
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot:                   clusterSnap,
-		pods:                          tracker,
-		podGroups:                     make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
-		compositePodGroups:            make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
+		wasSnapshot:                clusterSnap,
+		pods:                       tracker,
+		podGroups:                  make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
+		compositePodGroups:         make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 		pastCyclesCommittedVictims: opts.CommittedVictims,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {

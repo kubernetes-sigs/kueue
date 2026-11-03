@@ -124,13 +124,17 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
+	var deferred bool
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		placementSummary, failures, _, err = p.schedule(ctx, pods)
+		placementSummary, failures, _, deferred, err = p.schedule(ctx, pods)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
 			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+		}
+		if len(failures) == 0 && deferred {
+			assignment.DemoteTo(flavorassigner.DeferredFit)
 		}
 	}
 	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
@@ -162,13 +166,13 @@ func (p *wasPlanner) schedule(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	opts ...simulator.ScheduleOption,
-) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, error) {
+) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, bool, error) {
 	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
 	if schedulingResult.Error != nil {
-		return nil, nil, nil, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+		return nil, nil, nil, false, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
 	}
 	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
-	return placementSummary, failures, schedulingResult.PreemptionVictims, nil
+	return placementSummary, failures, schedulingResult.PreemptionVictims, schedulingResult.Deferred, nil
 }
 
 func (p *wasPlanner) scheduleWithPreemption(
@@ -177,7 +181,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	assignment flavorassigner.Assignment,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
-		placementSummary, failures, preemptedWorkloads, err := p.schedule(
+		placementSummary, failures, preemptedWorkloads, _, err := p.schedule(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
@@ -200,7 +204,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	// No preemption targets succeeded. Simulate against an empty cluster to check
 	// if the workload can fit at all and, if so, reserve TAS resources while waiting
 	// for quota so lower-priority workloads do not admit ahead of it.
-	placementSummary, failures, _, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
+	placementSummary, failures, _, _, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
 	if err != nil {
 		return nil, nil, nil, err
 	}

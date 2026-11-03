@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -311,11 +312,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
 		ptClone, committedVictims := c.extractCommittedVictims(ctx, opts.preemptionExpectations)
+		assumedWorkloads := c.assumedWorkloads(ctx, opts.preemptionExpectations)
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			ptClone,
-			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithAssumedWorkloads(assumedWorkloads),
 			simulator.WithCommittedVictims(committedVictims),
 		)
 		if err != nil {
@@ -408,32 +410,38 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	return &snap, nil
 }
 
-func (c *Cache) extractCommittedVictims(ctx context.Context, preemptionExpectations *expectations.Store) (
-	trackerCopy *podtracker.Tracker,
-	victims map[client.ObjectKey][]*corev1.Pod,
-) {
-	log := ctrl.LoggerFrom(ctx)
-	trackerCopy = c.podTracker.Clone()
+func (c *Cache) extractCommittedVictims(ctx context.Context, preemptionExpectations *expectations.Store) (*podtracker.Tracker, map[client.ObjectKey][]*corev1.Pod) {
+	trackerCopy := c.podTracker.Clone()
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return trackerCopy, nil
+	}
+	victims := make(map[client.ObjectKey][]*corev1.Pod)
 	for wl, pods := range trackerCopy.PodsByWorkload() {
-		isExpectedPreemption := preemptionExpectations != nil && preemptionExpectations.Satisfied(log, wl)
-		if isExpectedPreemption || c.isPreempted(ctx, wl) {
+		if c.isPreempted(ctx, wl, preemptionExpectations) {
 			victims[wl] = pods
+			trackerCopy.RemoveWorkload(wl)
 			continue
 		}
 		victimsSubset := make([]*corev1.Pod, 0, len(pods))
 		for _, pod := range pods {
 			if !pod.DeletionTimestamp.IsZero() {
 				victimsSubset = append(victimsSubset, pod)
+				trackerCopy.Untrack(client.ObjectKeyFromObject(pod))
 			}
 		}
-		victims[wl] = victimsSubset
+		if len(victimsSubset) > 0 {
+			victims[wl] = victimsSubset
+		}
 	}
-	// TODO(#18163):  after https://github.com/kubernetes-sigs/scheduler-library/pull/70
-	// remove victims from trackerCopy.
 	return trackerCopy, victims
 }
 
-func (c *Cache) isPreempted(ctx context.Context, wlKey client.ObjectKey) bool {
+func (c *Cache) isPreempted(ctx context.Context, wlKey client.ObjectKey, preemptionExpectations *expectations.Store) bool {
+	log := ctrl.LoggerFrom(ctx)
+	if preemptionExpectations != nil && !preemptionExpectations.Satisfied(log, wlKey) {
+		return true
+	}
+
 	wl := &kueue.Workload{}
 	if err := c.client.Get(ctx, wlKey, wl); err != nil {
 		return false
@@ -443,19 +451,15 @@ func (c *Cache) isPreempted(ctx context.Context, wlKey client.ObjectKey) bool {
 		Status: metav1.ConditionTrue,
 		Reason: kueue.WorkloadEvictedByPreemption,
 	}
-	condPreempted := &metav1.Condition{
-		Type:   kueue.WorkloadPreempted,
-		Status: metav1.ConditionTrue,
-	}
 	return workload.HasConditionWithTypeAndReason(wl, condEvicted) ||
-		workload.HasConditionWithTypeAndReason(wl, condPreempted)
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)
 }
 
-func (c *Cache) assumedWorkloads() []*kueue.Workload {
+func (c *Cache) assumedWorkloads(ctx context.Context, preemptionExpectations *expectations.Store) []*kueue.Workload {
 	var assumedWorkloads []*kueue.Workload
 	for _, cq := range c.hm.ClusterQueues() {
 		for _, wInfo := range cq.Workloads {
-			if wInfo.Obj != nil {
+			if wInfo.Obj != nil && !c.isPreempted(ctx, client.ObjectKeyFromObject(wInfo.Obj), preemptionExpectations) {
 				assumedWorkloads = append(assumedWorkloads, wInfo.Obj)
 			}
 		}

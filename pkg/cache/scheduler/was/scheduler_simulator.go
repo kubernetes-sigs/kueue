@@ -194,7 +194,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	wasResult := cluster.ScheduleWorkload(ctx, copyWithDefaultScheduler(workloadPods...), s.buildScheduleWorkloadOptions(scheduleOpts))
-	return toSchedulingResult(workloadPods, wasResult)
+	return s.toSchedulingResult(workloadPods, wasResult)
 }
 
 func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
@@ -218,7 +218,7 @@ func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.Sche
 	return libOpts
 }
 
-func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
+func (s *wasSimulator) toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {
 	if wasResult.Status.IsError() {
 		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}
@@ -246,9 +246,16 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 		}
 	}
 
-	return simulator.SchedulingResult{
-		PodPlacements:     placements,
-		PreemptionVictims: toPreemptionVictims(wasResult.PreemptionVictims),
+	if newVictims, err := s.toPreemptionVictims(wasResult.PreemptionVictims); err != nil {
+		return simulator.SchedulingResult{Error: err}
+	} else {
+		return simulator.SchedulingResult{
+			PodPlacements:     placements,
+			PreemptionVictims: newVictims,
+			// toPreemptionVictims filters out committed victims.
+			// If all victims were committed, the result is to be considered as Deferred.
+			Deferred: len(newVictims) == 0 && len(wasResult.PreemptionVictims) > 0,
+		}
 	}
 }
 

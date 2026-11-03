@@ -749,7 +749,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	podTracker := &podtracker.Tracker{}
 	podTracker.Track(realPod)
 
-	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker.Clone(), simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -1327,7 +1327,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
 		},
 		"duplicate names are de-duplicated": {
 			existingPods: []*corev1.Pod{
@@ -1358,7 +1357,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2")},
 		},
 		"committed victims are used before potential victims": {
 			existingPods: []*corev1.Pod{
@@ -1414,7 +1412,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim1"), key("victim2"), key("candidate1")},
+			wantPreempted: []client.ObjectKey{key("candidate1")},
 		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
@@ -1481,7 +1479,6 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-wl")},
 		},
 		"preemption: skips candidate workload without pods": {
 			existingPods: []*corev1.Pod{
@@ -1501,7 +1498,6 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-wl")},
 		},
 		"preemption: workload fits after preempting ordered candidate workloads": {
 			nodes: []*corev1.Node{makeNode("node1", "10")},
@@ -1548,7 +1544,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-2")},
 		},
 		"preemption: fails when candidate workloads do not free enough resources": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1625,7 +1620,6 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node2"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-2")},
 		},
 		"preemption with filter: node-level fit needs one victim, filter requires both victims": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1668,7 +1662,6 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []client.ObjectKey{key("victim-1"), key("victim-2")},
 		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{

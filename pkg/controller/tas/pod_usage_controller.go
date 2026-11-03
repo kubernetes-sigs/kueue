@@ -249,6 +249,7 @@ func (r *PodUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bool 
 func (r *PodUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool {
 	return isScheduledAndRunning(e.ObjectOld) != isScheduledAndRunning(e.ObjectNew) ||
 		belongsToNonTASCache(e.ObjectOld) != belongsToNonTASCache(e.ObjectNew) ||
+		e.ObjectOld.DeletionTimestamp.IsZero() != e.ObjectNew.DeletionTimestamp.IsZero() ||
 		podUsageChanged(e.ObjectOld, e.ObjectNew)
 }
 

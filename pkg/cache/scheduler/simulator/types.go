@@ -158,6 +158,7 @@ func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
 type SchedulingResult struct {
 	PodPlacements     PodPlacements
 	PreemptionVictims []client.ObjectKey
+	Deferred          bool
 	Error             error
 }
 
