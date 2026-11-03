@@ -135,6 +135,63 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			})
 		})
 
+		ginkgo.It("should allow to add the priority class (ReadyReplicas > 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Update deployment status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Add the priority class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
+					updatedDeployment := deploymentWrapper.Label(constants.WorkloadPriorityClassLabel, "high").Obj()
+					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the priority class is injected to pod template labels", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels).
+						To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, "high"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("shouldn't allow to remove the priority class (ReadyReplicas > 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Add the priority class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
+					g.Expect(k8sClient.Update(ctx, deploymentWrapper.Label(constants.WorkloadPriorityClassLabel, "high").Obj())).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Update deployment status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Try to remove the priority class", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+				delete(createdDeployment.Labels, constants.WorkloadPriorityClassLabel)
+				gomega.Expect(k8sClient.Update(ctx, createdDeployment)).To(utiltesting.BeForbiddenError())
+			})
+		})
+
 		ginkgo.It("should allow to change the queue name (ReadyReplicas > 0)", func() {
 			createdDeployment := &appsv1.Deployment{}
 
@@ -269,6 +326,36 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 							gomega.Equal("user-queue"),
 							"Queue name should be injected to pod template labels",
 						)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow to set the queue name and the priority class in one update (ReadyReplicas > 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Update deployment status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Set the queue name and the priority class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
+					updatedDeployment := deploymentWrapper.Queue("user-queue").Label(constants.WorkloadPriorityClassLabel, "high").Obj()
+					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check both labels are injected to pod template labels", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels).To(gomega.HaveKeyWithValue(constants.QueueLabel, "user-queue"))
+					g.Expect(createdDeployment.Spec.Template.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, "high"))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
