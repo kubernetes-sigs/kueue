@@ -1424,7 +1424,7 @@ func TestEstablishWatch(t *testing.T) {
 			}
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing, true)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, establishing, true)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1458,7 +1458,7 @@ func TestEstablishWatch(t *testing.T) {
 
 		var establishing atomic.Bool
 		start := time.Now()
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		elapsed := time.Since(start)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
@@ -1496,7 +1496,7 @@ func TestEstablishWatch(t *testing.T) {
 		}).Build()
 
 		var establishing atomic.Bool
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
@@ -1504,7 +1504,7 @@ func TestEstablishWatch(t *testing.T) {
 			t.Fatalf("want nil watcher, got: %v", w)
 		}
 		// Subsequent attempt while background watch establishment is still running must fail with errWatchEstablishInProgress.
-		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if !errors.Is(err2, errWatchEstablishInProgress) {
 			t.Fatalf("want errWatchEstablishInProgress, got: %v", err2)
 		}
@@ -1524,7 +1524,7 @@ func TestEstablishWatch(t *testing.T) {
 
 		// Now that the late watch is cleaned up and establishing reset to false, another attempt should succeed.
 		cFast := getClientBuilder(ctx).Build()
-		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if err3 != nil {
 			t.Fatalf("unexpected error establishing watch after background finished: %v", err3)
 		}
@@ -1538,32 +1538,55 @@ func TestEstablishWatch(t *testing.T) {
 // Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
 // The helper itself is tested in pkg/util/wait; this is a guard against
 // accidental changes to the initial/cap/factor wiring.
-func TestEstablishWatchSetsLongTimeout(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	var gotOpts *metav1.ListOptions
-	c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
-		Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
-			gotOpts = (&client.ListOptions{}).ApplyOptions(opts).AsListOptions()
-			return c.Watch(ctx, list, opts...)
+func TestEstablishWatchRequestsWatchTimeout(t *testing.T) {
+	cases := map[string]struct {
+		watchTimeout       time.Duration
+		wantTimeoutSeconds *int64
+	}{
+		"configured timeout is requested": {
+			watchTimeout:       4 * time.Hour,
+			wantTimeoutSeconds: new(int64(4 * 60 * 60)),
 		},
-	}).Build()
+		"zero leaves the timeout to the API server": {
+			watchTimeout: 0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
 
-	w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", time.Minute, &atomic.Bool{}, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	w.Stop()
+			var gotOpts *metav1.ListOptions
+			c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+				Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+					gotOpts = (&client.ListOptions{}).ApplyOptions(opts).AsListOptions()
+					return c.Watch(ctx, list, opts...)
+				},
+			}).Build()
 
-	if gotOpts == nil || gotOpts.TimeoutSeconds == nil {
-		t.Fatalf("want the watch opened with timeoutSeconds, got options %+v", gotOpts)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", tc.watchTimeout, time.Minute, &atomic.Bool{}, true)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			w.Stop()
+
+			if gotOpts == nil {
+				t.Fatal("Watch was not called")
+			}
+			if diff := cmp.Diff(tc.wantTimeoutSeconds, gotOpts.TimeoutSeconds); diff != "" {
+				t.Errorf("unexpected timeoutSeconds (-want,+got):\n%s", diff)
+			}
+			if !gotOpts.AllowWatchBookmarks {
+				t.Error("want the watch opened with bookmarks")
+			}
+		})
 	}
-	got := time.Duration(*gotOpts.TimeoutSeconds) * time.Second
-	if minTimeout, maxTimeout := watchTimeout, time.Duration(float64(watchTimeout)*(1+watchTimeoutJitterFactor)); got < minTimeout || got > maxTimeout {
-		t.Errorf("want timeoutSeconds in [%v, %v], got %v", minTimeout, maxTimeout, got)
-	}
-	if !gotOpts.AllowWatchBookmarks {
-		t.Error("want the watch opened with bookmarks")
+}
+
+func TestRemoteClientInheritsWorkerWatchTimeout(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace, withWorkerWatchTimeout(2*time.Hour))
+	if got := reconciler.findOrCreateRemoteClient("worker1", defaultOrigin).watchTimeout; got != 2*time.Hour {
+		t.Errorf("want the remote client to request a 2h watch timeout, got %v", got)
 	}
 }
 

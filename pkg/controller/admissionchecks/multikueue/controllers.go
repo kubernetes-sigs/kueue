@@ -34,12 +34,16 @@ const (
 	defaultGCInterval        = time.Minute
 	defaultOrigin            = "multikueue"
 	defaultWorkerLostTimeout = 5 * time.Minute
+	// The API server's default watch timeout is 30-60 minutes, and every ended watch
+	// makes the manager reconnect and requeue the worker's workloads.
+	defaultWorkerWatchTimeout = 4 * time.Hour
 )
 
 type SetupOptions struct {
 	gcInterval               time.Duration
 	origin                   string
 	workerLostTimeout        time.Duration
+	workerWatchTimeout       time.Duration
 	eventsBatchPeriod        time.Duration
 	adapters                 map[string]jobframework.MultiKueueAdapter
 	dispatcherName           string
@@ -72,6 +76,14 @@ func WithOrigin(origin string) SetupOption {
 func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
 		o.workerLostTimeout = d
+	}
+}
+
+// WithWorkerWatchTimeout - sets the timeout requested for each watch on a
+// worker cluster. If 0, the worker's API server picks the timeout.
+func WithWorkerWatchTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.workerWatchTimeout = d
 	}
 }
 
@@ -128,12 +140,13 @@ func WithClientConnection(c *configapi.ClientConnection) SetupOption {
 
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
-		gcInterval:        defaultGCInterval,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		eventsBatchPeriod: constants.UpdatesBatchPeriod,
-		adapters:          make(map[string]jobframework.MultiKueueAdapter),
-		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
+		gcInterval:         defaultGCInterval,
+		origin:             defaultOrigin,
+		workerLostTimeout:  defaultWorkerLostTimeout,
+		workerWatchTimeout: defaultWorkerWatchTimeout,
+		eventsBatchPeriod:  constants.UpdatesBatchPeriod,
+		adapters:           make(map[string]jobframework.MultiKueueAdapter),
+		dispatcherName:     configapi.MultiKueueDispatcherModeAllAtOnce,
 	}
 
 	for _, o := range opts {
@@ -175,6 +188,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		namespace,
 		withGCInterval(options.gcInterval),
 		withOrigin(options.origin),
+		withWorkerWatchTimeout(options.workerWatchTimeout),
 		withFSWatcher(fsWatcher),
 		withAdapters(options.adapters),
 		withClusterProfileAccessProvider(cpAccessProvider),

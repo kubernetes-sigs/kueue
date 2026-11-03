@@ -96,10 +96,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	defaultMultiKueue := &MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:            new(DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    new(MultiKueueDispatcherModeAllAtOnce),
+		GCInterval:         &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:             new(DefaultMultiKueueOrigin),
+		WorkerLostTimeout:  &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		WorkerWatchTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerWatchTimeout},
+		DispatcherName:     new(MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultVisibilityServer := &VisibilityServerConfiguration{
@@ -577,10 +578,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
+					GCInterval:         &metav1.Duration{Duration: time.Second},
+					Origin:             new("multikueue-manager1"),
+					WorkerLostTimeout:  &metav1.Duration{Duration: time.Minute},
+					WorkerWatchTimeout: &metav1.Duration{Duration: 30 * time.Minute},
+					DispatcherName:     new(MultiKueueDispatcherModeIncremental),
 				},
 			},
 			want: &Configuration{
@@ -592,10 +594,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    new(MultiKueueDispatcherModeIncremental),
+					GCInterval:         &metav1.Duration{Duration: time.Second},
+					Origin:             new("multikueue-manager1"),
+					WorkerLostTimeout:  &metav1.Duration{Duration: time.Minute},
+					WorkerWatchTimeout: &metav1.Duration{Duration: 30 * time.Minute},
+					DispatcherName:     new(MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -626,10 +629,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            new(DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    defaultMultiKueue.DispatcherName,
+					GCInterval:         &metav1.Duration{Duration: time.Second},
+					Origin:             new(DefaultMultiKueueOrigin),
+					WorkerLostTimeout:  &metav1.Duration{Duration: time.Minute},
+					WorkerWatchTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerWatchTimeout},
+					DispatcherName:     defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
@@ -642,8 +646,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
-					GCInterval: &metav1.Duration{},
-					Origin:     new("multikueue-manager1"),
+					GCInterval:         &metav1.Duration{},
+					Origin:             new("multikueue-manager1"),
+					WorkerWatchTimeout: &metav1.Duration{},
 				},
 			},
 			want: &Configuration{
@@ -655,10 +660,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
-					DispatcherName:    defaultMultiKueue.DispatcherName,
+					GCInterval:         &metav1.Duration{},
+					Origin:             new("multikueue-manager1"),
+					WorkerLostTimeout:  &metav1.Duration{Duration: 15 * time.Minute},
+					WorkerWatchTimeout: &metav1.Duration{},
+					DispatcherName:     defaultMultiKueue.DispatcherName,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
