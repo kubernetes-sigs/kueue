@@ -2146,7 +2146,7 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 	}
 }
 
-func TestRequeueWorkloadsForClusterSkipsReplacedSlices(t *testing.T) {
+func TestReconnectResyncSkipsReplacedSlices(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := metav1.Now()
@@ -2178,13 +2178,38 @@ func TestRequeueWorkloadsForClusterSkipsReplacedSlices(t *testing.T) {
 			DeletionTimestamp(now.Time).
 			Obj(),
 	}
-	c := getClientBuilder(ctx).WithLists(&kueue.WorkloadList{Items: workloads}).Build()
+	kubeconfig := testKubeconfig("worker1")
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+	c := getClientBuilder(ctx).
+		WithObjects(cluster, &secret).
+		WithLists(&kueue.WorkloadList{Items: workloads}).
+		WithStatusSubresource(&kueue.MultiKueueCluster{}).
+		Build()
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace, withAdapters(adapters))
-	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+	reconciler := newClustersReconciler(c, TestNamespace,
+		withAdapters(adapters),
+		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
+	)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = fakeClientBuilder(ctx)
 
-	if retryAfter := rc.requeueWorkloadsForCluster(ctx); retryAfter != nil {
-		t.Fatalf("unexpected retryAfter: %v", *retryAfter)
+	// A worker that was connected with the same kubeconfig and lost its connection.
+	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+	rc.builderOverride = reconciler.builderOverride
+	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
+	reconciler.remoteClients["worker1"] = rc
+	t.Cleanup(rc.StopWatchers)
+
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if !rc.connState.isConnected() {
+		t.Fatal("expected the worker to be reconnected")
 	}
 
 	var gotEnqueued []string
