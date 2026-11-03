@@ -4,3 +4,5 @@ approvers:
   - agent-approvers
 reviewers:
   - agent-reviewers
+emeritus_approvers:
+  - agent-emeritus-approvers
