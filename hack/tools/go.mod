@@ -35,7 +35,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.3.1
-	k8s.io/code-generator v0.37.1 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
+	k8s.io/code-generator v0.37.2 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2
 	sigs.k8s.io/controller-tools v0.23.0
 	sigs.k8s.io/dra-example-driver v0.5.0
@@ -491,15 +491,15 @@ require (
 	helm.sh/helm/v3 v3.22.0 // indirect
 	honnef.co/go/tools v0.8.2 // indirect
 	howett.net/plist v1.0.1 // indirect
-	k8s.io/api v0.37.1 // indirect
-	k8s.io/apiextensions-apiserver v0.37.1 // indirect
-	k8s.io/apimachinery v0.37.1 // indirect
-	k8s.io/apiserver v0.37.1 // indirect
-	k8s.io/cli-runtime v0.37.1 // indirect
-	k8s.io/client-go v0.37.1 // indirect
+	k8s.io/api v0.37.2 // indirect
+	k8s.io/apiextensions-apiserver v0.37.2 // indirect
+	k8s.io/apimachinery v0.37.2 // indirect
+	k8s.io/apiserver v0.37.2 // indirect
+	k8s.io/cli-runtime v0.37.2 // indirect
+	k8s.io/client-go v0.37.2 // indirect
 	k8s.io/cloud-provider v0.34.1 // indirect
 	k8s.io/cluster-bootstrap v0.34.1 // indirect
-	k8s.io/component-base v0.37.1 // indirect
+	k8s.io/component-base v0.37.2 // indirect
 	k8s.io/controller-manager v0.34.1 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
 	k8s.io/gengo/v2 v2.0.0-20260408192533-25e2208e0dc3 // indirect
@@ -507,10 +507,10 @@ require (
 	k8s.io/kube-controller-manager v0.34.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20261001230523-97fa35140926 // indirect
 	k8s.io/kube-proxy v0.34.1 // indirect
-	k8s.io/kube-scheduler v0.34.12 // indirect
-	k8s.io/kubectl v0.37.1 // indirect
+	k8s.io/kube-scheduler v0.34.13 // indirect
+	k8s.io/kubectl v0.37.2 // indirect
 	k8s.io/kubelet v0.37.0 // indirect
-	k8s.io/metrics v0.37.1 // indirect
+	k8s.io/metrics v0.37.2 // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
 	mvdan.cc/gofumpt v0.12.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
