@@ -581,6 +581,13 @@ func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *e
 
 // issueMigration evicts victim of migration to a more favorable ResourceFlavor.
 func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entry, migrationVictim *workload.Info) {
+	e.FlavorScanState = nil
+	e.requeueReason = qcache.RequeueReasonPendingMigration
+	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
+	if workloadevict.IsEvicted(migrationVictim.Obj) {
+		log.V(4).Info("Migration ongoing", "targetWorkload", klog.KObj(migrationVictim.Obj), "evictorWorkload", klog.KObj(e.Obj))
+		return
+	}
 	log.V(4).Info("Migrating to more favorable resource flavor", "targetWorkload", klog.KObj(migrationVictim.Obj), "evictorWorkload", klog.KObj(e.Obj))
 	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
@@ -592,9 +599,6 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	if err != nil {
 		log.Error(err, "Failed to evict workload for migration")
 	}
-	e.FlavorScanState = nil
-	e.requeueReason = qcache.RequeueReasonPendingMigration
-	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
