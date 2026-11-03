@@ -697,26 +697,21 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				}, behavioral.RealClock)
 				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			retryCheck := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(check2.Name))
+			gomega.Expect(retryCheck).NotTo(gomega.BeNil())
+			retryAt := retryCheck.LastTransitionTime.Add(5 * time.Second)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
 				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("waiting for the controller to record the retry deadline")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.RequeueState).NotTo(gomega.BeNil())
-				g.Expect(wl.Status.RequeueState.RequeueAt).NotTo(gomega.BeNil())
-				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			retryAt := wl.Status.RequeueState.RequeueAt.Time
-			gomega.Expect(retryAt).To(gomega.BeTemporally(">", time.Now()))
-
 			ginkgo.By("waiting for the timer without further workload updates")
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
-			gomega.Expect(time.Now()).To(gomega.BeTemporally(">=", retryAt))
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			gomega.Expect(quotaReserved).NotTo(gomega.BeNil())
+			gomega.Expect(quotaReserved.LastTransitionTime.Time).To(gomega.BeTemporally(">=", retryAt))
 			gomega.Expect(workload.HasRetryChecks(wl)).To(gomega.BeFalse())
 
 			ginkgo.By("admitting the workload once its checks are ready")
