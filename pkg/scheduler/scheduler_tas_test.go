@@ -5299,7 +5299,8 @@ type tasScheduleTestCase struct {
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
 
-	featureGates map[featuregate.Feature]bool
+	featureGates      map[featuregate.Feature]bool
+	enableFairSharing bool
 
 	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
 	simulatorOverride func() simulator.SchedulerSimulator
@@ -5547,6 +5548,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption
 						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(recordingFactory))
 					}
+					if tc.enableFairSharing {
+						cacheOptions = append(cacheOptions, schdcache.WithFairSharing(true))
+					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(cfg.now)
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
@@ -5609,11 +5613,15 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							t.Fatalf("expected workload %s to be prequeued again for a second pass", workload.Key(wl))
 						}
 					}
+					var fairSharing *config.FairSharing
+					if tc.enableFairSharing {
+						fairSharing = &config.FairSharing{}
+					}
 					recoveryTimeout := 30 * time.Minute
 					if tc.recoveryTimeout != nil {
 						recoveryTimeout = *tc.recoveryTimeout
 					}
-					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
+					schedulerOpts := []Option{WithFairSharing(fairSharing), WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
 					if recoveryTimeout > 0 {
 						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(new(recoveryTimeout)))
 					}
