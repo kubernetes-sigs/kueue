@@ -38,8 +38,10 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -135,6 +137,16 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
 	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+	// Tests turn DynamicQuotaOrchestration on per test, after indexer.Setup and
+	// core.SetupControllers skipped the DQO indexes and reconciler. Its Reconcile
+	// does nothing while the gate is off.
+	if !features.Enabled(features.DynamicQuotaOrchestration) {
+		err = indexer.SetupDynamicQuotaOrchestration(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = dqo.NewReconciler(mgr.GetClient()).SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
