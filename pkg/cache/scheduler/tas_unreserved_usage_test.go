@@ -227,7 +227,7 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := New(utiltesting.NewFakeClient())
+			cache := New(utiltesting.NewFakeClient(), WithSimulatorFactory(newTestSimulatorFactory(ctx, t)))
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("flavor").TopologyName("topology").Obj())
 			cache.TASCache().SyncNode(testingnode.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").
@@ -236,13 +236,17 @@ func TestTASResidualPodAccountingSnapshot(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "4").Obj()).Obj()); err != nil {
 				t.Fatalf("adding ClusterQueue: %v", err)
 			}
-			pod := testingpod.MakePod("bound", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").
+			pod := testingpod.MakePod("bound", "ns").UID("bound-uid").NodeName("node-a").Request(corev1.ResourceCPU, "2").
 				Annotation(kueue.WorkloadAnnotation, "released").Obj()
 			pod.DeletionTimestamp = new(metav1.Now())
 			// Seed data before changing the gate so the disabled path must also
 			// ignore stale physical usage rather than merely stop observations.
+			background := makePod("background", "ns", "node-a", "1")
+			// Track the bound Pods for the simulator, as the Pod usage controller does.
+			cache.TrackPod(ctx, pod)
+			cache.TrackPod(ctx, background)
 			cache.TASCache().UpdateTASPodUsage(pod, log)
-			cache.TASCache().UpdateNonTASUsage(makePod("background", "ns", "node-a", "1"), log)
+			cache.TASCache().UpdateNonTASUsage(background, log)
 			features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, tc.enabled)
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {

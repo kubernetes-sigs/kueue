@@ -30,12 +30,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/klog/v2"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -125,6 +127,20 @@ func newTASTestSnapshot(ctx context.Context, t *testing.T, log logr.Logger, quot
 	return snapshot
 }
 
+// newResidualTASTestCache mirrors cmd/kueue/main.go: the cache uses the WAS
+// simulator when SchedulerLibraryIntegration is enabled.
+func newResidualTASTestCache(ctx context.Context, t *testing.T) *schdcache.Cache {
+	t.Helper()
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		return schdcache.New(utiltesting.NewFakeClient())
+	}
+	simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+	}
+	return schdcache.New(utiltesting.NewFakeClient(), schdcache.WithSimulatorFactory(simulatorFactory))
+}
+
 func freeCapacity(t *testing.T, snapshot *schdcache.Snapshot) string {
 	t.Helper()
 	got, err := snapshot.ClusterQueue(tasTestCQ).TASFlavors[tasTestFlavor].SerializeFreeCapacityPerDomain()
@@ -169,7 +185,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 			ctx, log := utiltesting.ContextWithLog(t)
-			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache := newResidualTASTestCache(ctx, t)
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(tasTestFlavor).
 				NodeLabel("tas", "true").TopologyName("topology").Obj())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(corev1.LabelHostname).Obj())
@@ -239,6 +255,7 @@ func TestPlanElasticSliceWithResidualTASPods(t *testing.T) {
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}},
 					}}},
 				}
+				cache.TrackPod(ctx, pod)
 				cache.TASCache().UpdateTASPodUsage(pod, log)
 			}
 			snapshot, err := cache.Snapshot(ctx)
@@ -472,7 +489,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 			}
 			log := testr.New(t)
 			ctx := ctrllog.IntoContext(t.Context(), log)
-			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache := newResidualTASTestCache(ctx, t)
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(tasTestFlavor).
 				NodeLabel("tas", "true").TopologyName("topology").Obj())
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(corev1.LabelHostname).Obj())
@@ -509,6 +526,7 @@ func TestPlanWithResidualTASPod(t *testing.T) {
 				now := metav1.Now()
 				pod.DeletionTimestamp = &now
 			}
+			cache.TrackPod(ctx, pod)
 			cache.TASCache().UpdateTASPodUsage(pod, log)
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {
