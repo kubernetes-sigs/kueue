@@ -172,7 +172,7 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 				}
 				usageBefore := cqSnapshot.ResourceNode.Usage.Clone()
 				preemptor := preemption.New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-					testingclock.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+					testingclock.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, 0, false)
 				assigner := flavorassigner.New(incoming, cqSnapshot, snapshot.ResourceFlavors, false,
 					preemption.NewOracle(preemptor, snapshot), nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 				asgn := assigner.AssignFlavors(ctx, log, nil)

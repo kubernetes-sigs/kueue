@@ -106,6 +106,8 @@ type options struct {
 	podsReadyRequeuingTimestamp         config.RequeuingTimestamp
 	fairSharing                         *config.FairSharing
 	admissionFairSharing                *config.AdmissionFairSharing
+	partialPreemptionTimeout            time.Duration
+	enableOnDemandPreemption            bool
 	quotaCheckStrategy                  config.QuotaCheckStrategy
 	clock                               clock.Clock
 	roleTracker                         *roletracker.RoleTracker
@@ -138,6 +140,20 @@ func WithFairSharing(fs *config.FairSharing) Option {
 		if fs != nil {
 			o.fairSharing = fs
 		}
+	}
+}
+
+func WithPartialPreemptionTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		o.partialPreemptionTimeout = timeout
+	}
+}
+
+// WithOnDemandPreemption enables reclaiming only the smallest number of replicas
+// needed to admit the preemptor during partial preemption.
+func WithOnDemandPreemption(enabled bool) Option {
+	return func(o *options) {
+		o.enableOnDemandPreemption = enabled
 	}
 }
 
@@ -232,6 +248,8 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.roleTracker,
 			options.preemptionExpectations,
 			options.customLabels,
+			options.partialPreemptionTimeout,
+			options.enableOnDemandPreemption,
 		),
 		admissionRoutineWrapper:             routine.DefaultWrapper,
 		workloadOrdering:                    wo,
@@ -1037,7 +1055,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
+	replacements := preemption.WorkloadReplacements(merged.Workloads())
+	revertUsage := snapshot.SimulateWorkloadRemoval(replacements)
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -1097,7 +1116,17 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 // simulateOtherPreemptions projects the victims of preemptions already decided this cycle
 // out of the snapshot and returns the single undo.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
+	targets := slices.Collect(maps.Values(preemptedWorkloads))
+	targetWorkloads := make([]*workload.Info, 0, len(targets))
+	for _, t := range targets {
+		targetWorkloads = append(targetWorkloads, t.WorkloadInfo)
+	}
+	revertUsage := snapshot.SimulateWorkloadRemovalWithHiddenReplacements(preemption.WorkloadReplacements(targets))
+	revertPods := snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
+	return func() {
+		revertPods()
+		revertUsage()
+	}
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of

@@ -91,7 +91,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 					preemptionCtx.configurableEvaluator.FindCandidates(
 						preemptionCtx.snapshot,
 						preemptionCtx.frsNeedPreemption,
-						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
+						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing, false) },
 						yieldCandidate,
 					)
 				}
@@ -113,12 +113,11 @@ func iterateOverCandidates(
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	iterator.Reset()
 	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
-		candidate := &Target{
-			WorkloadInfo: candidateWl,
-			Reason:       reason,
-			WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue),
-		}
-		if !yield(candidate) {
+		plan := planPreemption(preemptionCtx, candidateWl, reason, allowBorrowing, false)
+		// WorkloadCq must be read after planPreemption returns, since searchPartialReduction
+		// temporarily removes and restores the candidate during its search.
+		plan.target.WorkloadCq = preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)
+		if !yield(plan.target) {
 			return
 		}
 	}

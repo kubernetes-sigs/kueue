@@ -42,7 +42,16 @@ func (t *TargetClusterQueue) PopWorkload() *workload.Info {
 
 	head := cqt[cqName][0]
 	cqt[cqName] = cqt[cqName][1:]
-	return head
+	current := t.targetCq.Workloads[workload.Key(head.Obj)]
+	if current == nil {
+		return head
+	}
+	return current
+}
+
+func (t *TargetClusterQueue) RequeueWorkload(wl *workload.Info) {
+	cqName := t.targetCq.GetName()
+	t.ordering.clusterQueueToTarget[cqName] = append(t.ordering.clusterQueueToTarget[cqName], wl)
 }
 
 func (t *TargetClusterQueue) HasWorkload() bool {
@@ -83,17 +92,17 @@ func borrowsAny(node AlmostLCA, frs sets.Set[resources.FlavorResource]) bool {
 	return false
 }
 
-// ComputeTargetShareAfterRemoval returns DominantResourceShare of the
-// TargetClusterQueue's AlmostLeastCommonAncestor, after removing
-// provided workload.
+// ComputeTargetShareAfterRemovalUsage returns DominantResourceShare of the
+// almostLCA of the target ClusterQueue after removing the provided usage. It
+// lets callers gate on the usage that will actually be freed: partial
+// preemption reclaims only a slice of a workload rather than its full usage.
 //
-// This simulation is required so that new usage is accounted for in
-// each of the ClusterQueue's parent Cohorts.  We can't trivially do
-// this operation on just the almostLCA, as usage stored at almostLCA
-// will depend on LendingLimits of the children. See
-// cache.resource_node.go.
-func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) TargetNewShare {
-	revertSimulation := t.targetCq.SimulateUsageRemoval(wl.Usage())
+// This simulation is required so that new usage is accounted for in each of the
+// ClusterQueue's parent Cohorts. We can't trivially do this operation on just
+// the almostLCA, as usage stored at almostLCA will depend on LendingLimits of
+// the children. See cache.resource_node.go.
+func (t *TargetClusterQueue) ComputeTargetShareAfterRemovalUsage(usage workload.Usage) TargetNewShare {
+	revertSimulation := t.targetCq.SimulateUsageRemoval(usage)
 	defer revertSimulation()
 
 	_, almostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)

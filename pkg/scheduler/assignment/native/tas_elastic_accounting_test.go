@@ -161,7 +161,7 @@ func TestPlanElasticReplacementPreemption(t *testing.T) {
 			incoming := workload.NewInfo(log, tc.incomingWorkload)
 			incoming.ClusterQueue = tasTestCQ
 			preemptor := preemption.New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, 0, false)
 			assigner := flavorassigner.New(incoming, cq, snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), old,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
