@@ -823,6 +823,15 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @tenzen-y
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18154
+	//
+	// Finishes the Workload of a Pod group with reason Failed when the group finishes
+	// because a Pod has the kueue.x-k8s.io/retriable-in-group: "false" annotation and
+	// not all Pods of the group succeeded. When disabled, such a Workload finishes with
+	// reason Succeeded, as before https://github.com/kubernetes-sigs/kueue/pull/16156.
+	DeclareWorkloadFailureOnUnretriablePodGroups featuregate.Feature = "DeclareWorkloadFailureOnUnretriablePodGroups"
 )
 
 func init() {
@@ -1243,6 +1252,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha}, // Beta and on by default in 0.21
+	},
+
+	DeclareWorkloadFailureOnUnretriablePodGroups: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
