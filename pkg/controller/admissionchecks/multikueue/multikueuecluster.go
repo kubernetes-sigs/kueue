@@ -439,15 +439,9 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		return &retryAfter
 	}
 	for i := range wls.Items {
-		wl := &wls.Items[i]
-		// The remote objects of a workload marked RemoteObjectsRemoved are gone from every
-		// worker, so the reconnect has nothing to resync for it.
-		if wl.DeletionTimestamp.IsZero() && remoteObjectsRemoved(wl) {
-			continue
-		}
-		if ptr.Deref(wl.Status.ClusterName, "") == rc.clusterName ||
-			slices.Contains(wl.Status.NominatedClusterNames, rc.clusterName) {
-			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl))
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
+			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
 		}
 	}
 	return nil
