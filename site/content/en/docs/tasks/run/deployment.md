@@ -56,6 +56,19 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
+You can also set a [WorkloadPriorityClass](/docs/concepts/workload_priority_class) with the `kueue.x-k8s.io/priority-class` label.
+The label can be added to a Deployment that is already running, and it can be changed later, but it cannot be removed.
+Adding the label starts a rolling update, and only the new Pods are admitted with that priority.
+The Pods that are already running keep their priority.
+Kueue does not apply the default WorkloadPriorityClass when you update a running Deployment that does not have the label.
+
+While the new Pods wait for admission, the Deployment controller can terminate old Pods, up to the `maxUnavailable` limit of the rolling update, which is 25% by default.
+To keep the full capacity during the rollout, set `maxUnavailable: 0`.
+With `maxUnavailable: 0`, the Deployment controller keeps the old Pods until the new Pods are ready.
+Kueue admits each new Pod separately, and the old Pods still hold their quota, so the new Pods need extra quota.
+The ClusterQueue must be able to admit them from unused quota, from cohort borrowing, or from preemption when it is enabled.
+Without that quota, the new Pods stay pending and the rollout stalls.
+
 ### b. Configure the resource needs
 
 The resource needs of the workload can be configured in the `spec.template.spec.containers`.

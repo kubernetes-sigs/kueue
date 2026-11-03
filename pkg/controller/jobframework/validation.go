@@ -290,11 +290,15 @@ func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj
 	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
 		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
-	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
-	if IsWorkloadPriorityClassNameEmpty(newObj) {
-		if !IsWorkloadPriorityClassNameEmpty(oldObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
-		}
+	return ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj)
+}
+
+// ValidateWorkloadPriorityClassNameNotRemoved rejects an update that removes the
+// WorkloadPriorityClass label, regardless of whether the workload is running.
+// It does not restrict adding or changing the label.
+func ValidateWorkloadPriorityClassNameNotRemoved(oldObj, newObj client.Object) field.ErrorList {
+	if IsWorkloadPriorityClassNameEmpty(newObj) && !IsWorkloadPriorityClassNameEmpty(oldObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be removed from a workload")}
 	}
 	return nil
 }

@@ -82,8 +82,9 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the queue-name and priority class labels
-	// to a running Deployment that did not have them.
+	// ValidateUpdate rejects adding the queue-name label to a running Deployment that did not have it.
+	// The priority class label can be added explicitly, but the defaults are not applied on updates
+	// of a running Deployment, so that an unrelated update does not change its queue or priority.
 	if oldDeploymentObj == nil || jobframework.CanApplyDefaultLocalQueue(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
@@ -178,8 +179,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-		isSuspended,
+	// A Deployment has no Deployment-level Workload: every Pod gets its own Workload from the
+	// labels of the Pod template. Adding the priority class to a running Deployment therefore
+	// only affects the new Pods that the rolling update creates, so only its removal is rejected.
+	allErrs = append(allErrs, jobframework.ValidateWorkloadPriorityClassNameNotRemoved(
 		oldDeployment.Object(),
 		newDeployment.Object(),
 	)...)
