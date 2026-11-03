@@ -38,8 +38,9 @@
 - [Alternatives](#alternatives)
 - [Future Work Ideas](#future-work-ideas)
   - [Rule-Level Rate Limiting via <code>ruleNames</code>](#rule-level-rate-limiting-via-rulenames)
-    - [Multi-Rule Attribution Challenge and Alternatives Considered](#multi-rule-attribution-challenge-and-alternatives-considered)
+    - [Multi-Rule Attribution Challenge](#multi-rule-attribution-challenge)
     - [Proposed Approach: First Matching Rule Consumes the Limits](#proposed-approach-first-matching-rule-consumes-the-limits)
+    - [Alternatives Considered](#alternatives-considered)
   - [Pod-Level Rate Limiting via <code>mode</code>](#pod-level-rate-limiting-via-mode)
   - [Reconstructing Approximate In-Memory State on Restart from Status](#reconstructing-approximate-in-memory-state-on-restart-from-status)
     - [Advantages](#advantages)
@@ -58,10 +59,10 @@ While declarative preemption systems (such as Configurable Preemptions via `Pree
 
 - **Global**: Limits the total number of preemption events across the entire cluster within the sliding window.
 - **PreemptorClusterQueue**: Restricts the preemption rate triggered by workloads originating from specific ClusterQueues.
-- **PreemptedClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
-- **PreemptedWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
+- **PreempteeClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
+- **PreempteeWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
 
-Limits can target a specific subset of preemptions using label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preemptedClusterQueueSelector`).
+Limits can target a specific subset of preemptions using label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preempteeClusterQueueSelector`).
 In Alpha, this capability is introduced specifically for Configurable Preemptions under the `ConfigurablePreemptionLimits` feature gate, with possible extensions to classical and fair-sharing preemption in future iterations.
 
 ## Motivation
@@ -88,8 +89,8 @@ Relevant capabilities include:
 
 1. **Global rate-limiting**: Restrict the total number of preemption events across the entire cluster within a sliding time window.
 2. **Preemptor ClusterQueue rate-limiting**: Throttle preemptions triggered by workloads originating from a specific ClusterQueue.
-3. **Preempted ClusterQueue protection**: Limit or block preemptions targeting workloads belonging to a specific ClusterQueue (e.g., setting `limit: 0` to make mission-critical or hero queues non-preemptible).
-4. **Preempted Workload churn limiting**: Restrict how many times an individual workload can be preempted within a given time window to avoid starvation, ping-pong eviction loops, or bullying of a particular workload.
+3. **Preemptee ClusterQueue protection**: Limit or block preemptions targeting workloads belonging to a specific ClusterQueue (e.g., setting `limit: 0` to make mission-critical or hero queues non-preemptible).
+4. **Preemptee Workload churn limiting**: Restrict how many times an individual workload can be preempted within a given time window to avoid starvation, ping-pong eviction loops, or bullying of a particular workload.
 
 ### User Stories
 
@@ -104,7 +105,7 @@ Mistakes in `PreemptionConfig` can lead to serious consequences, such as mass ev
 spec:
   scope: "Global"
   limit: 1
-  limitWindowSeconds: 3600
+  windowSeconds: 3600
   configSelector:
     matchLabels:
       example.com/config-name: "experimental-preemption-config"
@@ -116,9 +117,10 @@ Rate-limit preemptions of each workload in the cluster, so that it can be preemp
 
 ```yaml
 spec:
-  scope: "PreemptedWorkload"
+  scope: "PreempteeWorkload"
+  configSelector: {}
   limit: 1
-  limitWindowSeconds: 86400
+  windowSeconds: 86400
   preemptorClusterQueueSelector:
     matchExpressions:
       - key: example.com/hero-queue
@@ -133,22 +135,24 @@ Rate-limit global preemptions to at most 10 evictions across the entire cluster 
 ```yaml
 spec:
   scope: "Global"
+  configSelector: {}
   limit: 10
-  limitWindowSeconds: 300
+  windowSeconds: 300
 ```
 
 #### Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption
 
-Ensure that workloads running in the `hero-cq` ClusterQueue can never be preempted by setting `limit: 0` under the `PreemptedClusterQueue` scope:
+Ensure that workloads running in the `hero-cq` ClusterQueue can never be preempted by setting `limit: 0` under the `PreempteeClusterQueue` scope:
 
 ```yaml
 spec:
-  scope: "PreemptedClusterQueue"
-  preemptedClusterQueueSelector:
+  scope: "PreempteeClusterQueue"
+  configSelector: {}
+  preempteeClusterQueueSelector:
     matchLabels:
       example.com/cluster-queue-name: "hero-cq"
   limit: 0
-  limitWindowSeconds: 3600
+  windowSeconds: 3600
 ```
 
 #### Story 5 - Fair Preemption Budget per Tenant in a Shared Cohort
@@ -160,22 +164,23 @@ By defining a `PreemptionLimit` under the `PreemptorClusterQueue` scope with `pr
 ```yaml
 spec:
   scope: "PreemptorClusterQueue"
+  configSelector: {}
   preemptorClusterQueueSelector:
     matchExpressions:
       - key: example.com/tier
         operator: NotIn
         values: ["mission-critical"]
   limit: 10
-  limitWindowSeconds: 3600
+  windowSeconds: 3600
 ```
 
 ### Caveats
 
 1. **User-managed resource labeling**: Because ClusterQueue names are not currently constrained to 63 characters and Kueue does not automatically inject labels onto cluster-scoped CRDs (as Kubernetes does for Namespaces), users must label ClusterQueues and PreemptionConfigs manually to match selectors. Improving this experience may be considered in future work, but is out of scope for this KEP.
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
-3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
+3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `windowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
-5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
+5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
 6. **Rejection of valid candidate sets due to enforcement algorithm limitations**: Because limits are evaluated greedily during the forward candidate search before the backfilling process runs, some candidate sets that would be under the limits after backfilling can be rejected if earlier candidates greedily exhaust the limit allowance before larger, sufficient candidates are evaluated (see [Interaction with Backfilling](#interaction-with-backfilling); addressed as a future enhancement in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic)).
 
 ### Risks and Mitigations
@@ -226,10 +231,10 @@ type PreemptionLimit struct {
 // Possible values are:
 // - "Global": restricts the total number of preemption events across the entire cluster within the sliding time window.
 // - "PreemptorClusterQueue": restricts the number of preemption events triggered by workloads originating from a specific ClusterQueue within the sliding time window.
-// - "PreemptedClusterQueue": restricts the number of preemption events targeting workloads belonging to a specific ClusterQueue within the sliding time window.
-// - "PreemptedWorkload": restricts how many times an individual workload can be preempted within the sliding time window.
+// - "PreempteeClusterQueue": restricts the number of preemption events targeting workloads belonging to a specific ClusterQueue within the sliding time window.
+// - "PreempteeWorkload": restricts how many times an individual workload can be preempted within the sliding time window.
 //
-// +kubebuilder:validation:Enum=Global;PreemptorClusterQueue;PreemptedClusterQueue;PreemptedWorkload
+// +kubebuilder:validation:Enum=Global;PreemptorClusterQueue;PreempteeClusterQueue;PreempteeWorkload
 type PreemptionLimitScope string
 
 const (
@@ -241,13 +246,13 @@ const (
 	// originating from a specific ClusterQueue within the sliding time window.
 	PreemptorCQLimitScope PreemptionLimitScope = "PreemptorClusterQueue"
 
-	// PreemptedCQLimitScope restricts the number of preemption events targeting workloads
+	// PreempteeCQLimitScope restricts the number of preemption events targeting workloads
 	// belonging to a specific ClusterQueue within the sliding time window.
-	PreemptedCQLimitScope PreemptionLimitScope = "PreemptedClusterQueue"
+	PreempteeCQLimitScope PreemptionLimitScope = "PreempteeClusterQueue"
 
-	// PreemptedWorkloadLimitScope restricts how many times an individual workload
+	// PreempteeWorkloadLimitScope restricts how many times an individual workload
 	// can be preempted within the sliding time window.
-	PreemptedWorkloadLimitScope PreemptionLimitScope = "PreemptedWorkload"
+	PreempteeWorkloadLimitScope PreemptionLimitScope = "PreempteeWorkload"
 )
 
 // PreemptionLimitSpec defines the desired state of PreemptionLimit
@@ -258,10 +263,10 @@ type PreemptionLimitSpec struct {
 	Scope PreemptionLimitScope `json:"scope,omitempty"`
 
 	// configSelector selects PreemptionConfigs to which this limit applies.
-	// If not set, it applies to all PreemptionConfigs.
+	// An empty selector ({}) matches all PreemptionConfigs.
 	//
-	// +optional
-	ConfigSelector *metav1.LabelSelector `json:"configSelector,omitempty"`
+	// +required
+	ConfigSelector metav1.LabelSelector `json:"configSelector"`
 
 	// preemptorClusterQueueSelector selects ClusterQueues of preempting workloads to which this limit applies.
 	// If not set, this limit applies to preempting workloads from all ClusterQueues.
@@ -269,26 +274,27 @@ type PreemptionLimitSpec struct {
 	// +optional
 	PreemptorClusterQueueSelector *metav1.LabelSelector `json:"preemptorClusterQueueSelector,omitempty"`
 
-	// preemptedClusterQueueSelector selects ClusterQueues of preempted workloads to which this limit applies.
-	// If not set, this limit applies to preempted workloads from all ClusterQueues.
+	// preempteeClusterQueueSelector selects ClusterQueues of preemptee workloads to which this limit applies.
+	// If not set, this limit applies to preemptee workloads from all ClusterQueues.
 	//
 	// +optional
-	PreemptedClusterQueueSelector *metav1.LabelSelector `json:"preemptedClusterQueueSelector,omitempty"`
+	PreempteeClusterQueueSelector *metav1.LabelSelector `json:"preempteeClusterQueueSelector,omitempty"`
 
 	// limit defines how many preemption events can occur within the given time window.
-	// An event is defined as a confirmed (preemptor, preempted) eviction pair.
+	// An event is defined as a confirmed (preemptor, preemptee) eviction pair.
 	// Setting limit to 0 blocks all preemptions under this limit's scope.
 	//
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	Limit int32 `json:"limit"`
 
-	// limitWindowSeconds specifies the sliding time window duration, in seconds.
-	// Must be greater than or equal to 1 to prevent sub-second thrashing.
+	// windowSeconds specifies the sliding time window duration, in seconds.
+	// Must be between 1 (to prevent sub-second thrashing) and 604800 (7 days), inclusive.
 	//
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	LimitWindowSeconds int32 `json:"limitWindowSeconds,omitempty"`
+	// +kubebuilder:validation:Maximum=604800
+	WindowSeconds int32 `json:"windowSeconds,omitempty"`
 }
 
 // PreemptionLimitStatus defines the observed state of PreemptionLimit
@@ -315,8 +321,8 @@ type PreemptionLimitStatus struct {
 type PreemptionLimitCount struct {
 	// name identifies the scoped entity.
 	// For Global scope it is "Global".
-	// For PreemptorClusterQueue and PreemptedClusterQueue scopes it is the ClusterQueue name.
-	// For PreemptedWorkload scope it is "<namespace>/<workload-name>".
+	// For PreemptorClusterQueue and PreempteeClusterQueue scopes it is the ClusterQueue name.
+	// For PreempteeWorkload scope it is "<namespace>/<workload-name>".
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1
@@ -362,7 +368,7 @@ An alternative approach—verifying limits post-selection after backfilling—av
 
 ### In-Memory State Management
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue name, Workload namespace/name or "Global"), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue name, Workload namespace/name or "Global"), recording events that occurred within the designated `windowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
 
 Because preemption event tracking is maintained strictly in-memory rather than persisted per-event in etcd, several operational caveats apply regarding controller restarts or `PreemptionLimit.spec` changes (see [Caveats](#caveats) for details).
 
@@ -370,15 +376,15 @@ Furthermore, the status of the PreemptionLimit is refreshed periodically by a de
 
 `PreemptionLimitReconciler` will be responsible for updating the in-memory representation of limits:
 - When a `PreemptionLimit` is deleted, it removes recorded preemption event timestamps from memory.
-- When a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes, the recorded in-memory preemption timestamps for that limit are reset.
-- Modifying a `PreemptionLimit`'s `spec`—such as adjusting `limit`, changing `limitWindowSeconds`, or altering its scope and selectors—as well as creating or deleting a limit, will re-queue inadmissible workloads in the affected ClusterQueues so that workloads previously blocked by limits can be promptly re-evaluated (see [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)).
+- When a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preempteeClusterQueueSelector` changes, the recorded in-memory preemption timestamps for that limit are reset.
+- Modifying a `PreemptionLimit`'s `spec`—such as adjusting `limit`, changing `windowSeconds`, or altering its scope and selectors—as well as creating or deleting a limit, will re-queue inadmissible workloads in the affected ClusterQueues so that workloads previously blocked by limits can be promptly re-evaluated (see [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)).
 
 
 ### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
 
 In a Kueue scheduling cycle, workloads are evaluated sequentially during the workload evaluation phase. Because limit consumption is recorded only when preemptions are actually issued during the workload evaluation phase, there is no information about previous limits consumption during the nomination and assignments generation for subsequent workloads in the cycle.
 
-If multiple workloads evaluated in the same cycle consume the same preemption limits (e.g. sharing a Global limit, targeting the same preempted ClusterQueue, or originating from the same preemptor ClusterQueue), each workload independently assumes the full preemption limit budget is available. If left unaddressed, conflicts in preemption limits consumption can cause a workload to fail to issue preemptions during evaluation, leading to prolonged waiting for admission.
+If multiple workloads evaluated in the same cycle consume the same preemption limits (e.g. sharing a Global limit, targeting the same preemptee ClusterQueue, or originating from the same preemptor ClusterQueue), each workload independently assumes the full preemption limit budget is available. If left unaddressed, conflicts in preemption limits consumption can cause a workload to fail to issue preemptions during evaluation, leading to prolonged waiting for admission.
 
 To avoid this, if multiple workloads consume the same limits, the preemption targets assignment of the conflicting workload will be recomputed in a similar manner as the [Re-computation of TAS assignments within the workload evaluation phase](/keps/2724-topology-aware-scheduling/README.md#re-computation-of-tas-assignments-within-the-workload-evaluation-phase).
 
@@ -386,7 +392,7 @@ To make this possible:
 1. **Returning Consumed Preemption Limits**: Finding of preemption candidates will also return the consumed preemption limits (and consumed quantities) for the chosen configurable preemption targets alongside the targets themselves.
 2. **Checking for Overlap Overconsuming Limits**: Because Kueue updates the remaining preemption limits when issuing preemptions for previously evaluated workloads, the in-memory limits are already up to date at this moment. When evaluating a workload that requires preemption, the entries returned from candidate finding will be used first to check if there is an overlap overconsuming the remaining limits.
 3. **Recomputing Preemption Targets Assignment**: If an overlap overconsuming the limits is detected, the workload's preemption targets assignment will be recomputed, now taking into account the previous preemptions.
-4. **Resolution**: If the recomputation successfully identifies alternative preemption targets that fit within the remaining limit budget, Kueue proceeds to issue those preemptions (and the workload waits for the preempted workloads to finish before being admitted in a subsequent cycle). If no valid preemption candidates remain without exceeding the limits, no preemptions are issued and the workload is deferred and requeued as described in [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available).
+4. **Resolution**: If the recomputation successfully identifies alternative preemption targets that fit within the remaining limit budget, Kueue proceeds to issue those preemptions (and the workload waits for the preemptee workloads to finish before being admitted in a subsequent cycle). If no valid preemption candidates remain without exceeding the limits, no preemptions are issued and the workload is deferred and requeued as described in [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available).
 
 
 ### Workload Requeuing When No Candidates Are Available
@@ -447,7 +453,7 @@ Apart from the new subpackage, the following existing components will receive ad
 #### Alpha
 
 - `PreemptionLimit` CRD is implemented, allowing administrators to declare preemption rate limits for Configurable Preemptions.
-- `PreemptionLimit` supports targeting specific `PreemptionConfig`s and preemptor/preempted `ClusterQueue`s via label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preemptedClusterQueueSelector`).
+- `PreemptionLimit` supports targeting specific `PreemptionConfig`s and preemptor/preemptee `ClusterQueue`s via label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preempteeClusterQueueSelector`).
 - Existing behavior for classical and fair-sharing preemptions remains unaffected - they are not limited by `PreemptionLimit` resources.
 - Candidates from Configurable Preemptions are not selected if evicting them would violate active `PreemptionLimit`s.
 - The feature is guarded by the `ConfigurablePreemptionLimits` feature gate (Alpha, disabled by default).
@@ -496,7 +502,7 @@ TBD
 
    Rejected because allowing the number of preemptions to reach up to $2\times$ the configured limit within the defined preemption window would be confusing for users and is not expected.
 
-4. Using `limitWindowDuration` (`metav1.Duration`) instead of `limitWindowSeconds`.
+4. Using `windowDuration` (`metav1.Duration`) instead of `windowSeconds`.
    - **Advantages**: Better UX for manual configuration and manipulation in YAML manifests (e.g., writing `"1h"` or `"5m"` instead of `3600` or `300`).
    - **Drawbacks**: Discouraged by KAL (Kubernetes API Review guidelines) because of ambiguous values and lack of support for Go duration formats in client libraries across other programming languages.
 
@@ -511,18 +517,18 @@ TBD
 
      **Example** (where the prefix denotes the ClusterQueue and the number denotes candidate quota):
      - **Needed quota**: 4
-     - **Limit per preempted CQ**: 1
+     - **Limit per preemptee CQ**: 1
      - **Candidates**: `A2`, `A2`, `B2`, `B2` (where `A2` candidates have quota 2 in ClusterQueue A, and `B2` candidates have quota 2 in ClusterQueue B)
      - **Execution under post-selection verification**:
        1. Candidate search greedily accumulates candidates to satisfy quota: after considering the first two `A` candidates (`A2` + `A2`), the needed quota of 4 is reached.
        2. Because quota is reached, the search stops.
        3. Backfilling cannot remove either candidate because both are required to meet quota 4.
-       4. Post-selection verification evaluates the candidate set `{A2, A2}`: it contains 2 preemptions from ClusterQueue A, which violates the limit of 1 preemption per preempted CQ. The candidate set is blocked by the limits and preemption fails.
+       4. Post-selection verification evaluates the candidate set `{A2, A2}`: it contains 2 preemptions from ClusterQueue A, which violates the limit of 1 preemption per preemptee CQ. The candidate set is blocked by the limits and preemption fails.
      - In contrast, the chosen **greedy algorithm** successfully finds a valid candidate set in this case:
        1. First `A2`: evaluated and allowed by CQ A's limit (limit capacity becomes 0). Quota freed: 2.
        2. Second `A2`: evaluated, but skipped because CQ A's limit is already exhausted.
        3. First `B2`: evaluated and allowed by CQ B's limit (limit capacity becomes 0). Quota freed: 4.
-       4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preempted CQ.
+       4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preemptee CQ.
 
    Rejected in favor of greedy candidate evaluation because it prevents valid cross-queue or cross-limit combinations from being discovered when a single queue's candidates satisfy quota first. A future enhancement combining both heuristics via a two-attempt search is discussed in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic).
 
@@ -574,14 +580,9 @@ The addition to `PreemptionLimitSpec` would look like the following:
 	RuleNames []string `json:"ruleNames,omitempty"`
 ```
 
-#### Multi-Rule Attribution Challenge and Alternatives Considered
+#### Multi-Rule Attribution Challenge
 
-A key design challenge arises when a candidate workload matches multiple rules in a `PreemptionConfig`, especially when only some of the rules have associated preemption limits or remaining budget. Several alternative approaches were considered:
-
-1. **Requiring available limits in all matching rules**:
-   - _Drawback_: Would not allow for a stable, safe rollout of new rules. If an existing stable rule permits preemption without limits, adding a new experimental rule with a strict limit would cause preemptions otherwise allowed by the stable rule to be blocked whenever the experimental limit is reached.
-2. **Consuming from only those rules that currently have limits available**:
-   - _Drawback_: Leads to poor user experience because the number of consumed limits and the attribution behavior would non-deterministically differ depending on whether multiple limits or only one are available at the exact moment of preemption.
+A key design challenge arises when a candidate workload matches multiple rules in a `PreemptionConfig`, especially when only some of the rules have associated preemption limits or remaining budget.
 
 #### Proposed Approach: First Matching Rule Consumes the Limits
 
@@ -589,6 +590,15 @@ The proposed approach is to **always choose the first matching rule** from the `
 
 - **Deterministic behavior**: Using the first matching rule provides a predictable priority order for limit consumption based on the administrator's rule sequence.
 - **Maintainable conditions**: While this approach requires an update to the condition reporting defined in Configurable Preemptions (which originally concatenated all matching rules in the preemption condition message), it leads to more maintainable code as always exactly one rule is unambiguously responsible for the preemption and for consuming the limit.
+
+#### Alternatives Considered
+
+Several alternative approaches for multi-rule attribution were considered:
+
+1. **Requiring available limits in all matching rules**:
+   - _Drawback_: Would not allow for a stable, safe rollout of new rules. If an existing stable rule permits preemption without limits, adding a new experimental rule with a strict limit would cause preemptions otherwise allowed by the stable rule to be blocked whenever the experimental limit is reached.
+2. **Consuming from only those rules that currently have limits available**:
+   - _Drawback_: Leads to poor user experience because the number of consumed limits and the attribution behavior would non-deterministically differ depending on whether multiple limits or only one are available at the exact moment of preemption.
 
 ### Pod-Level Rate Limiting via `mode`
 
@@ -648,8 +658,8 @@ The reconstruction will work as follows:
 
 3. **Natural Expiration via Sliding Window**:
    - These synthesized events are inserted into the in-memory tracking map and immediately consume available quota under the limit.
-   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTime >= limitWindowSeconds`.
-   - If the controller was offline longer than `limitWindowSeconds`, all synthesized events will already be expired upon startup and will be pruned immediately, cleanly granting a fresh budget.
+   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTime >= windowSeconds`.
+   - If the controller was offline longer than `windowSeconds`, all synthesized events will already be expired upon startup and will be pruned immediately, cleanly granting a fresh budget.
 
 #### Advantages
 
