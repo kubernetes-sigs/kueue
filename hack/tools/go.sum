@@ -468,8 +468,8 @@ github.com/fxamacker/cbor/v2 v2.9.3 h1:oQBnFATpNdY8gJHTndDDv5Xl4QqNaz51G5LLEPhng
 github.com/fxamacker/cbor/v2 v2.9.3/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/fzipp/gocyclo v0.6.0 h1:lsblElZG7d3ALtGMx9fmxeTKZaLLpU8mET09yN4BBLo=
 github.com/fzipp/gocyclo v0.6.0/go.mod h1:rXPyn8fnlpa0R2csP/31uerbiVBugk5whMdlyaLkLoA=
-github.com/getkin/kin-openapi v0.149.0 h1:ZbhmVJ4yq5RZDUsyP8lcBcGMsjsaTqXEFt6isdtMDfA=
-github.com/getkin/kin-openapi v0.149.0/go.mod h1:1+BHDzstro+P5CKtPy1X4PfofnFgmRe6uvMy9+r9fKY=
+github.com/getkin/kin-openapi v0.152.0 h1:XRVo77lMRyOGMHf1paMu9lxX3wzuQDZeprssZJnz/x8=
+github.com/getkin/kin-openapi v0.152.0/go.mod h1:1+BHDzstro+P5CKtPy1X4PfofnFgmRe6uvMy9+r9fKY=
 github.com/ghostiam/protogetter v1.0.1 h1:q4LLTx2KJHJpxrfO3BniUDWoFkoqWD/UlHhClBlUlLM=
 github.com/ghostiam/protogetter v1.0.1/go.mod h1:50Fh5yZfs6SFGrd1FlmT04NcguyEOxyjNK5zGD6/EvM=
 github.com/gkampitakis/ciinfo v0.3.2 h1:JcuOPk8ZU7nZQjdUhctuhQofk7BGHuIy0c9Ez8BNhXs=
@@ -572,8 +572,8 @@ github.com/gohugoio/hashstructure v1.0.0 h1:vWYuyzs1n0LdI0F54TJQeYAiB44fHX7H9hCp
 github.com/gohugoio/hashstructure v1.0.0/go.mod h1:FSbTK4QwxucJ2bC4Lvrs9a6x0DbQDXNoyBO+h4nlCgE=
 github.com/gohugoio/httpcache v0.9.0 h1:f3Jb93RAP+qlmK7Ma5uGfwJslYDqTfzYJ6AeOT7nDe8=
 github.com/gohugoio/httpcache v0.9.0/go.mod h1:YQsVn7oB30TG1QO9HoHc3Xq8dDQDVOdxBc0p7CYgbhE=
-github.com/gohugoio/hugo v0.168.0 h1:66W8JvXbGhxhAktj3ycv6kLyDIvQkwaoAl/6yRfI09w=
-github.com/gohugoio/hugo v0.168.0/go.mod h1:iaJdmjHjjFb19UwtO2CvHDWOl5hkWwX+s8Vp6lSHZks=
+github.com/gohugoio/hugo v0.169.0 h1:AANgaeWv05+Xh2gUoc//bjj9RBMenvYTPhxA4UQUq7o=
+github.com/gohugoio/hugo v0.169.0/go.mod h1:pkLazxbrnqFLreDSDoZMwoa07gLX9ba7Nzy3miTSMBs=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0 h1:I/n6v7VImJ3aISLnn73JAHXyjcQsMVvbguQPTk9Ehus=
 github.com/gohugoio/hugo-goldmark-extensions/extras v0.7.0/go.mod h1:9LJNfKWFmhEJ7HW0in5znezMwH+FYMBIhNZ3VWtRcRs=
 github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0 h1:p13Q0DBCrBRpJGtbtlgkYNCs4TnIlZJh8vHgnAiofrI=
@@ -1095,10 +1095,10 @@ github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWD
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/subosito/gotenv v1.6.0 h1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=
 github.com/subosito/gotenv v1.6.0/go.mod h1:Dk4QP5c2W3ibzajGcXpNraDfq2IrhjMIvMSWPKKo0FU=
-github.com/tdewolff/minify/v2 v2.24.19 h1:j2exx54gvrCFN9UiFm0Z5vbNWBFcuY5Ql1VmaM2Dkeo=
-github.com/tdewolff/minify/v2 v2.24.19/go.mod h1:HVgQO08FJeDxQx+lcFOVDi1IySi/77WlN/dDckCkZoA=
-github.com/tdewolff/parse/v2 v2.8.16 h1:bLk5svUOQRkW/Y2SJ+DeENSIkZBcTIkq+Atyv5D8feI=
-github.com/tdewolff/parse/v2 v2.8.16/go.mod h1:XdsoSFThlVIRIajAuqz1evNY7bagZS8LBOPA3aVopwQ=
+github.com/tdewolff/minify/v2 v2.24.22 h1:48fGkqDfZ/dAHGf51NsuHQaMYRRmSh3hhVjnGXheGhs=
+github.com/tdewolff/minify/v2 v2.24.22/go.mod h1:y+QjTzveZX+MfkswbAnt4V/zcBbKjNBdDTrOoqy4nX8=
+github.com/tdewolff/parse/v2 v2.8.19 h1:p+JoZI06kApwHWyOe/BAsl7DC06UqyDDbAKU68/9I4w=
+github.com/tdewolff/parse/v2 v2.8.19/go.mod h1:OemXEPll2+Sn7pQ6xFxC9cEm1wDnNt1hC2q3jIh+OoI=
 github.com/tdewolff/test v1.0.12 h1:7F21DqIajswxuche0geHdrUZRCWE4oko4b7bcmkkrxk=
 github.com/tdewolff/test v1.0.12/go.mod h1:XPuWBzvdUzhCuxWO1ojpXsyzsA5bFoS3tO/Q3kFuTG8=
 github.com/tenntenn/modver v1.0.1 h1:2klLppGhDgzJrScMpkj9Ujy3rXPUspSjAcev9tSEBgA=

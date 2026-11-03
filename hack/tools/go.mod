@@ -21,7 +21,7 @@ tool (
 )
 
 require (
-	github.com/gohugoio/hugo v0.168.0
+	github.com/gohugoio/hugo v0.169.0
 	github.com/golangci/golangci-lint/v2 v2.15.0
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.2.1
@@ -216,7 +216,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
-	github.com/getkin/kin-openapi v0.149.0 // indirect
+	github.com/getkin/kin-openapi v0.152.0 // indirect
 	github.com/ghostiam/protogetter v1.0.1 // indirect
 	github.com/go-critic/go-critic v0.15.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -417,8 +417,8 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/tdewolff/minify/v2 v2.24.19 // indirect
-	github.com/tdewolff/parse/v2 v2.8.16 // indirect
+	github.com/tdewolff/minify/v2 v2.24.22 // indirect
+	github.com/tdewolff/parse/v2 v2.8.19 // indirect
 	github.com/tetafro/godot v1.5.6 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
