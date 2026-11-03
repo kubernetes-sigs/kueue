@@ -1,21 +1,14 @@
 ---
-title: "加入我们"
+title: "加入 Kueue 社区"
 linkTitle: "加入我们"
+description: "Kueue 是由社区共同开发的 Kubernetes SIG Scheduling 子项目。我们欢迎各种技能水平的用户、运维人员、贡献者和维护者加入！"
 weight: 30
 menu:
   main:
     weight: 30
 ---
 
-<!-- 1. 加入我们与社区概述 -->
-<div class="text-center mb-5">
-  <h2 class="fw-bold text-primary mb-2">加入 Kueue 社区</h2>
-  <p class="lead text-muted mx-auto" style="max-width: 750px;">
-    Kueue 是由社区共同开发的 Kubernetes SIG Apps 子项目。我们欢迎各种技能水平的用户、贡献者和维护者加入！
-  </p>
-</div>
-
-<!-- 2. 社区频道与贡献者专区 -->
+<!-- 1. 社区频道与贡献者专区 -->
 <div class="row g-4 mb-5">
 
   <!-- 贡献者专区卡片 -->
@@ -45,7 +38,7 @@ menu:
         </div>
         <h4 class="fw-bold text-primary mb-2">批处理工作组 (WG Batch)</h4>
         <p class="text-muted small mb-3 flex-grow-1">
-          Kueue 是在 WG Batch 下构建的。欢迎参加我们的双周社区例会，提出创意或参与公开讨论。
+          Kueue 是在 WG Batch 下构建的。欢迎参加我们的每周社区例会，提出创意或参与公开讨论。
         </p>
         <a href="https://github.com/kubernetes/community/tree/master/wg-batch" target="_blank" rel="noopener" class="btn btn-sm btn-outline-info mt-auto align-self-start fw-semibold">
           了解 WG Batch 详情 ➔
@@ -97,7 +90,7 @@ menu:
         </div>
         <div>
           <h6 class="fw-bold mb-1">社区例会</h6>
-          <span class="small text-muted d-block">公开双周同步会议</span>
+          <span class="small text-muted d-block">公开每周同步会议</span>
         </div>
       </div>
     </div>

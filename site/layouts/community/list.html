@@ -5,10 +5,10 @@
     <div class="mx-auto" style="max-width: 800px;">
 
       <h1 class="display-5 fw-bold text-primary mb-2" style="letter-spacing: -0.03em;">
-        {{ T "community_page_title" | default "Kueue Community" }}
+        {{ .Params.banner_title | default .Title | default (T "community_page_title" | default "Kueue Community") }}
       </h1>
       <p class="lead text-muted fs-5 mb-0" style="font-weight: 400; line-height: 1.5;">
-        {{ T "community_page_subtitle" | default "Kueue is an open, collaborative, CNCF sandbox project. Join our community of users, operators, and contributors." }}
+        {{ .Params.description | default (T "community_page_subtitle" | default "Kueue is an open, collaborative Kubernetes subproject. Join our community of users, operators, and contributors.") }}
       </p>
     </div>
   </div>
