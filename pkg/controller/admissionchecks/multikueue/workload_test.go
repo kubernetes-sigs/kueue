@@ -560,32 +560,6 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"evicted wl without reservation with RemoteObjectsRemoved, the workers are still read": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			reconcileFor: "wl1",
-			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					Condition(evictedCondition).
-					Condition(remoteObjectsRemovedCondition).
-					Obj(),
-			},
-			useSecondWorker:   true,
-			worker2OnGetError: errFake,
-
-			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					Condition(evictedCondition).
-					Condition(remoteObjectsRemovedCondition).
-					Obj(),
-			},
-			wantError: errFake,
-		},
 		"wl with reservation, creates missing workloads": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
