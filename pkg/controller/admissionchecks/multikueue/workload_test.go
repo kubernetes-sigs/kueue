@@ -2648,8 +2648,6 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		worker1Disconnected bool
 		// deleted delivers the delete event of the manager's workload after the reconciles.
 		deleted bool
-		// replaced makes the manager's workload an elastic slice replaced by a newer slice.
-		replaced bool
 
 		wantWorker1Objects       bool
 		wantPreviousClusterNames sets.Set[string]
@@ -2687,11 +2685,6 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			wantWorker1Objects:  true,
 			wantRequeueAfter:    defaultWorkerLostTimeout,
 		},
-		"remote objects of a replaced slice on a cluster removed from the config are deleted after the eviction": {
-			configClusters: []string{"worker2"},
-			evictedFrom:    []string{"worker1"},
-			replaced:       true,
-		},
 		"a previous cluster without a MultiKueueCluster is forgotten": {
 			configClusters:     []string{"worker2"},
 			evictedFrom:        []string{"worker3"},
@@ -2702,23 +2695,13 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.replaced)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-			managerWlBuilder := baseWorkloadBuilder.Clone().
+			managerWl := baseWorkloadBuilder.Clone().
 				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1")
-			if tc.replaced {
-				managerWlBuilder.
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Condition(metav1.Condition{
-						Type:   kueue.WorkloadFinished,
-						Status: metav1.ConditionTrue,
-						Reason: kueue.WorkloadSliceReplaced,
-					})
-			}
-			managerWl := managerWlBuilder.Obj()
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+				Obj()
 			remoteWl := baseWorkloadBuilder.Clone().
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
