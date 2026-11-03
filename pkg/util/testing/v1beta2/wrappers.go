@@ -923,6 +923,11 @@ func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	}}
 }
 
+// Clone returns a deep copy of the CohortWrapper.
+func (c *CohortWrapper) Clone() *CohortWrapper {
+	return &CohortWrapper{Cohort: *c.DeepCopy()}
+}
+
 func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }

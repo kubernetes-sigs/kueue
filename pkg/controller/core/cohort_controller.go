@@ -21,13 +21,16 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -42,6 +45,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -89,6 +93,7 @@ type CohortReconciler struct {
 	fairSharingEnabled bool
 	roleTracker        *roletracker.RoleTracker
 	customLabels       *metrics.CustomLabels
+	clock              clock.Clock
 	// cqNotifyPending holds the Cohorts whose ClusterQueues the next Reconcile
 	// notifies, because the Cohort was created or changed its spec or quotas.
 	// A Cohort requeued because a ClusterQueue wrote its status does not notify
@@ -124,6 +129,7 @@ func NewCohortReconciler(
 		fairSharingEnabled: options.FairSharingEnabled,
 		roleTracker:        options.roleTracker,
 		customLabels:       options.customLabels,
+		clock:              realClock,
 		cqNotifyPending:    sets.New[kueue.CohortReference](),
 	}
 }
@@ -215,20 +221,40 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 
 	specOrQuotaUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) ||
 		!equality.Semantic.DeepEqual(resourcegroups.EffectiveCohortResourceGroups(e.ObjectOld), resourcegroups.EffectiveCohortResourceGroups(e.ObjectNew))
+	// The cache reads the EffectiveQuotaActive condition and the orchestrator,
+	// which can change while the effective resource groups stay equal.
+	// Reconcile requeues the Cohort for validUntil.
+	var effectiveQuotaStateUpdated, validUntilUpdated bool
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		oldStatus, newStatus := &e.ObjectOld.Status, &e.ObjectNew.Status
+		effectiveQuotaStateUpdated = utildqo.IsInactive(oldStatus.Conditions) != utildqo.IsInactive(newStatus.Conditions) ||
+			utildqo.EffectiveOrchestrator(oldStatus.EffectiveQuotas, oldStatus.Conditions) != utildqo.EffectiveOrchestrator(newStatus.EffectiveQuotas, newStatus.Conditions)
+		validUntilUpdated = !equality.Semantic.DeepEqual(effectiveQuotaValidUntil(e.ObjectOld), effectiveQuotaValidUntil(e.ObjectNew))
+	}
 
-	if !specOrQuotaUpdated && !clUpdateRequired {
+	if !specOrQuotaUpdated && !effectiveQuotaStateUpdated && !validUntilUpdated && !clUpdateRequired {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
 	log.V(2).Info("Processing Cohort update event")
-	if specOrQuotaUpdated {
+	switch {
+	case specOrQuotaUpdated:
 		r.addOrUpdateCohortInMemory(e.ObjectNew)
 		r.markClusterQueueNotification(kueue.CohortReference(e.ObjectNew.GetName()))
 		if e.ObjectOld.Spec.ParentName != e.ObjectNew.Spec.ParentName {
 			r.notifyTreeLeft(e.ObjectOld.Spec.ParentName)
 		}
+	case effectiveQuotaStateUpdated:
+		r.addOrUpdateCohortInMemory(e.ObjectNew)
 	}
 	return true
+}
+
+func effectiveQuotaValidUntil(cohort *kueue.Cohort) *metav1.Time {
+	if cohort.Status.EffectiveQuotas == nil {
+		return nil
+	}
+	return cohort.Status.EffectiveQuotas.ValidUntil
 }
 
 func (r *CohortReconciler) Delete(e event.TypedDeleteEvent[*kueue.Cohort]) bool {
@@ -360,13 +386,17 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		r.cache.RecordCohortMetrics(log, kueue.CohortReference(req.Name))
 	}
 
-	err := r.updateCohortStatusIfChanged(ctx, &cohort)
-	return ctrl.Result{}, client.IgnoreNotFound(err)
+	requeueAfter, err := r.updateCohortStatusIfChanged(ctx, &cohort)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // updateCohortStatusIfChanged recomputes the Cohort status from the cache and writes it to the
 // API server only when it differs from the current status.
-func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
+// It returns when the effective quota expires, or 0 if no requeue is needed for it.
+func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) (time.Duration, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	oldStatus := cohort.Status.DeepCopy()
@@ -374,7 +404,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	stats, err := r.cache.CohortStats(cohort)
 	if err != nil {
 		log.Error(err, "Failed getting cohort usage from cache")
-		return err
+		return 0, err
 	}
 
 	if r.fairSharingEnabled {
@@ -390,12 +420,15 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	} else {
 		cohort.Status.FairSharing = nil
 	}
+	requeueAfter := utildqo.SetActiveCondition(&cohort.Status.Conditions, cohort.Status.EffectiveQuotas, cohort.Generation, func() time.Time { return r.clock.Now() })
 
 	if !equality.Semantic.DeepEqual(&cohort.Status, oldStatus) {
-		return r.client.Status().Update(ctx, cohort)
+		if err := r.client.Status().Update(ctx, cohort); err != nil {
+			return 0, err
+		}
 	}
 
-	return nil
+	return requeueAfter, nil
 }
 
 func (r *CohortReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
