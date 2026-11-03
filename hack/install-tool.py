@@ -33,6 +33,9 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 LOG = logging.getLogger(__name__)
+DOWNLOAD_ATTEMPTS = 7
+DOWNLOAD_INITIAL_DELAY = 2
+RATE_LIMIT_DELAY = 20
 
 
 def configure_logging(name):
@@ -77,24 +80,25 @@ def download(url):
     headers = {"User-Agent": "kueue-tool-installer"}
     if url.startswith("https://api.github.com/") and os.environ.get("GH_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
-    for attempt in range(7):
-        LOG.debug("Downloading %s (attempt %d/7)", url, attempt + 1)
+    last_attempt = DOWNLOAD_ATTEMPTS - 1
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        LOG.debug("Downloading %s (attempt %d/%d)", url, attempt + 1, DOWNLOAD_ATTEMPTS)
         try:
             with urlopen(Request(url, headers=headers), timeout=120) as response:
                 content = response.read()
                 LOG.debug("Downloaded %d bytes from %s", len(content), url)
                 return content
         except HTTPError as error:
-            LOG.warning("Download failed for %s (attempt %d/7): %s", url, attempt + 1, error)
-            if attempt == 6 or (error.code != 429 and error.code < 500):
+            LOG.warning("Download failed for %s (attempt %d/%d): %s", url, attempt + 1, DOWNLOAD_ATTEMPTS, error)
+            if attempt == last_attempt or (error.code != 429 and error.code < 500):
                 raise
             # Respect the fixed rate-limit wait independently of transient backoff.
-            delay = 20 if error.code == 429 else 2 ** (attempt + 1)
+            delay = RATE_LIMIT_DELAY if error.code == 429 else DOWNLOAD_INITIAL_DELAY * 2 ** attempt
         except (URLError, TimeoutError, HTTPException, ConnectionError) as error:
-            LOG.warning("Download failed for %s (attempt %d/7): %s", url, attempt + 1, error)
-            if attempt == 6:
+            LOG.warning("Download failed for %s (attempt %d/%d): %s", url, attempt + 1, DOWNLOAD_ATTEMPTS, error)
+            if attempt == last_attempt:
                 raise
-            delay = 2 ** (attempt + 1)
+            delay = DOWNLOAD_INITIAL_DELAY * 2 ** attempt
         LOG.info("Retrying %s in %ds", url, delay)
         time.sleep(delay)
 
