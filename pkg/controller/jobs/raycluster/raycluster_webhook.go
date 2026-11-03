@@ -58,9 +58,6 @@ type RayClusterWebhook struct {
 // SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.
 func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	for _, opt := range opts {
-		opt(&options)
-	}
 	wh := &RayClusterWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),

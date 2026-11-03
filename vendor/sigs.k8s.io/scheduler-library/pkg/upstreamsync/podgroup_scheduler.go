@@ -16,12 +16,14 @@ package upstreamsync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
 	"math/rand"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/features"
@@ -80,10 +82,84 @@ func (r *revertFns) revert() {
 // Uses the library's exported AlgorithmResult; selectedPlacement and waitingOnPreemption are dropped
 // as the library records no scheduling metrics and handles preemption synchronously.
 type PodGroupAlgorithmResult struct {
+	PodGroupInfo        *framework.PodGroupInfo
 	PodResults          []AlgorithmResult
 	Status              *fwk.Status
 	PlacementCycleState fwk.PlacementCycleState
 	AnyScheduled        bool
+}
+
+// podGroupFitError describes a fit error for a PodGroup or CompositePodGroup.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+type podGroupFitError struct {
+	// status is a PodGroup rejection status.
+	status *fwk.Status
+	// numPlacements is the number of generated placements.
+	numPlacements int
+	// unschedulablePlugins are plugins that returned Wait, Unschedulable or UnschedulableAndUnresolvable status.
+	unschedulablePlugins sets.Set[string]
+	// pendingPlugins are plugins that returned Pending status.
+	pendingPlugins sets.Set[string]
+}
+
+// newPodGroupFitError creates a new PodGroupFitError without placement context.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func newPodGroupFitError(s *fwk.Status) *podGroupFitError {
+	return newPodGroupPlacementFitError(s, 0)
+}
+
+// newPodGroupPlacementFitError creates a new PodGroupFitError within placement algorithm.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func newPodGroupPlacementFitError(s *fwk.Status, numPlacements int) *podGroupFitError {
+	fe := &podGroupFitError{
+		status:        s,
+		numPlacements: numPlacements,
+	}
+	fe.addPluginStatus(s)
+	return fe
+}
+
+// addPluginStatus updates the fit error with plugin status.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (fe *podGroupFitError) addPluginStatus(s *fwk.Status) {
+	if fitError, ok := errors.AsType[*podGroupFitError](s.AsError()); ok {
+		// If the status holds podGroupFitError, it means that it already contains
+		// the unschedulablePlugins and pendingPlugins inside.
+		fe.unschedulablePlugins = fe.unschedulablePlugins.Union(fitError.unschedulablePlugins)
+		fe.pendingPlugins = fe.pendingPlugins.Union(fitError.pendingPlugins)
+		return
+	}
+	if s.Plugin() == "" {
+		return
+	}
+	if s.IsRejected() || s.IsWait() {
+		if fe.unschedulablePlugins == nil {
+			fe.unschedulablePlugins = sets.New[string]()
+		}
+		fe.unschedulablePlugins.Insert(s.Plugin())
+	}
+	if s.Code() == fwk.Pending {
+		if fe.pendingPlugins == nil {
+			fe.pendingPlugins = sets.New[string]()
+		}
+		fe.pendingPlugins.Insert(s.Plugin())
+	}
+}
+
+// Error returns the error message for the fit error.
+// In case of non-placement algorithm's error, it will not contain any placement context.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (fe *podGroupFitError) Error() string {
+	reason := fe.status.Message()
+	if fe.numPlacements == 0 {
+		return reason
+	}
+	return fmt.Sprintf("0/%d placements are available, first placement status: %s", fe.numPlacements, reason)
 }
 
 // RunRootSchedulingAlgorithm orchestrates the scheduling attempt for a root pod group.
@@ -227,14 +303,16 @@ func (sched *Scheduler) compositePodGroupSchedulingPlacementAlgorithm(
 	allNodes, err := sched.nodeInfoSnapshot.ListNodesInPlacement()
 	if err != nil {
 		return &PodGroupAlgorithmResult{
-			Status: fwk.AsStatus(fmt.Errorf("failed to list node infos: %w", err)),
+			PodGroupInfo: podGroupInfo,
+			Status:       fwk.AsStatus(fmt.Errorf("failed to list node infos: %w", err)),
 		}, nil
 	}
 
 	placements, status := schedFwk.RunPlacementGeneratePlugins(ctx, podGroupCycleState, podGroupInfo, allNodes)
 	if !status.IsSuccess() {
 		return &PodGroupAlgorithmResult{
-			Status: status,
+			PodGroupInfo: podGroupInfo,
+			Status:       status,
 		}, nil
 	}
 
@@ -255,7 +333,8 @@ func (sched *Scheduler) compositePodGroupSchedulingPlacementAlgorithm(
 		err := sched.nodeInfoSnapshot.AssumePlacement(placement)
 		if err != nil {
 			return &PodGroupAlgorithmResult{
-				Status: fwk.AsStatus(fmt.Errorf("failed to assume pod group placement: %w", err)),
+				PodGroupInfo: podGroupInfo,
+				Status:       fwk.AsStatus(fmt.Errorf("failed to assume pod group placement: %w", err)),
 			}, nil
 		}
 		placementCycleState := framework.NewCycleState()
@@ -283,7 +362,8 @@ func (sched *Scheduler) compositePodGroupSchedulingPlacementAlgorithm(
 		anyResultRoot := anyResultSubtree[getEntityKey(podGroupInfo)]
 		if anyResultRoot == nil {
 			anyResultRoot = &PodGroupAlgorithmResult{
-				Status: fwk.NewStatus(fwk.Unschedulable, fmt.Sprintf("0/%d placements are available", len(placements))),
+				PodGroupInfo: podGroupInfo,
+				Status:       fwk.NewStatus(fwk.Unschedulable, fmt.Sprintf("0/%d placements are available", len(placements))),
 			}
 		}
 		maps.Copy(results, anyResultSubtree)
@@ -292,7 +372,10 @@ func (sched *Scheduler) compositePodGroupSchedulingPlacementAlgorithm(
 
 	bestPlacement, status := sched.findBestCompositePodGroupPlacement(ctx, schedFwk, podGroupCycleState, podGroupInfo, successfulResults)
 	if !status.IsSuccess() {
-		return &PodGroupAlgorithmResult{Status: status}, nil
+		return &PodGroupAlgorithmResult{
+			PodGroupInfo: podGroupInfo,
+			Status:       status,
+		}, nil
 	}
 
 	bestResult := successfulResults[bestPlacement]
@@ -300,7 +383,8 @@ func (sched *Scheduler) compositePodGroupSchedulingPlacementAlgorithm(
 	revertFns, err = sched.assumeSubtreeWithRevert(ctx, schedFwk, podGroupInfo, bestResult)
 	if err != nil {
 		return &PodGroupAlgorithmResult{
-			Status: fwk.AsStatus(fmt.Errorf("failed to assume the subtree: %w", err)),
+			PodGroupInfo: podGroupInfo,
+			Status:       fwk.AsStatus(fmt.Errorf("failed to assume the subtree: %w", err)),
 		}, nil
 	}
 	maps.Copy(results, bestResult)
@@ -338,6 +422,7 @@ func (sched *Scheduler) compositePodGroupSchedulingDefaultAlgorithm(
 
 		if childResult.Status.IsError() {
 			return &PodGroupAlgorithmResult{
+				PodGroupInfo:        podGroupInfo,
 				Status:              fwk.AsStatus(fmt.Errorf("composite pod group evaluation failed due to child error: %w", childResult.Status.AsError())),
 				PlacementCycleState: placementCycleState,
 			}, revertFns
@@ -345,6 +430,7 @@ func (sched *Scheduler) compositePodGroupSchedulingDefaultAlgorithm(
 
 		if !childResult.Status.IsSuccess() {
 			return &PodGroupAlgorithmResult{
+				PodGroupInfo:        podGroupInfo,
 				Status:              fwk.NewStatus(fwk.Unschedulable, "composite pod group is unschedulable due to unschedulable child"),
 				PlacementCycleState: placementCycleState,
 			}, revertFns
@@ -353,6 +439,7 @@ func (sched *Scheduler) compositePodGroupSchedulingDefaultAlgorithm(
 	}
 
 	result = &PodGroupAlgorithmResult{
+		PodGroupInfo:        podGroupInfo,
 		Status:              fwk.NewStatus(fwk.Success),
 		PlacementCycleState: placementCycleState,
 		AnyScheduled:        anyScheduled,
@@ -399,13 +486,17 @@ func (sched *Scheduler) podGroupSchedulingPlacementAlgorithm(
 	allNodes, err := sched.nodeInfoSnapshot.ListNodesInPlacement()
 	if err != nil {
 		return &PodGroupAlgorithmResult{
-			Status: fwk.AsStatus(fmt.Errorf("failed to list node infos: %w", err)),
+			PodGroupInfo: podGroupInfo,
+			Status:       fwk.AsStatus(fmt.Errorf("failed to list node infos: %w", err)),
 		}, nil
 	}
 
 	placements, status := schedFwk.RunPlacementGeneratePlugins(ctx, podGroupCycleState, podGroupInfo, allNodes)
 	if !status.IsSuccess() {
-		return &PodGroupAlgorithmResult{Status: status}, nil
+		return &PodGroupAlgorithmResult{
+			PodGroupInfo: podGroupInfo,
+			Status:       status,
+		}, nil
 	}
 
 	successfulResults := make(map[*fwk.Placement]*PodGroupAlgorithmResult)
@@ -424,7 +515,8 @@ func (sched *Scheduler) podGroupSchedulingPlacementAlgorithm(
 		err := sched.nodeInfoSnapshot.AssumePlacement(placement)
 		if err != nil {
 			return &PodGroupAlgorithmResult{
-				Status: fwk.AsStatus(fmt.Errorf("failed to assume placement: %w", err)),
+				PodGroupInfo: podGroupInfo,
+				Status:       fwk.AsStatus(fmt.Errorf("failed to assume placement: %w", err)),
 			}, nil
 		}
 
@@ -457,7 +549,10 @@ func (sched *Scheduler) podGroupSchedulingPlacementAlgorithm(
 
 	bestPlacement, status := sched.findBestPodGroupPlacement(ctx, schedFwk, podGroupCycleState, podGroupInfo, successfulResults)
 	if !status.IsSuccess() {
-		return &PodGroupAlgorithmResult{Status: status}, nil
+		return &PodGroupAlgorithmResult{
+			PodGroupInfo: podGroupInfo,
+			Status:       status,
+		}, nil
 	}
 	bestResult := successfulResults[bestPlacement]
 
@@ -466,7 +561,8 @@ func (sched *Scheduler) podGroupSchedulingPlacementAlgorithm(
 		revertFns, err = sched.assumeSubtreeWithRevert(ctx, schedFwk, podGroupInfo, map[fwk.EntityKey]*PodGroupAlgorithmResult{getEntityKey(podGroupInfo): bestResult})
 		if err != nil {
 			return &PodGroupAlgorithmResult{
-				Status: fwk.AsStatus(fmt.Errorf("failed to assume the subtree: %w", err)),
+				PodGroupInfo: podGroupInfo,
+				Status:       fwk.AsStatus(fmt.Errorf("failed to assume the subtree: %w", err)),
 			}, nil
 		}
 
@@ -522,6 +618,7 @@ func (sched *Scheduler) podGroupSchedulingDefaultAlgorithm(
 	unscheduledPods := podGroupInfo.GetUnscheduledPods()
 
 	result = &PodGroupAlgorithmResult{
+		PodGroupInfo:        podGroupInfo,
 		PodResults:          make([]AlgorithmResult, 0, len(unscheduledPods)),
 		Status:              nil,
 		PlacementCycleState: placementCycleState,
@@ -603,6 +700,134 @@ func (sched *Scheduler) assumeSubtreeWithRevert(
 	}
 
 	return revertFns, nil
+}
+
+// CompletePodGroupAlgorithmResult ensures that the PodGroupAlgorithmResult contains the same number of PodResults as there are unscheduled pods in the pod group.
+//
+// UPSTREAM-DIFF: adapted from completePodGroupAlgorithmResult; exported for use by pkg/upstreamsync/snapshot.
+// Uses PodGroupInfo.GetUnscheduledPods() instead of QueuedPodInfo (see PendingPod) and omits ctx and podSchedulingContext.
+func CompletePodGroupAlgorithmResult(
+	podGroupState *framework.CycleState,
+	podGroupResult *PodGroupAlgorithmResult,
+) *PodGroupAlgorithmResult {
+	unscheduledPods := podGroupResult.PodGroupInfo.GetUnscheduledPods()
+	numInResult := len(podGroupResult.PodResults)
+	numInQueue := len(unscheduledPods)
+	// UPSTREAM-DIFF: upstream currently overwrites successful pod statuses with the failed
+	// pod group status in submitPodGroupResult; done here as the library has no submit phase.
+	if !podGroupResult.Status.IsSuccess() {
+		for i := range podGroupResult.PodResults {
+			if podGroupResult.PodResults[i].status.IsSuccess() {
+				podGroupResult.PodResults[i].status = podGroupResult.Status.Clone()
+			}
+		}
+	}
+	if numInResult == numInQueue {
+		return podGroupResult
+	}
+	newResults := make([]AlgorithmResult, numInQueue)
+	copy(newResults, podGroupResult.PodResults)
+	for i := numInResult; i < numInQueue; i++ {
+		pod := unscheduledPods[i]
+		pInfo, _ := framework.NewPodInfo(pod)
+		placementCycleState := framework.NewCycleState()
+		placementCycleState.SetPodGroupSchedulingCycle(podGroupState)
+		podCycleState := framework.NewCycleState()
+		podCycleState.SetPodGroupSchedulingCycle(podGroupState)
+		podCycleState.SetPlacementCycleState(placementCycleState)
+		newResults[i] = AlgorithmResult{
+			pod:        pod,
+			podInfo:    pInfo,
+			cycleState: podCycleState,
+			status:     podGroupResult.Status.Clone(),
+		}
+	}
+	podGroupResult.PodResults = newResults
+	return podGroupResult
+}
+
+// CompleteCompositePodGroupAlgorithmResult post-processes scheduling results for a composite pod group.
+// It ensures that every pod in every subgroup has a fully populated status and that failure statuses
+// are propagated down the tree before finalizing the cycle.
+//
+// UPSTREAM-DIFF: adapted from completeCompositePodGroupAlgorithmResult; exported for use by
+// pkg/upstreamsync/snapshot. Takes *framework.PodGroupInfo instead of *framework.QueuedPodGroupInfo
+// and omits ctx.
+func CompleteCompositePodGroupAlgorithmResult(
+	rootPodGroupInfo *framework.PodGroupInfo,
+	rootCycleState *framework.CycleState,
+	pgResults map[fwk.EntityKey]*PodGroupAlgorithmResult,
+) map[fwk.EntityKey]*PodGroupAlgorithmResult {
+	completeCompositePodGroupAlgorithmResultMap(rootPodGroupInfo, pgResults, nil)
+	for _, pgResult := range pgResults {
+		if pgResult.PodGroupInfo.GetType() == fwk.PodGroupKeyType {
+			// Ensure PodResults has an entry for each pod in the pod group with a status.
+			CompletePodGroupAlgorithmResult(rootCycleState, pgResult)
+		}
+	}
+	return pgResults
+}
+
+// completeCompositePodGroupAlgorithmResultMap propagates failures of composite pod groups to their
+// descendants, so that no group is bound while one of its ancestors failed:
+//   - A group that succeeded or was not evaluated gets a status derived from its nearest failed
+//     ancestor (see buildAncestorFailureStatus).
+//   - A group that failed on its own keeps its status, unless the ancestor failed with an Error
+//     and the group did not, in which case the ancestor's Error takes precedence.
+//   - A group that keeps its own failure becomes the nearest failed ancestor of its subtree.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func completeCompositePodGroupAlgorithmResultMap(
+	podGroupInfo *framework.PodGroupInfo,
+	pgResults map[fwk.EntityKey]*PodGroupAlgorithmResult,
+	failedAncestor *PodGroupAlgorithmResult,
+) {
+	key := getEntityKey(podGroupInfo)
+	result, evaluated := pgResults[key]
+	if !evaluated {
+		// Groups are only skipped after an ancestor failed.
+		result = &PodGroupAlgorithmResult{PodGroupInfo: podGroupInfo}
+		pgResults[key] = result
+	}
+	if failedAncestor != nil {
+		if !evaluated || result.Status.IsSuccess() {
+			// The group can't be bound while its ancestor failed.
+			result.Status = buildAncestorFailureStatus(failedAncestor)
+		} else if failedAncestor.Status.IsError() && !result.Status.IsError() {
+			// An error takes precedence over the group's own non-error failure.
+			result.Status = buildAncestorFailureStatus(failedAncestor)
+		} else {
+			// The group's own failure is the more specific reason, so its subtree inherits it.
+			failedAncestor = result
+		}
+	} else if !result.Status.IsSuccess() {
+		// The subtree inherits the group's own failure.
+		failedAncestor = result
+	}
+
+	for _, child := range podGroupInfo.Children {
+		completeCompositePodGroupAlgorithmResultMap(child, pgResults, failedAncestor)
+	}
+}
+
+// buildAncestorFailureStatus returns the status for a pod group whose ancestor failed.
+// The status only names the ancestor, without repeating the ancestor's failure reason,
+// which is reported in the ancestor's own status.
+// If the ancestor's status is an Error, it returns an Error.
+// Otherwise, it returns ancestor's status code with a podGroupFitError that names the ancestor
+// and carries its plugins.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func buildAncestorFailureStatus(failedAncestor *PodGroupAlgorithmResult) *fwk.Status {
+	ancestorName := failedAncestor.PodGroupInfo.GetName()
+	if failedAncestor.Status.IsError() {
+		return fwk.AsStatus(fmt.Errorf("ancestor composite pod group %q encountered an error", ancestorName))
+	}
+
+	msg := fmt.Sprintf("ancestor composite pod group %q is unschedulable", ancestorName)
+	fitError := newPodGroupFitError(fwk.NewStatus(fwk.Unschedulable, msg))
+	fitError.addPluginStatus(failedAncestor.Status)
+	return fwk.NewStatus(failedAncestor.Status.Code()).WithError(fitError)
 }
 
 // SuccessfulLeafResults walks the tree down to the successful leafs.
