@@ -326,6 +326,13 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
+	if !isDeleted && remoteObjectsRemoved(wl) {
+		if _, pending := w.previousClusterNames.Get(req.String()); !pending {
+			log.V(4).Info("Skip workload whose remote objects were removed")
+			return reconcile.Result{}, nil
+		}
+	}
+
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -354,7 +361,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	res, err := w.reconcileGroup(ctx, grp)
+	res, err := w.reconcileGroup(ctx, grp, retryCleanupAfter == 0)
 	if retryCleanupAfter > 0 && (res.RequeueAfter == 0 || retryCleanupAfter < res.RequeueAfter) {
 		res.RequeueAfter = retryCleanupAfter
 	}
@@ -513,7 +520,10 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 	return &grp, nil
 }
 
-func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
+// reconcileGroup reconciles the local workload with its remote workloads.
+// previousClustersClean is false while removeObjectsOnPreviousClusters still has
+// to retry a cleanup, so the workload is not marked as cleaned up yet.
+func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup, previousClustersClean bool) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "reconcileGroup")
 	log.V(3).Info("Reconcile Workload Group")
 
@@ -551,6 +561,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if len(group.unavailableClusters) > 0 {
 			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+		}
+		if len(errs) == 0 && previousClustersClean {
+			if err := w.markRemoteObjectsRemoved(ctx, group.local); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		return reconcile.Result{}, errors.Join(errs...)
 	}
@@ -850,6 +865,60 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
+// remoteObjectsRemovedFieldOwner applies the RemoteObjectsRemoved condition. It differs
+// from the owner used for the admission check state, because each server-side apply by
+// that owner sends the admission check only and would drop the condition.
+const remoteObjectsRemovedFieldOwner = kueue.MultiKueueControllerName + "-remote-cleanup"
+
+// remoteObjectsRemoved reports whether the remote objects of wl were removed from every
+// worker cluster and wl has not been dispatched since. The condition is set to False before
+// a remote workload is created, and the cached copy of wl never goes back to an older
+// version, so a cached wl whose condition is still True has no remote objects.
+func remoteObjectsRemoved(wl *kueue.Workload) bool {
+	return (workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl)) &&
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved)
+}
+
+// markRemoteObjectsRemoved records that the remote objects of a finished or evicted
+// workload were removed from every worker cluster. A workload that was never evicted
+// has not been dispatched, so it is not marked, to avoid a status write per new workload.
+func (w *wlReconciler) markRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload) error {
+	if !workloadfinish.IsFinished(wl) && !workloadevict.IsEvicted(wl) {
+		return nil
+	}
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
+		return nil
+	}
+	reason := "QuotaReleased"
+	if workloadfinish.IsFinished(wl) {
+		reason = kueue.WorkloadFinished
+	}
+	return w.setRemoteObjectsRemoved(ctx, wl, metav1.ConditionTrue, reason, "The remote objects were removed from all worker clusters")
+}
+
+// clearRemoteObjectsRemoved sets the RemoteObjectsRemoved condition to False. It must be
+// called before a remote workload is created: if the remote were created first and the
+// manager stopped before the condition was cleared, later reconciles would skip the
+// worker reads and leak the remote objects.
+func (w *wlReconciler) clearRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload) error {
+	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
+		return nil
+	}
+	return w.setRemoteObjectsRemoved(ctx, wl, metav1.ConditionFalse, "Dispatching", "The workload is dispatched to worker clusters")
+}
+
+func (w *wlReconciler) setRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload, status metav1.ConditionStatus, reason, message string) error {
+	return workloadpatching.PatchStatus(ctx, w.client, wl, remoteObjectsRemovedFieldOwner, func(wl *kueue.Workload) (bool, error) {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadRemoteObjectsRemoved,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			LastTransitionTime: metav1.NewTime(w.clock.Now()),
+		}), nil
+	})
+}
+
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// Preemption gates should be treated independently on the remotes and manager,
 	// so any differences should not be considered as out-of-sync.
@@ -1001,6 +1070,10 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	for clusterName, remoteWl := range group.remotes {
 		if clusterName == targetCluster {
 			if remoteWl == nil {
+				if err := w.clearRemoteObjectsRemoved(ctx, group.local); err != nil {
+					errs = append(errs, err)
+					continue
+				}
 				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
 				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
@@ -1123,6 +1196,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	for rem, remoteWl := range group.remotes {
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
+				if err := w.clearRemoteObjectsRemoved(ctx, group.local); err != nil {
+					errs = append(errs, err)
+					continue
+				}
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
 				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)

@@ -2144,3 +2144,98 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 		})
 	}
 }
+
+func TestRequeueWorkloadsForClusterSkipsRemoteObjectsRemoved(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	removed := metav1.Condition{
+		Type:   kueue.WorkloadRemoteObjectsRemoved,
+		Status: metav1.ConditionTrue,
+		Reason: "ByTest",
+	}
+	cleared := metav1.Condition{
+		Type:   kueue.WorkloadRemoteObjectsRemoved,
+		Status: metav1.ConditionFalse,
+		Reason: "ByTest",
+	}
+
+	cases := map[string]struct {
+		workload    *kueue.Workload
+		wantRequeue bool
+	}{
+		"running workload": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				ClusterName("worker1").
+				Obj(),
+			wantRequeue: true,
+		},
+		"finished workload without RemoteObjectsRemoved": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				ClusterName("worker1").
+				FinishedAt(now).
+				Obj(),
+			wantRequeue: true,
+		},
+		"finished workload with RemoteObjectsRemoved": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				ClusterName("worker1").
+				FinishedAt(now).
+				Condition(removed).
+				Obj(),
+		},
+		"evicted workload with RemoteObjectsRemoved": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				NominatedClusterNames("worker1").
+				EvictedAt(now).
+				Condition(removed).
+				Obj(),
+		},
+		"finished workload with RemoteObjectsRemoved False": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				ClusterName("worker1").
+				FinishedAt(now).
+				Condition(cleared).
+				Obj(),
+			wantRequeue: true,
+		},
+		"deleted finished workload with RemoteObjectsRemoved": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				ClusterName("worker1").
+				FinishedAt(now).
+				Condition(removed).
+				DeletionTimestamp(now).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			wantRequeue: true,
+		},
+		"workload with quota reserved again and a stale RemoteObjectsRemoved": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				NominatedClusterNames("worker1").
+				Condition(removed).
+				Obj(),
+			wantRequeue: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			c := getClientBuilder(ctx).WithObjects(tc.workload).Build()
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			wlUpdateCh := make(chan event.GenericEvent, 10)
+			rc := newRemoteClient(c, wlUpdateCh, nil, nil, defaultOrigin, "worker1", adapters)
+
+			if retryAfter := rc.requeueWorkloadsForCluster(ctx); retryAfter != nil {
+				t.Fatalf("unexpected retry after %v", *retryAfter)
+			}
+			if gotRequeue := len(wlUpdateCh) > 0; gotRequeue != tc.wantRequeue {
+				t.Errorf("requeued: want %t, got %t", tc.wantRequeue, gotRequeue)
+			}
+		})
+	}
+}
