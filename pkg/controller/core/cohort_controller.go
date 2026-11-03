@@ -352,7 +352,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if logV := log.V(4); logV.Enabled() {
 		logV.Info("Cohort is being created or updated",
 			"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
-			"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
+			"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil && !utildqo.IsInactive(cohort.Status.Conditions),
 		)
 	}
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
