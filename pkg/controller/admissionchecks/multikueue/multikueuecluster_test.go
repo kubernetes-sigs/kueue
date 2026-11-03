@@ -64,6 +64,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -2140,6 +2141,152 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 			c := &clustersReconciler{clusterProfileCRDPresent: tc.crdPresent}
 			if got := c.shouldWatchClusterProfiles(); got != tc.want {
 				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResyncAfterReconnectSkipsFinishedWorkloads(t *testing.T) {
+	disconnectedAt := time.Now().Truncate(time.Second)
+	finished := func(at time.Time, reason string) metav1.Condition {
+		return metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			LastTransitionTime: metav1.NewTime(at),
+		}
+	}
+	workloads := []kueue.Workload{
+		*utiltestingapi.MakeWorkload("running", TestNamespace).ClusterName("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("nominated", TestNamespace).NominatedClusterNames("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("on-other-cluster", TestNamespace).ClusterName("worker2").Obj(),
+		*utiltestingapi.MakeWorkload("finished-before-disconnect", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(disconnectedAt.Add(-time.Minute), kueue.WorkloadFinishedReasonSucceeded)).
+			Obj(),
+		*utiltestingapi.MakeWorkload("finished-in-disconnect-second", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(disconnectedAt, kueue.WorkloadFinishedReasonSucceeded)).
+			Obj(),
+		*utiltestingapi.MakeWorkload("finished-after-disconnect", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(disconnectedAt.Add(time.Minute), kueue.WorkloadFinishedReasonSucceeded)).
+			Obj(),
+		*utiltestingapi.MakeWorkload("finished-before-disconnect-deleting", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(disconnectedAt.Add(-time.Minute), kueue.WorkloadFinishedReasonSucceeded)).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			DeletionTimestamp(disconnectedAt).
+			Obj(),
+		*utiltestingapi.MakeWorkload("replaced-slice", TestNamespace).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ClusterName("worker1").
+			Condition(finished(disconnectedAt.Add(time.Minute), kueue.WorkloadSliceReplaced)).
+			Obj(),
+	}
+
+	cases := map[string]struct {
+		// connected reports whether the client is connected when its config changes,
+		// instead of reconnecting after a disconnect with the same config.
+		connected bool
+		// failFirstList fails the first manager workload list, so the resync is retried.
+		failFirstList bool
+		wantEnqueued  []string
+	}{
+		"reconnect skips the workloads that finished before the disconnect": {
+			wantEnqueued: []string{
+				"finished-after-disconnect",
+				"finished-before-disconnect-deleting",
+				"finished-in-disconnect-second",
+				"nominated",
+				"running",
+			},
+		},
+		"retried resync skips the workloads that finished before the disconnect": {
+			failFirstList: true,
+			wantEnqueued: []string{
+				"finished-after-disconnect",
+				"finished-before-disconnect-deleting",
+				"finished-in-disconnect-second",
+				"nominated",
+				"running",
+			},
+		},
+		"config change of a connected client resyncs the finished workloads": {
+			connected: true,
+			wantEnqueued: []string{
+				"finished-after-disconnect",
+				"finished-before-disconnect",
+				"finished-before-disconnect-deleting",
+				"finished-in-disconnect-second",
+				"nominated",
+				"running",
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			var listCalls atomic.Int32
+			c := getClientBuilder(ctx).
+				WithLists(&kueue.WorkloadList{Items: workloads}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, isWlList := list.(*kueue.WorkloadList); isWlList && tc.failFirstList && listCalls.Add(1) == 1 {
+							return errors.New("list failed")
+						}
+						return cl.List(ctx, list, opts...)
+					},
+				}).
+				Build()
+
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			reconciler := newClustersReconciler(c, TestNamespace, withAdapters(adapters))
+			reconciler.rootContext = ctx
+			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			fakeClock := testingclock.NewFakeClock(disconnectedAt)
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc.clock = fakeClock
+			rc.builderOverride = reconciler.builderOverride
+			rc.config = &clientConfig{Kubeconfig: []byte(testKubeconfig("worker1"))}
+			rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
+			rc.connState.markConnected()
+			if !tc.connected {
+				rc.connState.markDisconnected(disconnectedAt)
+			}
+			reconciler.remoteClients["worker1"] = rc
+			t.Cleanup(rc.StopWatchers)
+			fakeClock.Step(time.Hour)
+
+			newConfig := rc.config
+			if tc.connected {
+				newConfig = &clientConfig{Kubeconfig: []byte(testKubeconfig("worker1-new"))}
+			}
+			retryAfter, err := reconciler.setRemoteClientConfig(ctx, "worker1", newConfig, defaultOrigin)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.failFirstList {
+				if diff := cmp.Diff(new(resyncRetryInterval), retryAfter); diff != "" {
+					t.Fatalf("unexpected retryAfter after the failed list (-want/+got):\n%s", diff)
+				}
+				if retryAfter, err = reconciler.setRemoteClientConfig(ctx, "worker1", newConfig, defaultOrigin); err != nil {
+					t.Fatalf("unexpected error on retry: %v", err)
+				}
+			}
+			if retryAfter != nil {
+				t.Errorf("unexpected retryAfter: %v", *retryAfter)
+			}
+
+			var gotEnqueued []string
+			for len(reconciler.wlUpdateCh) > 0 {
+				gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.GetName())
+			}
+			if diff := cmp.Diff(tc.wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 			}
 		})
 	}
