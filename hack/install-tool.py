@@ -18,6 +18,7 @@
 import hashlib
 from http.client import HTTPException
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -30,6 +31,19 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+LOG = logging.getLogger(__name__)
+
+
+def configure_logging(name):
+    """Keep diagnostics in both the build log and a per-tool CI artifact."""
+    artifacts = Path(os.environ.get("ARTIFACTS", Path(__file__).resolve().parents[1] / "artifacts"))
+    artifacts.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler(artifacts / f"install-{name}.log")],
+    )
 
 
 class NoReleaseBinary(ValueError):
@@ -48,27 +62,41 @@ def install_source(name, version, destination):
         "helm-docs": ("github.com/norwoodj/helm-docs", "github.com/norwoodj/helm-docs/cmd/helm-docs"),
     }
     module, package = packages[name]
-    subprocess.run(["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(destination), module, version, package], check=True)
+    LOG.info("Building %s from %s@%s into %s", name, package, version, destination)
+    result = subprocess.run(
+        ["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(destination), module, version, package],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    if result.stdout:
+        LOG.debug("Source build output for %s:\n%s", name, result.stdout.rstrip())
+    result.check_returncode()
 
 
 def download(url):
-    """Retry rate limits after 20s and transient failures once after 2s."""
+    """Match NETWORK_INSTALL_RETRY's seven attempts and exponential backoff."""
     headers = {"User-Agent": "kueue-tool-installer"}
     if url.startswith("https://api.github.com/") and os.environ.get("GH_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
-    for attempt in range(2):
+    for attempt in range(7):
+        LOG.debug("Downloading %s (attempt %d/7)", url, attempt + 1)
         try:
             with urlopen(Request(url, headers=headers), timeout=120) as response:
-                return response.read()
+                content = response.read()
+                LOG.debug("Downloaded %d bytes from %s", len(content), url)
+                return content
         except HTTPError as error:
-            if attempt or (error.code != 429 and error.code < 500):
+            LOG.warning("Download failed for %s (attempt %d/7): %s", url, attempt + 1, error)
+            if attempt == 6 or (error.code != 429 and error.code < 500):
                 raise
-            time.sleep(20 if error.code == 429 else 2)
-        except (URLError, TimeoutError, HTTPException, ConnectionError):
-            if attempt:
+            # Respect the fixed rate-limit wait independently of transient backoff.
+            delay = 20 if error.code == 429 else 2 ** (attempt + 1)
+        except (URLError, TimeoutError, HTTPException, ConnectionError) as error:
+            LOG.warning("Download failed for %s (attempt %d/7): %s", url, attempt + 1, error)
+            if attempt == 6:
                 raise
-            time.sleep(2)
-    raise RuntimeError(f"Unable to download {url}")
+            delay = 2 ** (attempt + 1)
+        LOG.info("Retrying %s in %ds", url, delay)
+        time.sleep(delay)
 
 
 def release(name, version, goos, goarch):
@@ -129,6 +157,7 @@ def release_assets(name, version, repo, tag):
 
 def release_binary(name, version, goos, goarch):
     repo, tag, filename = release(name, version, goos, goarch)
+    LOG.debug("Selected release %s@%s, asset %s", repo, tag, filename)
     assets = {asset["name"]: asset for asset in release_assets(name, version, repo, tag)}
     if filename not in assets:
         # A partial manifest must not turn a published binary into a source build.
@@ -154,6 +183,7 @@ def release_binary(name, version, goos, goarch):
             raise ValueError(f"No SHA256 checksum for {filename}")
     if hashlib.sha256(content).hexdigest() != expected.lower():
         raise ValueError(f"SHA256 mismatch for {filename}")
+    LOG.debug("Verified SHA256 %s for %s", expected.lower(), filename)
     if filename.endswith(".tar.gz"):
         import io
 
@@ -172,16 +202,20 @@ def install(name, version, destination):
     destination = Path(destination)
     marker = destination.with_name(destination.name + ".release-version")
     identity = f"{version} {goos}/{goarch}\n"
+    LOG.debug("Installing %s %s for %s/%s into %s", name, version, goos, goarch, destination)
     if destination.is_file() and os.access(destination, os.X_OK) and marker.is_file():
         if marker.read_text() == identity:
+            LOG.info("Reusing %s %s for %s/%s", name, version, goos, goarch)
             return
         if marker.read_text() == identity + "source\n":
+            LOG.debug("Checking cached source build for %s", name)
             install_source(name, version, destination)
             return
-    print(f"Downloading {name} {version} for {goos}/{goarch}", flush=True)
+    LOG.info("Downloading %s %s for %s/%s", name, version, goos, goarch)
     try:
         binary = release_binary(name, version, goos, goarch)
-    except NoReleaseBinary:
+    except NoReleaseBinary as error:
+        LOG.info("%s; using a source build", error)
         # Preserve hosts not covered by upstream assets; never hide download or checksum errors.
         install_source(name, version, destination)
         marker.write_text(identity + "source\n")
@@ -194,7 +228,13 @@ def install(name, version, destination):
         staged.chmod(0o755)
         shutil.move(staged, destination)
     marker.write_text(identity)
+    LOG.info("Installed %s %s into %s", name, version, destination)
 
 
 if __name__ == "__main__":
-    install(*sys.argv[1:])
+    configure_logging(sys.argv[1])
+    try:
+        install(*sys.argv[1:])
+    except Exception:
+        LOG.exception("Tool installation failed")
+        sys.exit(1)

@@ -52,6 +52,7 @@ IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_T
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
+export ARTIFACTS
 RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
 HACK_DIR := $(PROJECT_DIR)/hack
 TOOLS_DIR := $(HACK_DIR)/tools
@@ -367,7 +368,8 @@ site-server: hugo
 ##@ Release
 .PHONY: clean-artifacts
 clean-artifacts:
-	if [ -d "$(ARTIFACTS)" ]; then rm -rf "$(ARTIFACTS)"; fi
+	# Preserve installer diagnostics produced before or during verification.
+	if [ -d "$(ARTIFACTS)" ]; then find "$(ARTIFACTS)" -mindepth 1 -maxdepth 1 ! -name 'install-*.log' -exec rm -r -- {} +; fi
 
 .PHONY: clean-release-artifacts
 clean-release-artifacts:

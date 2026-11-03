@@ -20,10 +20,11 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 from urllib.error import HTTPError, URLError
 
 SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install-tool.py"))
@@ -114,6 +115,34 @@ class InstallTest(unittest.TestCase):
             installer.install_source("helm-docs", "v1", "/tmp/helm-docs")
             self.assertEqual(run.call_args.args[0][-3:], ["github.com/norwoodj/helm-docs", "v1", "github.com/norwoodj/helm-docs/cmd/helm-docs"])
 
+    def test_source_build_failure_logs_compiler_output(self):
+        import subprocess
+
+        result = subprocess.CompletedProcess(["go", "install"], 1, stdout="compiler failure details\n")
+        with patch.object(installer.subprocess, "run", return_value=result), self.assertLogs(installer.LOG, level="DEBUG") as logs:
+            with self.assertRaises(subprocess.CalledProcessError):
+                installer.install_source("helm-docs", "v1", "/tmp/helm-docs")
+            self.assertIn("compiler failure details", "\n".join(logs.output))
+
+    def test_artifact_cleanup_preserves_installer_diagnostics(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            log = root / "install-kind.log"
+            log.write_text("download diagnostics\n")
+            (root / "manifests.yaml").touch()
+            (root / ".hidden").touch()
+            (root / "nested").mkdir()
+            (root / "nested" / "binary").touch()
+            # Run the actual target in isolation from unrelated Makefile prerequisites.
+            makefile = Path(__file__).resolve().parents[1] / "Makefile"
+            recipe = makefile.read_text().split("clean-artifacts:\n", 1)[1].split("\n\n", 1)[0]
+            command = ["make", "-f", "-", "clean-artifacts", f"ARTIFACTS={root}"]
+            subprocess.run(command, input="clean-artifacts:\n" + recipe + "\n", text=True, check=True, capture_output=True)
+            self.assertEqual(list(root.iterdir()), [log])
+            self.assertEqual(log.read_text(), "download diagnostics\n")
+
     def test_archive_uses_only_binary_contents(self):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -157,19 +186,45 @@ class InstallTest(unittest.TestCase):
             with self.assertRaises(installer.NoReleaseBinary):
                 installer.release_binary("mdtoc", "v1", "linux", "s390x")
 
-    def test_transient_failure_is_retried_once(self):
-        for error, delay in [(HTTPError("url", 429, "limit", {}, None), 20), (HTTPError("url", 503, "unavailable", {}, None), 2), (URLError("timeout"), 2)]:
-            with self.subTest(error=error), patch.object(installer, "urlopen", side_effect=error) as request, patch.object(installer.time, "sleep") as sleep:
+    def test_transient_failure_exhausts_seven_attempts(self):
+        for error in (HTTPError("url", 503, "unavailable", {}, None), URLError("timeout"), TimeoutError("timed out"), installer.HTTPException("incomplete response"), ConnectionError("reset")):
+            with self.subTest(error=error), patch.object(installer, "urlopen", side_effect=error) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG, level="DEBUG") as logs:
                 with self.assertRaises(type(error)):
                     installer.download("https://example.test/file")
-                self.assertEqual(request.call_count, 2)
-                sleep.assert_called_once_with(delay)
+                self.assertEqual(request.call_count, 7)
+                self.assertEqual(sleep.call_args_list, [call(delay) for delay in (2, 4, 8, 16, 32, 64)])
+                self.assertEqual(sum("Download failed" in line for line in logs.output), 7)
+                self.assertIn(str(error), "\n".join(logs.output))
 
-    def test_missing_release_is_not_retried(self):
-        with patch.object(installer, "urlopen", side_effect=HTTPError("url", 404, "missing", {}, None)) as request:
+    def test_rate_limit_uses_fixed_wait(self):
+        with patch.object(installer, "urlopen", side_effect=HTTPError("url", 429, "limit", {}, None)) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
             with self.assertRaises(HTTPError):
                 installer.download("https://example.test/file")
-            self.assertEqual(request.call_count, 1)
+            self.assertEqual(request.call_count, 7)
+            self.assertEqual(sleep.call_args_list, [call(20)] * 6)
+
+    def test_download_succeeds_on_last_attempt(self):
+        failures = [URLError("timeout")] * 6
+        with patch.object(installer, "urlopen", side_effect=[*failures, io.BytesIO(b"binary")]) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG, level="DEBUG") as logs:
+            self.assertEqual(installer.download("https://example.test/file"), b"binary")
+            self.assertEqual(request.call_count, 7)
+            self.assertEqual(sleep.call_args_list, [call(delay) for delay in (2, 4, 8, 16, 32, 64)])
+            self.assertIn("Downloaded 6 bytes", "\n".join(logs.output))
+
+    def test_interrupted_response_is_retried(self):
+        response = unittest.mock.MagicMock()
+        response.__enter__.return_value.read.side_effect = installer.HTTPException("interrupted read")
+        with patch.object(installer, "urlopen", side_effect=[response, io.BytesIO(b"binary")]), patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
+            self.assertEqual(installer.download("https://example.test/file"), b"binary")
+            sleep.assert_called_once_with(2)
+
+    def test_missing_release_is_not_retried(self):
+        for code in (400, 401, 403, 404):
+            with self.subTest(code=code), patch.object(installer, "urlopen", side_effect=HTTPError("url", code, "missing", {}, None)) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG):
+                with self.assertRaises(HTTPError):
+                    installer.download("https://example.test/file")
+                self.assertEqual(request.call_count, 1)
+                sleep.assert_not_called()
 
     def test_download_scopes_credentials_to_api(self):
         with patch.dict(os.environ, {"GH_TOKEN": "test-token"}):
@@ -178,11 +233,30 @@ class InstallTest(unittest.TestCase):
                     self.assertEqual(installer.download(url), b"binary")
                     self.assertEqual(request.call_args.args[0].get_header("Authorization"), token)
 
-    def test_direct_timeout_is_retried_once(self):
-        with patch.object(installer, "urlopen", side_effect=TimeoutError), patch.object(installer.time, "sleep") as sleep:
-            with self.assertRaises(TimeoutError):
-                installer.download("https://example.test/binary")
-            sleep.assert_called_once_with(2)
+    def test_cli_logs_reuse_and_failure_to_artifacts(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_go = root / "go"
+            fake_go.write_text("#!/bin/sh\nprintf 'linux\\namd64\\n'\n")
+            fake_go.chmod(0o755)
+            binary = root / "controller-gen"
+            binary.write_bytes(b"binary")
+            binary.chmod(0o755)
+            (root / "controller-gen.release-version").write_text("v1 linux/amd64\n")
+            artifacts = root / "custom-artifacts"
+            env = {**os.environ, "GO_CMD": str(fake_go), "ARTIFACTS": str(artifacts), "GH_TOKEN": "test-secret"}
+            script = str(Path(__file__).with_name("install-tool.py"))
+            for name, status, message in [("controller-gen", 0, "Reusing controller-gen"), ("unknown", 1, "No upstream binary configured")]:
+                result = subprocess.run([sys.executable, script, name, "v1", str(root / name)], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                log = (artifacts / f"install-{name}.log").read_text()
+                self.assertIn(message, log)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("test-secret", log)
+                if status:
+                    self.assertIn("Traceback", log)
 
     def test_supported_release_names(self):
         expected = {

@@ -107,6 +107,15 @@ linter are compiled once and reused until their version, configuration, or Go
 toolchain changes. Run `make verify-ci-tools` to test installation and reuse
 without network access or containers.
 
+Release downloads retry transient failures up to seven attempts, starting with a
+two-second delay and doubling it after each failure, matching
+`NETWORK_INSTALL_RETRY`. HTTP 429 responses wait 20 seconds before each retry;
+other HTTP 4xx responses fail immediately. Installer diagnostics, including
+release selection, cache reuse, checksum verification, and download errors, are
+written to the build log and `$(ARTIFACTS)/install-<tool>.log` (the repository's
+`artifacts/` directory by default). Artifact cleanup preserves these logs so
+tool preparation diagnostics remain available after full verification.
+
 Build metadata normally records the current time. To compare consecutive builds
 with identical inputs and reuse Go's link cache, keep `BUILD_DATE` fixed:
 
