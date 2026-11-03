@@ -404,6 +404,41 @@ func TestPushOrUpdateAdjustmentErrResolved(t *testing.T) {
 	}
 }
 
+func TestRequeueImmediatelyIfNotPresent(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
+	wInfo := workload.NewInfo(log, wl)
+
+	// Requeue immediately with RequeueReasonGeneric (which in BestEffortFIFO would ordinarily be inadmissible).
+	if !cq.RequeueImmediatelyIfNotPresent(ctx, wInfo, RequeueReasonGeneric, "") {
+		t.Fatal("expected RequeueImmediatelyIfNotPresent to insert workload")
+	}
+
+	if active, _ := cq.Dump(); len(active) != 1 {
+		t.Errorf("got %d active workloads, want 1", len(active))
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 0 {
+		t.Errorf("got %d inadmissible workloads, want 0", len(inadmissible))
+	}
+
+	// NamespaceMismatch should still be forbidden from immediate requeue.
+	cq2 := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	wl2 := utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Creation(now).Obj()
+	wInfo2 := workload.NewInfo(log, wl2)
+	if !cq2.RequeueImmediatelyIfNotPresent(ctx, wInfo2, RequeueReasonNamespaceMismatch, "") {
+		t.Fatal("expected RequeueImmediatelyIfNotPresent to insert workload")
+	}
+	if active, _ := cq2.Dump(); len(active) != 0 {
+		t.Errorf("got %d active workloads, want 0", len(active))
+	}
+	if inadmissible, _ := cq2.DumpInadmissible(); len(inadmissible) != 1 {
+		t.Errorf("got %d inadmissible workloads, want 1", len(inadmissible))
+	}
+}
+
 func Test_Delete(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))

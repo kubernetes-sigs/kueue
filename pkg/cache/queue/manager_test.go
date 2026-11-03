@@ -2040,6 +2040,118 @@ func TestRequeueWorkloadAdjustmentErrHandoffAndReasonPreservation(t *testing.T) 
 	}
 }
 
+func TestRequeueWorkloadAdjustmentErrCleared(t *testing.T) {
+	cases := map[string]struct {
+		makeWorkload func() *kueue.Workload
+		setup        func(ctx context.Context, manager *Manager, wl *kueue.Workload) (func(), error)
+	}{
+		"RuntimeClass created while inflight": {
+			makeWorkload: func() *kueue.Workload {
+				return utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("rc").Obj()).Obj()
+			},
+			setup: func(ctx context.Context, manager *Manager, wl *kueue.Workload) (func(), error) {
+				if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "ns").ClusterQueue("cq").Obj()); err != nil {
+					return nil, err
+				}
+				return func() {
+					rc := utiltesting.MakeRuntimeClass("rc", "handler").Obj()
+					_ = manager.client.Create(ctx, rc)
+				}, nil
+			},
+		},
+		"One-time LimitRange lookup failure during enqueue cleared before requeue": {
+			makeWorkload: func() *kueue.Workload {
+				return utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").Obj()
+			},
+			setup: func(ctx context.Context, manager *Manager, wl *kueue.Workload) (func(), error) {
+				if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "ns").ClusterQueue("cq").Obj()); err != nil {
+					return nil, err
+				}
+				if err := manager.client.Create(ctx, wl); err != nil {
+					return nil, err
+				}
+				if err := manager.AddOrUpdateWorkload(ctx, logr.Discard(), wl); err != nil {
+					return nil, err
+				}
+				return func() {}, nil
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+			defer cancel()
+
+			wl := tc.makeWorkload()
+			var failLimitRange atomic.Bool
+			if name == "One-time LimitRange lookup failure during enqueue cleared before requeue" {
+				failLimitRange.Store(true)
+			}
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*corev1.LimitRangeList); ok && failLimitRange.Load() {
+							return errors.New("transient internal error")
+						}
+						return client.List(ctx, list, opts...)
+					},
+				})
+			if name == "RuntimeClass created while inflight" {
+				clientBuilder = clientBuilder.WithObjects(wl)
+			}
+			cl := clientBuilder.Build()
+
+			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
+			manager := NewManagerForUnitTests(cl, nil, queueOptions...)
+
+			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding cluster queue: %v", err)
+			}
+
+			resolveError, err := tc.setup(ctx, manager, wl)
+			if err != nil {
+				t.Fatalf("Failed setup: %v", err)
+			}
+
+			// Clear the transient LimitRange lookup failure now that the workload has been enqueued.
+			failLimitRange.Store(false)
+
+			go manager.CleanUpOnContext(ctx)
+			heads := manager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+			}
+			info := &heads[0].Info
+			if info.AdjustmentErr == nil {
+				t.Fatal("Expected AdjustmentErr to be non-nil on popped workload")
+			}
+
+			// Clear the error condition before requeueing (e.g. creating RuntimeClass).
+			resolveError()
+
+			// RequeueWorkload with RequeueReasonGeneric, which in BestEffortFIFO
+			// would ordinarily move the workload to inadmissible.
+			if !manager.RequeueWorkload(ctx, info, RequeueReasonGeneric, "") {
+				t.Fatal("RequeueWorkload returned false")
+			}
+
+			// Verify workload was moved immediately to active heap, not inadmissible.
+			cqImpl := manager.hm.ClusterQueue("cq")
+			if cqImpl.workloads.GetActive(workload.Key(wl)) == nil {
+				t.Errorf("Expected workload to be on active heap after adjustment error cleared, but was not")
+			}
+			if cqImpl.workloads.GetInadmissible(workload.Key(wl)) != nil {
+				t.Errorf("Expected workload NOT to be in inadmissible queue after adjustment error cleared, but was")
+			}
+		})
+	}
+}
+
 // TestRequeueWorkloadTracksUnadmittedAfterRetarget covers a workload whose
 // spec.queueName is repointed at another LocalQueue while the scheduler holds
 // it. The requeue drops the records the workload left under the old queue, and

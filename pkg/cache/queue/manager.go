@@ -897,6 +897,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
+	errResolved := adjustmentErrResolved(info, fresh)
 	info.Update(log, &w, options...)
 	info.AdjustmentErr = fresh.AdjustmentErr
 	m.addWorkload(info, q)
@@ -906,7 +907,12 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		return false, nil
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	var added bool
+	if errResolved {
+		added = cq.RequeueImmediatelyIfNotPresent(ctx, info, reason, quotaReservedReason)
+	} else {
+		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	}
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {

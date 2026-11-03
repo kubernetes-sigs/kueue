@@ -867,6 +867,14 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
 }
 
+// RequeueImmediatelyIfNotPresent inserts a workload back into the ClusterQueue's
+// active heap, bypassing the inadmissible queue, unless the requeue reason forbids it
+// (e.g. NamespaceMismatch).
+func (c *ClusterQueue) RequeueImmediatelyIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	immediate := reason != RequeueReasonNamespaceMismatch
+	return c.requeueIfNotPresent(ctrl.LoggerFrom(ctx), wInfo, immediate, reason, quotaReservedReason)
+}
+
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
 // stickyMatches reports whether a workload is the sticky one; callers pass a
 // live matcher (stickyWorkload.matches) for the heap or a captured one
