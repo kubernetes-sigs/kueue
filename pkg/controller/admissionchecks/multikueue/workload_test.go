@@ -3998,7 +3998,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
 	}
 
-	gotResult, gotErr := reconciler.reconcileGroup(ctx, group, true)
+	gotResult, gotErr := reconciler.reconcileGroup(ctx, group)
 	if gotErr != nil {
 		t.Fatalf("reconcileGroup returned unexpected error: %v", gotErr)
 	}
