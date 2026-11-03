@@ -4994,7 +4994,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					})
 				})
 
-				ginkgo.It("should NOT update UnhealthyNodes when node has NoSchedule taint and all assigned pods have succeeded", framework.SlowSpec, func() {
+				ginkgo.It("should NOT update UnhealthyNodes when node has NoSchedule taint and the running pod then succeeds", framework.SlowSpec, func() {
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
 
@@ -5015,15 +5015,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 					})
 
-					ginkgo.By("creating a succeeded pod for the workload on nodeName", func() {
-						pod := testingpod.MakePod("pod1", ns.Name).
+					var pod *corev1.Pod
+					ginkgo.By("creating a running pod for the workload on nodeName", func() {
+						pod = testingpod.MakePod("pod1", ns.Name).
 							Annotation(kueue.WorkloadAnnotation, wl1.Name).
+							Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+							Label(constants.PodSetLabel, "worker").
 							NodeSelector(corev1.LabelHostname, nodeName).
 							NodeName(nodeName).
 							Obj()
 						behavioral.MustCreate(ctx, k8sClient, pod)
 
-						pod.Status.Phase = corev1.PodSucceeded
+						pod.Status.Phase = corev1.PodRunning
 						gomega.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
 					})
 
@@ -5036,6 +5039,21 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 							Effect: corev1.TaintEffectNoSchedule,
 						})
 						gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify UnhealthyNodes stays empty while the pod is running", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+							g.Expect(wl1.Status.UnhealthyNodes).Should(gomega.BeEmpty())
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("marking the pod as succeeded", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+							pod.Status.Phase = corev1.PodSucceeded
+							g.Expect(k8sClient.Status().Update(ctx, pod)).To(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 
 					ginkgo.By("verify UnhealthyNodes stays empty and the workload stays admitted", func() {

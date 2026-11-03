@@ -49,6 +49,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -185,6 +186,12 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if !nodeExists {
 		log.V(3).Info("Node not found. Marking as failed immediately")
+		if features.Enabled(features.TASReplaceNodeOnPodTermination) {
+			affectedWorkloads, err = r.withoutCompletedWorkloads(ctx, req.Name, affectedWorkloads)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		_, err := r.handleUnhealthyNode(ctx, req.Name, affectedWorkloads)
 		return ctrl.Result{}, err
 	}
@@ -336,6 +343,30 @@ func groupPodsByWorkload(pods []corev1.Pod) map[types.NamespacedName][]*corev1.P
 		}
 	}
 	return result
+}
+
+// withoutCompletedWorkloads returns the workloads that still need the deleted node,
+// leaving out those whose pod indexes assigned to the node have all completed.
+// The Node object is gone, so the pods are found by their hostname nodeSelector.
+func (r *nodeReconciler) withoutCompletedWorkloads(ctx context.Context, hostname string, workloads sets.Set[types.NamespacedName]) (sets.Set[types.NamespacedName], error) {
+	podsByWorkload, err := r.listPodsAssignedByNodeSelector(ctx, hostname)
+	if err != nil {
+		return nil, err
+	}
+	result := workloads.Clone()
+	for wlKey := range workloads {
+		var wl kueue.Workload
+		if err := r.client.Get(ctx, wlKey, &wl); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		if allAssignedPodsSucceeded(&wl, hostname, podsByWorkload[wlKey]) {
+			result.Delete(wlKey)
+		}
+	}
+	return result, nil
 }
 
 // getWorkloadsFromPodsOnNode returns the set of workloads that pods on the node belong to.
@@ -504,35 +535,89 @@ func (r *nodeReconciler) checkPodsOnNode(
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
-	if allAssignedPodsSucceeded(wl, hostname, boundPods, nodeSelectorAssignedPods) {
+	if allAssignedPodsSucceeded(wl, hostname, slices.Concat(boundPods, nodeSelectorAssignedPods)) {
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
 }
 
-// allAssignedPodsSucceeded reports whether every pod that the workload's
-// TopologyAssignment places on the node has succeeded, so no pod of the
+// allAssignedPodsSucceeded reports whether every pod index that the workload's
+// TopologyAssignment places on the node has completed, so no pod of the
 // workload needs to run on the node again.
 //
+// Completion is tracked per pod index rather than per Pod object: an index can
+// have several Pods (for example, a failed Pod and its successful retry, or two
+// Pods created for the same index), and only one success counts. When a Pod's
+// index cannot be determined, the node is conservatively treated as still needed.
+//
 // hostname is the node's kubernetes.io/hostname label, used by the TopologyAssignment.
-func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, boundPods, nodeSelectorAssignedPods []*corev1.Pod) bool {
-	seen := sets.New[string]()
-	var pods []*corev1.Pod
-	for _, pod := range slices.Concat(boundPods, nodeSelectorAssignedPods) {
-		if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name || seen.Has(pod.Name) {
-			continue
-		}
-		seen.Insert(pod.Name)
-		pods = append(pods, pod)
-	}
-	if slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
-		return pod.Status.Phase != corev1.PodSucceeded
-	}) {
+func allAssignedPodsSucceeded(wl *kueue.Workload, hostname string, pods []*corev1.Pod) bool {
+	if wl.Status.Admission == nil {
 		return false
 	}
-	// Pods that are not created yet still need the node.
-	return int32(len(pods)) >= utiltas.PodCountOnNode(wl.Status.Admission, hostname)
+	completed := make(map[kueue.PodSetReference]sets.Set[string])
+	unfinished := make(map[kueue.PodSetReference]sets.Set[string])
+	for _, pod := range pods {
+		if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name {
+			continue
+		}
+		psName, index, ok := podIndexKey(wl, pod)
+		if !ok {
+			return false
+		}
+		target := unfinished
+		if pod.Status.Phase == corev1.PodSucceeded {
+			target = completed
+		}
+		if target[psName] == nil {
+			target[psName] = sets.New[string]()
+		}
+		target[psName].Insert(index)
+	}
+	for psName, indexes := range unfinished {
+		if !completed[psName].IsSuperset(indexes) {
+			return false
+		}
+	}
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		// Indexes whose Pods are not created yet still need the node.
+		if int32(completed[psa.Name].Len()) < utiltas.PodCountOnNodeInPodSetAssignment(psa, hostname) {
+			return false
+		}
+	}
+	return true
+}
+
+// podIndexKey returns the PodSet of the pod and the identity of its index within the PodSet.
+// It returns false when the index cannot be determined.
+func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (kueue.PodSetReference, string, bool) {
+	psName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+	ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psName)
+	if ps == nil {
+		return "", "", false
+	}
+	if ps.Count == 1 {
+		// All pods of a single-pod PodSet share the same index.
+		return psName, "", true
+	}
+	req := ps.TopologyRequest
+	if req == nil || req.PodIndexLabel == nil {
+		return "", "", false
+	}
+	index, found := pod.Labels[*req.PodIndexLabel]
+	if !found {
+		return "", "", false
+	}
+	if req.SubGroupIndexLabel != nil {
+		subGroup, found := pod.Labels[*req.SubGroupIndexLabel]
+		if !found {
+			return "", "", false
+		}
+		index = subGroup + "/" + index
+	}
+	return psName, index, true
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.

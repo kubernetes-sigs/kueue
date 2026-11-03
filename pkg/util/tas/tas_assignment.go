@@ -585,28 +585,24 @@ func ComputeUsagePerDomain(ta *TopologyAssignment, requestsFor func(TopologyDoma
 }
 
 func HasTASAssignmentOnNode(admission *kueue.Admission, nodeName string) bool {
-	return PodCountOnNode(admission, nodeName) > 0
-}
-
-// PodCountOnNode returns the number of pods that the admission assigns to nodeName.
-func PodCountOnNode(admission *kueue.Admission, nodeName string) int32 {
 	if admission == nil {
-		return 0
+		return false
 	}
-	var count int32
 	for i := range admission.PodSetAssignments {
-		count += podCountOnNodeInPodSetAssignment(&admission.PodSetAssignments[i], nodeName)
+		if HasNodeInPodSetAssignment(&admission.PodSetAssignments[i], nodeName) {
+			return true
+		}
 	}
-	return count
+	return false
 }
 
 // HasNodeInPodSetAssignment reports whether the PodSetAssignment has pods assigned to nodeName.
 func HasNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) bool {
-	return podCountOnNodeInPodSetAssignment(psa, nodeName) > 0
+	return PodCountOnNodeInPodSetAssignment(psa, nodeName) > 0
 }
 
-// podCountOnNodeInPodSetAssignment returns the number of pods that the PodSetAssignment assigns to nodeName.
-func podCountOnNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) int32 {
+// PodCountOnNodeInPodSetAssignment returns the number of pods that the PodSetAssignment assigns to nodeName.
+func PodCountOnNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) int32 {
 	if psa == nil || psa.TopologyAssignment == nil || !IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
 		return 0
 	}
