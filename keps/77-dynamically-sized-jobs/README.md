@@ -496,6 +496,9 @@ Known limitations in Alpha (see the [graduation criteria](#elasticjobsviaworkloa
    `executor` PodSet count to that number. From here, the generic scale-down path from Phase 1 applies: Kueue lowers
    the count of the admitted `Workload` in place, without a new slice.
 3. Confirm that the ClusterQueue usage drops with it, while the driver and the remaining executors keep running.
+4. If a deleted executor Pod stays terminating, it still counts while its phase is `Running`, so the `Workload`
+   keeps its quota until the Pod stops. Kueue has no separate condition or event for this; the Pod shows as
+   `Terminating` and the `executor` count of the `Workload` does not drop yet.
 
 ## Additional Details
 
