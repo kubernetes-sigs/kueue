@@ -133,10 +133,7 @@ var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
 
 func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
-	}
-	return nil
+	return raycluster.EquivalenceOptions()
 }
 
 func (j *RayService) Object() client.Object {
@@ -225,9 +222,7 @@ func (j *RayService) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayService) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+	return raycluster.CanDefaultManagedBy(j.Spec.ManagedBy)
 }
 
 func (j *RayService) ManagedBy() *string {
