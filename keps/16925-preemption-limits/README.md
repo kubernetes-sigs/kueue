@@ -314,11 +314,11 @@ type PreemptionLimitStatus struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=100
-	TopAggregatedCounts []PreemptionLimitCount `json:"topAggregatedCounts,omitempty"`
+	TopAggregatedCounts []PreemptionLimitTopAggregatedCount `json:"topAggregatedCounts,omitempty"`
 }
 
-// PreemptionLimitCount tracks the number of preemptions issued for a single aggregation unit.
-type PreemptionLimitCount struct {
+// PreemptionLimitTopAggregatedCount tracks the number of preemptions issued for one of the top aggregation units.
+type PreemptionLimitTopAggregatedCount struct {
 	// key identifies the aggregation unit.
 	// For Global aggregation it is "Global".
 	// For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
