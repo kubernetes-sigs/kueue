@@ -327,7 +327,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if !isDeleted && remoteObjectsRemoved(wl) {
-		log.V(4).Info("Skip workload whose remote objects were removed")
+		log.V(4).Info("Skip finished workload whose remote objects were removed")
 		return reconcile.Result{}, nil
 	}
 
