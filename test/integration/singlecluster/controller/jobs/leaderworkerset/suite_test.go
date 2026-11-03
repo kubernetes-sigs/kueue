@@ -136,7 +136,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = leaderworkerset.SetupWebhook(mgr, setupOpts...)

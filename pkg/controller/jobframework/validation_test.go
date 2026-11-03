@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -34,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -46,6 +49,78 @@ import (
 var (
 	testPath = field.NewPath("spec")
 )
+
+func TestValidateQueueNameUpdate(t *testing.T) {
+	lookupErr := errors.New("quota lookup failed")
+	queuePath := field.NewPath("metadata", "labels").Key(constants.QueueLabel)
+	testCases := map[string]struct {
+		oldQueueName    kueue.LocalQueueName
+		newQueueName    kueue.LocalQueueName
+		isSuspended     bool
+		reserved        bool
+		lookupErr       error
+		wantLookupCalls int
+		wantErrs        field.ErrorList
+	}{
+		"unchanged queue while suspended": {
+			oldQueueName: "old", newQueueName: "old", isSuspended: true, reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged queue while running": {
+			oldQueueName: "old", newQueueName: "old", reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged empty queue": {
+			isSuspended: true, lookupErr: lookupErr,
+		},
+		"ready replicas prevent change": {
+			oldQueueName: "old", newQueueName: "new", lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"removing queue is forbidden": {
+			oldQueueName: "old", isSuspended: true, lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"unreserved workload permits change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"reserved workload prevents change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"setting queue without quota reservation": {
+			newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"setting queue with quota reservation": {
+			newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"lookup error is returned": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, lookupErr: lookupErr, wantLookupCalls: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			lookupCalls := 0
+			gotErrs, err := jobframework.ValidateQueueNameUpdate(tc.oldQueueName, tc.newQueueName, tc.isSuspended, func() (bool, error) {
+				lookupCalls++
+				return tc.reserved, tc.lookupErr
+			})
+			var wantErr error
+			if tc.wantLookupCalls > 0 {
+				wantErr = tc.lookupErr
+			}
+			if !errors.Is(err, wantErr) {
+				t.Errorf("Unexpected lookup error: got %v, want %v", err, wantErr)
+			}
+			if lookupCalls != tc.wantLookupCalls {
+				t.Errorf("Unexpected lookup calls: got %d, want %d", lookupCalls, tc.wantLookupCalls)
+			}
+			if diff := cmp.Diff(tc.wantErrs, gotErrs); diff != "" {
+				t.Errorf("Unexpected validation errors (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
@@ -674,9 +749,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"recoveryTimeoutSeconds": 20}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be greater than 0",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"recoveryTimeoutSeconds": 20}`,
+					Detail:   "timeoutSeconds must be greater than 0",
 				},
 			},
 		},
@@ -684,9 +760,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 0}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be greater than 0",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 0}`,
+					Detail:   "timeoutSeconds must be greater than 0",
 				},
 			},
 		},
@@ -694,9 +771,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "recoveryTimeoutSeconds must be greater than 0 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
+					Detail:   "recoveryTimeoutSeconds must be greater than 0 seconds",
 				},
 			},
 		},
@@ -704,9 +782,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 7201}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 7201}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
@@ -714,9 +793,44 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
+		"timeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 36028797018963969}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"max int64 timeout is rejected as exceeding MaxTimeoutOnWorkload": {
+			annotation: `{"timeoutSeconds": 9223372036854775807}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 9223372036854775807}`,
+					Detail:   "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
@@ -724,9 +838,10 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds": "foo"}`,
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  annotationPath.String(),
-					Detail: "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"timeoutSeconds": "foo"}`,
+					Detail:   "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
 				},
 			},
 		},
@@ -747,7 +862,7 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			mj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 
 			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})

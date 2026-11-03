@@ -58,26 +58,30 @@ type WorkloadTemplate struct {
 
 type WorkloadsSet struct {
 	Count              int                `json:"count"`
+	InitialDelayMs     uint               `json:"initialDelayMs"`
 	CreationIntervalMs uint               `json:"creationIntervalMs"`
 	Workloads          []WorkloadTemplate `json:"workloads"`
 }
 
 type QueuesSet struct {
-	ClassName            string                 `json:"className"`
-	Count                int                    `json:"count"`
-	NominalQuota         string                 `json:"nominalQuota"`
-	BorrowingLimit       string                 `json:"borrowingLimit"`
-	ReclaimWithinCohort  kueue.PreemptionPolicy `json:"reclaimWithinCohort"`
-	WithinClusterQueue   kueue.PreemptionPolicy `json:"withinClusterQueue"`
-	DeviceNominalQuota   string                 `json:"deviceNominalQuota"`   // for DRA: quota of the generated devices
-	DeviceBorrowingLimit string                 `json:"deviceBorrowingLimit"` // for DRA
-	WorkloadsSets        []WorkloadsSet         `json:"workloadsSets"`
+	ClassName            string                    `json:"className"`
+	Count                int                       `json:"count"`
+	NominalQuota         string                    `json:"nominalQuota"`
+	BorrowingLimit       string                    `json:"borrowingLimit"`
+	LendingLimit         string                    `json:"lendingLimit"`
+	ReclaimWithinCohort  kueue.PreemptionPolicy    `json:"reclaimWithinCohort"`
+	BorrowWithinCohort   *kueue.BorrowWithinCohort `json:"borrowWithinCohort"`
+	WithinClusterQueue   kueue.PreemptionPolicy    `json:"withinClusterQueue"`
+	DeviceNominalQuota   string                    `json:"deviceNominalQuota"`   // for DRA: quota of the generated devices
+	DeviceBorrowingLimit string                    `json:"deviceBorrowingLimit"` // for DRA
+	WorkloadsSets        []WorkloadsSet            `json:"workloadsSets"`
 }
 
 type CohortSet struct {
 	ClassName  string      `json:"className"`
 	Count      int         `json:"count"`
 	QueuesSets []QueuesSet `json:"queuesSets"`
+	Children   []CohortSet `json:"children"`
 }
 
 // Config represents the full generator configuration with optional TAS features
@@ -122,10 +126,22 @@ func validateDevices(config *Config) error {
 		return errors.New("dra.devicesPerNode must be positive")
 	}
 	for _, cohort := range config.Cohorts {
-		for _, qSet := range cohort.QueuesSets {
-			if err := validateQueueSetDevices(qSet, config.DRA); err != nil {
-				return err
-			}
+		if err := validateCohortSetDevices(cohort, config.DRA); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCohortSetDevices(cSet CohortSet, dra *DRAConfig) error {
+	for _, qSet := range cSet.QueuesSets {
+		if err := validateQueueSetDevices(qSet, dra); err != nil {
+			return err
+		}
+	}
+	for _, child := range cSet.Children {
+		if err := validateCohortSetDevices(child, dra); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -180,7 +196,24 @@ func concurrent[T any](set T, count func(T) int, call func(int) error) error {
 	return errors.Join(errs...)
 }
 
+func waitOrCancel(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, namespace string, localQueue kueue.LocalQueueName, wlSetIdx int) error {
+	if err := waitOrCancel(ctx, time.Duration(wlSet.InitialDelayMs)*time.Millisecond); err != nil {
+		return err
+	}
 	delay := time.Duration(wlSet.CreationIntervalMs) * time.Millisecond
 	log := ctrl.LoggerFrom(ctx).WithName("generate workload group").WithValues("namespace", namespace, "localQueue", localQueue, "delay", delay)
 	log.Info("Start generation")
@@ -188,7 +221,9 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 
 	for si := range wlSet.Count {
 		for i, wlt := range wlSet.Workloads {
-			<-time.After(delay)
+			if err := waitOrCancel(ctx, delay); err != nil {
+				return err
+			}
 
 			wlName := fmt.Sprintf("%s-%d-%d-%d", wlt.ClassName, wlSetIdx, si, i)
 
@@ -247,7 +282,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	log.Info("Start generation")
 	defer log.Info("End generation")
 	flavorQuotas := utiltestingapi.MakeFlavorQuotas(flavorName).
-		Resource(corev1.ResourceCPU, qSet.NominalQuota, qSet.BorrowingLimit)
+		Resource(corev1.ResourceCPU, qSet.NominalQuota, qSet.BorrowingLimit, qSet.LendingLimit)
 	if qSet.DeviceNominalQuota != "" {
 		flavorQuotas = flavorQuotas.Resource(controllers.DRAResourceName, qSet.DeviceNominalQuota, qSet.DeviceBorrowingLimit)
 	}
@@ -256,6 +291,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 		ResourceGroup(*flavorQuotas.Obj()).
 		Preemption(kueue.ClusterQueuePreemption{
 			ReclaimWithinCohort: qSet.ReclaimWithinCohort,
+			BorrowWithinCohort:  qSet.BorrowWithinCohort,
 			WithinClusterQueue:  qSet.WithinClusterQueue,
 		}).
 		Label(ClassLabel, qSet.ClassName).
@@ -311,22 +347,42 @@ func generateQueueSet(ctx context.Context, c client.Client, qSet QueuesSet, coho
 	})
 }
 
-func generateCohort(ctx context.Context, c client.Client, cSet CohortSet, flavorName string, cohortIdx int) error {
+func makeCohortName(cSet CohortSet, cohortIdx int, parentName kueue.CohortReference) kueue.CohortReference {
+	name := fmt.Sprintf("%s-%d", cSet.ClassName, cohortIdx)
+	if parentName != "" {
+		name = fmt.Sprintf("%s-%s", parentName, name)
+	}
+	return kueue.CohortReference(name)
+}
+
+func generateCohort(ctx context.Context, c client.Client, cSet CohortSet, flavorName string, cohortIdx int, parentName kueue.CohortReference) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate cohort").WithValues("idx", cohortIdx, "prefix", cSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
-	cohortName := fmt.Sprintf("%s-%d", cSet.ClassName, cohortIdx)
-	return concurrent(cSet, func(cs CohortSet) int { return len(cs.QueuesSets) }, func(idx int) error {
-		return generateQueueSet(ctx, c, cSet.QueuesSets[idx], kueue.CohortReference(cohortName), flavorName, idx)
+	cohortName := makeCohortName(cSet, cohortIdx, parentName)
+	cohort := utiltestingapi.MakeCohort(cohortName).Parent(parentName).Obj()
+	cohort.Labels = map[string]string{CleanupLabel: "true"}
+	if err := c.Create(ctx, cohort); err != nil {
+		return err
+	}
+
+	return concurrent(cSet, func(cs CohortSet) int {
+		return len(cs.QueuesSets) + len(cs.Children)
+	}, func(idx int) error {
+		if idx < len(cSet.QueuesSets) {
+			return generateQueueSet(ctx, c, cSet.QueuesSets[idx], cohortName, flavorName, idx)
+		}
+		childIdx := idx - len(cSet.QueuesSets)
+		return generateCohortSet(ctx, c, cSet.Children[childIdx], flavorName, cohortName)
 	})
 }
 
-func generateCohortSet(ctx context.Context, c client.Client, cSet CohortSet, flavorName string) error {
+func generateCohortSet(ctx context.Context, c client.Client, cSet CohortSet, flavorName string, parentName kueue.CohortReference) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate cohort set").WithValues("count", cSet.Count, "prefix", cSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
 	return concurrent(cSet, func(cs CohortSet) int { return cs.Count }, func(idx int) error {
-		return generateCohort(ctx, c, cSet, flavorName, idx)
+		return generateCohort(ctx, c, cSet, flavorName, idx, parentName)
 	})
 }
 
@@ -359,7 +415,7 @@ func Generate(ctx context.Context, c client.Client, config *Config) error {
 	}
 
 	return concurrent(config.Cohorts, func(cs []CohortSet) int { return len(cs) }, func(idx int) error {
-		return generateCohortSet(ctx, c, config.Cohorts[idx], config.ResourceFlavor.Name)
+		return generateCohortSet(ctx, c, config.Cohorts[idx], config.ResourceFlavor.Name, "")
 	})
 }
 
@@ -384,6 +440,9 @@ func Cleanup(ctx context.Context, c client.Client) {
 
 	if err := c.DeleteAllOf(ctx, &kueue.ClusterQueue{}, client.HasLabels{CleanupLabel}); err != nil {
 		log.Error(err, "Deleting cluster queues")
+	}
+	if err := c.DeleteAllOf(ctx, &kueue.Cohort{}, client.HasLabels{CleanupLabel}); err != nil {
+		log.Error(err, "Deleting cohorts")
 	}
 
 	if err := c.DeleteAllOf(ctx, &kueue.ResourceFlavor{}, client.HasLabels{CleanupLabel}); err != nil {

@@ -16,6 +16,12 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# Map the host UID/GID even when they exceed Podman's default rootless ID range.
+ifeq ($(notdir $(CONTAINER_ENGINE)),podman)
+ifneq ($(shell id -u),0)
+CONTAINER_USERNS_OPTS ?= --userns=keep-id
+endif
+endif
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
@@ -62,6 +68,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
 ## - These per-process limits reduce contention; they are not a global CPU semaphore.
 ## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
+## - Failed targets are listed again at the end, since under -j their output can sit far above it.
 ##
 ## How to extend `make verify`
 ##
@@ -78,7 +85,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
-	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
+	$(PROJECT_DIR)/hack/make-failure-summary.sh $(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
@@ -110,7 +117,7 @@ verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -129,13 +136,26 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# Store in shell variable $(1) the tracked and untracked, non-ignored files
+# matching pathspecs $(2), one per line.
+# Unlike find, git ls-files does not descend into nested Git worktrees or clones
+# under the repo, so local checkouts there are not linted or formatted.
+# Files deleted from the working tree but still tracked are skipped.
+# Fail when git ls-files fails or nothing matches, so a check never passes
+# without inspecting any file. Exit explicitly: GNU Make 3.81 ignores .SHELLFLAGS.
+_ls_repo_files = $(1)=$$(git -c core.quotePath=false ls-files --cached --others --exclude-standard -- $(2)) || exit 1; \
+	$(1)=$$(printf '%s\n' "$$$(1)" | while IFS= read -r f; do if [ -e "$$f" ]; then printf '%s\n' "$$f"; fi; done); \
+	if [ -z "$$$(1)" ]; then echo "No files match: $(2)" >&2; exit 1; fi
+
 # Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
 # Label module totals and command timings so parallel workers remain distinguishable.
 define _ci_lint_recipe
 @echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
-@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+@$(call _ls_repo_files,modules,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/'); \
+	printf '%s\n' "$$modules" \
+	| xargs -n 1 dirname \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
 		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
 			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
@@ -158,7 +178,8 @@ $(GOLANGCI_LINT_KAL) run -v \
 endef
 
 define _fmt_verify_recipe
-@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
+@$(call _ls_repo_files,go_files,'*.go' ':!:vendor/' ':!:bin/'); \
+out=`$(GO_FMT) -l -d $$go_files` || [ -n "$$out" ] || exit 1; \
 if [ -n "$$out" ]; then \
     echo "$$out"; \
     exit 1; \
@@ -204,6 +225,7 @@ $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.n
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set networkPolicy.enabled=true --set enableKueueViz=true > /dev/null
 endef
 
 define _helm_unit_test_recipe
@@ -235,7 +257,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_USERNS_OPTS) --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --config /workspace/cmd/experimental/skills/.skillsaw.yaml --output /out/skillsaw-summary.html
 endef
 
 # ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
@@ -293,6 +315,10 @@ verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests af
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
 
+.PHONY: verify-make-failure-summary
+verify-make-failure-summary: ## Validate the verify failure summary.
+	bash $(PROJECT_DIR)/hack/testing/make-failure-summary_test.sh
+
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
@@ -339,7 +365,7 @@ verify-ray-version: ## Verify the rayproject/ray tag is a plain X.Y.Z release
 .PHONY: gomod-verify
 gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
 gomod-verify: verify-go-prereqs
-	$(GO_CMD) mod tidy
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod tidy
 	git --no-pager diff --exit-code go.mod go.sum
 
 .PHONY: ci-lint
@@ -407,15 +433,6 @@ kustomization-resources-verify: yq ## Validate manifests shipped by the Helm cha
 .PHONY: rbac-verify
 rbac-verify: ## Verify RBAC subject and roleRef relationships (standalone).
 	$(_rbac_verify_recipe)
-
-.PHONY: skills-lint
-skills-lint: ## Lint agent skills with skillsaw.
-	$(_skills_lint_recipe)
-
-.PHONY: ray-version-verify
-ray-version-verify: export RAY_VERSION := $(RAY_VERSION)
-ray-version-verify: ## Verify the rayproject/ray tag is a plain X.Y.Z release (standalone).
-	$(_ray_version_verify_recipe)
 
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.

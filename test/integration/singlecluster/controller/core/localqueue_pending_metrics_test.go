@@ -20,8 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -96,14 +94,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with Hold", func() {
 		for i, lq := range queues {
 			ginkgo.By("stopping LocalQueue "+lq.Name+" with Hold", func() {
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
-						return err
-					}
-					before := lq.DeepCopy()
-					lq.Spec.StopPolicy = ptr.To(kueue.Hold)
-					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.Hold)
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with Hold", func() {
@@ -122,14 +113,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with HoldAndDrain", func() {
 		for i, lq := range queues {
 			ginkgo.By("stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
-				gomega.Eventually(func() error {
-					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
-						return err
-					}
-					before := lq.DeepCopy()
-					lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
-					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {

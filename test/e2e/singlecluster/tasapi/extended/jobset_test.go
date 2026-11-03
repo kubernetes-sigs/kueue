@@ -18,6 +18,7 @@ package extended
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -30,7 +31,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -148,6 +148,84 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			})
 		})
 
+		ginkgo.It("Should place pods of a PodSet group based on the ranks-ordering (kueue.x-k8s.io/podset-group-name Pods annotation)", func() {
+			const workerPods = 7
+			numPods := 1 + workerPods
+			sampleJob := testingjobset.MakeJobSet("ranks-jobset-podsetgroup", ns.Name).
+				Queue(localQueue.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "leader",
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                   "same-group",
+						},
+					},
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "workers",
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
+						Replicas:    1,
+						Parallelism: workerPods,
+						Completions: workerPods,
+						PodAnnotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                   "same-group",
+						},
+					},
+				).
+				RequestAndLimit("leader", extraResource, "1").
+				RequestAndLimit("workers", extraResource, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sampleJob)
+
+			ginkgo.By("JobSet is unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob), sampleJob)).To(gomega.Succeed())
+					g.Expect(sampleJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify the assignment of the worker pods are as expected with rank-based ordering", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+					client.MatchingLabels{jobsetapi.ReplicatedJobNameKey: "workers"})).To(gomega.Succeed())
+				gotAssignment := readRankAssignmentsFromJobSetPods(pods.Items)
+				wantAssignment := map[string]string{
+					"0/0": "kind-worker2",
+					"0/1": "kind-worker3",
+					"0/2": "kind-worker4",
+					"0/3": "kind-worker5",
+					"0/4": "kind-worker6",
+					"0/5": "kind-worker7",
+					"0/6": "kind-worker8",
+				}
+				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+		})
+
 		ginkgo.It("Should place pods in podset slices with two-level scheduling based on the ranks-ordering", func() {
 			replicas := 2
 			parallelism := 3
@@ -213,7 +291,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 			})
 		})
 
-		ginkgo.It("Should place pods in podset slices with slice-only scheduling based on the ranks-ordering", func() {
+		ginkgo.It("Should place pods in podset slices with slice-only scheduling based on the ranks-ordering", ginkgo.Label("feature:was-deepintegration"), func() {
 			replicas := 2
 			parallelism := 3
 			numPods := replicas * parallelism
@@ -260,24 +338,23 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, numPods)
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				gotAssignment := readRankAssignmentsFromJobSetPods(pods.Items)
-				wantAssignment := map[string]string{
-					"0/0": "kind-worker",
-					"0/1": "kind-worker2",
-					"0/2": "kind-worker3",
-					"1/0": "kind-worker5",
-					"1/1": "kind-worker6",
-					"1/2": "kind-worker7",
-				}
-				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(numPods))
+				e2e.ExpectRanksOnIncreasingNodes(gotAssignment, []string{"0/0", "0/1", "0/2"})
+				e2e.ExpectRanksOnIncreasingNodes(gotAssignment, []string{"1/0", "1/1", "1/2"})
+				e2e.ExpectDistinctTopologyDomains(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel,
+					[]string{gotAssignment["0/0"], gotAssignment["0/1"], gotAssignment["0/2"]},
+					[]string{gotAssignment["1/0"], gotAssignment["1/1"], gotAssignment["1/2"]},
+				)
 			})
 		})
 
-		ginkgo.It("should admit a JobSet with two ReplicatedJobs", func() {
+		ginkgo.It("should admit a JobSet with two ReplicatedJobs", ginkgo.Label("feature:was-deepintegration"), func() {
 			jobSet := testingjobset.MakeJobSet("test-jobset", ns.Name).
 				Queue(localQueue.Name).
 				ReplicatedJobs(
@@ -338,24 +415,17 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for JobSet", ginkgo.Label("area
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
-					tas.V1Beta2From(&tas.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []tas.TopologyDomainAssignment{{
-							Count:  1,
-							Values: []string{"kind-worker"},
-						}},
-					}),
-				))
-				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
-					tas.V1Beta2From(&tas.TopologyAssignment{
-						Levels: []string{corev1.LabelHostname},
-						Domains: []tas.TopologyDomainAssignment{{
-							Count:  1,
-							Values: []string{"kind-worker2"},
-						}},
-					}),
-				))
+				gotAssignment := make(map[string]string, 2)
+				for i, psa := range createdWorkload.Status.Admission.PodSetAssignments {
+					assignment := e2e.ReadRankAssignmentsFromTopologyAssignment(psa.TopologyAssignment)
+					gomega.Expect(assignment).Should(gomega.HaveLen(1))
+					gotAssignment[strconv.Itoa(i)] = assignment["0"]
+				}
+				gomega.Expect(gotAssignment).Should(gomega.HaveLen(2))
+				e2e.ExpectDistinctTopologyDomains(ctx, k8sClient, corev1.LabelHostname,
+					[]string{gotAssignment["0"]},
+					[]string{gotAssignment["1"]},
+				)
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {

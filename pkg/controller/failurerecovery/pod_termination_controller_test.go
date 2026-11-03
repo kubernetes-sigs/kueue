@@ -355,6 +355,31 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"forceful termination grace period elapsed for pod with deletion grace period": {
+			testPod: podToForcefullyDelete.Clone().
+				DeletionGracePeriod(30).
+				Obj(),
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+			wantPod: podToForcefullyDelete.Clone().
+				DeletionGracePeriod(30).
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m30s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    KueueForcefulTerminationReason,
+					Message:   "Pod forcefully terminated after 1m30s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				},
+			},
+		},
 		"failure recovery condition already exists": {
 			testPod: podToForcefullyDelete.Clone().
 				StatusPhase(corev1.PodFailed).

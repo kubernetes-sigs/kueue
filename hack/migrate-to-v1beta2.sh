@@ -29,6 +29,22 @@ KUBECTL_GET_API_VERSION_CHANGED=false
 MIGRATE_TO_API_VERSION="v1beta2"
 BATCH_SIZE=100
 REANNOTATE=false
+RESOURCES_SELECTED=false
+declare -A selected_kinds
+
+kinds=(
+  cohorts
+  workloadpriorityclasses
+  localqueues
+  clusterqueues
+  resourceflavors
+  admissionchecks
+  provisioningrequestconfigs
+  multikueueclusters
+  multikueueconfigs
+  topologies
+  workloads
+)
 
 show_help() {
   cat << EOF
@@ -71,6 +87,15 @@ Options:
                                         Note: it has no effect with --patch-type=apiVersion.
   --batch-size=N                        Number of objects patched by one kubectl call (a positive integer).
                                         Default: 100
+  --resources=LIST                      Migrate only the listed resources, given as a comma-separated list of plural
+                                        resource names: cohorts, workloadpriorityclasses, localqueues,
+                                        clusterqueues, resourceflavors, admissionchecks, provisioningrequestconfigs,
+                                        multikueueclusters, multikueueconfigs, topologies, workloads.
+                                        Default: all of them. They run in the order listed here, whatever the
+                                        order in LIST.
+                                        Example: --resources=cohorts,localqueues,clusterqueues
+                                        Note: objects of the unselected resources are left as they are, so check them
+                                        before removing v1beta1 from the storedVersions of the CRDs.
   -h, --help                            Show this help message and exit
 EOF
 }
@@ -126,6 +151,31 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    --resources=*)
+      resources_list="${1#--resources=},"
+      selected_kinds=()
+      while [[ -n "${resources_list}" ]]; do
+        resource="${resources_list%%,*}"
+        resources_list="${resources_list#*,}"
+        known=false
+        for kind in "${kinds[@]}"; do
+          [[ "${kind}" == "${resource}" ]] && known=true
+        done
+        if [[ "${known}" != "true" ]]; then
+          echo "Error: Invalid --resources value: '${resource}' in '${1#--resources=}'" >&2
+          echo "       Allowed values: a comma-separated list of $(IFS=,; echo "${kinds[*]}")" >&2
+          exit 1
+        fi
+        selected_kinds["${resource}"]=true
+      done
+      RESOURCES_SELECTED=true
+      shift
+      ;;
+    --resources)
+      echo "Error: --resources needs its value as --resources=LIST" >&2
+      echo "       Allowed values: a comma-separated list of $(IFS=,; echo "${kinds[*]}")" >&2
+      exit 1
+      ;;
     --downgrade)
       if [[ "${KUBECTL_GET_API_VERSION_CHANGED}" != "true" ]]; then
         # We migrating from v1beta2 to v1beta1, so we should use v1beta2 to list resources.
@@ -152,20 +202,6 @@ fi
 
 namespaces=$(kubectl get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E "$NAMESPACE_REGEX")
 printf "Found namespaces: %s.\n\n" "$(echo "$namespaces" | paste -sd ',' -)"
-
-kinds=(
-  cohorts
-  workloadpriorityclasses
-  localqueues
-  clusterqueues
-  resourceflavors
-  admissionchecks
-  provisioningrequestconfigs
-  multikueueclusters
-  multikueueconfigs
-  topologies
-  workloads
-)
 
 patch_payload='{"apiVersion":"kueue.x-k8s.io/v1beta2"}'
 
@@ -323,7 +359,20 @@ function apply_patches() {
   fi
 }
 
+if [[ "${RESOURCES_SELECTED}" == "true" ]]; then
+  selected=()
+  for kind in "${kinds[@]}"; do
+    [[ -n "${selected_kinds[$kind]:-}" ]] && selected+=("${kind}")
+  done
+  echo "Migrating only these resources: $(IFS=,; echo "${selected[*]}")."
+  echo ""
+fi
+
 for kind in "${kinds[@]}"; do
+  if [[ "${RESOURCES_SELECTED}" == "true" && -z "${selected_kinds[$kind]:-}" ]]; then
+    continue
+  fi
+
   echo "Migrating $kind.kueue.x-k8s.io..."
 
   # Annotating while the CRD stores another version would mark unmigrated objects as migrated.

@@ -39,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -190,7 +191,12 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
+	podTracker       *podtracker.Tracker
 	simulatorFactory simulator.Factory
+
+	// initialSync tracks the event sources that fill this cache, so the
+	// scheduler can wait until they have processed their initial lists.
+	initialSync []<-chan struct{}
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -202,12 +208,13 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
+		podTracker:             &podtracker.Tracker{},
 		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
+	cache.tasCache = NewTASCache(client, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -264,6 +271,21 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 			c.podsReadyCond.Wait()
 		}
 	}
+}
+
+func (c *Cache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
+		ctrl.LoggerFrom(ctx).V(1).Info(
+			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
+			"pod", client.ObjectKeyFromObject(pod).String(),
+			"missing annotation", kueue.WorkloadAnnotation,
+		)
+	}
+	c.podTracker.Track(pod)
+}
+
+func (c *Cache) UntrackPod(ctx context.Context, key client.ObjectKey) string {
+	return c.podTracker.Untrack(key)
 }
 
 // DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
@@ -571,6 +593,9 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 	c.recordCQInfo(cq, parentCohort, rootCohort)
 	cq.reportActiveWorkloads()
 	cq.resyncAdmittedActiveWorkloads()
+	// All LocalQueues in one pass, instead of scanning the workloads once per
+	// LocalQueue in resyncLocalQueueGaugeMetricsLocked.
+	cq.resyncLocalQueueAdmittedActiveWorkloads(sets.KeySet(cq.localQueues))
 	if c.resourceMetricsEnabled {
 		cq.reportResourceMetrics(c.fairSharingEnabled)
 	}
@@ -605,6 +630,7 @@ func (c *Cache) ResyncLocalQueueGaugeMetrics(cqName kueue.ClusterQueueReference,
 		return
 	}
 	c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+	cq.resyncLocalQueueAdmittedActiveWorkloads(sets.New(lqRef))
 }
 
 func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.CohortReference) {
@@ -638,6 +664,19 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if curCq == nil {
 		return
 	}
+	// Remove Workload reservations before removing their ClusterQueue. Otherwise
+	// TAS usage can outlive the queue and double-count still-bound Pods when
+	// their physical usage is added to the next snapshot.
+	log := ctrl.Log.WithName("cache")
+	for wlKey := range curCq.Workloads {
+		if features.Enabled(features.TASResidualPodAccounting) {
+			curCq.forgetWorkload(log, wlKey)
+			delete(c.workloadAssignedQueues, wlKey)
+		}
+		// Keep the cleanup unconditional: forgetWorkload only clears this
+		// shared label cache when its feature gate is enabled.
+		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
+	}
 	if c.lqMetrics.IsEnabled() {
 		for _, q := range curCq.localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
@@ -646,14 +685,6 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 				Namespace: namespace,
 			})
 		}
-	}
-
-	// The custom label value cache is keyed by Workload and shared by every
-	// ClusterQueue, so entries for the Workloads this ClusterQueue still holds
-	// would outlive it and never be reclaimed: once the ClusterQueue is gone,
-	// DeleteWorkload can no longer reach them.
-	for wlKey := range curCq.Workloads {
-		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
 	}
 
 	parent := curCq.Parent()
@@ -843,6 +874,30 @@ func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) boo
 	return cq.ConcurrentAdmissionEnabled()
 }
 
+// ObserveTASWorkloadIntent refreshes residual-Pod eviction intent without changing
+// reservations. A pending informer event may lag behind a scheduler assumption.
+func (c *Cache) ObserveTASWorkloadIntent(wl *kueue.Workload) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	c.Lock()
+	defer c.Unlock()
+	c.observeTASWorkloadIntentWithoutLock(wl)
+}
+
+func (c *Cache) observeTASWorkloadIntentWithoutLock(wl *kueue.Workload) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	// Concurrent-admission parents aggregate variant status; they don't own a
+	// reservation, including while pending with no Admission to identify a CQ.
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) ||
+		c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
+		return
+	}
+	c.tasCache.nonTasUsageCache.observeWorkload(wl)
+}
+
 func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
@@ -861,24 +916,7 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
-	wlKey := workload.Key(w)
-	cqName, assigned := c.workloadAssignedQueues[wlKey]
-	if !assigned {
-		log.V(3).Info("Not updating workload in cache as the cache does not hold it")
-		return false
-	}
-	cq := c.hm.ClusterQueue(cqName)
-	if cq == nil {
-		log.V(3).Info("Not updating workload in cache as its ClusterQueue is not in the cache", "assignedClusterQueue", klog.KRef("", string(cqName)))
-		return false
-	}
-	cached, found := cq.Workloads[wlKey]
-	if !found {
-		log.V(3).Info("Not updating workload in cache as it is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
-		return false
-	}
-	if cached.Obj.ResourceVersion != w.ResourceVersion {
-		log.V(3).Info("Not updating workload in cache as its resourceVersion differs from the cached one", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
+	if c.clusterQueueForUnchangedWorkloadWithoutLock(log, w) == nil {
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
@@ -888,7 +926,34 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 	return updated
 }
 
+// clusterQueueForUnchangedWorkloadWithoutLock returns the ClusterQueue that holds w with the same
+// resourceVersion, or nil if the cache does not hold this version of w.
+func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *kueue.Workload) *clusterQueue {
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		log.V(3).Info("Skipping cache operation as the cache does not hold the workload")
+		return nil
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		log.V(3).Info("Skipping cache operation as the assigned ClusterQueue is not cached", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return nil
+	}
+	cached, found := cq.Workloads[wlKey]
+	if !found {
+		log.V(3).Info("Skipping cache operation as the workload is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return nil
+	}
+	if cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Skipping cache operation as the workload resourceVersion differs", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
+		return nil
+	}
+	return cq
+}
+
 func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
+	c.observeTASWorkloadIntentWithoutLock(wl)
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil
 	}
@@ -898,8 +963,7 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
 	if !workload.HasActiveQuotaReservation(wl) {
 		if assigned {
-			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
-			delete(c.workloadAssignedQueues, wlKey)
+			c.removeWorkloadWithoutLock(log, wlKey, c.hm.ClusterQueue(assignedCqName))
 		}
 		return false, nil
 	}
@@ -918,7 +982,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	infoOptions := append(slices.Clone(c.workloadInfoOptions), workload.WithSkipSchedulingHash())
+	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(infoOptions, opts...)...)
 	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil
@@ -930,10 +995,40 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 	}
 }
 
-func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
+// removeWorkloadWithoutLock removes the workload from cq, if cq is not nil, and drops its ClusterQueue assignment.
+func (c *Cache) removeWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference, cq *clusterQueue) {
+	if cq != nil {
+		cq.forgetWorkload(log, wlKey)
+	}
+	delete(c.workloadAssignedQueues, wlKey)
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
+}
+
+// DeleteWorkload removes a reservation. When updated is supplied, the
+// Workload still exists and its eviction intent must survive quota release.
+func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference, updated ...*kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
+	if len(updated) != 0 {
+		c.observeTASWorkloadIntentWithoutLock(updated[0])
+	}
+	return c.deleteWorkloadWithoutLock(log, wlKey)
+}
 
+// ForgetWorkload also drops the deleted object's residual-Pod intent without
+// modifying intent belonging to a same-name Workload with a different UID.
+func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) error {
+	c.Lock()
+	defer c.Unlock()
+	if features.Enabled(features.TopologyAwareScheduling) {
+		c.tasCache.nonTasUsageCache.deleteWorkload(workload.Key(wl), wl.UID)
+	}
+	return c.deleteWorkloadWithoutLock(log, workload.Key(wl))
+}
+
+func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) error {
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
 		return nil
@@ -944,14 +1039,22 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error 
 		return ErrCqNotFound
 	}
 
-	cq.forgetWorkload(log, wlKey)
-	delete(c.workloadAssignedQueues, wlKey)
-
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-
+	c.removeWorkloadWithoutLock(log, wlKey, cq)
 	return nil
+}
+
+// DeleteWorkloadIfUnchanged removes w like DeleteWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it removed w.
+func (c *Cache) DeleteWorkloadIfUnchanged(log logr.Logger, w *kueue.Workload) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	cq := c.clusterQueueForUnchangedWorkloadWithoutLock(log, w)
+	if cq == nil {
+		return false
+	}
+	c.removeWorkloadWithoutLock(log, workload.Key(w), cq)
+	return true
 }
 
 func (c *Cache) IsAdded(w workload.Info) bool {
@@ -1221,6 +1324,21 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	c.RLock()
 	defer c.RUnlock()
+	return c.clusterQueuesUsingCohort(cohortName)
+}
+
+// ClusterQueuesInCohortTree returns the ClusterQueues under the root of the
+// Cohort's tree. A Cohort in a cycle has no root, so its subtree is returned.
+func (c *Cache) ClusterQueuesInCohortTree(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	if cohort := c.hm.Cohort(cohortName); cohort != nil && !hierarchy.HasCycle(cohort) {
+		cohortName = cohort.getRootUnsafe().Name
+	}
+	return c.clusterQueuesUsingCohort(cohortName)
+}
+
+func (c *Cache) clusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
 	var cqs []kueue.ClusterQueueReference
 
 	for _, cq := range c.hm.ClusterQueues() {

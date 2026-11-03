@@ -19,7 +19,16 @@ set -o nounset
 set -o pipefail
 
 test_dir=$(mktemp -d)
-trap 'rm -rf "${test_dir}"' EXIT
+# The fakes print errors that read like CI infra failures, so show output only on failure.
+exec 3>&1 4>&2 >"${test_dir}/test.log" 2>&1
+cleanup() {
+  local status=$?
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${test_dir}/test.log" >&4
+  fi
+  rm -rf "${test_dir}"
+}
+trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
@@ -485,4 +494,49 @@ fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
-echo "e2e-common tests passed"
+# e2e_timed runs the step with its arguments unchanged and logs its start and end
+# time, status, duration and label; once the step completes,
+# e2e_timed_log_unfinished has nothing to log.
+timestamp_re='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+timed_output=$(e2e_timed "kind/install_example" printf '%s|%s\n' "first arg" "second"; e2e_timed_log_unfinished 0)
+if [[ "${timed_output}" != *"first arg|second"* ]]; then
+  echo "expected e2e_timed to pass arguments through unchanged; got: ${timed_output}" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' <<<"${timed_output}") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=0 duration=[0-9]+s step=kind/install_example$" <<<"${timed_output}"; then
+  echo "expected one e2e-timing line for a successful step; got: ${timed_output}" >&2
+  exit 1
+fi
+
+# The subshell below is a standalone statement: inside "if", "&&" or "||" bash
+# would ignore errexit, which is exactly the behavior being checked.
+set +o errexit
+
+# A multi-command step like install_* or kueue_deploy: under errexit it must
+# stop at the first failing command instead of running the rest of the step.
+function e2e_timed_test_step {
+  false
+  echo "step continued after failure"
+}
+
+# With errexit on, as in the e2e scripts, a failing step stops the step and the
+# caller, and the EXIT trap logs the step with the exit status.
+(set -o errexit; trap 'e2e_timed_log_unfinished $?' EXIT; e2e_timed "failing_step" e2e_timed_test_step; echo "caller continued after failure") >"${test_dir}/timed-errexit.out" 2>&1
+errexit_status=$?
+
+set -o errexit
+
+if [[ "${errexit_status}" != "1" ]] || grep -q "continued after failure" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected e2e_timed to stop the caller on failure (status ${errexit_status})" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=1 duration=[0-9]+s step=failing_step$" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
+  exit 1
+fi
+
+echo "e2e-common tests passed" >&3

@@ -149,3 +149,54 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 		})
 	}
 }
+
+// TestNeedsDRAReconcileReadsDefaultsOnlyWithBackedResources checks that the
+// DRA check on every Workload event reads the namespace defaults only when a
+// DeviceClass backs an extended resource.
+func TestNeedsDRAReconcileReadsDefaultsOnlyWithBackedResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	const gpu corev1.ResourceName = "example.com/gpu"
+	cases := map[string]struct {
+		backedResource bool
+		wantReads      int
+		want           bool
+	}{
+		"no DeviceClass backs an extended resource": {},
+		"a DeviceClass backs the defaulted extended resource": {
+			backedResource: true,
+			wantReads:      1,
+			want:           true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("queue").Obj()
+			lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", gpu, "1").Obj()
+			reads := 0
+			cl := utiltesting.NewClientBuilder().WithObjects(lr).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*corev1.LimitRangeList); ok {
+							reads++
+						}
+						return c.List(ctx, list, opts...)
+					}}).Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache)
+			backedResources := dra.NewExtendedResourceCache()
+			if tc.backedResource {
+				backedResources.Add(gpu, "gpu.example.com")
+			}
+			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRABackedResources(backedResources))
+			if got := reconciler.needsDRAReconcile(ctx, wl); got != tc.want {
+				t.Errorf("needsDRAReconcile() = %v, want %v", got, tc.want)
+			}
+			if reads != tc.wantReads {
+				t.Errorf("LimitRange reads = %d, want %d", reads, tc.wantReads)
+			}
+		})
+	}
+}

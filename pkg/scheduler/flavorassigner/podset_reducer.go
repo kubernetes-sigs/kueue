@@ -23,6 +23,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // distributeFunc spends a shrink budget of amount (out of totalDelta) across
@@ -39,13 +40,12 @@ type PodSetReducer struct {
 	fullCounts []int32
 	deltas     []int32
 	totalDelta int64
-	// fits reports whether the given counts can be admitted. The slice is scratch,
-	// overwritten on every probe, so an implementation must copy anything it keeps.
-	fits       func([]int32) bool
+	// fits reports whether the given counts can be admitted.
+	fits       func(workload.PodSetsCounts) bool
 	distribute distributeFunc
 }
 
-func newPodSetReducer(podSets []kueue.PodSet, fits func([]int32) bool, distribute distributeFunc) *PodSetReducer {
+func newPodSetReducer(podSets []kueue.PodSet, fits func(workload.PodSetsCounts) bool, distribute distributeFunc) *PodSetReducer {
 	psr := &PodSetReducer{
 		podSets:    podSets,
 		deltas:     make([]int32, len(podSets)),
@@ -70,7 +70,7 @@ func newPodSetReducer(podSets []kueue.PodSet, fits func([]int32) bool, distribut
 // needlessly. The budget is a single number, but PodSets tied to different node groups draw
 // on separate capacity, so spending from the back can drain a PodSet whose own capacity was
 // never the constraint.
-func NewOrderedPodSetReducer(podSets []kueue.PodSet, fits func([]int32) bool) *PodSetReducer {
+func NewOrderedPodSetReducer(podSets []kueue.PodSet, fits func(workload.PodSetsCounts) bool) *PodSetReducer {
 	return newPodSetReducer(podSets, fits, distributeOrderBased)
 }
 
@@ -86,7 +86,7 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 // Reduce returns the largest counts the reduction strategy can admit, and false when no
 // combination fits. A strategy may favour some PodSets over others, so the total is not
 // necessarily the largest one possible. mustGrow is forwarded to giveBack - see there.
-func (psr *PodSetReducer) Reduce(mustGrow bool) ([]int32, bool) {
+func (psr *PodSetReducer) Reduce(mustGrow bool) (workload.PodSetsCounts, bool) {
 	if psr.totalDelta == 0 {
 		return nil, false
 	}
@@ -97,7 +97,7 @@ func (psr *PodSetReducer) Reduce(mustGrow bool) ([]int32, bool) {
 	bestCounts := make([]int32, len(psr.podSets))
 	idx := sort.Search(int(psr.totalDelta)+1, func(i int) bool {
 		psr.distribute(current, psr.fullCounts, psr.deltas, int64(i), psr.totalDelta)
-		f := psr.fits(current)
+		f := psr.fits(psr.countsByName(current))
 		if f {
 			copy(bestCounts, current)
 		}
@@ -108,7 +108,20 @@ func (psr *PodSetReducer) Reduce(mustGrow bool) ([]int32, bool) {
 	if idx > int(psr.totalDelta) {
 		return nil, false
 	}
-	return psr.giveBack(bestCounts, mustGrow)
+	counts, found := psr.giveBack(bestCounts, mustGrow)
+	if !found {
+		return nil, false
+	}
+	return psr.countsByName(counts), true
+}
+
+// countsByName keys counts, which follow podSets, by PodSet name.
+func (psr *PodSetReducer) countsByName(counts []int32) workload.PodSetsCounts {
+	byName := make(workload.PodSetsCounts, len(counts))
+	for i, c := range counts {
+		byName[psr.podSets[i].Name] = c
+	}
+	return byName
 }
 
 // aboveBaseline reports whether any PodSet ended above its baseline.
@@ -149,7 +162,7 @@ func (psr *PodSetReducer) giveBack(counts []int32, mustGrow bool) ([]int32, bool
 
 			// Restoring the full count is the common case, and one call settles it.
 			trial[i] = psr.fullCounts[i]
-			if psr.fits(trial) {
+			if psr.fits(psr.countsByName(trial)) {
 				counts[i] = psr.fullCounts[i]
 				continue
 			}
@@ -160,7 +173,7 @@ func (psr *PodSetReducer) giveBack(counts []int32, mustGrow bool) ([]int32, bool
 			grownTo := counts[i]
 			sort.Search(int(hi-lo+1), func(k int) bool {
 				trial[i] = lo + int32(k)
-				f := psr.fits(trial)
+				f := psr.fits(psr.countsByName(trial))
 				if f {
 					// sort.Search only raises its lower bound past a count that fits, so the
 					// last one seen to fit is the largest one that does.

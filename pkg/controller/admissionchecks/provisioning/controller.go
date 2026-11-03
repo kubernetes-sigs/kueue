@@ -148,7 +148,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	if isFinished || (isEvicted && features.Enabled(features.CleanupProvisioningRequestsOnEviction)) {
-		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, nil)
+		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, determineProvisioningRequestsToKeep(wl, provReqs.Items))
 		if err != nil {
 			log.V(2).Error(err, "failed to delete stale provisioning requests")
 			return reconcile.Result{}, err
@@ -187,7 +187,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, activeOrLastPRForChecks)
+	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, requestNames(activeOrLastPRForChecks))
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -235,26 +235,65 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks, nil
 }
 
+// deleteUnusedProvisioningRequests deletes every owned request whose name is not in keep.
 func (c *Controller) deleteUnusedProvisioningRequests(
 	ctx context.Context,
 	ownedPRs []autoscaling.ProvisioningRequest,
-	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+	keep sets.Set[string],
 ) error {
 	log := ctrl.LoggerFrom(ctx)
-	prNames := sets.New[string]()
-	for _, pr := range activeOrLastPRForChecks {
-		prNames.Insert(pr.Name)
-	}
-	for _, pr := range ownedPRs {
-		req := &pr
-		if !prNames.Has(req.Name) {
-			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
-				log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
-				return err
-			}
+	for i := range ownedPRs {
+		req := &ownedPRs[i]
+		if keep.Has(req.Name) {
+			continue
+		}
+		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
+			log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
+			return err
 		}
 	}
 	return nil
+}
+
+func requestNames(prs map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) sets.Set[string] {
+	names := sets.New[string]()
+	for _, pr := range prs {
+		names.Insert(pr.Name)
+	}
+	return names
+}
+
+// requestNamesForLiveRequests returns the names of the requests whose booking
+// the autoscaler still honours (see hasLiveBooking).
+func requestNamesForLiveRequests(prs []autoscaling.ProvisioningRequest) sets.Set[string] {
+	live := sets.New[string]()
+	for i := range prs {
+		if hasLiveBooking(&prs[i]) {
+			live.Insert(prs[i].Name)
+		}
+	}
+	return live
+}
+
+// determineProvisioningRequestsToKeep returns the names of the requests of a
+// finished or evicted workload that must survive cleanup. Only a replaced,
+// admitted, elastic slice keeps any: pods ungated by it stay bound to its
+// requests (see refreshPodAdmission in the elastic job ungater) and the
+// autoscaler only schedules them onto capacity booked by those requests, so a
+// request stays alive while its booking is still honoured and nodes it already
+// triggered can come up and be used. The autoscaler ends the booking on its
+// own and the resulting status update brings the workload back through
+// Reconcile to delete it.
+//
+// Only an admitted slice has pods bound to its requests. A slice replaced
+// before admission (quota reserved, another check still pending) is not the
+// base the next slice's increment is computed from, so keeping its request
+// would book that capacity twice.
+func determineProvisioningRequestsToKeep(wl *kueue.Workload, prs []autoscaling.ProvisioningRequest) sets.Set[string] {
+	if !workloadslicing.IsReplaced(wl.Status) || !workload.IsAdmitted(wl) || !workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		return nil
+	}
+	return requestNamesForLiveRequests(prs)
 }
 
 func (c *Controller) syncOwnedProvisionRequest(
@@ -442,6 +481,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 		Template: *ps.Template.DeepCopy(),
 	}
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
+	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -465,6 +505,39 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
 	return newPt, nil
+}
+
+// findDanglingVolumeMounts returns the names of volumes that are mounted by containers but missing from spec.Volumes.
+func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
+	volumes := sets.New[string]()
+	for _, v := range spec.Volumes {
+		volumes.Insert(v.Name)
+	}
+	var names []string
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			for _, m := range c.VolumeMounts {
+				if volumes.Has(m.Name) {
+					continue
+				}
+				volumes.Insert(m.Name)
+				names = append(names, m.Name)
+			}
+		}
+	}
+	return names
+}
+
+// addPlaceholderVolumes adds an emptyDir volume for each name. Controllers such as StatefulSet and
+// LeaderWorkerSet (volumeClaimTemplates) and JobSet (volumeClaimPolicies) add those volumes only to the
+// Pods they create, so the API server rejects a PodTemplate whose volumeMounts have no matching volume.
+// The placeholder is optimistic: it does not model the real volume's storage or topology constraints.
+// shortcut: volumeDevices (block-mode claims) are not handled; emptyDir cannot back a device, so they
+// need a PVC/ephemeral placeholder if required.
+func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
+	for _, name := range names {
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
 }
 
 // setAdmissionCheckRetry sets the admission check to Retry using the
@@ -692,7 +765,9 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Returning would drop what the other checks stage in this patch.
+					log.V(4).Info("Skipping admission check without a ProvisioningRequest", "wl", klog.KObj(wl), "check", check)
+					continue
 				}
 				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 					"check", check,
@@ -1024,7 +1099,7 @@ type MergedPodSet struct {
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
 // ProvisioningRequest must subtract from its own counts, or nil when elastic
 // ProvisioningRequest support does not apply to wl.
-func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, error) {
 	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
 		return nil, nil
 	}
@@ -1047,7 +1122,7 @@ func mergePodSets(
 	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
-	previousCounts map[kueue.PodSetReference]int32,
+	previousCounts workload.PodSetsCounts,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)

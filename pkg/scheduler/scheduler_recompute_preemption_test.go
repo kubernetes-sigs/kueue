@@ -171,13 +171,10 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// - wl-hero (cq-hero): requests 2990 CPU (fits within its nominal 3000 CPU, so cq-hero is not borrowing)
 			// - wl-tiny-pending (cq-tiny): requests 10 CPU (already borrowing, needs to borrow even more)
 			//
-			// Since cq-rest is borrowing a lot of quota, both cq-hero and cq-tiny initially choose
-			// the same candidate for preemption (wl-rest-admitted from cq-rest).
-			// Within the scheduling cycle, wl-tiny-pending is considered before wl-hero (due to
-			// Fair Sharing prioritization). So, wl-hero would normally be requeued due to
-			// overlapping preemption targets. But with RecomputePreemptionTargetsUponOverlap
-			// featuregate, it refreshes its targets, finds wl-noisy-admitted from cq-noisy
-			// and preempts it in the same scheduling cycle.
+			// wl-tiny-pending is considered first (Fair Sharing prioritization) and preempts
+			// wl-rest-admitted. wl-hero has no nominal claim on wl-rest-admitted, because
+			// parent-cohort-a (its AlmostLCA with cq-rest) is borrowing, so it reclaims
+			// wl-noisy-admitted from cq-noisy without overlapping targets.
 			enableFairSharing: true,
 			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
@@ -237,7 +234,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 5 more needed. Pending the preemption of 1 workload(s)",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 2990 more needed. Pending the preemption of 1 workload(s)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -351,10 +348,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-hero": {"eng-alpha/wl-hero"},
 				"cq-tiny": {"eng-alpha/wl-tiny-pending"},
 			},
-			// wl-hero initially targeted wl-rest-admitted (same as wl-tiny-pending), then
-			// recomputed and found wl-noisy-admitted as a non-overlapping alternative.
 			wantPreemptionTargetRecomputations: map[string]map[string]int{
-				"cq-hero": {"new_targets": 1},
+				"cq-hero": {"new_targets": 0},
 			},
 		},
 		"with fair sharing: two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {

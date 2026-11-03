@@ -18,6 +18,7 @@ package behavioral
 
 import (
 	"context"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -31,12 +32,18 @@ import (
 )
 
 func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
+	return SetFlavorResourceNominalQuota(cq, "", resourceName, value)
+}
+
+func SetFlavorResourceNominalQuota(cq *kueue.ClusterQueue, flavorName string, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
 	for rgi := range cq.Spec.ResourceGroups {
 		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
-			for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
-				if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
-					cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
-					return cq
+			if flavorName == "" || string(cq.Spec.ResourceGroups[rgi].Flavors[fi].Name) == flavorName {
+				for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+					if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
+						cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
+						return cq
+					}
 				}
 			}
 		}
@@ -44,30 +51,50 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 	return cq
 }
 
-func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+func setClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, policy *kueue.StopPolicy) {
 	ginkgo.GinkgoHelper()
 	var cqCopy kueue.ClusterQueue
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
-		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+		if ptr.Equal(cqCopy.Spec.StopPolicy, policy) {
 			return
 		}
-		cqCopy.Spec.StopPolicy = new(kueue.None)
+		cqCopy.Spec.StopPolicy = policy
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
+	}, Timeout, ShortInterval).Should(gomega.Succeed(), AssertMsg("Failed to set cluster queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &cqCopy))
 }
 
-func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+func SetClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, policy kueue.StopPolicy) {
+	ginkgo.GinkgoHelper()
+	setClusterQueueStopPolicy(ctx, k8sClient, cq, new(policy))
+}
+
+func UnsetClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+	ginkgo.GinkgoHelper()
+	setClusterQueueStopPolicy(ctx, k8sClient, cq, nil)
+}
+
+func SetLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue, policy kueue.StopPolicy) {
+	ginkgo.GinkgoHelper()
+	setLocalQueueStopPolicy(ctx, k8sClient, lq, &policy)
+}
+
+func UnsetLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	ginkgo.GinkgoHelper()
+	setLocalQueueStopPolicy(ctx, k8sClient, lq, nil)
+}
+
+func setLocalQueueStopPolicy(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue, policy *kueue.StopPolicy) {
 	ginkgo.GinkgoHelper()
 	var lqCopy kueue.LocalQueue
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
-		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+		if ptr.Equal(lqCopy.Spec.StopPolicy, policy) {
 			return
 		}
-		lqCopy.Spec.StopPolicy = new(kueue.None)
+		lqCopy.Spec.StopPolicy = policy
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
+	}, Timeout, ShortInterval).Should(gomega.Succeed(), AssertMsg("Failed to set local queue stop policy to "+string(ptr.Deref(policy, "<unset>")), &lqCopy))
 }
 
 func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
@@ -79,6 +106,15 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 			g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.ClusterQueueActive))
 		}
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueues did not become active", readCq))
+}
+
+func ExpectClusterQueueWeightedShare(ctx context.Context, c client.Client, cq *kueue.ClusterQueue, want int64) {
+	ginkgo.GinkgoHelper()
+	readCq := &kueue.ClusterQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
+		g.Expect(readCq.Status.FairSharing).To(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: want}))
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue weighted share did not update", readCq))
 }
 
 func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
@@ -119,4 +155,33 @@ func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.
 		usage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 		g.Expect(usage.MilliValue()).To(gomega.BeNumerically(comparator, compareTo))
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("LocalQueue fair sharing usage does not match expected", lq))
+}
+
+// ClusterQueueResourceUsage returns the total resource usage across all flavors for the given resource.
+func ClusterQueueResourceUsage(cq *kueue.ClusterQueue, resourceName corev1.ResourceName) int64 {
+	total := resource.Quantity{}
+	for _, fu := range cq.Status.FlavorsUsage {
+		for _, r := range fu.Resources {
+			if r.Name == resourceName {
+				total.Add(r.Total)
+			}
+		}
+	}
+	return total.Value()
+}
+
+// ExpectClusterQueueResourceUsage waits until the ClusterQueue reports the given resource usage.
+func ExpectClusterQueueResourceUsage(ctx context.Context, k8sClient client.Client, cqKey client.ObjectKey, resourceName corev1.ResourceName, want int64) {
+	ginkgo.GinkgoHelper()
+	ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, cqKey, resourceName, want, MediumTimeout)
+}
+
+// ExpectClusterQueueResourceUsageWithTimeout waits until the ClusterQueue reports the given resource usage within the given timeout.
+func ExpectClusterQueueResourceUsageWithTimeout(ctx context.Context, k8sClient client.Client, cqKey client.ObjectKey, resourceName corev1.ResourceName, want int64, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
+	cq := &kueue.ClusterQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, cqKey, cq)).To(gomega.Succeed())
+		g.Expect(ClusterQueueResourceUsage(cq, resourceName)).To(gomega.Equal(want))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue "+string(resourceName)+" usage did not settle", cq))
 }

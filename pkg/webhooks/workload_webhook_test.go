@@ -316,6 +316,51 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
 			}.ToAggregate(),
 		},
+		"should reject negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							"example.com/gpu": "1",
+						})...).
+						PodOverHead(corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept non-negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("0"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should accept negative pod overhead when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"should accept negative container resource request when WorkloadValidateResourcesAreNonNegative is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadValidateResourcesAreNonNegative: false,
@@ -343,7 +388,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"should reject non-positive podSetSliceSize when TASValidateWorkloadSliceSize is enabled": {
+		"should reject non-positive podSetSliceSize": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -356,7 +401,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
 			}.ToAggregate(),
 		},
-		"should reject podSetSliceSize without podSetSliceRequiredTopology when TASValidateWorkloadSliceSize is enabled": {
+		"should reject podSetSliceSize without podSetSliceRequiredTopology": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -368,7 +413,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), ""),
 			}.ToAggregate(),
 		},
-		"should reject non-positive podsetSliceRequiredTopologyConstraints size when TASValidateWorkloadSliceSize is enabled": {
+		"should reject non-positive podsetSliceRequiredTopologyConstraints size": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -379,20 +424,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
 			}.ToAggregate(),
-		},
-		"should accept non-positive podSetSliceSize when TASValidateWorkloadSliceSize is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASValidateWorkloadSliceSize: false,
-			},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(
-					*utiltestingapi.MakePodSet("ok", 1).
-						SliceRequiredTopologyRequest("kubernetes.io/hostname").
-						SliceSizeTopologyRequest(0).
-						Obj(),
-				).
-				Obj(),
-			wantErr: nil,
 		},
 		"should reject false unconstrained topology when TASRejectFalseUnconstrainedTopology is enabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -448,6 +479,52 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
+		},
+		"preferred topology is rejected when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(
+				testWorkloadName,
+				testWorkloadNamespace,
+			).
+				PodSets(
+					*utiltestingapi.MakePodSet("main", 1).
+						PreferredTopologyRequest("topology.example.com/rack").
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					podSetsPath.Index(0).Child("topologyRequest", "preferred"),
+					"",
+				),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
+		"preferred topology is accepted when WAS deep integration is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"required topology is accepted when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"unconstrained topology is accepted when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					UnconstrainedTopologyRequest().Obj()).Obj(),
 		},
 		"matched names in podSetUpdates with names in podSets": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -816,8 +893,71 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 
 		before, after *kueue.Workload
 		wantErr       error
+		wantDetail    string
 		wantWarnings  admission.Warnings
 	}{
+		"unchanged preferred topology allows finalizer removal when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"changed preferred topology is rejected on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
+		"added preferred topology is rejected on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
+		"changed preferred topology is accepted on update when WAS deep integration is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: false,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be removed on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
+		},
 		"an update may not put a workload in quota reserved with no admission": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj(),
@@ -1519,6 +1659,136 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after:   quotaReservedWithoutAdmission(now),
 			wantErr: nil,
 		},
+		"unchanged negative pod overhead is allowed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Label("foo", "bar").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+		},
+		"finalizer can be removed from a workload with an unchanged negative pod overhead": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+		},
+		"changed negative pod overhead is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-2")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"newly added negative pod overhead is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"negative pod overhead is not inherited by a PodSet with a different name": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("old", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("new", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"unchanged negative pod overhead is matched by PodSet name after reordering": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).Obj(),
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("b", 1).Obj(),
+					*utiltestingapi.MakePodSet("a", 1).
+						PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"new negative pod overhead entry beside an unchanged one is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu":  resource.MustParse("-1"),
+						"example.com/fpga": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/fpga"),
+					nil,
+					"",
+				),
+			}.ToAggregate(),
+		},
+		"changed negative pod overhead is allowed on update when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-2"),
+					}).
+					Obj()).
+				Obj(),
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -1526,6 +1796,15 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			gotWarnings, gotErr := (&WorkloadWebhook{}).ValidateUpdate(t.Context(), tc.before, tc.after)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantDetail != "" {
+				gotErr := ValidateWorkloadUpdate(tc.after, tc.before)
+				if len(gotErr) == 0 {
+					t.Fatalf("expected an error but got none")
+				}
+				if gotErr[0].Detail != tc.wantDetail {
+					t.Errorf("unexpected error detail, want %q got %q", tc.wantDetail, gotErr[0].Detail)
+				}
 			}
 			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
 				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)

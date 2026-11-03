@@ -27,9 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -37,8 +39,10 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
@@ -1305,6 +1309,123 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 			gotCPU := got.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 			if gotCPU.MilliValue() != tc.wantCPUMilli {
 				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+		})
+	}
+}
+
+func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	clConfig := []config.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
+	}
+
+	testCases := map[string]struct {
+		reconcileBeforeUpdate bool
+	}{
+		"reconcile before update": {
+			reconcileBeforeUpdate: true,
+		},
+		"update before reconcile": {
+			reconcileBeforeUpdate: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cLabels := kueuemetrics.NewCustomLabels(clConfig)
+			t.Cleanup(func() {
+				kueuemetrics.InitMetricVectors(nil)
+			})
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				Active(metav1.ConditionTrue).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").
+				ClusterQueue(cq.Name).
+				Label("team", "alpha").
+				Obj()
+			updatedLQ := lq.DeepCopy()
+			updatedLQ.Labels["team"] = "beta"
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(cq, updatedLQ).WithStatusSubresource(cq, updatedLQ).Build()
+			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithCustomLabels(cLabels),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			lqMetrics := &kueuemetrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: labels.Everything(),
+			}
+			r := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithCustomLabels(cLabels),
+				WithLocalQueueMetrics(lqMetrics),
+			)
+
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Adding clusterQueue to manager: %v", err)
+			}
+			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+
+			// Verify initial metric with custom_team_lq=alpha
+			initialAlpha := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "alpha",
+			})
+			if len(initialAlpha) == 0 {
+				t.Fatal("Expected pending workload metric with custom_team_lq=alpha")
+			}
+
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(lq)}
+			updateEvt := event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: updatedLQ}
+
+			if tc.reconcileBeforeUpdate {
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+			} else {
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+
+			// Stale alpha series must be cleaned up
+			gotAlpha := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "alpha",
+			})
+			if len(gotAlpha) != 0 {
+				t.Errorf("Expected stale custom_team_lq=alpha series to be cleaned up, got %v", gotAlpha)
+			}
+
+			// New beta series must be present
+			gotBeta := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.LocalQueuePendingWorkloads, map[string]string{
+				"name":           lq.Name,
+				"namespace":      lq.Namespace,
+				"custom_team_lq": "beta",
+			})
+			if len(gotBeta) == 0 {
+				t.Errorf("Expected custom_team_lq=beta series to be reported")
 			}
 		})
 	}

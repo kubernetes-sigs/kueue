@@ -556,6 +556,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				Request(corev1.ResourceCPU, "1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "alpha")
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
@@ -581,6 +582,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				updatedLq.Labels["team"] = "beta"
 				g.Expect(k8sClient.Update(ctx, &updatedLq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "beta")
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
@@ -612,6 +614,11 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 					"custom_team_lq": "alpha",
 				})).To(gomega.BeEmpty())
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueResourceReservations, map[string]string{
+					"name":           lq.Name,
+					"namespace":      lq.Namespace,
+					"custom_team_lq": "alpha",
+				})).To(gomega.BeEmpty())
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueAdmittedActiveWorkloads, map[string]string{
 					"name":           lq.Name,
 					"namespace":      lq.Namespace,
 					"custom_team_lq": "alpha",
@@ -1183,6 +1190,58 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind2", "anno2")
 		})
 
+		ginkgo.It("admitted_workloads_total counter should carry CQ and Workload custom label dimensions", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-counter").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-counter", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl-counter-1", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl-counter-2", ns.Name).
+				Label("workload-kind", "kind2").
+				Annotation("workload-anno", "anno2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+
+			wl3 := utiltestingapi.MakeWorkload("wl-counter-3", ns.Name).
+				Label("workload-kind", "unrecognised").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all workloads get admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var w kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted_workloads_total counter has CQ+WL label breakdown")
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team", "kind1", "anno1")
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team", "kind2", "anno2")
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team",
+				config.UntrackedCustomLabelValue, "anno1")
+		})
+
 		ginkgo.It("should update AdmittedActiveWorkloads metric when workload labels match and we change CQ labels", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -1213,6 +1272,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
 			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1", "anno1")
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind1", "anno1")
 
 			ginkgo.By("updating CQ team label")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1225,6 +1285,15 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying CQ admitted active workloads metric updates to data-team")
 			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "data-team", "kind1", "anno1")
 			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1", "anno1")
+
+			// Finish the workload only after the resync, so a resync that
+			// counted it twice for the LQ shows up as a gauge stuck at 1.
+			ginkgo.By("marking the workload as finished")
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying admitted active workloads metrics drop to zero")
+			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "data-team", "kind1", "anno1")
+			behavioral.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind1", "anno1")
 		})
 
 		ginkgo.It("should update AdmittedActiveWorkloads metric when we update the labels on the workload", func() {
@@ -1505,24 +1574,14 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 
 			ginkgo.By("stopping the ClusterQueue to make it inactive")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
-				updatedCq.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
 
 			ginkgo.By("verifying pending workloads are reported as inadmissible")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
 
 			ginkgo.By("resuming the ClusterQueue to make it active")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
-				updatedCq.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 
 			ginkgo.By("verifying they restore to active statuses")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")

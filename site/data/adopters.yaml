@@ -1,198 +1,202 @@
+# =====================================================================
+# KUEUE ADOPTERS DATA
+# =====================================================================
+# How to add your organization:
+# 1. Copy one of the blocks below and paste it at the bottom of this file.
+# 2. Fill in the details and submit a Pull Request.
+#
+# Fields:
+#  - name:        Organization name (Required)
+#  - url:         Organization website URL (Required)
+#  - type:        "End User" or "Provider" (Required)
+#  - description: 1-sentence summary of how Kueue is used (Required)
+#  - contact:     GitHub handle, e.g. '@username' (Optional)
+#  - contact_url: URL to GitHub profile (Optional)
+# =====================================================================
+
 - name: Canva, Inc.
   url: https://canva.com
   type: End User
-  description: Cloud AI Platform
-  integrations:
-  - JobSet
-  - ...
+  description: Cloud AI platform for machine learning training and batch workloads
   contact: '@groodt'
   contact_url: https://github.com/groodt
 - name: CyberAgent, Inc.
   url: https://www.cyberagent.co.jp/en/
   type: End User
-  description: On-premise ML Platform
-  integrations:
-  - batch/job
-  - kubeflow.org/mpijob
+  description: On-premise multi-tenant ML and batch compute platform
   contact: ''
   contact_url: ''
 - name: DaoCloud, Inc.
-  url: https://www.daocloud.io/en/
+  url: https://www.daocloud.io/
   type: End User
-  description: Part of the AI Platform for managing all kinds of Jobs.
-  integrations:
-  - batch/job
-  - RayJob
-  - '...'
+  description: Cloud-native AI platform for scheduling and managing batch and GPU workloads
   contact: '@kerthcet'
   contact_url: https://github.com/kerthcet
 - name: WattIQ, Inc.
   url: https://wattiq.io
   type: End User
-  description: SaaS/IoT product
-  integrations:
-  - batch/job
-  - RayJob
+  description: SaaS and IoT data processing and analytics platform
   contact: '@madsenwattiq'
   contact_url: https://github.com/madsenwattiq
 - name: Horizon, Inc.
   url: https://horizon.cc/
   type: End User
-  description: AI training platform
-  integrations:
-  - batch/job
-  - '...'
+  description: Large-scale AI training platform for autonomous driving
   contact: '@GhangZh'
   contact_url: https://github.com/GhangZh
 - name: FAR AI
   url: https://far.ai/
   type: End User
-  description: AI alignment research nonprofit
-  integrations:
-  - batch/job
+  description: AI alignment and safety research compute platform
   contact: '@rhaps0dy'
   contact_url: https://github.com/rhaps0dy
 - name: Shopee, Inc.
   url: https://shopee.com/
   type: End User
-  description: Training/batch inference/data processes in AI platform test env
-  integrations:
-  - Customized job
-  - RayJob
-  - '...'
+  description: AI platform for distributed training, batch inference, and data processing
   contact: '@denkensk'
   contact_url: https://github.com/denkensk
 - name: Mondoo, Inc.
   url: https://mondoo.com
   type: End User
-  description: Helps power Mondoo's hosted security scanner
-  integrations:
-  - batch/job
+  description: Powers batch job orchestration for Mondoo's hosted security scanner
   contact: '@jaym'
   contact_url: https://github.com/jaym
 - name: Google Cloud
   url: https://cloud.google.com/
   type: Provider
-  description: Part of [kit for training ML workloads on TPUs][gcmldemo]
-  integrations:
-  - JobSet
+  description: Workload scheduling for AI Hypercomputer and GKE, including [large-scale distributed LLM training on TPUs](https://cloud.google.com/blog/products/compute/the-worlds-largest-distributed-llm-training-job-on-tpu-v5e)
   contact: '@mrozacki'
   contact_url: https://github.com/mrozacki
-- name: Onna Technologies, Inc
+- name: Onna Technologies, Inc.
   url: https://onna.com
   type: End User
-  description: Unstructured Data Management Platform
-  integrations:
-  - batch/job
+  description: Unstructured data management and processing platform
   contact: '@gitcarbs'
   contact_url: https://github.com/gitcarbs
 - name: IBM Research
   url: https://research.ibm.com
   type: End User
-  description: Part of [MLBatch][mlbatch] stack for running AI/ML workloads
-  integrations:
-  - AppWrapper
-  - PyTorchJob
-  - RayJob
-  contact: dgrove-oss
+  description: Core component of the [MLBatch](https://github.com/project-codeflare/mlbatch) stack for multi-tenant AI/ML workloads
+  contact: '@dgrove-oss'
   contact_url: https://github.com/dgrove-oss
 - name: Innovatrics
   url: https://www.innovatrics.com/
   type: End User
-  description: On-premise ML Platform
-  integrations:
-  - batch/job
-  - pod
+  description: On-premise machine learning training and biometric research platform
   contact: '@mmolisch'
   contact_url: https://github.com/mmolisch
 - name: Red Hat, Inc.
   url: https://www.redhat.com/en
-  type: End User
-  description: Cloud/On-premise ML Platform
-  integrations:
-  - Ray Cluster
-  - RayJob
-  - Pytorch Job
-  - TensorFlow Job
-  - '...'
+  type: Provider
+  description: Ships Red Hat build of Kueue in OpenShift and OpenShift AI for cloud and on-premise AI/ML platforms
   contact: '@varshaprasad96'
   contact_url: https://github.com/varshaprasad96
 - name: Octue
   url: https://octue.com
   type: End User
-  description: '[Scientific data service framework][octue-sdk]'
-  integrations:
-  - batch/job
+  description: Powers scientific data services built with the [Octue SDK](https://github.com/octue/octue-sdk-python)
   contact: '@cortadocodes'
   contact_url: https://github.com/cortadocodes
 - name: LY Corporation
   url: https://www.lycorp.co.jp/en/
   type: End User
-  description: On-premise AI Platform
-  integrations:
-  - batch/job
-  - TensorFlow Job
-  - Ray Cluster
-  - pod
-  - '...'
+  description: On-premise multi-tenant AI and machine learning platform
   contact: '@everpeace'
   contact_url: https://github.com/everpeace
 - name: Preferred Networks, Inc.
   url: https://www.preferred.jp/en
   type: End User
-  description: Cloud/On-premise ML Platform
-  integrations:
-  - batch/job
-  - pod
-  - '...'
+  description: Hybrid cloud and on-premise deep learning research and compute platform
   contact: '@wafrelka'
   contact_url: https://github.com/wafrelka
 - name: Wayve
   url: https://wayve.ai/
   type: End User
-  description: Part of the AI Platform powering Wayve AI Driver
-  integrations:
-  - PyTorchJob
-  - RayJob
-  - pod
+  description: AI training and inference platform powering the Wayve AI Driver
   contact: '@mukund-wayve'
   contact_url: https://github.com/mukund-wayve
 - name: Krea AI
   url: https://www.krea.ai
   type: End User
-  description: Large-scale pretraining and high quality video generation. (See <a href="https://www.krea.ai/blog/krea-2-technical-report" target="_blank">Krea 2 Technical Report</a>)
-  integrations: []
+  description: Large-scale pretraining and high-resolution video generation platform
   contact: '@krea-ai'
   contact_url: https://twitter.com/krea_ai
 - name: Parasail
   url: https://www.parasail.io/
   type: End User
-  description: Inference cloud for AI-native startups
-  integrations:
-  - pod
+  description: GPU inference cloud for AI-native workloads
   contact: '@yakticus'
   contact_url: https://github.com/yakticus
 - name: Netflix, Inc.
   url: https://www.netflix.com/
   type: End User
-  description: Netflix Batch compute platform
-  integrations:
-  - pod
+  description: Cloud-native batch and ML compute platform
   contact: '@baoalvin1'
   contact_url: https://github.com/baoalvin1
 - name: Office of AI Affairs, NYCU
   url: https://ai.winlab.tw/
   type: End User
-  description: Student AI research and teaching experiments on Kueue
-  integrations:
-  - batch/job
+  description: Shared GPU cluster for university AI research and teaching experiments
   contact: '@thc1006'
   contact_url: https://github.com/thc1006
 - name: CoreWeave
   url: https://coreweave.com/
   type: Provider
-  description: Native support for Kueue on CoreWeave Kubernetes Service (CKS), CoreWeave's bare-metal Kubernetes offering for AI/ML training and inference
-  integrations:
-  - '...'
+  description: Native support for Kueue on CoreWeave Kubernetes Service (CKS) for bare-metal AI/ML training and inference
   contact: '@amy'
   contact_url: https://github.com/amy
+- name: Etsy, Inc.
+  url: https://www.etsy.com/
+  type: End User
+  description: ML platform running elastic RayClusters via ProvisioningRequest admission
+  contact: '@neilb-dotcom'
+  contact_url: https://github.com/neilb-dotcom
+- name: AI21 Labs
+  url: https://www.ai21.com/
+  type: End User
+  description: Large language model training and research GPU fleet with Topology Aware Scheduling
+  contact: ''
+  contact_url: ''
+- name: Ant Group
+  url: https://www.antgroup.com/en
+  type: End User
+  description: Elastic multi-cluster GPU compute pool for AI training and batch workloads
+  contact: ''
+  contact_url: ''
+- name: Apple
+  url: https://www.apple.com/
+  type: End User
+  description: Multi-tenant batch and AI/ML compute platform at scale
+  contact: ''
+  contact_url: ''
+- name: CERN
+  url: https://home.cern/
+  type: End User
+  description: High-energy physics multi-cluster batch job dispatching with MultiKueue
+  contact: ''
+  contact_url: ''
+- name: China Merchants Bank
+  url: https://english.cmbchina.com/
+  type: End User
+  description: Enterprise cloud-native AI/ML and batch compute platform
+  contact: ''
+  contact_url: ''
+- name: Cohere
+  url: https://cohere.com/
+  type: End User
+  description: Large language model training on topology-aware GPU clusters
+  contact: ''
+  contact_url: ''
+- name: Meta
+  url: https://www.meta.com/
+  type: End User
+  description: Topology-aware scheduling for AI training and inference workloads
+  contact: ''
+  contact_url: ''
+- name: Runway
+  url: https://runway.com/
+  type: End User
+  description: Generative AI research and multimodal model training platform
+  contact: ''
+  contact_url: ''

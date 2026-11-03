@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type multiKueueAdapter struct{}
@@ -59,7 +60,16 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// LWS doesn't support managedBy, so the local LWS controller would
 	// immediately overwrite any status we sync from the worker cluster.
 	if err == nil {
-		return false, nil
+		// The remote LWS is kept while other groups still run on the worker,
+		// so a scale down must shrink it to stop the removed groups there.
+		localReplicas := ptr.Deref(localLWS.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+		if localReplicas >= ptr.Deref(remoteLWS.Spec.Replicas, defaultLeaderWorkerSetReplicas) {
+			return false, nil
+		}
+		return false, clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
+			remoteLWS.Spec.Replicas = new(localReplicas)
+			return true, nil
+		})
 	}
 
 	remoteLWS = leaderworkersetv1.LeaderWorkerSet{

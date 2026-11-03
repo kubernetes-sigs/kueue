@@ -173,7 +173,7 @@ func managerAndControllersSetup(
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 				scheduler.WithCustomLabels(customLabels))
-			err = sched.Start(ctx)
+			err = mgr.Add(sched)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}

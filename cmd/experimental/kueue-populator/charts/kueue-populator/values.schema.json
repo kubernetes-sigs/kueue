@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Copyright The Kubernetes Authors. Licensed under the Apache License, Version 2.0; see https://www.apache.org/licenses/LICENSE-2.0.",
+  "type": "object",
+  "properties": {
+    "kueue": {
+      "properties": {
+        "managerConfig": {
+          "description": "Optional mode selects yaml or structured. When omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["yaml", "structured"]
+            },
+            "structuredOverrides": {
+              "type": "object"
+            },
+            "controllerManagerConfigYaml": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

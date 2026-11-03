@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -203,6 +204,91 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 			ta := utiltas.InternalFrom(pending.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 			gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
 			gomega.Expect(ta.Domains[0].Values).To(gomega.Equal([]string{"preserve-f2"}))
+		})
+	})
+
+	ginkgo.It("should fall back to preemption on the first flavor when the second flavor has ghost quota but fails TAS placement", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityPreserveScanProgress, true)
+
+		ginkgo.By("updating clusterQueue with WhenCanPreempt: TryNextFlavor and saturated quota on first flavor", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+				cq.Spec.FlavorFungibility = &kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.TryNextFlavor,
+				}
+				cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+				g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("cordoning node of the second flavor to create ghost quota", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var node corev1.Node
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "preserve-f2"}, &node)).To(gomega.Succeed())
+				node.Spec.Unschedulable = true
+				g.Expect(k8sClient.Update(ctx, &node)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		var filler, pending *kueue.Workload
+
+		ginkgo.By("creating a lower-priority filler workload on the first flavor", func() {
+			filler = utiltestingapi.MakeWorkload("filler", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Priority(10).
+				PodSets(*utiltestingapi.MakePodSet("worker", 1).
+					NodeSelector(map[string]string{"tas-flavor": "f1"}).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "2").
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, filler)
+		})
+
+		ginkgo.By("verifying the filler is admitted on the first flavor", func() {
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, filler)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(filler), filler)).To(gomega.Succeed())
+			gomega.Expect(filler.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
+				gomega.Equal(kueue.ResourceFlavorReference(tasFlavor1.Name)))
+		})
+
+		ginkgo.By("creating a higher-priority workload that requires preemption on first flavor", func() {
+			pending = utiltestingapi.MakeWorkload("pending", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Priority(100).
+				PodSets(*utiltestingapi.MakePodSet("worker", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "2").
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, pending)
+		})
+
+		ginkgo.By("verifying the scheduler attempted flavor 2 and recorded TAS placement failure", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var events []eventsv1.Event
+				var err error
+				events, err = behavioral.EventsForObject(ctx, k8sClient, client.ObjectKeyFromObject(pending))
+				g.Expect(err).ShouldNot(gomega.HaveOccurred())
+				g.Expect(events).Should(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", corev1.EventTypeWarning),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+					gomega.HaveField("Note", gomega.ContainSubstring("no topology domains at level: kubernetes.io/hostname")),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the filler is preempted and the pending workload is admitted on the first flavor", func() {
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, filler)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, filler)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pending)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pending), pending)).To(gomega.Succeed())
+			gomega.Expect(pending.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
+				gomega.Equal(kueue.ResourceFlavorReference(tasFlavor1.Name)))
+			ta := utiltas.InternalFrom(pending.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(ta.Domains[0].Values).To(gomega.Equal([]string{"preserve-f1"}))
 		})
 	})
 })

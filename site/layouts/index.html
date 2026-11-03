@@ -18,13 +18,18 @@
         </a>
         
         <!-- Stars Badge -->
-        <a href="https://github.com/kubernetes-sigs/kueue/stargazers" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
+        <a href="https://github.com/kubernetes-sigs/kueue" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
           <img alt="GitHub stars" src="https://img.shields.io/github/stars/kubernetes-sigs/kueue?style=flat-square&color=0ea5e9&labelColor=0ea5e9&logo=github&logoColor=white&label=Stars" style="border-radius: 50rem; height: 26px;">
         </a>
         
         <!-- Forks Badge -->
         <a href="https://github.com/kubernetes-sigs/kueue/network/members" target="_blank" rel="noopener" style="text-decoration: none; display: inline-block;">
           <img alt="GitHub forks" src="https://img.shields.io/github/forks/kubernetes-sigs/kueue?style=flat-square&color=0ea5e9&labelColor=0ea5e9&logo=github&logoColor=white&label=Forks" style="border-radius: 50rem; height: 26px;">
+        </a>
+
+        <!-- Adopters Badge -->
+        <a href="{{ "/community/adopters/" | relLangURL }}" style="text-decoration: none; display: inline-block;">
+          <img alt="{{ T "homepage_badge_adopters" | default "Adopters" }}" src="https://img.shields.io/static/v1?label={{ (T "homepage_badge_adopters" | default "Adopters") | urlquery }}&message={{ len site.Data.adopters }}%2B&color=0ea5e9&labelColor=0ea5e9&style=flat-square" style="border-radius: 50rem; height: 26px;">
         </a>
         
       </div>

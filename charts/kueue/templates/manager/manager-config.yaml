@@ -23,7 +23,7 @@ metadata:
   {{- include "kueue.labels" . | nindent 4 }}
 data:
   controller_manager_config.yaml: |
-{{- $config := .Values.managerConfig.controllerManagerConfigYaml | fromYaml }}
+{{- $config := include "kueue.managerConfig" . | fromYaml }}
 {{- $defaultInternalCert := dict
       "enable" true
       "webhookServiceName" (printf "%s-webhook-service" (include "kueue.fullname" .))

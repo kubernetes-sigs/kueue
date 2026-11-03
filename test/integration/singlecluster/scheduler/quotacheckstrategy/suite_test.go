@@ -108,7 +108,7 @@ func managerAndSchedulerSetup(
 			scheduler.WithQuotaCheckStrategy(quotaCheckStrategy),
 			scheduler.WithAdmissionFairSharing(admissionFairSharing),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }

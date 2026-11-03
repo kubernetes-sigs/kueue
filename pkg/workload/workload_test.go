@@ -43,6 +43,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -735,6 +736,49 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceMemory: 0,
 						}),
 						Count: 0,
+					},
+				},
+			},
+		},
+		"admitted with reclaim and no assignment count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "10m").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(kueue.PodSetAssignment{
+							Name: kueue.DefaultPodSetName,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "f1",
+							},
+							// Without a count, this usage is for all 5 Pods of the PodSet.
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50m"),
+							},
+						}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "f1",
+						},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 3 * 10,
+						}),
+						Count: 3,
 					},
 				},
 			},
@@ -3594,14 +3638,41 @@ func TestSetRequeueState(t *testing.T) {
 // TestWorkloadPriorityClassChanged tests the workloadPriorityClassChanged function.
 func TestWorkloadPriorityClassChanged(t *testing.T) {
 	testCases := map[string]struct {
-		oldWorkload *kueue.Workload
-		newWorkload *kueue.Workload
-		wantChanged bool
+		oldWorkload  *kueue.Workload
+		newWorkload  *kueue.Workload
+		wantChanged  bool
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no priority class on either workload": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
 			wantChanged: false,
+		},
+		"priority boost changed without WorkloadPriorityClass": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
+		"priority boost changed without WorkloadPriorityClass but PriorityBoost disabled": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			wantChanged: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: false,
+			},
 		},
 		"same priority class on both workloads": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -3660,6 +3731,18 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Obj(),
 			wantChanged: false,
 		},
+		"priority value decreased with PriorityBoost": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(600).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Priority(500).
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
 		"priority value decreased with WPC": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				WorkloadPriorityClassRef("priority-1").
@@ -3687,6 +3770,7 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotChanged := PriorityChanged(log, tc.oldWorkload, tc.newWorkload)
 			if gotChanged != tc.wantChanged {
 				t.Errorf("workloadPriorityChanged() = %v, want %v", gotChanged, tc.wantChanged)
@@ -4047,6 +4131,32 @@ func TestSchedulingHash(t *testing.T) {
 				features.ConcurrentAdmission:          true,
 			},
 		},
+		"same spec, replacing different workload slices produces different hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+		},
 		"same spec, different topology spreading annotation produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4127,9 +4237,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1, tc.infoOptions1...)
-			info1.updateDerivedFields(log)
+			info1.updateDerivedFields(log, false)
 			info2 := NewInfo(log, tc.wl2, tc.infoOptions2...)
-			info2.updateDerivedFields(log)
+			info2.updateDerivedFields(log, false)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -4150,7 +4260,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateDerivedFields(log)
+		before.updateDerivedFields(log, false)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -4162,7 +4272,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateDerivedFields(log)
+		after.updateDerivedFields(log, false)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -4284,6 +4394,38 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
+		}
+	})
+
+	t.Run("WithSkipSchedulingHash leaves the hash empty and keeps topology spreading", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+			features.TASTopologySpreading:         true,
+		})
+		wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`}).
+				Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		hashed := NewInfo(log, wl)
+		if hashed.SchedulingHash == "" || len(hashed.TopologySpreading) == 0 {
+			t.Fatalf("precondition failed: hash %q, topology spreading %v", hashed.SchedulingHash, hashed.TopologySpreading)
+		}
+
+		skipped := NewInfo(log, wl, WithSkipSchedulingHash())
+		if skipped.SchedulingHash != "" {
+			t.Errorf("SchedulingHash = %q, want empty", skipped.SchedulingHash)
+		}
+		if len(skipped.TopologySpreading) != len(hashed.TopologySpreading) {
+			t.Errorf("TopologySpreading has %d groups, want %d", len(skipped.TopologySpreading), len(hashed.TopologySpreading))
+		}
+
+		// An Info that already holds a hash must not keep it once the inputs change.
+		hashed.Update(log, utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("2").
+			Request(corev1.ResourceCPU, "2").Obj(), WithSkipSchedulingHash())
+		if hashed.SchedulingHash != "" {
+			t.Errorf("SchedulingHash after Update = %q, want empty", hashed.SchedulingHash)
 		}
 	})
 }

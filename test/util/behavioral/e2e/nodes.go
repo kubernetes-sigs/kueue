@@ -22,7 +22,11 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // GetTopologyDomainByNode returns a map from the name of every node that
@@ -37,4 +41,29 @@ func GetTopologyDomainByNode(ctx context.Context, c client.Client, levelLabel st
 		domains[node.Name] = node.Labels[levelLabel]
 	}
 	return domains
+}
+
+// SetupTASNodes configures nodes carrying the given nodeGroupLabel to have the specified
+// resource capacity and allocatable set to 1.
+func SetupTASNodes(ctx context.Context, k8sClient client.Client, nodeGroupLabel string, extraResource corev1.ResourceName) {
+	ginkgo.GinkgoHelper()
+
+	nodes := &corev1.NodeList{}
+	requiredLabels := client.MatchingLabels{}
+	requiredLabelKeys := client.HasLabels{nodeGroupLabel}
+	err := k8sClient.List(ctx, nodes, requiredLabels, requiredLabelKeys)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to list nodes for TAS")
+
+	for _, n := range nodes.Items {
+		gomega.Eventually(func(g gomega.Gomega) {
+			node := &corev1.Node{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
+			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
+				node.Status.Capacity[extraResource] = resource.MustParse("1")
+				node.Status.Allocatable[extraResource] = resource.MustParse("1")
+				return true, nil
+			})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	}
 }

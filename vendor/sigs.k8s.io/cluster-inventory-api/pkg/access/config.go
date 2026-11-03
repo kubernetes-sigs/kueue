@@ -40,8 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	"sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 )
 
 const (
@@ -122,7 +121,7 @@ func NewFromFile(path string) (*Config, error) {
 }
 
 // BuildConfigFromCP builds a rest.Config from the given ClusterProfile
-func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*rest.Config, error) {
+func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha2.ClusterProfile) (*rest.Config, error) {
 	// 1. obtain the correct clusterAccessor from the CP
 	clusterAccessor := c.getClusterAccessorFromClusterProfile(clusterprofile)
 	if clusterAccessor == nil {
@@ -162,9 +161,12 @@ func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*re
 
 	// 4. build resulting rest.Config
 	config := &rest.Config{
-		Host: clusterAccessor.Cluster.Server,
+		Host:               clusterAccessor.Cluster.Server,
+		DisableCompression: clusterAccessor.Cluster.DisableCompression,
 		TLSClientConfig: rest.TLSClientConfig{
-			CAData: clusterAccessor.Cluster.CertificateAuthorityData,
+			CAData:     clusterAccessor.Cluster.CertificateAuthorityData,
+			ServerName: clusterAccessor.Cluster.TLSServerName,
+			Insecure:   clusterAccessor.Cluster.InsecureSkipTLSVerify,
 		},
 		Proxy: func(request *http.Request) (*url.URL, error) {
 			if clusterAccessor.Cluster.ProxyURL == "" {
@@ -185,8 +187,9 @@ func (c *Config) BuildConfigFromCP(clusterprofile *v1alpha1.ClusterProfile) (*re
 	}
 
 	// Propagate reserved extension into ExecCredential.Spec.Cluster.Config if present
+	clientcmdCluster := ToClientcmdCluster(clusterAccessor.Cluster)
 	internalCluster := clientcmdapi.NewCluster()
-	if err := clientcmdlatest.Scheme.Convert(&clusterAccessor.Cluster, internalCluster, nil); err != nil {
+	if err := clientcmdlatest.Scheme.Convert(&clientcmdCluster, internalCluster, nil); err != nil {
 		return nil, fmt.Errorf("failed to convert v1 Cluster to internal: %w", err)
 	}
 	if extData, ok := internalCluster.Extensions[clusterExecExtensionKey]; ok {
@@ -210,18 +213,9 @@ func (c *Config) getExecConfigAndFlagsFromConfig(
 // getClusterAccessorFromClusterProfile returns the first AccessProvider from the ClusterProfile
 // that matches one of the supported provider types in the Config
 func (c *Config) getClusterAccessorFromClusterProfile(
-	cluster *v1alpha1.ClusterProfile,
-) *v1alpha1.AccessProvider {
-	accessProviderTypes := map[string]*v1alpha1.AccessProvider{}
-
-	// to keep backward compatibility, we first check the CredentialProviders field
-	for _, accessProvider := range cluster.Status.CredentialProviders {
-		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()
-		klog.Warningf(
-			"ClusterProfile %q uses deprecated field CredentialProviders %q; please migrate to AccessProviders",
-			cluster.Name, accessProvider.Name,
-		)
-	}
+	cluster *v1alpha2.ClusterProfile,
+) *v1alpha2.AccessProvider {
+	accessProviderTypes := map[string]*v1alpha2.AccessProvider{}
 
 	for _, accessProvider := range cluster.Status.AccessProviders {
 		accessProviderTypes[accessProvider.Name] = accessProvider.DeepCopy()

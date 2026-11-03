@@ -22,6 +22,8 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -66,6 +68,14 @@ func (c *Checker) Simulate(ctx context.Context, fn func()) error {
 // rather than over-admitting. Releasing them is Beta work in keps/2941-DRA.
 func (c *Checker) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
 	return c.inner.PreemptWorkload(ctx, wlKey)
+}
+
+func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
+	inner, ok := c.inner.(simulator.PodPreemptingSimulator)
+	if !ok {
+		return nil, errors.New("underlying simulator cannot preempt individual Pods")
+	}
+	return inner.PreemptPods(ctx, pods)
 }
 
 func (c *Checker) FindFeasibleNodes(
@@ -143,4 +153,20 @@ func (c *Checker) filterByDevices(
 
 func (c *Checker) ScheduleWorkload(ctx context.Context, wlPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
 	return c.inner.ScheduleWorkload(ctx, wlPods, opts...)
+}
+
+func (c *Checker) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return c.inner.AddPodGroup(ctx, pg)
+}
+
+func (c *Checker) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return c.inner.RemovePodGroup(ctx, pg)
+}
+
+func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return c.inner.AddCompositePodGroup(ctx, cpg)
+}
+
+func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return c.inner.RemoveCompositePodGroup(ctx, cpg)
 }

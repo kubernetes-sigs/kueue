@@ -172,6 +172,51 @@ func TestReadUIntFromLabel(t *testing.T) {
 	testCases := map[string]struct {
 		obj     client.Object
 		label   string
+		wantVal *int
+		wantErr error
+	}{
+		"label not found": {
+			obj:     basePod.DeepCopy(),
+			label:   "label",
+			wantErr: ErrLabelNotFound,
+		},
+		"invalid label value": {
+			obj: basePod.Clone().
+				Label("label", "value").
+				Obj(),
+			label:   "label",
+			wantErr: ErrInvalidUInt,
+		},
+		"no upper bound on the value": {
+			obj: basePod.Clone().
+				Label("label", "1000000").
+				Obj(),
+			label:   "label",
+			wantVal: new(1000000),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotValue, gotErr := ReadUIntFromLabel(tc.obj, tc.label)
+
+			if diff := cmp.Diff(tc.wantVal, gotValue); diff != "" {
+				t.Errorf("Unexpected value (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("ReadUIntFromLabel returned error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReadUIntFromLabelBelowBound(t *testing.T) {
+	basePod := testingpod.MakePod("pod", "ns")
+
+	testCases := map[string]struct {
+		obj     client.Object
+		label   string
 		max     int
 		wantVal *int
 		wantErr error
@@ -223,7 +268,7 @@ func TestReadUIntFromLabel(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+				t.Errorf("ReadUIntFromLabelBelowBound returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}

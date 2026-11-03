@@ -33,9 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -398,18 +401,31 @@ func TestClusterQueueReconcile(t *testing.T) {
 }
 
 type cqMetrics struct {
-	NominalDPs   []testingmetrics.MetricDataPoint
-	BorrowingDPs []testingmetrics.MetricDataPoint
-	LendingDPs   []testingmetrics.MetricDataPoint
-	UsageDPs     []testingmetrics.MetricDataPoint
+	NominalDPs       []testingmetrics.MetricDataPoint
+	BorrowingDPs     []testingmetrics.MetricDataPoint
+	LendingDPs       []testingmetrics.MetricDataPoint
+	UsageDPs         []testingmetrics.MetricDataPoint
+	WeightedShareDPs []testingmetrics.MetricDataPoint
 }
 
 func allMetricsForQueue(name string) cqMetrics {
 	return cqMetrics{
-		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
-		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
-		LendingDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{"cluster_queue": name}),
-		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
+		NominalDPs:       testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
+		BorrowingDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
+		LendingDPs:       testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{"cluster_queue": name}),
+		UsageDPs:         testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
+		WeightedShareDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueWeightedShare, map[string]string{"cluster_queue": name}),
+	}
+}
+
+func weightedShareDataPoint(cohort, name string, v float64) testingmetrics.MetricDataPoint {
+	return testingmetrics.MetricDataPoint{
+		Labels: map[string]string{
+			"cohort":        cohort,
+			"cluster_queue": name,
+			"replica_role":  roletracker.RoleStandalone,
+		},
+		Value: v,
 	}
 }
 
@@ -485,6 +501,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	testCases := map[string]struct {
 		queue              *kueue.ClusterQueue
+		fairSharing        bool
 		wantMetrics        cqMetrics
 		updatedQueue       *kueue.ClusterQueue
 		wantUpdatedMetrics cqMetrics
@@ -546,7 +563,8 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 		},
 		"change-cohort": {
-			queue: baseQueue.DeepCopy(),
+			queue:       baseQueue.DeepCopy(),
+			fairSharing: true,
 			wantMetrics: cqMetrics{
 				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
@@ -559,6 +577,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				WeightedShareDPs: []testingmetrics.MetricDataPoint{
+					weightedShareDataPoint("cohort", "name", 1000),
 				},
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
@@ -578,6 +599,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				WeightedShareDPs: []testingmetrics.MetricDataPoint{
+					weightedShareDataPoint("cohort2", "name", 1000),
 				},
 			},
 		},
@@ -703,7 +727,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.fairSharing))
 			r := &ClusterQueueReconciler{cache: cqCache}
 			err := cqCache.AddClusterQueue(ctx, tc.queue)
 			if err != nil {
@@ -734,7 +758,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 			metrics.ClearClusterQueueResourceMetrics(tc.queue.Name)
 			endMetrics := allMetricsForQueue(tc.queue.Name)
-			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
+			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 || len(endMetrics.WeightedShareDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
 			}
 		})
@@ -853,6 +877,106 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantReservations, gotReservations, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected cohort subtree resource reservations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	clConfig := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	}
+
+	testCases := map[string]struct {
+		reconcileBeforeUpdate bool
+	}{
+		"reconcile before update": {
+			reconcileBeforeUpdate: true,
+		},
+		"update before reconcile": {
+			reconcileBeforeUpdate: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cLabels := metrics.NewCustomLabels(clConfig)
+			t.Cleanup(func() {
+				metrics.InitMetricVectors(nil)
+			})
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				Label("team", "alpha").
+				Obj()
+			updatedCQ := cq.DeepCopy()
+			updatedCQ.Labels["team"] = "beta"
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(updatedCQ).WithStatusSubresource(updatedCQ).Build()
+			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithCustomLabels(cLabels),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			r := NewClusterQueueReconciler(cl, qManager, cqCache, WithClusterQueueCustomLabels(cLabels))
+
+			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue(cq.Name).Obj()
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Adding localQueue to manager: %v", err)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+
+			// Verify initial metric with custom_team_cq=alpha
+			initialAlpha := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "alpha",
+			})
+			if len(initialAlpha) == 0 {
+				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
+			}
+
+			req := ctrl.Request{Name: cq.Name}
+			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
+
+			if tc.reconcileBeforeUpdate {
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+			} else {
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+
+			// Stale alpha series must be cleaned up
+			gotAlpha := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "alpha",
+			})
+			if len(gotAlpha) != 0 {
+				t.Errorf("Expected stale custom_team_cq=alpha series to be cleaned up, got %v", gotAlpha)
+			}
+
+			// New beta series must be present
+			gotBeta := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "beta",
+			})
+			if len(gotBeta) == 0 {
+				t.Errorf("Expected custom_team_cq=beta series to be reported")
 			}
 		})
 	}

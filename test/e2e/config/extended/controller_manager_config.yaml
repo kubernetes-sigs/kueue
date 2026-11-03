@@ -46,6 +46,7 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+  ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true
   ConcurrentAdmission: true
   MultiKueueManagerQuotaAutomation: true
   TASTopologySpreading: true

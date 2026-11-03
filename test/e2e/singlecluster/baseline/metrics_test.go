@@ -195,6 +195,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				{"kueue_cluster_queue_nominal_quota", clusterQueue.Name},
 				{"kueue_cluster_queue_borrowing_limit", clusterQueue.Name},
 				{"kueue_cluster_queue_lending_limit", clusterQueue.Name},
+				{"kueue_cluster_queue_weighted_share", clusterQueue.Name},
 
 				// LocalQueue metrics reported by the scheduler cache,
 				// cleared when the ClusterQueue is deleted.
@@ -209,7 +210,6 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			notDeletedMetrics := [][]string{
 				{"kueue_admission_attempts_total"},
 				{"kueue_admission_attempt_duration_seconds"},
-				{"kueue_cluster_queue_weighted_share", clusterQueue.Name},
 
 				// Cleared metrics with 0 value
 				{"kueue_local_queue_pending_workloads", "active", "0", ns.Name, localQueue.Name},

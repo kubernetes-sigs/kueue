@@ -198,12 +198,11 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should default to RequestPolicy.Default when no request specified", func() {
 			ginkgo.By("Creating ResourceSlice with RequestPolicy.Default")
-			defaultQty := resource.MustParse("10Gi")
 			slice := testingdra.MakeResourceSlice("cc-policy-default-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &defaultQty,
+					Default: new(resource.MustParse("10Gi")),
 				}).
 				AllowMultipleAllocations(true).
 				Obj()
@@ -244,12 +243,11 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should round up capacity request to ValidValues", func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
-			defaultQty := resource.MustParse("10Gi")
 			slice := testingdra.MakeResourceSlice("cc-validvalues-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &defaultQty,
+					Default: new(resource.MustParse("10Gi")),
 					ValidValues: []resource.Quantity{
 						resource.MustParse("10Gi"),
 						resource.MustParse("20Gi"),
@@ -297,19 +295,15 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should round up capacity request to ValidRange with step", func() {
 			ginkgo.By("Creating ResourceSlice with ValidRange policy")
-			defaultQty := resource.MustParse("5Gi")
-			minQty := resource.MustParse("5Gi")
-			maxQty := resource.MustParse("80Gi")
-			stepQty := resource.MustParse("5Gi")
 			slice := testingdra.MakeResourceSlice("cc-validrange-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &defaultQty,
+					Default: new(resource.MustParse("5Gi")),
 					ValidRange: &resourcev1.CapacityRequestPolicyRange{
-						Min:  &minQty,
-						Max:  &maxQty,
-						Step: &stepQty,
+						Min:  new(resource.MustParse("5Gi")),
+						Max:  new(resource.MustParse("80Gi")),
+						Step: new(resource.MustParse("5Gi")),
 					},
 				}).
 				AllowMultipleAllocations(true).
@@ -399,12 +393,11 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should mark workload inadmissible when request exceeds ValidValues", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
-			defaultQty := resource.MustParse("10Gi")
 			slice := testingdra.MakeResourceSlice("cc-exceed-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &defaultQty,
+					Default: new(resource.MustParse("10Gi")),
 					ValidValues: []resource.Quantity{
 						resource.MustParse("10Gi"),
 						resource.MustParse("20Gi"),
@@ -595,18 +588,16 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should use max Default across devices with heterogeneous Defaults", func() {
 			ginkgo.By("Creating ResourceSlice with two devices having different Defaults")
-			default40 := resource.MustParse("40Gi")
-			default10 := resource.MustParse("10Gi")
 			slice := testingdra.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &default40,
+					Default: new(resource.MustParse("40Gi")),
 				}).
 				AllowMultipleAllocations(true).
 				Device("gpu-1").
 				DeviceCapacity("memory", "100Gi", &resourcev1.CapacityRequestPolicy{
-					Default: &default10,
+					Default: new(resource.MustParse("10Gi")),
 				}).
 				AllowMultipleAllocations(true).
 				Obj()

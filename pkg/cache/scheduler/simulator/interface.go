@@ -21,9 +21,13 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 )
 
 type simulatorOptions struct {
@@ -52,16 +56,10 @@ func AssumedWorkloads(options ...Option) []*kueue.Workload {
 
 // Factory allows building instances of SchedulerSimulator
 // based on a snapshot of its internal state.
-// It also tracks all existing Pods (even those not managed by Kueue),
-// to ensure they're included in the snapshots.
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type Factory interface {
-	NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (SchedulerSimulator, error)
-	// TrackPod notifies the simulator that a pod is running on a node.
-	TrackPod(ctx context.Context, pod *corev1.Pod)
-	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+	NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...Option) (SchedulerSimulator, error)
 }
 
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.
@@ -88,6 +86,28 @@ type SchedulerSimulator interface {
 	//   (including failed placements), OR
 	// - an error and an empty placements mapping, if the call fails completely.
 	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
+	// AddPodGroup adds a PodGroup to the snapshot
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// RemovePodGroup removes a PodGroup from the snapshot
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// AddCompositePodGroup adds a CompositePodGroup to the snapshot
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+	// RemoveCompositePodGroup removes a CompositePodGroup from the snapshot
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+}
+
+// PodPreemptingSimulator optionally supports temporary removal of individual
+// bound Pods. It is used by residual-TAS capacity probes; removing an entire
+// Workload could release unrelated Pods and produce a false fit.
+type PodPreemptingSimulator interface {
+	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
+}
+
+// PodRef includes the UID so a same-name Pod replacement cannot be mistaken
+// for the residual Pod whose capacity is being probed.
+type PodRef struct {
+	Key client.ObjectKey
+	UID types.UID
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

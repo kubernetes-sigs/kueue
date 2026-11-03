@@ -67,6 +67,367 @@ func TestValidate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"unset metrics mode without gate": {
+			cfg:          &configapi.Configuration{Integrations: defaultIntegrations, Metrics: configapi.ControllerMetrics{BindAddress: "not-an-address"}},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+		},
+		"unsafe metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"}},
+		},
+		"delegated metrics without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"delegated metrics with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled delegated metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeDelegated),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"disabled metrics with unknown mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("Unknown")),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
+		},
+		"empty metrics access control mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("")),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeNotSupported, Field: "metrics.accessControlMode"},
+			},
+		},
+		"unknown metrics access control mode": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlMode("Unknown")),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeNotSupported, Field: "metrics.accessControlMode"},
+			},
+		},
+		"IPv4 loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"IPv4 loopback range": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.12.3.4:1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"IPv6 loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::1]:65535",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"mapped loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::ffff:127.0.0.1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"disabled metrics opt out with gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+		},
+		"wildcard metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"unspecified IPv4 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "0.0.0.0:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"unspecified IPv6 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"non loopback IPv4 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "10.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"non loopback IPv6 metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[2001:db8::1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"mapped non loopback metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::ffff:10.0.0.1]:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"hostname metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "localhost:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"missing metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"named metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:https",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"zero metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:0",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"overflow metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:65536",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"negative metrics port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "127.0.0.1:-1",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"URL metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "https://127.0.0.1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"malformed metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "[::1:8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
+		"empty metrics address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       "",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: true},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"},
+			},
+		},
 		"empty": {
 			cfg: &configapi.Configuration{},
 			wantErr: field.ErrorList{
@@ -1644,8 +2005,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.deviceClassMappings[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.deviceClassMappings[0].name",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1684,8 +2046,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1704,8 +2067,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1724,8 +2088,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].input",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].input",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1745,8 +2110,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1793,12 +2159,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1824,12 +2192,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[1].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[1].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -2205,6 +2575,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"capacity source with CC gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -2335,7 +2706,12 @@ func TestValidate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			// Most cases leave Detail empty; compare it only when the first error sets one.
+			ignoreFields := []string{"BadValue"}
+			if len(tc.wantErr) > 0 && tc.wantErr[0].Detail == "" {
+				ignoreFields = append(ignoreFields, "Detail")
+			}
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, ignoreFields...)); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
@@ -2417,6 +2793,8 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				features.KueueDRAIntegrationExtendedResource,
 			) + "=false," + string(
 				features.KueueDRAIntegrationPartitionableDevices,
+			) + "=false," + string(
+				features.KueueDRAIntegrationConsumableCapacity,
 			) + "=false",
 		},
 		"cannot specify both feature gates": {
@@ -2439,6 +2817,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2497,6 +2876,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
 				string(features.ElasticJobsViaWorkloadSlices):                true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2531,6 +2911,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 true,
@@ -2556,6 +2937,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2588,7 +2970,9 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				// them report their own unmet dependency and bury the one under test.
 				string(features.KueueDRAIntegrationExtendedResource):         false,
 				string(features.KueueDRAIntegrationPartitionableDevices):     false,
+				string(features.KueueDRAIntegrationConsumableCapacity):       false,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
@@ -2626,6 +3010,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASNodeFeasibilityForAllLevels requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              true,
 				string(features.TASGroupedPodSetSlicing):                     false,
@@ -2658,6 +3043,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2682,6 +3068,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2707,6 +3094,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASLeaderPodSetFeasibility requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2730,9 +3118,89 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"TASResidualPodAccounting requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    true,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASResidualPodAccounting is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"default TASResidualPodAccounting requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASResidualPodAccounting is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASResidualPodAccounting and TopologyAwareScheduling can both be disabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
+			},
+		},
+		"TASResidualPodAccounting valid when TopologyAwareScheduling is enabled": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):  true,
+				string(features.TASResidualPodAccounting): true,
+			},
+		},
 		"TASBalancedPlacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2759,6 +3227,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2784,6 +3253,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASMultiLayerTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2809,6 +3279,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASTopologySpreading requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2835,6 +3306,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASRejectFalseUnconstrainedTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         true,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2860,6 +3332,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2888,6 +3361,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASGroupedPodSetSlicing):                     true,
 				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2914,6 +3388,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2964,9 +3439,19 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"disabling TAS failed-node replacement does not require the deferral gate": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASMultiLayerTopology):            false,
+			},
+		},
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2991,6 +3476,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASResidualPodAccounting):                    false,
 				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -3014,18 +3500,19 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"all TAS sub-features valid when TopologyAwareScheduling and TASFailedNodeReplacement enabled": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          true,
-				string(features.TASFailedNodeReplacement):         true,
-				string(features.TASFailedNodeReplacementFailFast): true,
-				string(features.TASReplaceNodeOnPodTermination):   true,
-				string(features.TASBalancedPlacement):             true,
-				string(features.TASReplaceNodeOnNodeTaints):       true,
-				string(features.TASMultiLayerTopology):            true,
-				string(features.TASRespectNodeAffinityPreferred):  true,
-				string(features.TASHandleOverlappingFlavors):      true,
-				string(features.TASGroupedPodSetSlicing):          true,
-				string(features.TASPartialSlices):                 true,
-				string(features.TASLeaderPodSetFeasibility):       false,
+				string(features.TopologyAwareScheduling):                                    true,
+				string(features.TASFailedNodeReplacement):                                   true,
+				string(features.TASFailedNodeReplacementFailFast):                           true,
+				string(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions): true,
+				string(features.TASReplaceNodeOnPodTermination):                             true,
+				string(features.TASBalancedPlacement):                                       true,
+				string(features.TASReplaceNodeOnNodeTaints):                                 true,
+				string(features.TASMultiLayerTopology):                                      true,
+				string(features.TASRespectNodeAffinityPreferred):                            true,
+				string(features.TASHandleOverlappingFlavors):                                true,
+				string(features.TASGroupedPodSetSlicing):                                    true,
+				string(features.TASPartialSlices):                                           true,
+				string(features.TASLeaderPodSetFeasibility):                                 false,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
@@ -3067,7 +3554,9 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Ensure clean up is registered for the feature gates to their default values
+			// LoadAndValidateFeatureGates mutates the process-wide gate state.
+			// Capture it here so each case starts from the real defaults, then
+			// restore it after the subtest.
 			features.SetFeatureGatesDuringTest(t, nil)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			// Ignore "Detail" field when multiple feature gate dependency errors occur (or when ignoreDetail is set/Detail is empty),

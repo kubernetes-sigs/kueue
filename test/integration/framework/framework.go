@@ -43,7 +43,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -186,7 +186,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	err = resourcev1.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = inventoryv1alpha1.AddToScheme(f.scheme)
+	err = inventoryv1alpha2.AddToScheme(f.scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = leaderworkersetv1.AddToScheme(f.scheme)

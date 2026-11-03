@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: workloads.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -4409,6 +4409,7 @@ spec:
                                       Domain names *.k8s.io and *.kubernetes.io are reserved.
                                       This field must be unique for each responder.
                                       This field is required.
+                                    minLength: 1
                                     type: string
                                   priority:
                                     description: |-
@@ -4425,12 +4426,15 @@ spec:
                                       The interval 0-999 is reserved for responders with *.k8s.io suffix.
                                       This field is required.
                                     format: int32
+                                    maximum: 100000
+                                    minimum: 0
                                     type: integer
                                 required:
                                 - name
                                 - priority
                                 type: object
                                 x-kubernetes-map-type: atomic
+                              maxItems: 10
                               type: array
                               x-kubernetes-list-map-keys:
                               - name
@@ -9262,6 +9266,38 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              waitForPodsReady:
+                description: |-
+                  waitForPodsReady defines the per-workload pods-ready timeouts.
+
+                  This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.
+
+                  If unspecified, the cluster-wide WaitForPodsReady is used.
+                properties:
+                  recoveryTimeoutSeconds:
+                    description: |-
+                      recoveryTimeoutSeconds defines a timeout, measured since the workload
+                      loses readiness after a Workload is Admitted and running.
+                      After exceeding the timeout the corresponding job gets suspended again
+                      and requeued after the backoff delay.
+                      If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
+                      are set, this field takes precedence.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  timeoutSeconds:
+                    description: |-
+                      timeoutSeconds defines the maximum time the workload may remain
+                      admitted before all pods are in a Ready or Succeeded state.
+                      When elapsed, the workload is evicted with reason PodsReadyTimeout.
+                      If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+                      this field takes precedence.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                required:
+                - timeoutSeconds
+                type: object
             type: object
             x-kubernetes-validations:
             - message: priority should not be nil when priorityClassRef is set
@@ -9477,8 +9513,8 @@ spec:
                                     x-kubernetes-validations:
                                     - message: exactly one of the fields in [universal
                                         individual] must be set
-                                      rule: '[has(self.universal),has(self.individual)].filter(x,x==true).size()
-                                        == 1'
+                                      rule: (has(self.universal)?1:0)+(has(self.individual)?1:0)
+                                        == 1
                                   valuesPerLevel:
                                     description: |-
                                       valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.

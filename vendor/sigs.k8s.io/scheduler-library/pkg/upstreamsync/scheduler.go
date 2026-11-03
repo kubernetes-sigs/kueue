@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	extenderv1 "k8s.io/kube-scheduler/extender/v1"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -82,6 +84,7 @@ type schedulerOptions struct {
 	profiles                   []schedulerapi.KubeSchedulerProfile
 	extenders                  []schedulerapi.Extender
 	frameworkOutOfTreeRegistry frameworkruntime.Registry
+	kubeConfig                 *restclient.Config
 	parallelism                int32
 	applyDefaultProfile        bool
 }
@@ -112,9 +115,46 @@ func WithParallelism(threads int32) Option {
 }
 
 // WithFrameworkOutOfTreeRegistry registers out-of-tree plugins with the in-tree registry.
+//
+// UPSTREAM-DIFF: clones registry with maps.Clone so that mutating the caller's map after
+// passing it to this option cannot alter the stored registry across subsequent NewFrameworkMap calls.
+// Tracked upstream in https://github.com/kubernetes/kubernetes/pull/142968.
 func WithFrameworkOutOfTreeRegistry(registry frameworkruntime.Registry) Option {
+	cloned := maps.Clone(registry)
 	return func(o *schedulerOptions) {
-		o.frameworkOutOfTreeRegistry = registry
+		o.frameworkOutOfTreeRegistry = cloned
+	}
+}
+
+// WithKubeConfig sets the client config exposed to plugins via fwk.Handle.KubeConfig().
+func WithKubeConfig(cfg *restclient.Config) Option {
+	return func(o *schedulerOptions) {
+		o.kubeConfig = cfg
+	}
+}
+
+type frameworkMapOptions struct {
+	sharedDRAManager fwk.SharedDRAManager
+}
+
+// FrameworkMapOption configures a single ProfileMap built by NewFrameworkMap. Unlike Option,
+// which configures the FrameworkComponents shared by every map, it applies to that map only.
+//
+// UPSTREAM-DIFF: library-only. Upstream builds a single profile map per scheduler, so its options
+// all live on scheduler.New. The library builds one ProfileMap per snapshot from shared
+// FrameworkComponents, and the DRA manager is per ProfileMap, so it is configured here.
+type FrameworkMapOption func(*frameworkMapOptions)
+
+// WithSharedDRAManager makes the plugins of the map read DRA objects through the given manager
+// rather than through the one built from FrameworkComponents. A nil manager keeps the default.
+//
+// UPSTREAM-DIFF: library-only. Upstream has one cluster to schedule against and builds the
+// manager from its own informers. The interface is documented as the place to plug a simulated
+// state in, so a caller holding claims the cluster has never seen can have them judged by the
+// same plugin kube-scheduler runs.
+func WithSharedDRAManager(m fwk.SharedDRAManager) FrameworkMapOption {
+	return func(o *frameworkMapOptions) {
+		o.sharedDRAManager = m
 	}
 }
 

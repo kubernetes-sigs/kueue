@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -26,7 +27,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,13 +44,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestReconcileDRA(t *testing.T) {
 	errTest := errors.New("test error")
+	errStatus := errors.New("status write failed")
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]reconcileTestCase{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
@@ -290,6 +298,7 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: nil,
 		},
 		"reconcile DRA persists Requeued=True when previously DRAResourcesUnresolved workload resources are resolved": {
 			featureGates: map[featuregate.Feature]bool{
@@ -625,7 +634,127 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithUnequalFirstAvailable"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				},
+			},
+		},
+		"reconcile DRA firstAvailable alternatives of different counts already inadmissible keeps the conditions": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                true,
+				features.KueueDRAIntegrationPrioritizedList: true,
+				features.MultiKueueOrchestratedPreemption:   false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+						testingdra.MakeDeviceSubRequest("a", "gpu.example.com", 1).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "gpu-class", 2).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Obj(),
 			wantEvents: nil,
+		},
+		"reconcile DRA preprocessed workload returns error when LocalQueue is missing": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlDRAMissingLQ", "ns").
+				Queue("missing-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlDRAMissingLQ", "ns").
+				Queue("missing-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue missing-lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantEvents:   nil,
+			wantError:    qcache.ErrLocalQueueDoesNotExistOrInactive,
+			wantErrorMsg: "failed to add DRA-preprocessed workload to queue",
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
@@ -682,6 +811,114 @@ func TestReconcileDRA(t *testing.T) {
 				}
 				return wl
 			}(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+				},
+			},
+		},
+		"reconcile DRA ResourceClaimTemplate with unmapped device class already inadmissible should not emit duplicate event": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Generation(2).
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message:            `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadDRAResourcesUnresolved,
+						Message:            `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+						ObservedGeneration: 1,
+					}).
+					Obj()
+				return wl
+			}(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, _ *qcache.Manager) {
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					wl := &kueue.Workload{}
+					if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRAAlreadyInadmissible"}, wl); err != nil {
+						panic(err)
+					}
+					wl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+						wl.Status.Conditions,
+						false,
+					)
+					if err := cl.Status().Update(ctx, wl); err != nil {
+						panic(err)
+					}
+				}
+			},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Generation(2).
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message:            `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+						ObservedGeneration: 2,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 2,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadDRAResourcesUnresolved,
+						Message:            `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+						ObservedGeneration: 2,
+					}).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
+				}}
+				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
+					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
+				}
+				return wl
+			}(),
 			wantEvents: nil,
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
@@ -726,6 +963,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl-invalid-extended-resource"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: "1500m": extended resource quantity must be an integer`,
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -769,7 +1014,14 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			wantErrorMsg: "failed to get claim spec",
-			wantEvents:   nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlMissingTemplate"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+				},
+			},
 		},
 		"reconcile DRA transient ResourceSlice list failure should back off": {
 			featureGates: map[featuregate.Feature]bool{
@@ -796,7 +1048,202 @@ func TestReconcileDRA(t *testing.T) {
 				).Obj(),
 			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantErrorMsg: "failed to list ResourceSlices",
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlListErrDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: ResourceClaimTemplate gpu-template: failed to list ResourceSlices: test error`,
+				},
+			},
+		},
+		"reconcile DRA keeps the processing cause when the status write also fails": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			listErr:  errTest,
+			patchErr: errStatus,
+			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantError:    errStatus,
+			wantErrorMsg: "failed to list ResourceSlices",
 			wantEvents:   nil,
+		},
+		"reconcile DRA firstAvailable alternatives of different counts sets Requeued back to False when failing again with the same message after the resources were resolved": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                true,
+				features.KueueDRAIntegrationPrioritizedList: true,
+				features.MultiKueueOrchestratedPreemption:   false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDRAResourcesResolved,
+					Message: "DRA resources were resolved after a previous inadmissible marking",
+				}).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+						testingdra.MakeDeviceSubRequest("a", "gpu.example.com", 1).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "gpu-class", 2).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithUnequalFirstAvailable"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				},
+			},
+		},
+		"reconcile DRA ResourceClaimTemplate with unmapped device class sets Requeued back to False when failing again with the same message after the resources were resolved": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDRAResourcesResolved,
+					Message: "DRA resources were resolved after a previous inadmissible marking",
+				}).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRA", "ns").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+					}).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
+				}}
+				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
+					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
+				}
+				return wl
+			}(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+				},
+			},
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
@@ -807,45 +1254,112 @@ func TestReconcileDRA(t *testing.T) {
 // Workload is deliberately skipped on a DeviceClass event (#14563).
 
 func TestDeviceClassHandler_Create(t *testing.T) {
-	const extResource = "example.com/gpu"
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	const (
+		extResource      = "example.com/gpu"
+		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
+	)
 
 	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
 		Obj()
+	implicitPending := utiltestingapi.MakeWorkload("wl-implicit-pending", "ns").
+		Queue("lq").
+		Request(implicitResource, "1").
+		Obj()
 	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
+		Request(implicitResource, "1").
 		SimpleReserveQuota("cq", "default", time.Now()).
 		Obj()
 
 	testCases := map[string]struct {
-		dc           *resourcev1.DeviceClass
-		wantRequests []reconcile.Request
+		dc                     *resourcev1.DeviceClass
+		limitRanges            []*corev1.LimitRange
+		wantRequests           []reconcile.Request
+		wantDRABackedResources sets.Set[corev1.ResourceName]
 	}{
-		"create of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+		"create of a DeviceClass with an extended resource name requeues pending workloads for both of its names and skips reserved workloads": {
 			dc: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
 				{Namespace: "ns", Name: "wl-pending"},
 			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](extResource, implicitResource),
 		},
-		"create of a DeviceClass without an extended resource name is ignored": {
+		"create of a DeviceClass without an extended resource name requeues pending workloads for its implicit name": {
 			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](implicitResource),
+		},
+		"create requeues workloads requesting the implicit resource through LimitRange defaults and skips reserved workloads": {
+			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			limitRanges: []*corev1.LimitRange{
+				utiltesting.MakeLimitRange("defaults", "defaulted").
+					WithValue("Default", implicitResource, "1").
+					WithValue("DefaultRequest", implicitResource, "1").Obj(),
+				utiltesting.MakeLimitRange("other", "other").
+					WithValue("DefaultRequest", "example.com/other", "1").Obj(),
+			},
+			wantRequests: []reconcile.Request{
+				{Namespace: "defaulted", Name: "wl-defaulted"},
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](implicitResource),
+		},
+		"create requeues workloads requesting the configured resource through LimitRange default requests": {
+			dc: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
+			limitRanges: []*corev1.LimitRange{
+				utiltesting.MakeLimitRange("defaults", "defaulted").
+					WithValue("DefaultRequest", extResource, "1").Obj(),
+			},
+			wantRequests: []reconcile.Request{
+				{Namespace: "defaulted", Name: "wl-defaulted"},
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](extResource, implicitResource),
+		},
+		"create ignores zero defaults and resources mentioned only in LimitRange constraints": {
+			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			limitRanges: []*corev1.LimitRange{
+				utiltesting.MakeLimitRange("defaults", "defaulted").
+					WithValue("Default", implicitResource, "0").
+					WithValue("DefaultRequest", implicitResource, "0").
+					WithValue("Max", implicitResource, "2").Obj(),
+			},
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](implicitResource),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().
+			builder := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				WithObjects(pending, reserved).
-				Build()
+				WithObjects(pending, implicitPending, reserved,
+					utiltestingapi.MakeWorkload("wl-defaulted", "defaulted").Queue("lq").Obj(),
+					utiltestingapi.MakeWorkload("wl-defaulted-reserved", "defaulted").
+						Queue("lq").SimpleReserveQuota("cq", "default", time.Now()).Obj(),
+					utiltestingapi.MakeWorkload("wl-other", "other").Queue("lq").Obj())
+			for _, lr := range tc.limitRanges {
+				builder = builder.WithObjects(lr)
+			}
+			cl := builder.Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			erCache := dra.NewExtendedResourceCache()
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(erCache))
 			h := &deviceClassHandler{r: r}
 			q := &utiltesting.MockTypedRateLimitingInterface{}
 
@@ -858,6 +1372,11 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			for _, name := range []corev1.ResourceName{extResource, implicitResource} {
+				if got, want := erCache.Has(name), tc.wantDRABackedResources.Has(name); got != want {
+					t.Errorf("Unexpected DRA backing for %q: got %v, want %v", name, got, want)
+				}
 			}
 		})
 	}
@@ -885,9 +1404,10 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 		Obj()
 
 	testCases := map[string]struct {
-		oldDC        *resourcev1.DeviceClass
-		newDC        *resourcev1.DeviceClass
-		wantRequests []reconcile.Request
+		oldDC             *resourcev1.DeviceClass
+		newDC             *resourcev1.DeviceClass
+		defaultedResource corev1.ResourceName
+		wantRequests      []reconcile.Request
 	}{
 		"update changing the extended resource name requeues pending workloads for both the old and new resource, and skips reserved workloads": {
 			oldDC: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
@@ -909,6 +1429,14 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 			oldDC: testingdra.MakeDeviceClass("dc1").Obj(),
 			newDC: testingdra.MakeDeviceClass("dc1").Obj(),
 		},
+		"removing the configured resource name refreshes defaulted quota": {
+			oldDC:             testingdra.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
+			newDC:             testingdra.MakeDeviceClass("dc1").Obj(),
+			defaultedResource: oldExtResource,
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-old-pending"},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -922,7 +1450,11 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 				Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			erCache := dra.NewExtendedResourceCache()
+			if tc.defaultedResource != "" {
+				qManager = setupDeviceClassDefaultedQuota(t, cl, erCache, tc.oldDC, tc.defaultedResource)
+			}
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(erCache))
 			h := &deviceClassHandler{r: r}
 			q := &utiltesting.MockTypedRateLimitingInterface{}
 
@@ -936,35 +1468,66 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
+			if tc.defaultedResource != "" {
+				expectDeviceClassDefaultedQuotaRefreshed(t, qManager, tc.defaultedResource)
+			}
 		})
 	}
 }
 
 func TestDeviceClassHandler_Delete(t *testing.T) {
-	const extResource = "example.com/gpu"
+	const (
+		extResource      = "example.com/gpu"
+		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
+	)
 
 	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
 		Obj()
+	implicitPending := utiltestingapi.MakeWorkload("wl-implicit-pending", "ns").
+		Queue("lq").
+		Request(implicitResource, "1").
+		Obj()
 	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
+		Request(implicitResource, "1").
 		SimpleReserveQuota("cq", "default", time.Now()).
 		Obj()
 
 	testCases := map[string]struct {
-		dc           *resourcev1.DeviceClass
-		wantRequests []reconcile.Request
+		dc                *resourcev1.DeviceClass
+		defaultedResource corev1.ResourceName
+		wantRequests      []reconcile.Request
 	}{
-		"delete of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+		"delete of a DeviceClass with an extended resource name requeues pending workloads for both of its names and skips reserved workloads": {
 			dc: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
 				{Namespace: "ns", Name: "wl-pending"},
 			},
 		},
-		"delete of a DeviceClass without an extended resource name is ignored": {
+		"delete of a DeviceClass without an extended resource name requeues pending workloads for its implicit name": {
 			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
+		},
+		"delete of a DeviceClass backing the configured resource refreshes defaulted quota": {
+			dc:                testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
+			defaultedResource: extResource,
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+				{Namespace: "ns", Name: "wl-pending"},
+			},
+		},
+		"delete of a DeviceClass backing the implicit resource refreshes defaulted quota": {
+			dc:                testingdra.MakeDeviceClass("dc1").Obj(),
+			defaultedResource: implicitResource,
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
 		},
 	}
 
@@ -975,12 +1538,18 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				WithObjects(pending, reserved).
+				WithObjects(pending, implicitPending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			erCache := dra.NewExtendedResourceCache()
+			if tc.defaultedResource != "" {
+				qManager = setupDeviceClassDefaultedQuota(t, cl, erCache, tc.dc, tc.defaultedResource)
+			}
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(erCache))
 			h := &deviceClassHandler{r: r}
+			// A DeviceClass is deleted only after it was created, which registered its names.
+			h.Create(ctx, event.CreateEvent{Object: tc.dc}, &utiltesting.MockTypedRateLimitingInterface{})
 			q := &utiltesting.MockTypedRateLimitingInterface{}
 
 			h.Delete(ctx, event.DeleteEvent{Object: tc.dc}, q)
@@ -993,7 +1562,83 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
+			for _, name := range []corev1.ResourceName{extResource, implicitResource} {
+				if erCache.Has(name) {
+					t.Errorf("%q is still DRA-backed after its DeviceClass was deleted", name)
+				}
+			}
+			if tc.defaultedResource != "" {
+				expectDeviceClassDefaultedQuotaRefreshed(t, qManager, tc.defaultedResource)
+			}
 		})
+	}
+}
+
+func setupDeviceClassDefaultedQuota(t *testing.T, cl client.Client, erCache *dra.ExtendedResourceCache, dc *resourcev1.DeviceClass, resourceName corev1.ResourceName) *qcache.Manager {
+	t.Helper()
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	const logicalResource corev1.ResourceName = "logical-gpu"
+	defaulted := utiltestingapi.MakeWorkload("wl-defaulted", "defaulted").Queue("lq").Obj()
+	lr := utiltesting.MakeLimitRange("defaults", defaulted.Namespace).
+		WithValue("Default", resourceName, "2").
+		WithValue("DefaultRequest", resourceName, "2").Obj()
+	if err := cl.Create(ctx, lr); err != nil {
+		t.Fatal(err)
+	}
+	erCache.Add(resourceName, dc.Name)
+	erCache.Add(corev1.ResourceName(implicitExtendedResourceName(dc)), dc.Name)
+	qManager := qcache.NewManagerForUnitTests(cl, nil,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()),
+		qcache.WithDRABackedResources(erCache))
+	if err := qManager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatal(err)
+	}
+	if err := qManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", defaulted.Namespace).ClusterQueue("cq").Obj()); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Create(ctx, defaulted); err != nil {
+		t.Fatal(err)
+	}
+	// Seed the logical charge computed before the DeviceClass change.
+	if err := qManager.AddOrUpdateWorkload(ctx, log, defaulted, workload.WithPreprocessedDRAResources(
+		map[kueue.PodSetReference]corev1.ResourceList{
+			kueue.DefaultPodSetName: {logicalResource: resource.MustParse("2")},
+		},
+		map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+			kueue.DefaultPodSetName: sets.New(resourceName),
+		},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	heads := qManager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("popped workloads = %d, want 1", len(heads))
+	}
+	if got := heads[0].TotalRequests[0].Requests.ResourceValue(logicalResource); got.CmpInt64(2) != 0 {
+		t.Fatalf("initial logical quota = %s, want 2", got)
+	}
+	if !qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota) {
+		t.Fatal("workload was not requeued")
+	}
+	return qManager
+}
+
+func expectDeviceClassDefaultedQuotaRefreshed(t *testing.T, qManager *qcache.Manager, resourceName corev1.ResourceName) {
+	t.Helper()
+	infos := qManager.PendingWorkloadsInfo("cq")
+	if len(infos) != 1 {
+		t.Fatalf("pending workloads = %d, want 1", len(infos))
+	}
+	if got := infos[0].TotalRequests[0].Requests.ResourceValue("logical-gpu"); got.Sign() != 0 {
+		t.Errorf("logical quota after DeviceClass change = %s, want 0", got)
+	}
+	if got := infos[0].TotalRequests[0].Requests.ResourceValue(resourceName); got.CmpInt64(2) != 0 {
+		t.Errorf("original resource quota after DeviceClass change = %s, want 2", got)
+	}
+	if !qManager.HasQueuedWorkloads("cq") {
+		t.Error("workload was not reactivated")
 	}
 }
 
@@ -1034,5 +1679,90 @@ func TestDeviceClassHandler_Generic(t *testing.T) {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestResourceUpdatesHandler(t *testing.T) {
+	podSet := func(runtimeClass string) kueue.PodSet {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "tmpl")
+		if runtimeClass != "" {
+			ps = ps.RuntimeClass(runtimeClass)
+		}
+		return *ps.Obj()
+	}
+	workloads := []client.Object{
+		utiltestingapi.MakeWorkload("kata-pending", "ns1").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-pending", "ns2").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-reserved", "ns1").Queue("lq").PodSets(podSet("kata")).
+			SimpleReserveQuota("cq", "default", time.Now()).Obj(),
+		utiltestingapi.MakeWorkload("gvisor-pending", "ns1").Queue("lq").PodSets(podSet("gvisor")).Obj(),
+		utiltestingapi.MakeWorkload("no-runtimeclass-pending", "ns1").Queue("lq").PodSets(podSet("")).Obj(),
+	}
+
+	events := map[string]func(context.Context, *resourceUpdatesHandler, client.Object, workqueue.TypedRateLimitingInterface[reconcile.Request]){
+		"create": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Create(ctx, event.CreateEvent{Object: obj}, q)
+		},
+		"update": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Update(ctx, event.UpdateEvent{ObjectOld: obj, ObjectNew: obj}, q)
+		},
+		"delete": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Delete(ctx, event.DeleteEvent{Object: obj}, q)
+		},
+	}
+
+	testCases := map[string]struct {
+		obj          client.Object
+		wantRequests []reconcile.Request
+	}{
+		"RuntimeClass requeues only pending workloads that use it, in every namespace": {
+			obj: utiltesting.MakeRuntimeClass("kata", "kata").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns2", Name: "kata-pending"},
+			},
+		},
+		"RuntimeClass not used by any workload requeues nothing": {
+			obj: utiltesting.MakeRuntimeClass("runc", "runc").Obj(),
+		},
+		"LimitRange requeues only pending workloads in its namespace": {
+			obj: utiltesting.MakeLimitRange("limits", "ns1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "gvisor-pending"},
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns1", Name: "no-runtimeclass-pending"},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		for eventName, trigger := range events {
+			t.Run(name+"/"+eventName, func(t *testing.T) {
+				// DRA workloads are requeued as reconcile requests, which makes the listed workloads observable.
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cl := utiltesting.NewClientBuilder().
+					WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+					WithIndex(&kueue.Workload{}, indexer.WorkloadRuntimeClassKey, indexer.IndexWorkloadRuntimeClass).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(utiltesting.MakeRuntimeClass("kata", "kata").Obj(), utiltesting.MakeRuntimeClass("gvisor", "runsc").Obj()).
+					WithObjects(workloads...).
+					Build()
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				h := &resourceUpdatesHandler{r: NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})}
+				q := &utiltesting.MockTypedRateLimitingInterface{}
+
+				trigger(ctx, h, tc.obj, q)
+
+				gotRequests := q.Items
+				slices.SortFunc(gotRequests, func(a, b reconcile.Request) int {
+					return strings.Compare(a.String(), b.String())
+				})
+				if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
+					t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }

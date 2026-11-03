@@ -218,6 +218,18 @@ func TestNewCandidateFilters(t *testing.T) {
 					Mode:       kueuealpha.Base,
 					Comparison: kueuealpha.LessThan,
 				},
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.WorkloadPriorityClassGroup,
+						Kind:  kueuealpha.WorkloadPriorityClassKind,
+					},
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:        "tpu-size",
@@ -253,6 +265,20 @@ func TestNewCandidateFilters(t *testing.T) {
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
 					},
+					&priorityClassFilter{
+						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+							SourceRef: &kueuealpha.PriorityClassSourceRef{
+								Group: kueuealpha.WorkloadPriorityClassGroup,
+								Kind:  kueuealpha.WorkloadPriorityClassKind,
+							},
+							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+								{
+									Operator: kueuealpha.PriorityClassSelectorOpIn,
+									Values:   []string{"low-priority"},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -275,6 +301,49 @@ func TestNewCandidateFilters(t *testing.T) {
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
 					},
+				},
+			},
+		},
+		"WithinClusterQueue with PriorityClassSelector compiles CQ and priorityClass filters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
+				},
+				WLFilters: []WorkloadFilter{
+					&priorityClassFilter{
+						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+								{
+									Operator: kueuealpha.PriorityClassSelectorOpIn,
+									Values:   []string{"low-priority"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"WithinClusterQueue with empty PriorityClassSelector produces no extra WorkloadFilters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope:                 kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
 				},
 			},
 		},
@@ -404,6 +473,26 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
+		"PriorityClassSelector with invalid operator returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOperator("InvalidOp"),
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriorityClassSelector,
+					Reason: ReasonUnsupportedOperator,
+				},
+			},
+		},
 		"NumericLabels with invalid comparison returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
@@ -455,6 +544,7 @@ func TestNewCandidateFilters(t *testing.T) {
 			clusterQueueLabelFilter{},
 			numericLabelFilter{},
 			priorityFilter{},
+			priorityClassFilter{},
 		),
 		cmpopts.IgnoreFields(numericLabelFilter{}, "log"),
 		cmpopts.IgnoreFields(priorityFilter{}, "log", "priorityFn"),

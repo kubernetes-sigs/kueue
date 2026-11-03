@@ -28,12 +28,15 @@ import (
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
 func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
-	// Use LocalQueue informer since namespaces are derived from LocalQueues
 	return func(c *gin.Context) {
 		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, nil,
+			secondaryWatch{gvk: LocalQueuesGVK(), gvr: LocalQueuesGVR()},
+		)
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchNamespaces(ctx, identity)
-		}, LocalQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 

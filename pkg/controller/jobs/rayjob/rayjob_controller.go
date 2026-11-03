@@ -237,7 +237,7 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	return message, success, finished
 }
 
-func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 
@@ -273,7 +273,7 @@ func defaultSubmitterResources() corev1.ResourceRequirements {
 	}
 }
 
-// getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
+// getSubmitterTemplate returns the PodTemplateSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
 func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 	if rayJob.Spec.SubmitterPodTemplate != nil {
 		return rayJob.Spec.SubmitterPodTemplate

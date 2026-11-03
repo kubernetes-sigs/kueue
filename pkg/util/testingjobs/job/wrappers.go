@@ -316,6 +316,12 @@ func (j *JobWrapper) Failed(c int32) *JobWrapper {
 	return j
 }
 
+// Succeeded sets the .status.succeeded
+func (j *JobWrapper) Succeeded(c int32) *JobWrapper {
+	j.Status.Succeeded = c
+	return j
+}
+
 // Ready sets the .status.ready
 func (j *JobWrapper) Ready(c int32) *JobWrapper {
 	j.Status.Ready = &c

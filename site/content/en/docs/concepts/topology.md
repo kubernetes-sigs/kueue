@@ -101,8 +101,32 @@ When a ResourceFlavor references a Topology:
 - **At least one nodeLabel is required**: The ResourceFlavor must have at least
   one entry in `.spec.nodeLabels`.
 - **Restricted mutability**: Once a ResourceFlavor has a `topologyName` set,
-  the `.spec.nodeLabels` and `.spec.topologyName` fields cannot be modified.
-  The `.spec.nodeTaints` and `.spec.tolerations` fields can still be updated.
+  the `.spec.topologyName` field is immutable (it cannot be changed or unset in
+  place). Since Kueue v0.20, `.spec.nodeLabels` (as long as at least one label
+  remains), `.spec.nodeTaints`, and `.spec.tolerations` can still be updated in
+  place; in Kueue v0.18 and v0.19, `.spec.nodeLabels` and `.spec.tolerations`
+  are also immutable once `.spec.topologyName` is set.
+
+While `TopologyAwareScheduling` is enabled, Kueue adds the
+`kueue.x-k8s.io/resource-in-use` finalizer to each `Topology` and removes it
+only once no `ResourceFlavor` references that `Topology`. The TAS controllers
+that manage this finalizer do not run while `TopologyAwareScheduling` is
+disabled, so a `Topology` that already has the finalizer stays in `Terminating`
+if it is deleted while TAS is disabled, until TAS is re-enabled. When
+`TopologyAwareScheduling` is enabled, Kueue also marks any `ClusterQueue` that
+uses a flavor whose `Topology` does not exist as inactive (`TopologyNotFound`),
+so create the `Topology` before referencing it from a `ResourceFlavor`.
+
+Because `.spec.topologyName` cannot be unset in place, disabling TAS on an
+existing flavor without performing a blue/green `ResourceFlavor` replacement
+requires setting `TopologyAwareScheduling: false` and setting every enabled
+feature gate that depends on it (mostly the `TAS*` gates) to `false` (see
+[Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)). Jobs
+already admitted through TAS before the gate is disabled retain the
+`kueue.x-k8s.io/topology` scheduling gate in their PodTemplate; any Pods created
+or recreated for those Jobs while TAS is disabled remain `SchedulingGated` until
+the Workload is evicted (for example, via `waitForPodsReady.recoveryTimeout`)
+and re-admitted.
 
 ## What's next?
 
