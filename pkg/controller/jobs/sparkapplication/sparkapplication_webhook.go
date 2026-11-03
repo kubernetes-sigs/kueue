@@ -18,6 +18,7 @@ package sparkapplication
 
 import (
 	"context"
+	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -129,6 +130,15 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 
 		if spec.Mode != sparkv1beta2.DeployModeCluster {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("mode"), spec.Mode, "only Cluster mode is supported for a kueue managed job"))
+		}
+
+		if !isAnElasticJob(job) && strings.EqualFold(strings.TrimSpace(spec.SparkConf["spark.dynamicAllocation.enabled"]), "true") {
+			allErrors = append(allErrors,
+				field.Invalid(specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+					spec.SparkConf["spark.dynamicAllocation.enabled"],
+					"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				),
+			)
 		}
 
 		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
