@@ -17,6 +17,8 @@ limitations under the License.
 package filters
 
 import (
+	"time"
+
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -33,8 +35,15 @@ type WorkloadFilter interface {
 	Matches(wl *workload.Info) bool
 }
 
+// WorkloadTimeFilter evaluates a time-based constraint on a candidate workload,
+// reporting whether it matches now or, if not, the earliest time it may match.
+type WorkloadTimeFilter interface {
+	Matches(wl *workload.Info) (retryAt *time.Time, matches bool)
+}
+
 // CandidateFilters contains the complete filter set compiled for a candidate selector.
 type CandidateFilters struct {
-	CQFilters []ClusterQueueFilter
-	WLFilters []WorkloadFilter
+	CQFilters     []ClusterQueueFilter
+	WLFilters     []WorkloadFilter
+	WLTimeFilters []WorkloadTimeFilter
 }

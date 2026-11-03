@@ -119,7 +119,7 @@ func TestPendingWorkloadsMetricsWithCustomLabels(t *testing.T) {
 			}
 			checker.active = tc.active
 			if tc.requeue {
-				requeuer.notifyClusterQueue("cq")
+				requeuer.notifyClusterQueue("cq", 0)
 				if moved := requeuer.ProcessRequeues(ctx); moved != 1 {
 					t.Fatalf("Expected one inadmissible workload to move, got %d", moved)
 				}

@@ -180,12 +180,17 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 // ClusterQueues' Cohort Trees, are moved from
 // inadmissibleQueue to the active workload heap.
 func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
-	m.RLock()
-	defer m.RUnlock()
-	notifyRetryInadmissibleWithoutLock(m, cqNames)
+	NotifyRetryInadmissibleAfter(m, cqNames, 0)
 }
 
-func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+// NotifyRetryInadmissibleAfter is like NotifyRetryInadmissible, but waits at least delay.
+func NotifyRetryInadmissibleAfter(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay time.Duration) {
+	m.RLock()
+	defer m.RUnlock()
+	notifyRetryInadmissibleWithoutLock(m, cqNames, delay)
+}
+
+func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay time.Duration) {
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
@@ -193,10 +198,10 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 		}
 		switch {
 		case !cq.HasParent():
-			m.requeuer.notifyClusterQueue(cq.name)
+			m.requeuer.notifyClusterQueue(cq.name, delay)
 		case !hierarchy.HasCycle(cq.Parent()):
 			rootName := cq.Parent().getRootUnsafe().GetName()
-			m.requeuer.notifyCohort(rootName)
+			m.requeuer.notifyCohort(rootName, delay)
 		}
 		// We silently ignore Cohort trees with cycles.
 		// Once the cycle is removed, we will reconcile
@@ -209,9 +214,9 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 // Root Cohort should have its Inadmissible Workloads requeued.
 type inadmissibleRequeuer interface {
 	// notifyClusterQueue should only be called for ClusterQueues without a Cohort.
-	notifyClusterQueue(cqName kueue.ClusterQueueReference)
+	notifyClusterQueue(cqName kueue.ClusterQueueReference, delay time.Duration)
 	// notifyCohort should only be called for Root Cohorts.
-	notifyCohort(cohortName kueue.CohortReference)
+	notifyCohort(cohortName kueue.CohortReference, delay time.Duration)
 	setManager(manager *Manager)
 }
 
@@ -241,12 +246,12 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	}
 }
 
-func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
-	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, r.batchPeriod)
+func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, max(delay, r.batchPeriod))
 }
 
-func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference) {
-	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, r.batchPeriod)
+func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, max(delay, r.batchPeriod))
 }
 
 func (r *workqueueRequeuer) setManager(manager *Manager) {

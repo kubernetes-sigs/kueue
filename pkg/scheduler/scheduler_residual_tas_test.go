@@ -111,7 +111,7 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 				t.Fatalf("snapshot: %v", err)
 			}
 			s := New(nil, cache, cl, &utiltesting.EventRecorder{})
-			asgn, targets, err := s.getAssignments(ctx, incoming, snap)
+			asgn, targets, retryAt, err := s.getAssignments(ctx, incoming, snap)
 			if err != nil {
 				t.Fatalf("getAssignments: %v", err)
 			}
@@ -119,7 +119,7 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 				t.Fatalf("expected residual DeferredFit without victims, got mode=%v waiting=%t targets=%v", asgn.RepresentativeMode(), asgn.WaitingForResidualTASPods, targets)
 			}
 			e := entry{Info: *incoming, clusterQueueSnapshot: snap.ClusterQueue("cq")}
-			e.recordAssignment(asgn, targets)
+			e.recordAssignment(asgn, targets, retryAt)
 			// Exercise the ordinary DeferredFit branch with the same recorded scan.
 			e.assignment.WaitingForResidualTASPods = tc.residual
 			s.processEntry(ctx, &e, snap, preemption.PreemptedWorkloads{}, nil)
@@ -138,7 +138,7 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 			if err != nil {
 				t.Fatalf("next snapshot: %v", err)
 			}
-			next, targets, err := s.getAssignments(ctx, &e.Info, nextSnapshot)
+			next, targets, _, err := s.getAssignments(ctx, &e.Info, nextSnapshot)
 			if err != nil {
 				t.Fatalf("next getAssignments: %v", err)
 			}
@@ -242,7 +242,7 @@ func TestPartialAdmissionWithResidualTASPods(t *testing.T) {
 						t.Run(fmt.Sprintf("attempt=%d", attempt), func(t *testing.T) {
 							incoming := workload.NewInfo(log, incoming.Obj)
 							incoming.ClusterQueue = "cq"
-							asgn, targets, err := s.getAssignments(ctx, incoming, snap)
+							asgn, targets, _, err := s.getAssignments(ctx, incoming, snap)
 							if err != nil {
 								t.Fatalf("getAssignments() error = %v", err)
 							}
@@ -368,7 +368,7 @@ func TestMultiVictimPreemptionWithResidualTASPods(t *testing.T) {
 						t.Run(fmt.Sprintf("attempt=%d", attempt), func(t *testing.T) {
 							incoming := workload.NewInfo(log, incoming.Obj)
 							incoming.ClusterQueue = "cq"
-							asgn, targets, err := s.getAssignments(ctx, incoming, snap)
+							asgn, targets, _, err := s.getAssignments(ctx, incoming, snap)
 							if err != nil {
 								t.Fatalf("getAssignments() error = %v", err)
 							}

@@ -309,7 +309,7 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
 	c := m.hm.Cohort(cohortName)
 	if !hierarchy.HasCycle(c) {
-		m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
+		m.requeuer.notifyCohort(c.getRootUnsafe().GetName(), 0)
 	}
 }
 
@@ -362,7 +362,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name))
+	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name), 0)
 	reportPendingWorkloads(m, cqImpl.name)
 
 	if addedWorkloads {
@@ -427,7 +427,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 		// Broadcast occurs after inadmissible workloads are requeued.
 		// Immediate broadcast is no-op, as there are no workloads
 		// to process.
-		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
+		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName), 0)
 	}
 	becameActive := !oldActive && cqImpl.Active()
 	// CQ readiness changes the metric classification even if no workload moves.
@@ -944,7 +944,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		return
 	}
 
-	notifyRetryInadmissibleWithoutLock(m, sets.New(cq.name))
+	notifyRetryInadmissibleWithoutLock(m, sets.New(cq.name), 0)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
