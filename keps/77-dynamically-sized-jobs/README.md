@@ -442,36 +442,60 @@ This phase will validate correctness and stability of the slicing mechanism in a
 
 This phase supports [Spark dynamic allocation](https://spark.apache.org/docs/latest/job-scheduling.html#dynamic-resource-allocation)
 for an elastic `SparkApplication`.
-The Spark driver adds and removes executor Pods while it runs, so Kueue cannot read the executor count from the spec.
+Kueue takes the executor count from the executor Pods, not from the `SparkApplication` spec.
+With dynamic allocation, the Spark driver creates and deletes executor Pods itself and does not update
+`spec.executor.instances`, so the spec does not show how many executors are running or requested by dynamic allocation.
 
-- The executor Pod template gets the `kueue.x-k8s.io/elastic-job` scheduling gate.
-  The webhook rejects a `SparkApplication` that removes it.
-- Before the driver runs, the executor count is the larger of `spec.executor.instances` and `spec.dynamicAllocation.minExecutors`.
-- Once the driver runs, the executor count is the number of `Pending` and `Running` executor Pods of the current submission,
-  kept between `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.maxExecutors`.
-- The driver keeps running across slice replacements.
-- A scale-down releases quota only after the removed executors stop.
-- The webhook rejects dynamic allocation on a `SparkApplication` that is not elastic, as for RayCluster autoscaling.
+- The Kueue `SparkApplication` webhook adds the `kueue.x-k8s.io/elastic-job` scheduling gate to the executor Pod template
+  on create, as the Kueue `RayCluster` webhook does for the worker Pod templates.
+  The driver Pod template is not gated.
+  The Kueue `SparkApplication` webhook rejects an elastic `SparkApplication` whose executor Pod template
+  does not have the gate, on create and on update, as the Kueue `RayCluster` webhook does.
+- The Workload has two PodSets, `driver` and `executor`. The `driver` PodSet always has a count of 1 and is not elastic;
+  only the `executor` PodSet count changes between slices, so replacing a slice does not restart the driver.
+- Until the driver runs and has created all its initial executors, the executor count is the largest of
+  `spec.executor.instances`, `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.initialExecutors`,
+  the same number of executors the driver starts with.
+  The driver creates its initial executors in batches, so a lower Pod count during that time is not a scale-down.
+- After that, the executor count is the number of `Pending` and `Running` executor Pods of the current submission.
+  The Spark driver keeps its executors between `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.maxExecutors`.
+  The Kueue `SparkApplication` controller also clamps the count to that range, so the Workload does not resize
+  while the Pod count is briefly outside it.
+- When the driver deletes an executor Pod, the executor count drops once the Pod stops. The generic scale-down
+  path from Phase 1 then lowers the `executor` count of the admitted Workload in place, without a new slice,
+  which lowers its quota usage.
+- The Kueue `SparkApplication` webhook rejects `spec.dynamicAllocation.enabled: true`, on create and on update,
+  when the `SparkApplication` is not elastic, as the Kueue `RayCluster` webhook rejects `spec.enableInTreeAutoscaling: true`
+  (for an elastic `SparkApplication`, `spark.dynamicAllocation.enabled: "true"` in `spec.sparkConf` is rejected
+  when `spec.dynamicAllocation.enabled` is `false`).
+  A `SparkApplication` is elastic when it has the `kueue.x-k8s.io/elastic-job: "true"` annotation and both the
+  `ElasticJobsViaWorkloadSlices` and `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gates are enabled.
 
-Known limitations:
+Known limitations in Alpha (see the [graduation criteria](#elasticjobsviaworkloadslicesforsparkapplication-graduation-criteria)):
 
-- The first admission ignores `spec.dynamicAllocation.initialExecutors`.
-  Executors above it stay gated until the next slice is admitted.
-- Kueue reads dynamic allocation settings from `spec.dynamicAllocation` only, not from `spec.sparkConf`.
+- Dynamic allocation must be configured in `spec.dynamicAllocation`. Kueue does not read the dynamic allocation
+  settings from `spec.sparkConf`, so an elastic `SparkApplication` that enables dynamic allocation only in
+  `spec.sparkConf` is rejected and must be changed to use `spec.dynamicAllocation`.
 
 #### Scale Up
 
-1. Create an elastic `SparkApplication` with dynamic allocation, 1 initial executor and `maxExecutors: 4`.
+1. Create an elastic `SparkApplication` with `spec.executor.instances: 1` and dynamic allocation
+   (`spec.dynamicAllocation.enabled: true`, `maxExecutors: 4`).
 2. Verify that a `Workload` with 2 `PodSets` (driver and executors) is created and admitted, with an executor count of 1.
 3. The driver adds executors; the new executor Pods are gated.
-4. Confirm that a new `Workload` slice for the larger executor count is admitted, the previous slice is `Finished`,
+4. The Kueue `SparkApplication` controller counts the executor Pods, gated ones included, and sets the `executor`
+   PodSet count to that number. From here, the generic scale-up path from Phase 1 applies: Kueue creates a new
+   `Workload` slice with the larger count to replace the admitted one.
+5. Confirm that the new slice is admitted, the previous slice is `Finished`,
    and the new executors are ungated while the driver keeps running.
 
 #### Scale Down
 
-1. The driver removes idle executors.
-2. Confirm that the executor count of the admitted `Workload` drops once the removed executors stop,
-   and that the ClusterQueue usage drops with it.
+1. The driver deletes idle executor Pods.
+2. Once those Pods stop, the Kueue `SparkApplication` controller counts the remaining executor Pods and sets the
+   `executor` PodSet count to that number. From here, the generic scale-down path from Phase 1 applies: Kueue lowers
+   the count of the admitted `Workload` in place, without a new slice.
+3. Confirm that the ClusterQueue usage drops with it, while the driver and the remaining executors keep running.
 
 ## Additional Details
 
@@ -662,7 +686,6 @@ SparkApplication support is gated separately via `ElasticJobsViaWorkloadSlicesFo
 
 #### Beta
 
-* [ ] Re-evaluate honoring `spec.dynamicAllocation.initialExecutors` at the first admission.
 * [ ] Re-evaluate reading dynamic allocation settings from `spec.sparkConf`.
 
 ## Implementation History
