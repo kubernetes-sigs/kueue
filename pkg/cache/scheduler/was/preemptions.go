@@ -106,7 +106,7 @@ func (s *wasSimulator) toPreemptionVictims(victims []schedlib.PreemptionVictim) 
 	if len(victims) == 0 {
 		return nil, nil
 	}
-	preemptionVictims := make([]client.ObjectKey, 0, len(victims))
+	var preemptionVictims []client.ObjectKey
 	for _, victim := range victims {
 		if wlVictim, ok := victim.(*preemptionVictim); !ok {
 			return nil, errors.New("scheduler-library returned illegal preemption victim type")
