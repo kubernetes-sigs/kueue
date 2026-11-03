@@ -423,6 +423,10 @@ func mergeResourcesByFlavor(resourceGroups []kueue.ResourceGroup) ([]kueue.Resou
 		flavorName := rg.Flavors[0].Name
 		idx, found := indexByFlavor[flavorName]
 		if !found {
+			// --nominal-quota entries come first, so a limit entry here has no nominal quota.
+			if quotaType := quotaTypeOf(rg.Flavors[0].Resources[0]); quotaType != nominalQuota {
+				return mergedResources, fmt.Errorf("%w %q: flavor is set in --%s but has no matching --%s", errMisconfiguredFlavor, flavorName, quotaType, nominalQuota)
+			}
 			mergedResources = append(mergedResources, rg)
 			indexByFlavor[flavorName] = index
 			index++

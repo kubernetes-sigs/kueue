@@ -20,12 +20,6 @@ Make sure the following conditions are met:
 - [Kueue is installed](/docs/installation).
 - The cluster has at least one [local queue and cluster queue](/docs/tasks/manage/administer_cluster_quotas). Presented commands assume your local queue is named "user-queue" and cluster queue is named "cluster-queue", if this is not the case adjust them appropriately.
 
-
-{{% alert title="Note" color="primary" %}}
-The queries in this page require `AssignQueueLabelsForPods` Feature Gate, which is enabled by default.
-If it is not enabled, see [Installation](/docs/installation/#change-the-feature-gates-configuration) for details how to enable it.
-{{% /alert %}}
-
 ## `kubectl top` for command line resource usage debugging
 
 {{% alert title="Warning" color="warning" %}}

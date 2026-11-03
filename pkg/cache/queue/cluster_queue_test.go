@@ -1118,6 +1118,33 @@ func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 	}
 }
 
+func TestPendingCountsInflight(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	for i := range 3 {
+		wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), defaultNamespace).
+			Queue("lq").
+			Creation(now.Add(time.Duration(i) * time.Second)).
+			Obj()
+		cq.PushOrUpdate(workload.NewInfo(log, wl))
+	}
+	inflight := cq.Pop()
+	if inflight == nil {
+		t.Fatal("expected to pop a workload")
+	}
+	cq.requeueIfNotPresent(log, cq.Pop(), false, RequeueReasonGeneric, "")
+
+	active, inadmissible := cq.Pending()
+	if active != 2 || inadmissible != 1 {
+		t.Fatalf("Pending mismatch: active=%d inadmissible=%d, want active=2 inadmissible=1", active, inadmissible)
+	}
+	if got := cq.PendingTotal(); got != 3 {
+		t.Fatalf("PendingTotal mismatch: got %d, want 3", got)
+	}
+}
+
 func TestPendingInLocalQueue(t *testing.T) {
 	now := time.Now()
 	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, "lq-a")

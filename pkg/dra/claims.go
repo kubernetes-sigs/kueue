@@ -405,36 +405,12 @@ func evaluateSelectorsOnDevice(ctx context.Context, selectors []dracel.Compilati
 	return true, nil
 }
 
-// buildDeviceListFromSlices extracts devices from complete pools at their latest
-// generation, keeping pools from different drivers separate.
+// buildDeviceListFromSlices extracts devices from the pools that the DRA
+// allocator can allocate from, in listing order because matching reserves
+// devices greedily across requests.
 func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.ResourceSlice) []dracel.Device {
-	log := ctrl.LoggerFrom(ctx)
-	slicesByDriver := make(map[string][]resourcev1.ResourceSlice)
-	for i := range slices {
-		driver := slices[i].Spec.Driver
-		slicesByDriver[driver] = append(slicesByDriver[driver], slices[i])
-	}
-
-	eligibleSlices := sets.New[string]()
-	for driver, driverSlices := range slicesByDriver {
-		for poolName, pool := range groupSlicesByPool(driverSlices, driver) {
-			if !pool.isComplete() {
-				log.V(4).Info("Skipping incomplete pool", "driver", driver, "pool", poolName)
-				continue
-			}
-			for i := range pool.slices {
-				eligibleSlices.Insert(pool.slices[i].Name)
-			}
-		}
-	}
-
-	// Preserve listing order because matching reserves devices greedily across requests.
 	var devices []dracel.Device
-	for i := range slices {
-		slice := &slices[i]
-		if !eligibleSlices.Has(slice.Name) {
-			continue
-		}
+	for _, slice := range eligibleSlices(ctx, slices) {
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{

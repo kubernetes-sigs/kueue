@@ -455,7 +455,9 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
-		success = succeededCount == groupTotalCount
+		if features.Enabled(features.DeclareWorkloadFailureOnUnretriablePodGroups) {
+			success = succeededCount == groupTotalCount
+		}
 	} else {
 		return message, success, false
 	}

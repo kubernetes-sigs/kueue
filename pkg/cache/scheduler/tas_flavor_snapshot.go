@@ -244,7 +244,7 @@ type TASFlavorSnapshot struct {
 	// domainFreeCapacities caches the summed free capacity of each usage
 	// domain's leaves. It is filled on first read and never invalidated, which
 	// holds because addNonTASUsage is the only writer of leaf free capacity and
-	// snapshot() calls it before the snapshot is used.
+	// Cache.Snapshot calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
@@ -371,6 +371,21 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
 	leafCapacity.freeCapacity.Sub(usage)
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+}
+
+// adjustNonTASUsage is used only by a temporary scheduling probe, after the
+// initial snapshot has been built. Cached capacities must be invalidated on
+// both the release and its restoration.
+func (s *TASFlavorSnapshot) adjustNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, release bool) {
+	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
+	if release {
+		leafCapacity.freeCapacity.Add(usage)
+	} else {
+		leafCapacity.freeCapacity.Sub(usage)
+	}
+	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+	s.domainFreeCapacities = make(map[utiltas.TopologyDomainID]resources.Requests)
+	s.forgetMatchingLeaves()
 }
 
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
@@ -615,56 +630,6 @@ type TASPodSetRequests struct {
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
-}
-
-type FailureInfo struct {
-	// PodSetName indicates the name of the PodSet for which computing the
-	// TAS assignment failed.
-	PodSetName kueue.PodSetReference
-
-	// Reason indicates the reason why computing the TAS assignment failed.
-	Reason string
-
-	// Flavor indicates the resource flavor associated with the failure.
-	Flavor kueue.ResourceFlavorReference
-}
-
-type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
-
-// Failure returns the failure of the first failed PodSet by name. Sorting keeps
-// the reported PodSet stable across scheduling cycles, as several PodSets can
-// fail at once, e.g. a leader and its workers, or PodSets in different flavors.
-func (r TASAssignmentsResult) Failure() *FailureInfo {
-	for _, psName := range slices.Sorted(maps.Keys(r)) {
-		psAssignment := r[psName]
-		if psAssignment.FailureReason != "" {
-			return &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			}
-		}
-	}
-	return nil
-}
-
-func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
-	for psName, psAssignment := range r {
-		if psAssignment.FailureReason != "" {
-			failures = append(failures, &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			})
-		}
-	}
-	return
-}
-
-type tasPodSetAssignmentResult struct {
-	TopologyAssignment *utiltas.TopologyAssignment
-	FailureReason      string
-	Flavor             kueue.ResourceFlavorReference
 }
 
 type FlavorTASRequests []TASPodSetRequests
