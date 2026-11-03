@@ -1479,29 +1479,53 @@ func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object
 // stale value. The workloads are written one by one rather than atomically, and
 // a class edited once every workload already names it is not re-resolved here.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	// Step 1: split the workloads by whether their class name has to change.
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
-	// Resolving only when at least one workload needs a transition keeps
+	// Step 2: resolving only when at least one workload needs a transition keeps
 	// steady-state reconciles from re-resolving and overwriting the
 	// otherwise-mutable priority value.
 	if len(needsClassChange) == 0 {
 		return nil
 	}
 
+	// Step 3: resolve the class once for the whole set.
 	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
 
-	// Apply the resolved ref/value to every eligible workload whose full priority
-	// state differs. Same-name workloads with a stale value are repaired before the
-	// name-changing ones, so a name mismatch survives as the retry marker if a
-	// write in this batch fails.
-	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
-	targets = append(targets, sameClassName...)
-	targets = append(targets, needsClassChange...)
+	// Steps 4 and 5 run first for the workloads that already name the class and
+	// only then for the ones that move to it. While the first group is written
+	// and checked against the class, the second still carries its previous class
+	// name, so if a write or patch fails there the next reconcile resolves the
+	// class again. The moving workloads get the value the first group settled on.
+	// A failure in the second group can only leave workloads that started to
+	// reference the class in this call on a stale value.
+	priority, err = applyWorkloadPriority(ctx, c, r, obj, sameClassName, priorityClassRef, priority)
+	if err != nil {
+		return err
+	}
+	_, err = applyWorkloadPriority(ctx, c, r, obj, needsClassChange, priorityClassRef, priority)
+	return err
+}
+
+// applyWorkloadPriority writes the resolved ref and value to every workload
+// whose priority state differs (step 4), then picks up a class value edited
+// while those writes were in flight (step 5). It returns the value the written
+// workloads hold afterwards.
+func applyWorkloadPriority(
+	ctx context.Context,
+	c client.Client,
+	r events.EventRecorder,
+	obj client.Object,
+	wls []*kueue.Workload,
+	priorityClassRef *kueue.PriorityClassRef,
+	priority int32,
+) (int32, error) {
 	log := ctrl.LoggerFrom(ctx)
-	for _, wl := range targets {
+	written := make([]*kueue.Workload, 0, len(wls))
+	for _, wl := range wls {
 		if priorityStateEqual(wl, priorityClassRef, priority) {
 			continue
 		}
@@ -1513,8 +1537,9 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 		wl.Spec.Priority = new(priority)
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
+			return priority, fmt.Errorf("updating existing workload: %w", err)
 		}
+		written = append(written, wl)
 		r.Eventf(obj,
 			nil,
 			corev1.EventTypeNormal, ReasonUpdatedWorkload,
@@ -1522,7 +1547,50 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 			"Updated workload priority class: %v", klog.KObj(wl),
 		)
 	}
-	return nil
+	return syncWorkloadPriorityClassValue(ctx, c, priorityClassRef, priority, written)
+}
+
+// syncWorkloadPriorityClassValue re-reads a WorkloadPriorityClass after a batch
+// of updates and merge-patches spec.priority on the written workloads if the
+// class value changed while the updates were in flight. It returns the value
+// the written workloads hold afterwards.
+func syncWorkloadPriorityClassValue(
+	ctx context.Context,
+	c client.Client,
+	priorityClassRef *kueue.PriorityClassRef,
+	writtenPriority int32,
+	written []*kueue.Workload,
+) (int32, error) {
+	if len(written) == 0 ||
+		priorityClassRef == nil ||
+		priorityClassRef.Group != kueue.WorkloadPriorityClassGroup ||
+		priorityClassRef.Kind != kueue.WorkloadPriorityClassKind {
+		return writtenPriority, nil
+	}
+	key := types.NamespacedName{Name: priorityClassRef.Name}
+	for {
+		var wpc kueue.WorkloadPriorityClass
+		if err := c.Get(ctx, key, &wpc); err != nil {
+			if apierrors.IsNotFound(err) {
+				return writtenPriority, nil
+			}
+			return writtenPriority, fmt.Errorf("prepare workload priority: %w", err)
+		}
+		if wpc.Value == writtenPriority {
+			return writtenPriority, nil
+		}
+		writtenPriority = wpc.Value
+		for _, wl := range written {
+			patch := client.MergeFrom(wl.DeepCopy())
+			wl.Spec.Priority = new(writtenPriority)
+			if err := c.Patch(ctx, wl, patch); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return writtenPriority, fmt.Errorf("patching existing workload: %w", err)
+			}
+		}
+	}
 }
 
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
