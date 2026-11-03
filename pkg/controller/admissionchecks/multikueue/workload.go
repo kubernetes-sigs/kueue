@@ -877,8 +877,7 @@ func remoteObjectsRemoved(wl *kueue.Workload) bool {
 // markRemoteObjectsRemoved records that the remote objects of a finished workload were
 // removed from every worker cluster.
 // TODO(kevin85421): also mark evicted workloads. They are dispatched again, so clearing the
-// condition and creating the remote workload must be atomic. Otherwise the condition can say
-// the remote objects were removed while a remote workload exists, and that remote leaks.
+// condition and creating the remote workload must be atomic.
 func (w *wlReconciler) markRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload) error {
 	if !workloadfinish.IsFinished(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
 		return nil
