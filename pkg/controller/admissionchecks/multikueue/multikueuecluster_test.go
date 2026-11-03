@@ -2197,7 +2197,9 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = fakeClientBuilder(ctx)
 
-	// A worker that was connected with the same kubeconfig and lost its connection.
+	// A worker that was connected with the same kubeconfig and lost its connection:
+	// a non-nil client means it was connected before, the unchanged config means this
+	// is not a config change, and a new remoteClient starts disconnected.
 	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 	rc.builderOverride = reconciler.builderOverride
 	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
@@ -2205,6 +2207,8 @@ func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
 	reconciler.remoteClients["worker1"] = rc
 	t.Cleanup(rc.StopWatchers)
 
+	// Reconnect: the reconcile re-establishes the watchers of the disconnected worker,
+	// which triggers the resync.
 	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
