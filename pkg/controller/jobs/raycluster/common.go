@@ -243,9 +243,14 @@ func defaultAutoscalerResources() corev1.ResourceRequirements {
 }
 
 // HeadRayContainerImage returns the image of the Ray container in the head
-// group Pod template, which KubeRay uses by default for the sidecar containers
-// it injects into the head Pod. It returns an empty string when the template
-// has no containers.
+// group Pod template. KubeRay uses it by default for the autoscaler and the
+// SidecarMode submitter in the head Pod, and for the default K8sJobMode
+// submitter Job. ValidateCreate requires a head container, so the empty result
+// for a template without containers only guards against a panic on specs that
+// were not validated. When the Ray container image itself is empty, the
+// containers that default to it get an empty image too, matching what KubeRay
+// would create, so this adds no failure that the head container would not
+// already cause.
 func HeadRayContainerImage(rayClusterSpec *rayv1.RayClusterSpec) string {
 	if rayClusterSpec == nil {
 		return ""
@@ -257,18 +262,28 @@ func HeadRayContainerImage(rayClusterSpec *rayv1.RayClusterSpec) string {
 	return containers[rayutils.RayContainerIndex].Image
 }
 
-// LegacySidecarImageOptions tolerates the empty autoscaler and extraNames head
-// sidecar images stored by older Kueue versions, only in Workloads that are
-// admitted, prebuilt (MultiKueue worker), or whose job is running, so upgrading
-// does not stop running jobs or mark prebuilt Workloads OutOfSync. Other legacy
-// Workloads mismatch and are updated, or recreated when they hold a quota
-// reservation, which repairs those stuck on a ProvisioningRequest check.
-// Elastic (workload-slicing) Workloads bypass this: EnsureWorkloadSlices
-// compares only PodSet counts, so legacy slices keep the empty image and must
-// be deleted manually to be recreated.
+// LegacySidecarImageOptions returns options that make the PodSet comparison
+// ignore an empty image on the autoscaler and extraNames containers of the
+// stored head PodSet, as written by older Kueue versions. It returns them only
+// when both hold: wl is admitted, its job is not suspended, or wl is the job's
+// prebuilt (MultiKueue worker) Workload; and the stored head PodSet has such an
+// empty image. This way upgrading does not stop running jobs or mark prebuilt
+// Workloads OutOfSync.
+//
+// Any other Workload with a legacy empty image no longer matches its job and
+// goes through the normal path: it is updated, or recreated when it holds a
+// quota reservation, which repairs Workloads stuck on a ProvisioningRequest
+// check.
+//
+// Elastic (workload-slicing) Workloads that are not prebuilt skip this
+// comparison unless their PodSet names change: EnsureWorkloadSlices only reuses
+// a slice or updates its counts in place. Their legacy slices keep the empty
+// image until a scale-up creates a new slice, or until they are deleted
+// manually.
+//
 // TODO(#17601): remove in v0.23.
 func LegacySidecarImageOptions(job jobframework.GenericJob, wl *kueue.Workload, extraNames ...string) []equality.ComparePodSetsOption {
-	if wl == nil || (!workload.IsAdmitted(wl) && job.IsSuspended() && jobframework.PrebuiltWorkloadNameFor(job.Object()) != wl.Name) {
+	if wl == nil || !tolerateLegacySidecarImage(job, wl) {
 		return nil
 	}
 	names := append([]string{autoscalerContainerName}, extraNames...)
@@ -281,12 +296,23 @@ func LegacySidecarImageOptions(job jobframework.GenericJob, wl *kueue.Workload, 
 	return nil
 }
 
+// tolerateLegacySidecarImage reports whether wl may keep a legacy empty sidecar
+// image: wl is admitted, the job is not suspended, or wl is the job's prebuilt
+// (MultiKueue worker) Workload.
+func tolerateLegacySidecarImage(job jobframework.GenericJob, wl *kueue.Workload) bool {
+	return workload.IsAdmitted(wl) ||
+		!job.IsSuspended() ||
+		jobframework.PrebuiltWorkloadNameFor(job.Object()) == wl.Name
+}
+
 // autoscalerContainer returns a container mirroring the Ray autoscaler sidecar
 // that KubeRay injects into the head Pod when in-tree autoscaling is enabled.
 // It uses AutoscalerOptions.Resources and AutoscalerOptions.Image when provided,
 // otherwise KubeRay's default resources and the head Ray container image,
 // matching how KubeRay builds the actual container. The image is required by
-// ProvisioningRequest.
+// ProvisioningRequest. Like KubeRay, it keeps an explicitly empty
+// AutoscalerOptions.Image; the head Pod KubeRay creates would be rejected for
+// the same empty image.
 func autoscalerContainer(opts *rayv1.AutoscalerOptions, headImage string) corev1.Container {
 	resources := defaultAutoscalerResources()
 	image := headImage

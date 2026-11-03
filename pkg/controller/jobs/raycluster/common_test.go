@@ -442,6 +442,27 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"autoscaler sidecar keeps an explicitly empty AutoscalerOptions.Image like KubeRay": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				EnableInTreeAutoscaling: new(true),
+				AutoscalerOptions:       &rayv1.AutoscalerOptions{Image: new("")},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head", Image: "ray-image"}},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{
+						{Name: "head", Image: "ray-image"},
+						autoscalerContainer(nil, ""),
+					}}).
+					Obj(),
+			},
+		},
 		"autoscaler sidecar has an empty image when the head template has no containers": {
 			rayClusterSpec: &rayv1.RayClusterSpec{EnableInTreeAutoscaling: new(true)},
 			wantPodSets: []kueue.PodSet{
@@ -2030,23 +2051,25 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 
 func TestLegacySidecarImageOptions(t *testing.T) {
 	cases := map[string]struct {
-		noWorkload, reserved, admitted, running, prebuilt bool
-		storedImage                                       string
-		wantOption                                        bool
+		noWorkload, reserved, admitted, running bool
+		prebuiltFor, storedImage                string
+		wantOption                              bool
 	}{
-		"nil workload":                                {noWorkload: true},
-		"legacy admitted workload":                    {reserved: true, admitted: true, wantOption: true},
-		"legacy reserved workload of suspended job":   {reserved: true},
-		"legacy reserved workload of running job":     {reserved: true, running: true, wantOption: true},
-		"legacy unreserved workload of suspended job": {},
-		"legacy prebuilt workload":                    {prebuilt: true, wantOption: true},
-		"admitted workload with the image set":        {reserved: true, admitted: true, storedImage: "ray-image"},
+		"nil workload":                                           {noWorkload: true},
+		"legacy admitted workload":                               {reserved: true, admitted: true, wantOption: true},
+		"legacy reserved workload of suspended job":              {reserved: true},
+		"legacy reserved workload of running job":                {reserved: true, running: true, wantOption: true},
+		"legacy unreserved workload of suspended job":            {},
+		"legacy unreserved workload of running job":              {running: true, wantOption: true},
+		"legacy prebuilt workload":                               {prebuiltFor: "wl", wantOption: true},
+		"legacy workload of a job prebuilt for another Workload": {prebuiltFor: "other"},
+		"admitted workload with the image set":                   {reserved: true, admitted: true, storedImage: "ray-image"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cluster := testingrayutil.MakeCluster("rc", "ns").Suspend(!tc.running)
-			if tc.prebuilt {
-				cluster.PrebuiltWorkloadLabel("wl")
+			if tc.prebuiltFor != "" {
+				cluster.PrebuiltWorkloadLabel(tc.prebuiltFor)
 			}
 			var wl *kueue.Workload
 			if !tc.noWorkload {
