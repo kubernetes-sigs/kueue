@@ -30,7 +30,8 @@ import (
 )
 
 type simulatorOptions struct {
-	assumedWorkloads []*kueue.Workload
+	AssumedWorkloads []*kueue.Workload
+	CommittedVictims map[client.ObjectKey][]*corev1.Pod
 }
 
 type Option func(*simulatorOptions)
@@ -38,19 +39,25 @@ type Option func(*simulatorOptions)
 // WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
 func WithAssumedWorkloads(wls []*kueue.Workload) Option {
 	return func(o *simulatorOptions) {
-		o.assumedWorkloads = wls
+		o.AssumedWorkloads = wls
 	}
 }
 
-// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
-func AssumedWorkloads(options ...Option) []*kueue.Workload {
+func WithCommittedVictims(victims map[client.ObjectKey][]*corev1.Pod) Option {
+	return func(o *simulatorOptions) {
+		o.CommittedVictims = victims
+	}
+}
+
+// BuildOptions extracts the assumed workloads from the given snapshot options.
+func BuildOptions(options ...Option) *simulatorOptions {
 	opts := &simulatorOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(opts)
 		}
 	}
-	return opts.assumedWorkloads
+	return opts
 }
 
 // Factory allows building instances of SchedulerSimulator

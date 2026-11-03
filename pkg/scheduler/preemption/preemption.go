@@ -205,6 +205,10 @@ type Target = policy.Target
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
 
+func (p *Preemptor) Expectations() *expectations.Store {
+	return p.preemptionExpectations
+}
+
 func (p *Preemptor) GetPreemptionStrategyIterator(
 	ctx context.Context,
 	wl workload.Info,

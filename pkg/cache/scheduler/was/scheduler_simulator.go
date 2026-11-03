@@ -59,8 +59,9 @@ type wasSimulator struct {
 	// podGroups and compositePodGroups track groups added via AddPodGroup and
 	// AddCompositePodGroup so they can be replayed onto emptyCluster when it is
 	// lazily initialized.
-	podGroups          map[client.ObjectKey]*schedulingv1beta1.PodGroup
-	compositePodGroups map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
+	podGroups                  map[client.ObjectKey]*schedulingv1beta1.PodGroup
+	compositePodGroups         map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
+	pastCyclesCommittedVictims map[client.ObjectKey][]*corev1.Pod
 }
 
 // lazyCluster builds its cluster on first use, so cycles that never ask do not

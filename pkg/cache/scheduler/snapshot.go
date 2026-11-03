@@ -23,20 +23,24 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -267,7 +271,8 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsUsageLedger *queueafs.AfsUsageLedger
+	afsUsageLedger         *queueafs.AfsUsageLedger
+	preemptionExpectations *expectations.Store
 }
 
 type SnapshotOption func(*snapshotOption)
@@ -275,6 +280,12 @@ type SnapshotOption func(*snapshotOption)
 func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsUsageLedger = ledger
+	}
+}
+
+func WithPreemptionExpectations(store *expectations.Store) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.preemptionExpectations = store
 	}
 }
 
@@ -299,11 +310,13 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
+		ptClone, committedVictims := c.extractCommittedVictims(ctx, opts.preemptionExpectations)
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
-			c.podTracker,
+			ptClone,
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithCommittedVictims(committedVictims),
 		)
 		if err != nil {
 			return nil, err
@@ -393,6 +406,49 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
+}
+
+func (c *Cache) extractCommittedVictims(ctx context.Context, preemptionExpectations *expectations.Store) (
+	trackerCopy *podtracker.Tracker,
+	victims map[client.ObjectKey][]*corev1.Pod,
+) {
+	log := ctrl.LoggerFrom(ctx)
+	trackerCopy = c.podTracker.Clone()
+	for wl, pods := range trackerCopy.PodsByWorkload() {
+		isExpectedPreemption := preemptionExpectations != nil && preemptionExpectations.Satisfied(log, wl)
+		if isExpectedPreemption || c.isPreempted(ctx, wl) {
+			victims[wl] = pods
+			continue
+		}
+		victimsSubset := make([]*corev1.Pod, 0, len(pods))
+		for _, pod := range pods {
+			if !pod.DeletionTimestamp.IsZero() {
+				victimsSubset = append(victimsSubset, pod)
+			}
+		}
+		victims[wl] = victimsSubset
+	}
+	// TODO(#18163):  after https://github.com/kubernetes-sigs/scheduler-library/pull/70
+	// remove victims from trackerCopy.
+	return trackerCopy, victims
+}
+
+func (c *Cache) isPreempted(ctx context.Context, wlKey client.ObjectKey) bool {
+	wl := &kueue.Workload{}
+	if err := c.client.Get(ctx, wlKey, wl); err != nil {
+		return false
+	}
+	condEvicted := &metav1.Condition{
+		Type:   kueue.WorkloadEvicted,
+		Status: metav1.ConditionTrue,
+		Reason: kueue.WorkloadEvictedByPreemption,
+	}
+	condPreempted := &metav1.Condition{
+		Type:   kueue.WorkloadPreempted,
+		Status: metav1.ConditionTrue,
+	}
+	return workload.HasConditionWithTypeAndReason(wl, condEvicted) ||
+		workload.HasConditionWithTypeAndReason(wl, condPreempted)
 }
 
 func (c *Cache) assumedWorkloads() []*kueue.Workload {

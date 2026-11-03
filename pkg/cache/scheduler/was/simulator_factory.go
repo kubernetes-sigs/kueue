@@ -182,10 +182,10 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	tracker := pods.Clone()
+func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, tracker *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	opts := simulator.BuildOptions(options...)
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
+	for _, wl := range opts.AssumedWorkloads {
 		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
@@ -205,10 +205,11 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot:        clusterSnap,
-		pods:               tracker,
-		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
-		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
+		wasSnapshot:                   clusterSnap,
+		pods:                          tracker,
+		podGroups:                     make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
+		compositePodGroups:            make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
+		pastCyclesCommittedVictims: opts.CommittedVictims,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
 		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)
