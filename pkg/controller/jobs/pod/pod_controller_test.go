@@ -5803,7 +5803,10 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"pod group is considered finished if there is an unretriable pod and no running pods": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:                false,
+				features.DeclareWorkloadFailureOnUnretriablePodGroups: true,
+			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5912,13 +5915,12 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Reason:  kueue.WorkloadFinishedReasonFailed,
 						Message: "Pods succeeded: 1/3.",
 					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			featureGates:    map[featuregate.Feature]bool{features.DeclareWorkloadFailureOnUnretriablePodGroups: true},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
