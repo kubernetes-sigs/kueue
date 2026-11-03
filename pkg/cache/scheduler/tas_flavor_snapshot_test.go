@@ -2524,9 +2524,9 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 	}
 }
 
-// The leader's affinity score is added to the workers' on each leaf, so the leader
-// pass must not overwrite the workers' scores, and each pass is counted once.
-func TestLeaderPodSetFeasibilityAddsLeaderAffinityScores(t *testing.T) {
+// The leader's affinity score is kept apart from the workers' on each leaf, so the
+// leader pass must not overwrite the workers' scores.
+func TestLeaderPodSetFeasibilityKeepsLeaderAffinityScoreSeparate(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
@@ -2569,16 +2569,20 @@ func TestLeaderPodSetFeasibilityAddsLeaderAffinityScores(t *testing.T) {
 	})
 
 	for _, leaf := range snapshot.leaves {
-		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 21 {
-			t.Errorf("leaf %s affinity score = %d, want 21 (the workers' 7 plus the leader's 14)", leaf.id, got)
+		domainState := snapshot.domainStateOf(&leaf.domain)
+		if domainState.affinityScore != 7 {
+			t.Errorf("leaf %s affinity score = %d, want the workers' 7", leaf.id, domainState.affinityScore)
+		}
+		if domainState.leaderAffinityScore != 14 {
+			t.Errorf("leaf %s leader affinity score = %d, want the leader's 14", leaf.id, domainState.leaderAffinityScore)
 		}
 	}
 }
 
-// The group's domains are ranked by the sum of the workers' and the leader's
-// preferred affinity weights on each node. A PodSet's weight counts once per node,
-// whatever its Pod count. Required filtering is untouched: the leader's preference
-// only ranks the domains that fit the group.
+// The group's domains are ranked by the workers' preferred affinity weights, summed
+// over the domain's nodes, plus the leader's weight on the best node it can use.
+// Required filtering is untouched: the leader's preference only ranks the domains
+// that fit the group.
 func TestLeaderPreferredNodeAffinityRanksDomains(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
@@ -2602,14 +2606,42 @@ func TestLeaderPreferredNodeAffinityRanksDomains(t *testing.T) {
 		}}
 	}
 
-	// Both racks fit the whole group, and with no preference r1 wins the tie, so each
-	// case expects r2 to show that the preferences decided.
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+
+	// Both racks fit the whole group, and with no preference r1 wins the tie, so most
+	// cases expect r2 to show that the preferences decided.
 	cases := map[string]struct {
+		extraR1Nodes   []string
 		workerAffinity *corev1.Affinity
 		leaderAffinity *corev1.Affinity
 		leaderSelector map[string]string
 		wantRack       string
 	}{
+		"one node the leader scores 90 outranks two it scores 50": {
+			extraR1Nodes: []string{"n3"},
+			leaderAffinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+					Term(50, zoneLabel, corev1.NodeSelectorOpIn, "a").
+					Term(90, zoneLabel, corev1.NodeSelectorOpIn, "b").Obj(),
+			}},
+			wantRack: "r2",
+		},
+		"the leader's weight counts once, however many nodes of the rack match": {
+			extraR1Nodes:   []string{"n3", "n4"},
+			workerAffinity: prefer("b", 20),
+			leaderAffinity: prefer("a", 10),
+			wantRack:       "r2",
+		},
+		"the workers' weight counts for every node of the rack that matches": {
+			extraR1Nodes:   []string{"n3", "n4"},
+			workerAffinity: prefer("a", 10),
+			leaderAffinity: prefer("b", 20),
+			wantRack:       "r1",
+		},
 		"no preference": {
 			wantRack: "r1",
 		},
@@ -2643,14 +2675,12 @@ func TestLeaderPreferredNodeAffinityRanksDomains(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
 				ctx, log := utiltesting.ContextWithLog(t)
 
-				rackNode := node.MakeNode("").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:  resource.MustParse("5"),
-						corev1.ResourcePods: resource.MustParse("10"),
-					}).Ready()
 				nodes := []*corev1.Node{
 					rackNode.Clone().Name("n1").Label(rackLabel, "r1").Label(zoneLabel, "a").Obj(),
 					rackNode.Clone().Name("n2").Label(rackLabel, "r2").Label(zoneLabel, "b").Obj(),
+				}
+				for _, name := range tc.extraR1Nodes {
+					nodes = append(nodes, rackNode.Clone().Name(name).Label(rackLabel, "r1").Label(zoneLabel, "a").Obj())
 				}
 				tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,

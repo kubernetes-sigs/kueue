@@ -109,9 +109,13 @@ type domainState struct {
 	leaderCount        int32
 
 	// affinityScore is the sum of weights of all preferred affinity terms that match the node.
-	// For a PodSet group, the leader's score is added on the leaves the leader can run on.
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
+
+	// leaderAffinityScore is the affinityScore of the group's leader on the node. For
+	// non-leaf domains, it is the highest score among the children that can host the
+	// leader, because the leader lands on a single node.
+	leaderAffinityScore int64
 
 	// spread is how much of this domain, and of its parent, the PodSet group
 	// being placed already occupies. The two are a rule's numerator and
@@ -122,6 +126,11 @@ type domainState struct {
 	// capacityBound is set by recordUsageDomainCaps, and read only at the level
 	// it writes.
 	capacityBound domainCapacityBound
+}
+
+// totalAffinityScore is what domains are ranked by.
+func (s *domainState) totalAffinityScore() int64 {
+	return s.affinityScore + s.leaderAffinityScore
 }
 
 func (s *domainState) sliceCapacity(obligations obligationMask) int32 {
@@ -2209,9 +2218,9 @@ func (s *TASFlavorSnapshot) topAffinityTierDomains(candidates []*domain) []*doma
 	if !features.Enabled(features.TASRespectNodeAffinityPreferred) || len(candidates) == 0 {
 		return candidates
 	}
-	score := s.domainStateOf(candidates[0]).affinityScore
+	score := s.domainStateOf(candidates[0]).totalAffinityScore()
 	for i, c := range candidates {
-		if s.domainStateOf(c).affinityScore != score {
+		if s.domainStateOf(c).totalAffinityScore() != score {
 			return candidates[:i]
 		}
 	}
@@ -2572,8 +2581,8 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(bDomainState.leaderCount, aDomainState.leaderCount)
 		}
 
-		if respectNodeAffinityPreferred && aDomainState.affinityScore != bDomainState.affinityScore {
-			return cmp.Compare(bDomainState.affinityScore, aDomainState.affinityScore)
+		if respectNodeAffinityPreferred && aDomainState.totalAffinityScore() != bDomainState.totalAffinityScore() {
+			return cmp.Compare(bDomainState.totalAffinityScore(), aDomainState.totalAffinityScore())
 		}
 
 		if aDomainState.sliceCount[obligationLeader] != bDomainState.sliceCount[obligationLeader] {
@@ -2610,8 +2619,8 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		aDomainState, bDomainState := s.domainStateOf(a), s.domainStateOf(b)
-		if respectNodeAffinityPreferred && aDomainState.affinityScore != bDomainState.affinityScore {
-			return cmp.Compare(bDomainState.affinityScore, aDomainState.affinityScore)
+		if respectNodeAffinityPreferred && aDomainState.totalAffinityScore() != bDomainState.totalAffinityScore() {
+			return cmp.Compare(bDomainState.totalAffinityScore(), aDomainState.totalAffinityScore())
 		}
 
 		if aDomainState.sliceCount[obligationNone] != bDomainState.sliceCount[obligationNone] {
@@ -2784,8 +2793,8 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	return podRequirements, nil
 }
 
-// fillLeaderFeasibleLeaves records which leaves suit the leader and adds the leader's
-// preferred affinity score to them, on top of the workers'. It asks about every
+// fillLeaderFeasibleLeaves records which leaves suit the leader and the leader's
+// preferred affinity score on them. It asks about every
 // leaf rather than only the workers', because the group shares the domain the assignment
 // names, not the leaf: with a required level above the leaf, or with the hostname level
 // injected, the leader and the workers can sit on different nodes of the same domain.
@@ -2806,7 +2815,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
 	for i, leaf := range leaderLeaves {
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
-		s.domainStateOf(&s.leaves[leaf.GetID()].domain).affinityScore += leaderScores[i]
+		s.domainStateOf(&s.leaves[leaf.GetID()].domain).leaderAffinityScore = leaderScores[i]
 	}
 	return nil
 }
@@ -3019,6 +3028,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	minSliceCountWithLeaderDifference := int32(math.MaxInt32)
 	leaderCount := int32(0)
 	affinityScore := int64(0)
+	leaderAffinityScore := int64(0)
 	// tracksTail is false below the slice level, where a domain is too
 	// fine-grained to hold a slice and the slice counts carry no meaning.
 	tracksTail := shape.hasTail() && level < sliceLevelIdx
@@ -3052,6 +3062,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 			minPodCountWithLeaderDifference = min(childPodCount-childPodCountWithLeader, minPodCountWithLeaderDifference)
 			minSliceCountWithLeaderDifference = min(childDomainState.sliceCount[obligationNone]-childDomainState.sliceCount[obligationLeader], minSliceCountWithLeaderDifference)
 			leaderCount = max(childDomainState.leaderCount, leaderCount)
+			leaderAffinityScore = max(childDomainState.leaderAffinityScore, leaderAffinityScore)
 		}
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
@@ -3061,6 +3072,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity
 	domainState.affinityScore = affinityScore
+	domainState.leaderAffinityScore = leaderAffinityScore
 	childrenSliceCapacity := sliceCapacity
 	if s.virtualHostname && level == s.usageLevelIdx() {
 		domainState.podCount = min(domainState.podCount, domainState.capacityBound.podCount)
