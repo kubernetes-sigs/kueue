@@ -1606,6 +1606,12 @@ func TestWlReconcile(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+
+			wantResult:            &reconcile.Result{},
+			wantManagersWorkloads: []kueue.Workload{},
+			wantManagersJobs:      []batchv1.Job{},
+			wantWorker1Workloads:  []kueue.Workload{},
+			wantWorker1Jobs:       []batchv1.Job{},
 		},
 		"elastic job local workload without quota reservation": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
