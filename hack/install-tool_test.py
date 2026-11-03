@@ -91,9 +91,11 @@ class InstallTest(unittest.TestCase):
                 installer.release_binary("controller-gen", "v1", "linux", "amd64")
 
     def test_missing_asset_is_distinct_from_download_errors(self):
-        with patch.object(installer, "download", return_value=b'{"assets": []}'):
-            with self.assertRaisesRegex(ValueError, "has no controller-gen"):
-                installer.release_binary("controller-gen", "v1", "linux", "amd64")
+        for name in ("controller-gen", "kind"):
+            with self.subTest(name=name), patch.object(installer, "download", return_value=b'{"assets": []}') as download:
+                with self.assertRaisesRegex(installer.NoReleaseBinary, f"has no {name}"):
+                    installer.release_binary(name, "v1", "linux", "amd64")
+                download.assert_called_once()
 
     def test_unsupported_host_uses_cached_source_without_repeating_download(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\ns390x\n"):
@@ -111,9 +113,20 @@ class InstallTest(unittest.TestCase):
                 compile_source.assert_called_with("helm-docs", "v1", binary)
 
     def test_source_fallback_uses_pinned_package(self):
-        with patch.object(installer.subprocess, "run") as run:
-            installer.install_source("helm-docs", "v1", "/tmp/helm-docs")
-            self.assertEqual(run.call_args.args[0][-3:], ["github.com/norwoodj/helm-docs", "v1", "github.com/norwoodj/helm-docs/cmd/helm-docs"])
+        packages = {
+            "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
+            "controller-gen": ("sigs.k8s.io/controller-tools", "sigs.k8s.io/controller-tools/cmd/controller-gen"),
+            "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
+            "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
+            "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
+            "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
+            "mdtoc": ("sigs.k8s.io/mdtoc", "sigs.k8s.io/mdtoc"),
+            "helm-docs": ("github.com/norwoodj/helm-docs", "github.com/norwoodj/helm-docs/cmd/helm-docs"),
+        }
+        for name, (module, package) in packages.items():
+            with self.subTest(name=name), patch.object(installer.subprocess, "run") as run:
+                installer.install_source(name, "v1", f"/tmp/{name}")
+                self.assertEqual(run.call_args.args[0][-3:], [module, "v1", package])
 
     def test_source_build_failure_logs_compiler_output(self):
         import subprocess
@@ -187,7 +200,7 @@ class InstallTest(unittest.TestCase):
                 installer.release_binary("mdtoc", "v1", "linux", "s390x")
 
     def test_transient_failure_exhausts_seven_attempts(self):
-        for error in (HTTPError("url", 503, "unavailable", {}, None), URLError("timeout"), TimeoutError("timed out"), installer.HTTPException("incomplete response"), ConnectionError("reset")):
+        for error in (HTTPError("url", 408, "request timeout", {}, None), HTTPError("url", 503, "unavailable", {}, None), URLError("timeout"), TimeoutError("timed out"), installer.HTTPException("incomplete response"), ConnectionError("reset")):
             with self.subTest(error=error), patch.object(installer, "urlopen", side_effect=error) as request, patch.object(installer.time, "sleep") as sleep, self.assertLogs(installer.LOG, level="DEBUG") as logs:
                 with self.assertRaises(type(error)):
                     installer.download("https://example.test/file")
@@ -275,6 +288,27 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(installer.release("helm-docs", "v1", "linux", "amd64")[2], "helm-docs_1_Linux_x86_64.tar.gz")
         with self.assertRaisesRegex(ValueError, "No upstream binary"):
             installer.release("unknown", "v1", "linux", "amd64")
+
+    def test_tool_registry_drives_release_and_source_installation(self):
+        tool = {
+            "module": "example.test/tools",
+            "package": "example.test/tools/cmd/example-tool",
+            "repository": "example/tools",
+            "tag": "tool/{version}",
+            "asset": "example-tool_{version}_{goos}_{goarch}.tar.gz",
+            "checksum": "checksums-{number}.txt",
+        }
+        with patch.dict(installer.TOOLS, {"example-tool": tool}):
+            repo, tag, asset = installer.release("example-tool", "v2.3.4", "linux", "amd64")
+            self.assertEqual((repo, tag, asset), ("example/tools", "tool/v2.3.4", "example-tool_v2.3.4_linux_amd64.tar.gz"))
+            manifest = f"{'a' * 64}  {asset}".encode()
+            with patch.object(installer, "download", return_value=manifest) as download:
+                assets = installer.release_assets("example-tool", "v2.3.4", repo, tag)
+                download.assert_called_once_with("https://github.com/example/tools/releases/download/tool%2Fv2.3.4/checksums-2.3.4.txt")
+                self.assertEqual(assets[0]["name"], asset)
+            with patch.object(installer.subprocess, "run") as run:
+                installer.install_source("example-tool", "v2.3.4", "/tmp/example-tool")
+                self.assertEqual(run.call_args.args[0][-3:], ["example.test/tools", "v2.3.4", "example.test/tools/cmd/example-tool"])
 
     def test_source_tool_rebuilds_only_when_required(self):
         import subprocess

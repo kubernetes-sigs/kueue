@@ -107,10 +107,20 @@ linter are compiled once and reused until their version, configuration, or Go
 toolchain changes. Run `make verify-ci-tools` to test installation and reuse
 without network access or containers.
 
+Tool metadata is declared in the `TOOLS` registry at the top of
+`hack/install-tool.py`: executable names, source modules/packages, upstream
+repositories, release tags, asset filename templates, and checksum manifests.
+The registry key is the executable name; Make supplies the destination path and
+pinned version. Asset templates accept `{version}` (including `v`), `{number}`
+(without `v`), `{goos}`, `{goarch}`, and the upstream `{platform}`/`{arch}`
+spellings used by helm-docs. Packages default to the module path and tags to
+`{version}`. Omitting a checksum manifest selects GitHub release API metadata.
+
 Release downloads retry transient failures up to seven attempts, starting with a
 two-second delay and doubling it after each failure, matching
-`NETWORK_INSTALL_RETRY`. HTTP 429 responses wait 20 seconds before each retry;
-other HTTP 4xx responses fail immediately. Installer diagnostics, including
+`NETWORK_INSTALL_RETRY`. HTTP 408 responses use the same exponential backoff;
+HTTP 429 responses wait 20 seconds before each retry. Other HTTP 4xx responses
+fail immediately. Installer diagnostics, including
 release selection, cache reuse, checksum verification, and download errors, are
 written to the build log and `$(ARTIFACTS)/install-<tool>.log` (the repository's
 `artifacts/` directory by default). Artifact cleanup preserves these logs so

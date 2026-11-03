@@ -37,6 +37,61 @@ DOWNLOAD_ATTEMPTS = 7
 DOWNLOAD_INITIAL_DELAY = 2
 RATE_LIMIT_DELAY = 20
 
+# Keys are executable names; Make supplies the destination path and pinned version.
+# Packages default to their module, tags to {version}; no checksum means release API metadata.
+TOOLS = {
+    "golangci-lint": {
+        "module": "github.com/golangci/golangci-lint/v2",
+        "package": "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+        "repository": "golangci/golangci-lint",
+        "asset": "golangci-lint-{number}-{goos}-{goarch}.tar.gz",
+        "checksum": "golangci-lint-{number}-checksums.txt",
+    },
+    "controller-gen": {
+        "module": "sigs.k8s.io/controller-tools",
+        "package": "sigs.k8s.io/controller-tools/cmd/controller-gen",
+        "repository": "kubernetes-sigs/controller-tools",
+        "asset": "controller-gen-{goos}-{goarch}",
+    },
+    "kustomize": {
+        "module": "sigs.k8s.io/kustomize/kustomize/v5",
+        "repository": "kubernetes-sigs/kustomize",
+        "tag": "kustomize/{version}",
+        "asset": "kustomize_{version}_{goos}_{goarch}.tar.gz",
+        "checksum": "checksums.txt",
+    },
+    "gotestsum": {
+        "module": "gotest.tools/gotestsum",
+        "repository": "gotestyourself/gotestsum",
+        "asset": "gotestsum_{number}_{goos}_{goarch}.tar.gz",
+        "checksum": "gotestsum-{number}-checksums.txt",
+    },
+    "kind": {
+        "module": "sigs.k8s.io/kind",
+        "repository": "kubernetes-sigs/kind",
+        "asset": "kind-{goos}-{goarch}",
+    },
+    "yq": {
+        "module": "github.com/mikefarah/yq/v4",
+        "repository": "mikefarah/yq",
+        "asset": "yq_{goos}_{goarch}",
+        "checksum": "checksums-bsd",
+    },
+    "mdtoc": {
+        "module": "sigs.k8s.io/mdtoc",
+        "repository": "kubernetes-sigs/mdtoc",
+        "asset": "mdtoc-{goarch}-{goos}",
+        "checksum": "checksums.txt",
+    },
+    "helm-docs": {
+        "module": "github.com/norwoodj/helm-docs",
+        "package": "github.com/norwoodj/helm-docs/cmd/helm-docs",
+        "repository": "norwoodj/helm-docs",
+        "asset": "helm-docs_{number}_{platform}_{arch}.tar.gz",
+        "checksum": "checksums.txt",
+    },
+}
+
 
 def configure_logging(name):
     """Keep diagnostics in both the build log and a per-tool CI artifact."""
@@ -54,17 +109,9 @@ class NoReleaseBinary(ValueError):
 
 
 def install_source(name, version, destination):
-    packages = {
-        "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
-        "controller-gen": ("sigs.k8s.io/controller-tools", "sigs.k8s.io/controller-tools/cmd/controller-gen"),
-        "kustomize": ("sigs.k8s.io/kustomize/kustomize/v5", "sigs.k8s.io/kustomize/kustomize/v5"),
-        "gotestsum": ("gotest.tools/gotestsum", "gotest.tools/gotestsum"),
-        "kind": ("sigs.k8s.io/kind", "sigs.k8s.io/kind"),
-        "yq": ("github.com/mikefarah/yq/v4", "github.com/mikefarah/yq/v4"),
-        "mdtoc": ("sigs.k8s.io/mdtoc", "sigs.k8s.io/mdtoc"),
-        "helm-docs": ("github.com/norwoodj/helm-docs", "github.com/norwoodj/helm-docs/cmd/helm-docs"),
-    }
-    module, package = packages[name]
+    tool = TOOLS[name]
+    module = tool["module"]
+    package = tool.get("package", module)
     LOG.info("Building %s from %s@%s into %s", name, package, version, destination)
     result = subprocess.run(
         ["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(destination), module, version, package],
@@ -90,7 +137,7 @@ def download(url):
                 return content
         except HTTPError as error:
             LOG.warning("Download failed for %s (attempt %d/%d): %s", url, attempt + 1, DOWNLOAD_ATTEMPTS, error)
-            if attempt == last_attempt or (error.code != 429 and error.code < 500):
+            if attempt == last_attempt or (error.code not in (408, 429) and error.code < 500):
                 raise
             # Respect the fixed rate-limit wait independently of transient backoff.
             delay = RATE_LIMIT_DELAY if error.code == 429 else DOWNLOAD_INITIAL_DELAY * 2 ** attempt
@@ -105,26 +152,18 @@ def download(url):
 
 def release(name, version, goos, goarch):
     """Use the same versions as hack/tools/go.mod, without compiling tools."""
-    number = version.removeprefix("v")
-    platforms = {"darwin": "Darwin", "linux": "Linux"}
-    archs = {"amd64": "x86_64", "arm64": "arm64"}
-    if name == "golangci-lint":
-        return "golangci/golangci-lint", version, f"golangci-lint-{number}-{goos}-{goarch}.tar.gz"
-    if name == "controller-gen":
-        return "kubernetes-sigs/controller-tools", version, f"controller-gen-{goos}-{goarch}"
-    if name == "kustomize":
-        return "kubernetes-sigs/kustomize", f"kustomize/{version}", f"kustomize_{version}_{goos}_{goarch}.tar.gz"
-    if name == "gotestsum":
-        return "gotestyourself/gotestsum", version, f"gotestsum_{number}_{goos}_{goarch}.tar.gz"
-    if name == "kind":
-        return "kubernetes-sigs/kind", version, f"kind-{goos}-{goarch}"
-    if name == "yq":
-        return "mikefarah/yq", version, f"yq_{goos}_{goarch}"
-    if name == "mdtoc":
-        return "kubernetes-sigs/mdtoc", version, f"mdtoc-{goarch}-{goos}"
-    if name == "helm-docs":
-        return "norwoodj/helm-docs", version, f"helm-docs_{number}_{platforms.get(goos, goos)}_{archs.get(goarch, goarch)}.tar.gz"
-    raise ValueError(f"No upstream binary configured for {name}")
+    if name not in TOOLS:
+        raise ValueError(f"No upstream binary configured for {name}")
+    tool = TOOLS[name]
+    values = {
+        "version": version,
+        "number": version.removeprefix("v"),
+        "goos": goos,
+        "goarch": goarch,
+        "platform": {"darwin": "Darwin", "linux": "Linux"}.get(goos, goos),
+        "arch": {"amd64": "x86_64", "arm64": "arm64"}.get(goarch, goarch),
+    }
+    return tool["repository"], tool.get("tag", "{version}").format(**values), tool["asset"].format(**values)
 
 
 def parse_checksums(text):
@@ -141,21 +180,15 @@ def parse_checksums(text):
 
 
 def release_assets(name, version, repo, tag):
-    checksum_files = {
-        "golangci-lint": f"golangci-lint-{version.removeprefix('v')}-checksums.txt",
-        "kustomize": "checksums.txt",
-        "gotestsum": f"gotestsum-{version.removeprefix('v')}-checksums.txt",
-        "yq": "checksums-bsd",
-        "mdtoc": "checksums.txt",
-        "helm-docs": "checksums.txt",
-    }
-    if name not in checksum_files:
+    checksum_template = TOOLS[name].get("checksum")
+    if not checksum_template:
         return json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
     # Prow jobs need no API token for tools with independent checksum manifests.
     base = f"https://github.com/{repo}/releases/download/{quote(tag, safe='')}/"
-    checksums = parse_checksums(download(base + checksum_files[name]).decode())
+    checksum_file = checksum_template.format(version=version, number=version.removeprefix("v"))
+    checksums = parse_checksums(download(base + checksum_file).decode())
     if not checksums:
-        raise ValueError(f"No SHA256 checksums in {checksum_files[name]}")
+        raise ValueError(f"No SHA256 checksums in {checksum_file}")
     return [{"name": asset, "digest": "sha256:" + digest, "browser_download_url": base + asset} for asset, digest in checksums.items()]
 
 
@@ -165,9 +198,11 @@ def release_binary(name, version, goos, goarch):
     assets = {asset["name"]: asset for asset in release_assets(name, version, repo, tag)}
     if filename not in assets:
         # A partial manifest must not turn a published binary into a source build.
-        published = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
-        if any(asset["name"] == filename for asset in published):
-            raise ValueError(f"No SHA256 checksum for {filename}")
+        # API-backed tools already provided the complete published asset list.
+        if TOOLS[name].get("checksum"):
+            published = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
+            if any(asset["name"] == filename for asset in published):
+                raise ValueError(f"No SHA256 checksum for {filename}")
         raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no {filename}")
     asset = assets[filename]
     content = download(asset["browser_download_url"])
