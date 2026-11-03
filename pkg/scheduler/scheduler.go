@@ -673,11 +673,16 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
 		return false
 	}
-	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+	arm := newAssignment.RepresentativeMode()
+	// Fit is returned by the native path until it is updated to handle committed victims.
+	// DeferredFit is returned by the WAS path when placement depends on the victims' Pods.
+	if arm != flavorassigner.Fit && (arm != flavorassigner.DeferredFit || newAssignment.WaitingForResidualTASPods) {
 		return false
 	}
 	e.recordAssignment(newAssignment, newTargets)
-	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	if arm == flavorassigner.Fit {
+		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	}
 	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
 	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 	e.requeueReason = qcache.RequeueReasonPendingPreemption
@@ -1693,17 +1698,18 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims))
 
-	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if (!assignmentPlan.CanFit() || assignmentPlan.Assignment.WaitingForResidualTASPods) &&
+		assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if partialPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims)); partialPlan.CanFit() {
+			if partialPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims)); partialPlan.CanFit() && !partialPlan.Assignment.WaitingForResidualTASPods {
 				// A reduced count may fit only by evicting another victim. Keep
 				// waiting for residual Pods unless it fits without preemption.
 				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
-					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+					partialPlan.Assignment.RepresentativeMode() != flavorassigner.Fit {
 					return false
 				}
 				bestPartialPlan = &partialPlan
