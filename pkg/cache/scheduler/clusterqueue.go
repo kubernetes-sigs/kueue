@@ -229,7 +229,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas, in.Status.Conditions)
 	return nil
 }
 
