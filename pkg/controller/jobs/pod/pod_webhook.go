@@ -331,7 +331,11 @@ func (p *Pod) readPodIndex(labelKey string) (string, error) {
 
 // validatePodGroupPodIndexLabel checks that the index-label annotation resolves to the Pod's index.
 func validatePodGroupPodIndexLabel(p *Pod) field.ErrorList {
-	if !features.Enabled(features.TASRejectInvalidPodIndexLabel) {
+	// Without TAS the index is never read, so a Pod that cannot resolve one is no
+	// worse off for it. The gate is on by default and so cannot declare TAS as a
+	// dependency: that would fail config validation wherever TAS is turned off.
+	if !features.Enabled(features.TopologyAwareScheduling) ||
+		!features.Enabled(features.TASRejectInvalidPodIndexLabel) {
 		return nil
 	}
 	labelKey, ok := p.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]

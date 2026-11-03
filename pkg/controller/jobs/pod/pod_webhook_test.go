@@ -1280,6 +1280,17 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
 				Obj(),
 		},
+		"index-label annotation naming an absent label, TAS disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       false,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+		},
 		"index-label annotation naming an absent label, rejection disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:       true,

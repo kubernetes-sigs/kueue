@@ -983,7 +983,6 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
-	TASRejectInvalidPodIndexLabel:                       {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
