@@ -1046,9 +1046,8 @@ const (
 	WorkloadDeactivationTarget = "DeactivationTarget"
 
 	// WorkloadRemoteObjectsRemoved means that MultiKueue removed the remote objects
-	// of a finished or evicted Workload from every worker cluster, so it does not
-	// need to read the worker clusters again for this Workload.
-	// MultiKueue sets this condition to False before it dispatches the Workload again.
+	// of a finished Workload from every worker cluster, so it does not need to read
+	// the worker clusters again for this Workload.
 	WorkloadRemoteObjectsRemoved = "RemoteObjectsRemoved"
 
 	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all

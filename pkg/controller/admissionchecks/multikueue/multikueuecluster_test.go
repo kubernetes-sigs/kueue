@@ -2191,6 +2191,7 @@ func TestRequeueWorkloadsForClusterSkipsRemoteObjectsRemoved(t *testing.T) {
 				EvictedAt(now).
 				Condition(removed).
 				Obj(),
+			wantRequeue: true,
 		},
 		"finished workload with RemoteObjectsRemoved False": {
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
@@ -2212,7 +2213,7 @@ func TestRequeueWorkloadsForClusterSkipsRemoteObjectsRemoved(t *testing.T) {
 				Obj(),
 			wantRequeue: true,
 		},
-		"workload with quota reserved again and a stale RemoteObjectsRemoved": {
+		"running workload with RemoteObjectsRemoved": {
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				NominatedClusterNames("worker1").
