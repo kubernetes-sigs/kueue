@@ -101,4 +101,9 @@ const (
 	// The value is a JSON containing timeout in seconds and recoveryTimeout in seconds.
 	// This annotation is alpha-level enabled by the WorkloadLevelWaitForPodsReady.
 	WaitForPodsReadyAnnotation = "kueue.x-k8s.io/wait-for-pods-ready"
+
+	// PausedByKueueAnnotation is set on a Deployment when Kueue pauses it to
+	// prevent ProgressDeadlineExceeded while its pods are scheduling-gated.
+	// The pod controller removes it when the workload is admitted.
+	PausedByKueueAnnotation = "kueue.x-k8s.io/paused-by-kueue"
 )
