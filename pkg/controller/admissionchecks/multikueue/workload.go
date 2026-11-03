@@ -327,10 +327,8 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	if !isDeleted && remoteObjectsRemoved(wl) {
-		if _, pending := w.previousClusterNames.Get(req.String()); !pending {
-			log.V(4).Info("Skip workload whose remote objects were removed")
-			return reconcile.Result{}, nil
-		}
+		log.V(4).Info("Skip workload whose remote objects were removed")
+		return reconcile.Result{}, nil
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
