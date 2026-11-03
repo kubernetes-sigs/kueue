@@ -55,12 +55,12 @@
 This KEP introduces **Preemption Limits** in Kueue through a new cluster-scoped `PreemptionLimit` Custom Resource Definition (CRD).
 While declarative preemption systems (such as Configurable Preemptions via `PreemptionConfig`, introduced in [KEP-13396](/keps/13396-configurable-preemptions/README.md)) allow expressive candidate selection policies, cluster administrators need rate-limiting guardrails to safely roll out new configurations, control the blast radius of misconfigurations, avoid cascading evictions, and protect workloads and queues from disruptive eviction storms.
 
-`PreemptionLimit` allows administrators to configure sliding-window rate limits across multiple scopes:
+`PreemptionLimit` allows administrators to configure sliding-window rate limits for diverse aggregation levels:
 
 - **Global**: Limits the total number of preemption events across the entire cluster within the sliding window.
-- **PreemptorClusterQueue**: Restricts the preemption rate triggered by workloads originating from specific ClusterQueues.
-- **PreempteeClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
-- **PreempteeWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
+- **ByPreemptorClusterQueue**: Restricts the preemption rate triggered by workloads originating from specific ClusterQueues.
+- **ByPreempteeClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
+- **ByPreempteeWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
 
 Limits can target a specific subset of preemptions using label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preempteeClusterQueueSelector`).
 In Alpha, this capability is introduced specifically for Configurable Preemptions under the `ConfigurablePreemptionLimits` feature gate, with possible extensions to classical and fair-sharing preemption in future iterations.
@@ -73,7 +73,7 @@ While `PreemptionConfig` provides declarative candidate selection policies, clus
 
 1. Safely introduce new `PreemptionConfig`s or rules within `PreemptionConfig`.
 2. Improve cluster stability by rate-limiting preemptions.
-3. Define the most common scopes and fields for limiting preemptions.
+3. Define the most common aggregation levels and selectors for limiting preemptions.
 
 ### Non-Goals
 
@@ -103,7 +103,7 @@ Mistakes in `PreemptionConfig` can lead to serious consequences, such as mass ev
 
 ```yaml
 spec:
-  scope: "Global"
+  aggregation: "Global"
   limit: 1
   windowSeconds: 3600
   configSelector:
@@ -117,7 +117,7 @@ Rate-limit preemptions of each workload in the cluster, so that it can be preemp
 
 ```yaml
 spec:
-  scope: "PreempteeWorkload"
+  aggregation: "ByPreempteeWorkload"
   configSelector: {}
   limit: 1
   windowSeconds: 86400
@@ -134,7 +134,7 @@ Rate-limit global preemptions to at most 10 evictions across the entire cluster 
 
 ```yaml
 spec:
-  scope: "Global"
+  aggregation: "Global"
   configSelector: {}
   limit: 10
   windowSeconds: 300
@@ -142,11 +142,11 @@ spec:
 
 #### Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption
 
-Ensure that workloads running in the `hero-cq` ClusterQueue can never be preempted by setting `limit: 0` under the `PreempteeClusterQueue` scope:
+Ensure that workloads running in the `hero-cq` ClusterQueue can never be preempted by setting `limit: 0` and `ByPreempteeClusterQueue` aggregation:
 
 ```yaml
 spec:
-  scope: "PreempteeClusterQueue"
+  aggregation: "ByPreempteeClusterQueue"
   configSelector: {}
   preempteeClusterQueueSelector:
     matchLabels:
@@ -159,11 +159,11 @@ spec:
 
 In a multi-tenant cluster where multiple department ClusterQueues share resources in a common Cohort, higher-priority workloads are permitted to reclaim or borrow capacity by preempting other teams' running workloads. Without rate limiting, a single aggressive tenant could flood the cohort with high-priority jobs, triggering dozens of preemptions in a sudden burst and monopolizing the cohort's preemption capacity.
 
-By defining a `PreemptionLimit` under the `PreemptorClusterQueue` scope with `preemptorClusterQueueSelector`, Kueue enforces an independent sliding-window rate limit per preempting ClusterQueue for standard tenant queues, while exempting mission-critical queues from this limit. Each standard tenant queue is allocated an independent budget (e.g. at most 10 preemptions per hour), preventing any single tenant from dominating preemption bandwidth across the shared cohort.
+By defining a `PreemptionLimit` with `preemptorClusterQueueSelector` and `ByPreemptorClusterQueue` aggregation, Kueue enforces an independent sliding-window rate limit per preempting ClusterQueue for standard tenant queues, while exempting mission-critical queues from this limit. Each standard tenant queue is allocated an independent budget (e.g. at most 10 preemptions per hour), preventing any single tenant from dominating preemption bandwidth across the shared cohort.
 
 ```yaml
 spec:
-  scope: "PreemptorClusterQueue"
+  aggregation: "ByPreemptorClusterQueue"
   configSelector: {}
   preemptorClusterQueueSelector:
     matchExpressions:
@@ -180,7 +180,7 @@ spec:
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `windowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
-5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
+5. **Reset on spec changes to aggregation or selectors**: If a `PreemptionLimit` is modified such that its `aggregation`, `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
 6. **Rejection of valid candidate sets due to enforcement algorithm limitations**: Because limits are evaluated greedily during the forward candidate search before the backfilling process runs, some candidate sets that would be under the limits after backfilling can be rejected if earlier candidates greedily exhaust the limit allowance before larger, sufficient candidates are evaluated (see [Interaction with Backfilling](#interaction-with-backfilling); addressed as a future enhancement in [Better Candidate Limiting Heuristic](#better-candidate-limiting-heuristic)).
 
 ### Risks and Mitigations
@@ -227,40 +227,40 @@ type PreemptionLimit struct {
 }
 
 
-// PreemptionLimitScope specifies the entity boundary for a preemption limit.
+// PreemptionLimitAggregation specifies the grouping level for counting preemption events.
 // Possible values are:
 // - "Global": restricts the total number of preemption events across the entire cluster within the sliding time window.
-// - "PreemptorClusterQueue": restricts the number of preemption events triggered by workloads originating from a specific ClusterQueue within the sliding time window.
-// - "PreempteeClusterQueue": restricts the number of preemption events targeting workloads belonging to a specific ClusterQueue within the sliding time window.
-// - "PreempteeWorkload": restricts how many times an individual workload can be preempted within the sliding time window.
+// - "ByPreemptorClusterQueue": restricts the number of preemption events triggered by workloads originating from a specific ClusterQueue within the sliding time window.
+// - "ByPreempteeClusterQueue": restricts the number of preemption events targeting workloads belonging to a specific ClusterQueue within the sliding time window.
+// - "ByPreempteeWorkload": restricts how many times an individual workload can be preempted within the sliding time window.
 //
-// +kubebuilder:validation:Enum=Global;PreemptorClusterQueue;PreempteeClusterQueue;PreempteeWorkload
-type PreemptionLimitScope string
+// +kubebuilder:validation:Enum=Global;ByPreemptorClusterQueue;ByPreempteeClusterQueue;ByPreempteeWorkload
+type PreemptionLimitAggregation string
 
 const (
-	// GlobalPreemptionLimitScope restricts the total number of preemption events
+	// GlobalLimitAggregation restricts the total number of preemption events
 	// across the entire cluster within the sliding time window.
-	GlobalPreemptionLimitScope PreemptionLimitScope = "Global"
+	GlobalLimitAggregation PreemptionLimitAggregation = "Global"
 
-	// PreemptorCQLimitScope restricts the number of preemption events triggered by workloads
+	// ByPreemptorCQLimitAggregation restricts the number of preemption events triggered by workloads
 	// originating from a specific ClusterQueue within the sliding time window.
-	PreemptorCQLimitScope PreemptionLimitScope = "PreemptorClusterQueue"
+	ByPreemptorCQLimitAggregation PreemptionLimitAggregation = "ByPreemptorClusterQueue"
 
-	// PreempteeCQLimitScope restricts the number of preemption events targeting workloads
+	// ByPreempteeCQLimitAggregation restricts the number of preemption events targeting workloads
 	// belonging to a specific ClusterQueue within the sliding time window.
-	PreempteeCQLimitScope PreemptionLimitScope = "PreempteeClusterQueue"
+	ByPreempteeCQLimitAggregation PreemptionLimitAggregation = "ByPreempteeClusterQueue"
 
-	// PreempteeWorkloadLimitScope restricts how many times an individual workload
+	// ByPreempteeWorkloadLimitAggregation restricts how many times an individual workload
 	// can be preempted within the sliding time window.
-	PreempteeWorkloadLimitScope PreemptionLimitScope = "PreempteeWorkload"
+	ByPreempteeWorkloadLimitAggregation PreemptionLimitAggregation = "ByPreempteeWorkload"
 )
 
 // PreemptionLimitSpec defines the desired state of PreemptionLimit
 type PreemptionLimitSpec struct {
-	// scope specifies the entity boundary for this preemption limit.
+	// aggregation specifies the grouping level for counting preemption events under this limit.
 	//
 	// +required
-	Scope PreemptionLimitScope `json:"scope,omitempty"`
+	Aggregation PreemptionLimitAggregation `json:"aggregation,omitempty"`
 
 	// configSelector selects PreemptionConfigs to which this limit applies.
 	// An empty selector ({}) matches all PreemptionConfigs.
@@ -282,7 +282,7 @@ type PreemptionLimitSpec struct {
 
 	// limit defines how many preemption events can occur within the given time window.
 	// An event is defined as a confirmed (preemptor, preemptee) eviction pair.
-	// Setting limit to 0 blocks all preemptions under this limit's scope.
+	// Setting limit to 0 blocks all matching preemptions under this limit.
 	//
 	// +required
 	// +kubebuilder:validation:Minimum=0
@@ -306,28 +306,28 @@ type PreemptionLimitStatus struct {
 	// +optional
 	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
 
-	// counts shows number of issued preemptions
+	// topAggregatedCounts shows number of issued preemptions
 	// for this limit. Periodically updated
 	// and only for informational purposes.
-	// Restricted to the top 1000 counts to fit within CRD size limits.
+	// Restricted to the top 100 counts to fit within CRD size limits.
 	//
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=1000
-	Counts []PreemptionLimitCount `json:"counts,omitempty"`
+	// +kubebuilder:validation:MaxItems=100
+	TopAggregatedCounts []PreemptionLimitCount `json:"topAggregatedCounts,omitempty"`
 }
 
-// PreemptionLimitCount tracks the number of preemptions issued for a single scoped entity.
+// PreemptionLimitCount tracks the number of preemptions issued for a single aggregation unit.
 type PreemptionLimitCount struct {
-	// name identifies the scoped entity.
-	// For Global scope it is "Global".
-	// For PreemptorClusterQueue and PreempteeClusterQueue scopes it is the ClusterQueue name.
-	// For PreempteeWorkload scope it is "<namespace>/<workload-name>".
+	// key identifies the aggregation unit.
+	// For Global aggregation it is "Global".
+	// For ByPreemptorClusterQueue and ByPreempteeClusterQueue aggregations it is the ClusterQueue name.
+	// For ByPreempteeWorkload aggregation it is "<namespace>/<workload-name>".
 	//
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=317
-	Name string `json:"name"`
+	Key string `json:"key,omitempty"`
 
 	// value is the number of preemptions recorded within the sliding time window.
 	//
@@ -339,7 +339,7 @@ type PreemptionLimitCount struct {
 
 ### Limit Enforcement
 
-A `PreemptionLimit` limits the number of preemptions that can occur within its configured scope. During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption falls within the scope of multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
+A `PreemptionLimit` limits the number of matching preemptions that can occur per unit of aggregation (defined by `aggregation`). During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption matches multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
 
 Candidates that are **already** marked as evicted do not consume limits. Because their eviction has already occurred and taking them as targets produces no new disruption, they should still be considered and selected by the preemption candidate search even if an applicable limit does not allow any more preemptions (including when a limit is exhausted or configured with `limit: 0`).
 
@@ -368,16 +368,16 @@ An alternative approach—verifying limits post-selection after backfilling—av
 
 ### In-Memory State Management
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue name, Workload namespace/name or "Global"), recording events that occurred within the designated `windowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue name, Workload namespace/name or "Global"), recording events that occurred within the designated `windowSeconds`. Moreover, it records only events that match the selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preempteeClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `aggregation`. Expired timestamps are periodically trimmed from the map.
 
 Because preemption event tracking is maintained strictly in-memory rather than persisted per-event in etcd, several operational caveats apply regarding controller restarts or `PreemptionLimit.spec` changes (see [Caveats](#caveats) for details).
 
-Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the `counts` list (restricted to the top 1000 counts to fit within CRD size limits, sorted deterministically).
+Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the `topAggregatedCounts` list (restricted to the top 100 counts to fit within CRD size limits, sorted deterministically).
 
 `PreemptionLimitReconciler` will be responsible for updating the in-memory representation of limits:
 - When a `PreemptionLimit` is deleted, it removes recorded preemption event timestamps from memory.
-- When a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preempteeClusterQueueSelector` changes, the recorded in-memory preemption timestamps for that limit are reset.
-- Modifying a `PreemptionLimit`'s `spec`—such as adjusting `limit`, changing `windowSeconds`, or altering its scope and selectors—as well as creating or deleting a limit, will re-queue inadmissible workloads in the affected ClusterQueues so that workloads previously blocked by limits can be promptly re-evaluated (see [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)).
+- When a `PreemptionLimit`'s `spec.aggregation`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preempteeClusterQueueSelector` changes, the recorded in-memory preemption timestamps for that limit are reset.
+- Modifying a `PreemptionLimit`'s `spec`—such as adjusting `limit`, changing `windowSeconds`, or altering its `aggregation` and selectors—as well as creating or deleting a limit, will re-queue inadmissible workloads in the affected ClusterQueues so that workloads previously blocked by limits can be promptly re-evaluated (see [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)).
 
 
 ### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
@@ -406,11 +406,11 @@ In the edge case when a `PreemptionLimit` with `limit: 0` is encountered, it wil
 
 ### Observability
 
-When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
+When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, `aggregation`, and affected entities for operator troubleshooting.
 
-Additionally, each preemption operation executed within the scope of active limits is recorded and reported in the periodically updated `PreemptionLimit.status.counts` and `PreemptionLimit.status.lastUpdateTime`.
+Additionally, each preemption operation matching active limits is recorded and reported in the periodically updated `PreemptionLimit.status.topAggregatedCounts` and `PreemptionLimit.status.lastUpdateTime`.
 
-Furthermore, when a blocked workload cannot be admitted because candidate selection is blocked by active preemption limits, the workload's `QuotaReserved` condition (`Status: False`) message is extended with information about which limit blocked preemptions and when it will elapse, such as: `"preemptions blocked by PreemptionLimit <name> (scope <scope>) until <timestamp>"`.
+Furthermore, when a blocked workload cannot be admitted because candidate selection is blocked by active preemption limits, the workload's `QuotaReserved` condition (`Status: False`) message is extended with information about which limit blocked preemptions and when it will elapse, such as: `"preemptions blocked by PreemptionLimit <name> (aggregation <aggregation>) until <timestamp>"`.
 
 ### Test Plan
 
@@ -433,7 +433,7 @@ Apart from the new subpackage, the following existing components will receive ad
 3. **Scheduling**:
    - Recomputes preemption candidates when concurrent workloads encounter conflicting limit constraints (analogous to overlapping preemption targets).
    - Requeues inadmissible workloads when one of the limits blocking them elapses.
-   - When a workload cannot be admitted because candidate selection is blocked by an active `PreemptionLimit` (e.g. `Global` or `PreemptorClusterQueue` limit budget exhausted), verifies that the workload's `QuotaReserved` condition (`Status: False`) message includes the blocking limit name, scope, and the timestamp when the limit window will elapse.
+   - When a workload cannot be admitted because candidate selection is blocked by an active `PreemptionLimit` (e.g. `Global` or `ByPreemptorClusterQueue` limit budget exhausted), verifies that the workload's `QuotaReserved` condition (`Status: False`) message includes the blocking limit name, `aggregation`, and the timestamp when the limit window will elapse.
 
 #### Integration tests
 
@@ -444,7 +444,7 @@ Apart from the new subpackage, the following existing components will receive ad
 #### e2e tests
 
 1. Cluster administrators can create, read, update, and delete `PreemptionLimit` resources.
-2. Cluster administrators can observe the reported `status.counts` and `status.lastUpdateTime` of `PreemptionLimit` resources.
+2. Cluster administrators can observe the reported `status.topAggregatedCounts` and `status.lastUpdateTime` of `PreemptionLimit` resources.
 3. Unprivileged batch users cannot create or modify `PreemptionLimit` resources (enforced via RBAC).
 4. Extension of Configurable Preemptions e2e tests to validate end-to-end workload scheduling under active Preemption Limits.
 
@@ -476,7 +476,7 @@ TBD
    - CRD and RBAC definitions for `PreemptionLimit`.
    - `PreemptionEvaluator` updates to respect preemption limits.
    - In-memory tracking of preemption events.
-   - Status reporting with `counts` and `lastUpdateTime` via `PreemptionLimitReconciler`.
+   - Status reporting with `topAggregatedCounts` and `lastUpdateTime` via `PreemptionLimitReconciler`.
 
 ## Drawbacks
 
@@ -637,7 +637,7 @@ The addition to `PreemptionLimitSpec` would look like the following:
 ```
 
 - When set to `Workloads` (default), the number of preempted workloads will be limited.
-- When changed to `Pods`, it can guardrail the total number of pods that can be preempted in a particular scope within the defined sliding window. The preemption evaluator will calculate the total number of pods across candidate workloads (summing pod counts across their pod sets) and prevent preemptions if evicting them would exceed the allowed pod limit.
+- When changed to `Pods`, it can guardrail the total number of pods that can be preempted per unit of aggregation within the defined sliding window. The preemption evaluator will calculate the total number of pods across candidate workloads (summing pod counts across their pod sets) and prevent preemptions if evicting them would exceed the allowed pod limit.
 
 ### Reconstructing Approximate In-Memory State on Restart from Status
 
@@ -652,9 +652,9 @@ The reconstruction will work as follows:
 
 2. **Synthesizing Artificial In-Memory Events on Startup**:
    Instead of resetting limit counters entirely to zero upon controller startup:
-   - The controller inspects each `PreemptionLimit`'s `status.counts` and `status.lastUpdateTime`.
-   - For each scoped entity entry present in `status.counts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
-   - Each synthesized event is assigned a timestamp equal to `lastUpdateTime` from the status for the appropriate limit and connected scope values.
+   - The controller inspects each `PreemptionLimit`'s `status.topAggregatedCounts` and `status.lastUpdateTime`.
+   - For each aggregation unit entry present in `status.topAggregatedCounts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
+   - Each synthesized event is assigned a timestamp equal to `lastUpdateTime` from the status for the appropriate limit and aggregation keys.
 
 3. **Natural Expiration via Sliding Window**:
    - These synthesized events are inserted into the in-memory tracking map and immediately consume available quota under the limit.
