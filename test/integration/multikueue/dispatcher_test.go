@@ -43,10 +43,9 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-const (
-	multikueueTestFlavor   kueue.ResourceFlavorReference = "default"
-	externalDispatcherName                               = "example.com/custom-mk-dispatcher"
-)
+const multikueueTestFlavor kueue.ResourceFlavorReference = "default"
+
+const externalDispatcherName = "example.com/custom-mk-dispatcher"
 
 var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
