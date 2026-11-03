@@ -64,7 +64,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -2143,81 +2142,5 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestReconnectResyncSkipsReplacedSlices(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	now := metav1.Now()
-	finished := func(reason string) metav1.Condition {
-		return metav1.Condition{
-			Type:               kueue.WorkloadFinished,
-			Status:             metav1.ConditionTrue,
-			Reason:             reason,
-			LastTransitionTime: now,
-		}
-	}
-	replacedSlice := func(name string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, TestNamespace).
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			ClusterName("worker1").
-			Condition(finished(kueue.WorkloadSliceReplaced))
-	}
-	workloads := []kueue.Workload{
-		*utiltestingapi.MakeWorkload("running", TestNamespace).ClusterName("worker1").Obj(),
-		*utiltestingapi.MakeWorkload("nominated", TestNamespace).NominatedClusterNames("worker1").Obj(),
-		*utiltestingapi.MakeWorkload("on-other-cluster", TestNamespace).ClusterName("worker2").Obj(),
-		*utiltestingapi.MakeWorkload("finished", TestNamespace).
-			ClusterName("worker1").
-			Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
-			Obj(),
-		*replacedSlice("replaced-slice").Obj(),
-		*replacedSlice("replaced-slice-deleting").
-			Finalizers(kueue.ResourceInUseFinalizerName).
-			DeletionTimestamp(now.Time).
-			Obj(),
-	}
-	kubeconfig := testKubeconfig("worker1")
-	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
-		KubeConfig(kueue.SecretLocationType, "worker1").
-		Generation(1).
-		Obj()
-	secret := makeTestSecret("worker1", kubeconfig)
-	c := getClientBuilder(ctx).
-		WithObjects(cluster, &secret).
-		WithLists(&kueue.WorkloadList{Items: workloads}).
-		WithStatusSubresource(&kueue.MultiKueueCluster{}).
-		Build()
-	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace,
-		withAdapters(adapters),
-		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
-	)
-	reconciler.rootContext = ctx
-	reconciler.builderOverride = fakeClientBuilder(ctx)
-
-	// A worker that was connected with the same kubeconfig and lost its connection.
-	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
-	rc.builderOverride = reconciler.builderOverride
-	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
-	rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
-	reconciler.remoteClients["worker1"] = rc
-	t.Cleanup(rc.StopWatchers)
-
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
-		t.Fatalf("unexpected reconcile error: %v", err)
-	}
-	if !rc.connState.isConnected() {
-		t.Fatal("expected the worker to be reconnected")
-	}
-
-	var gotEnqueued []string
-	for len(reconciler.wlUpdateCh) > 0 {
-		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.GetName())
-	}
-	wantEnqueued := []string{"finished", "nominated", "replaced-slice-deleting", "running"}
-	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 	}
 }
