@@ -21,6 +21,7 @@ import (
 	"iter"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -212,10 +214,11 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	newCQObj := cqObj.DeepCopy()
 	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(kueue.ClusterQueueReference(newCQObj.Name))
-	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
+	requeueAfter, err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg)
+	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // NotifyTopologyUpdate triggers a topology update event only on creation or deletion,
@@ -532,25 +535,26 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 
 // updateCqStatusIfChanged recomputes the ClusterQueue status from the queue manager and the cache,
 // and writes it to the API server only when it differs from the current status.
+// It returns when the effective quota expires, or 0 if no requeue is needed for it.
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	ctx context.Context,
 	cq *kueue.ClusterQueue,
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
-) error {
+) (time.Duration, error) {
 	log := r.logger()
 	oldStatus := cq.Status.DeepCopy()
 	pendingWorkloads, err := r.qManager.Pending(cq)
 	if err != nil {
 		log.Error(err, "Failed getting pending workloads from queue manager")
-		return err
+		return 0, err
 	}
 	stats, err := r.cache.Usage(cq)
 	if err != nil {
 		log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
-		return err
+		return 0, err
 	}
 	cq.Status.FlavorsReservation = stats.ReservedResources
 	cq.Status.FlavorsUsage = stats.AdmittedResources
@@ -564,6 +568,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		Message:            msg,
 		ObservedGeneration: cq.Generation,
 	})
+	requeueAfter := utildqo.SetActiveCondition(&cq.Status.Conditions, cq.Status.EffectiveQuotas, cq.Generation, func() time.Time { return r.clock.Now() })
 	if r.fairSharingEnabled {
 		if r.reportResourceMetrics {
 			weightedShare := stats.WeightedShare
@@ -580,7 +585,9 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		cq.Status.FairSharing = nil
 	}
 	if !equality.Semantic.DeepEqual(&cq.Status, oldStatus) {
-		return r.client.Status().Update(ctx, cq)
+		if err := r.client.Status().Update(ctx, cq); err != nil {
+			return 0, err
+		}
 	}
-	return nil
+	return requeueAfter, nil
 }
