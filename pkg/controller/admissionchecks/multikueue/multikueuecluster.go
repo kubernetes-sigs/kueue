@@ -96,8 +96,7 @@ const (
 	// times [1, 2), 30-60 minutes by default, and an ended watch makes the worker
 	// reconnect and resync all its workloads. Asking for a longer timeout makes this
 	// routine expiry rare, while the watch still moves to another API server replica
-	// every two hours. Bookmarks, sent about once a minute, keep the connection from
-	// looking idle to load balancers.
+	// every two hours.
 	watchTimeout = 2 * time.Hour
 )
 
