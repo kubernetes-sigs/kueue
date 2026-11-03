@@ -65,6 +65,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -785,14 +786,21 @@ func (r *WorkloadReconciler) reconcileBackoff(ctx context.Context, wl *kueue.Wor
 	log := ctrl.LoggerFrom(ctx)
 
 	if workloadevict.IsEvicted(wl) && workload.HasRejectedChecks(wl) {
-		// A check removed from the ClusterQueue must not deactivate the workload.
+		// Quota release clears the selected flavors. Only discard checks removed
+		// from the ClusterQueue before handling rejection.
 		if cqName, cqOk := r.queues.ClusterQueueForWorkload(wl); cqOk {
 			cq := &kueue.ClusterQueue{}
 			if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, cq); err != nil {
 				return true, ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			if updated, err := r.reconcileSyncAdmissionChecks(ctx, wl, cq); updated || err != nil {
-				return true, ctrl.Result{}, err
+			configuredChecks := admissioncheck.NewAdmissionChecks(cq)
+			oldCheckCount := len(wl.Status.AdmissionChecks)
+			wl.Status.AdmissionChecks = slices.DeleteFunc(wl.Status.AdmissionChecks, func(check kueue.AdmissionCheckState) bool {
+				_, configured := configuredChecks[check.Name]
+				return !configured
+			})
+			if len(wl.Status.AdmissionChecks) != oldCheckCount {
+				return true, ctrl.Result{}, client.IgnoreNotFound(r.client.Status().Update(ctx, wl))
 			}
 			_, err := r.reconcileCheckBasedEviction(ctx, wl)
 			return true, ctrl.Result{}, client.IgnoreNotFound(err)

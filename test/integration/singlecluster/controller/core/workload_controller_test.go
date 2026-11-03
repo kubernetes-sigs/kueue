@@ -675,6 +675,38 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 		})
 
+		ginkgo.It("should deactivate a workload when a flavor-specific check rejects after quota release", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Active(true).Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("reporting a late rejection while backoff is pending without quota", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check retry")
+					workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "check retry", false)
+					wl.Status.RequeueState = &kueue.RequeueState{RequeueAt: new(metav1.NewTime(time.Now().Add(time.Hour)))}
+					workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:       kueue.AdmissionCheckReference(check3.Name),
+						State:      kueue.CheckStateRejected,
+						RetryCount: new(int32(1)),
+					}, behavioral.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				g.Expect(workloadevict.IsEvictedByDeactivation(wl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: "AdmissionCheckRejected",
+				Type:   corev1.EventTypeWarning,
+				Note:   `Deactivated due to AdmissionCheck in Rejected state: "check3"`,
+			})
+		})
+
 		// Deactivating an already-evicted Workload skips Evict(), so the DeactivationTarget
 		// cleanup and the check reset it performs must not be lost: the user has to be able
 		// to reactivate the Workload afterwards.

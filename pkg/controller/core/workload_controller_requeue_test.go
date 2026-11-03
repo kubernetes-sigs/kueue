@@ -92,6 +92,16 @@ func TestReconcileRequeue(t *testing.T) {
 			Reason:  kueue.WorkloadBackoffFinished,
 			Message: "The workload backoff was finished",
 		})
+	flavorChecksCQ := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		AdmissionCheckStrategy(
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("first", "spot").Obj(),
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("late").Obj(),
+		)
+	removedCheckCQ := flavorChecksCQ.Clone().AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("late", "spot").Obj())
 
 	cases := map[string]reconcileTestCase{
 		"late retry is reset before enqueueing after backoff": {
@@ -121,8 +131,8 @@ func TestReconcileRequeue(t *testing.T) {
 			wantWorkload: lateRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
 			wantResult:   reconcile.Result{RequeueAfter: time.Minute},
 		},
-		"late rejection takes precedence over retry after quota release": {
-			cq:       utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("first", "late").Obj(),
+		"flavor-specific late rejection takes precedence over retry after quota release": {
+			cq:       flavorChecksCQ.Obj(),
 			lq:       utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
 			wantWorkload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Condition(metav1.Condition{
@@ -147,6 +157,12 @@ func TestReconcileRequeue(t *testing.T) {
 			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			workload:     removedCheck.Clone().Obj(),
 			wantWorkload: removedCheck.Clone().AdmissionChecks().Obj(),
+		},
+		"removing an obsolete rejection preserves flavor-specific retry state": {
+			cq:           removedCheckCQ.Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().AdmissionChecks(removedCheck.Status.AdmissionChecks[1]).Obj(),
 		},
 		"missing local queue does not deactivate an evicted workload": {
 			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
