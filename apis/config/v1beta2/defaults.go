@@ -49,7 +49,6 @@ const (
 	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
 	DefaultMultiKueueOrigin                       = "multikueue"
 	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
-	DefaultMultiKueueWorkerWatchTimeout           = 4 * time.Hour
 	DefaultRequeuingBackoffBaseSeconds            = 60
 	DefaultRequeuingBackoffMaxSeconds             = 3600
 	DefaultResourceTransformationStrategy         = Retain
@@ -146,7 +145,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.GCInterval = cmp.Or(cfg.MultiKueue.GCInterval, &metav1.Duration{Duration: DefaultMultiKueueGCInterval})
 	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
-	cfg.MultiKueue.WorkerWatchTimeout = cmp.Or(cfg.MultiKueue.WorkerWatchTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerWatchTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
 
 	if ptr.Deref(cfg.MultiKueue.DispatcherName, "") == MultiKueueDispatcherModeIncremental {

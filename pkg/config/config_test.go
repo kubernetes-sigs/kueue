@@ -313,7 +313,6 @@ multiKueue:
   gcInterval: 1m30s
   origin: multikueue-manager1
   workerLostTimeout: 10m
-  workerWatchTimeout: 2h
   dispatcherName: kueue.x-k8s.io/multikueue-dispatcher-incremental
   clusterProfile:
     accessProviders:
@@ -453,11 +452,10 @@ objectRetentionPolicies:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval:         &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:             new(configapi.DefaultMultiKueueOrigin),
-		WorkerLostTimeout:  &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		WorkerWatchTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerWatchTimeout},
-		DispatcherName:     new(configapi.MultiKueueDispatcherModeAllAtOnce),
+		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:            new(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
@@ -799,11 +797,10 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:         &metav1.Duration{Duration: 90 * time.Second},
-					Origin:             new("multikueue-manager1"),
-					WorkerLostTimeout:  &metav1.Duration{Duration: 10 * time.Minute},
-					WorkerWatchTimeout: &metav1.Duration{Duration: 2 * time.Hour},
-					DispatcherName:     new(configapi.MultiKueueDispatcherModeIncremental),
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            new("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -844,11 +841,10 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:         &metav1.Duration{Duration: 90 * time.Second},
-					Origin:             new("multikueue-manager1"),
-					WorkerLostTimeout:  &metav1.Duration{Duration: 10 * time.Minute},
-					WorkerWatchTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerWatchTimeout},
-					DispatcherName:     new(configapi.MultiKueueDispatcherModeIncremental),
+					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
+					Origin:            new("multikueue-manager1"),
+					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -1057,11 +1053,10 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:         &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:             new(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout:  &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					WorkerWatchTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerWatchTimeout},
-					DispatcherName:     new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1108,11 +1103,10 @@ webhook:
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:         &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:             new(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout:  &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					WorkerWatchTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerWatchTimeout},
-					DispatcherName:     new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
+					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1262,11 +1256,10 @@ func TestEncode(t *testing.T) {
 					"frameworks": []any{"batch/job"},
 				},
 				"multiKueue": map[string]any{
-					"gcInterval":         "1m0s",
-					"origin":             "multikueue",
-					"workerLostTimeout":  "15m0s",
-					"workerWatchTimeout": "4h0m0s",
-					"dispatcherName":     configapi.MultiKueueDispatcherModeAllAtOnce,
+					"gcInterval":        "1m0s",
+					"origin":            "multikueue",
+					"workerLostTimeout": "15m0s",
+					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
 				},
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
