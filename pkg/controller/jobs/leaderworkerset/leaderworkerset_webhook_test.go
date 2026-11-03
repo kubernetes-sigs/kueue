@@ -348,11 +348,12 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		lws          *leaderworkersetv1.LeaderWorkerSet
-		featureGates map[featuregate.Feature]bool
-		wantErr      error
-		wantWarns    admission.Warnings
+		integrations               []string
+		manageJobsWithoutQueueName bool
+		lws                        *leaderworkersetv1.LeaderWorkerSet
+		featureGates               map[featuregate.Feature]bool
+		wantErr                    error
+		wantWarns                  admission.Warnings
 	}{
 		"without queue": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -952,6 +953,45 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"groupIdentity Hash when managed": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: groupIdentityPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"groupIdentity Ordinal when managed": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityOrdinal).
+				Obj(),
+		},
+		"groupIdentity Hash when unmanaged": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+		},
+		"groupIdentity Hash without queue when managing jobs without queue name": {
+			manageJobsWithoutQueueName: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: groupIdentityPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"elastic job annotation is rejected": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -978,7 +1018,7 @@ func TestValidateCreate(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			w := &Webhook{integrationManager: integrationManager, client: client}
+			w := &Webhook{integrationManager: integrationManager, client: client, manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateCreate(ctx, tc.lws)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
@@ -993,12 +1033,13 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		integrations []string
-		objs         []runtime.Object
-		oldObj       *leaderworkersetv1.LeaderWorkerSet
-		newObj       *leaderworkersetv1.LeaderWorkerSet
-		featureGates map[featuregate.Feature]bool
-		wantErr      error
+		integrations               []string
+		manageJobsWithoutQueueName bool
+		objs                       []runtime.Object
+		oldObj                     *leaderworkersetv1.LeaderWorkerSet
+		newObj                     *leaderworkersetv1.LeaderWorkerSet
+		featureGates               map[featuregate.Feature]bool
+		wantErr                    error
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1246,6 +1287,115 @@ func TestValidateUpdate(t *testing.T) {
 			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Size(10).
+				Obj(),
+		},
+		"groupIdentity Hash when already managed": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Replicas(2).
+				Obj(),
+		},
+		"groupIdentity Hash when queue name is added": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: groupIdentityPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"groupIdentity Hash when unmanaged": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Replicas(2).
+				Obj(),
+		},
+		"groupIdentity Hash without queue when managing jobs without queue name": {
+			manageJobsWithoutQueueName: true,
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Replicas(2).
+				Obj(),
+		},
+		"groupIdentity Hash when managed owner is removed": {
+			integrations: []string{FrameworkName},
+			objs: []runtime.Object{
+				testingleaderworkerset.MakeLeaderWorkerSet("parent-lws", "").
+					UID("parent-lws").
+					Queue("parent-queue").
+					Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				OwnerReference("parent-lws", gvk).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: groupIdentityPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"groupIdentity Hash when already managed and deleting": {
+			featureGates: map[featuregate.Feature]bool{features.SkipAncestorCheckForDeletedWorkloads: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				DeletionTimestamp(time.Now()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				DeletionTimestamp(time.Now()).
+				Obj(),
+		},
+		"groupIdentity Hash when already managed and deleting and the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.SkipAncestorCheckForDeletedWorkloads: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				DeletionTimestamp(time.Now()).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				DeletionTimestamp(time.Now()).
 				Obj(),
 		},
 		"change queue name when replicas ready": {
@@ -1883,8 +2033,8 @@ func TestValidateUpdate(t *testing.T) {
 				integrationManager.EnableIntegration(integration)
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			client := utiltesting.NewClientBuilder().WithRuntimeObjects(tc.objs...).Build()
-			wh := &Webhook{integrationManager: integrationManager, client: client}
+			client := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithRuntimeObjects(tc.objs...).Build()
+			wh := &Webhook{integrationManager: integrationManager, client: client, manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)

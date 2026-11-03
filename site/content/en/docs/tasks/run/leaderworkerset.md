@@ -116,6 +116,21 @@ on the worker cluster. Together with the tolerations, Kueue copies the
 To turn this off, disable the `AllowAddingPodTemplateTolerations`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 
+### e. Group identity
+
+Kueue supports only the default `spec.groupIdentity: Ordinal`. With
+`spec.groupIdentity: Hash`, the leader Pods are managed by a Deployment and run
+without admission, while the worker Pods stay gated.
+
+Kueue rejects `spec.groupIdentity: Hash` when you create a LeaderWorkerSet that
+Kueue manages, or when an update brings a LeaderWorkerSet under Kueue management,
+for example by adding the `kueue.x-k8s.io/queue-name` label.
+
+A LeaderWorkerSet with `spec.groupIdentity: Hash` that Kueue already manages,
+such as one created before Kueue added this validation, is not rejected on
+update and keeps running this way. `spec.groupIdentity` is immutable, so delete
+the LeaderWorkerSet and create it again with `spec.groupIdentity: Ordinal`.
+
 ## Example
 Here is a sample LeaderWorkerSet:
 
