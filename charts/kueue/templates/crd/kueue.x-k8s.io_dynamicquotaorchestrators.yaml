@@ -108,6 +108,21 @@ spec:
                     When omitted, the DQO is discovery-only: it reports aggregated capacity
                     but does not write effectiveQuotas status.
                   properties:
+                    effectiveQuotaTTLSeconds:
+                      description: |-
+                        effectiveQuotaTTLSeconds is how long, in seconds, the effective quota
+                        written by this DQO stays valid without renewal. When set, DQO sets
+                        status.effectiveQuotas.validUntil to the time it writes the effective quota
+                        plus this value, and renews it while distribution keeps succeeding.
+                        When not set, DQO writes the effective quota without validUntil, so it
+                        does not expire. A change applies the next time DQO writes the effective
+                        quota, so during an outage an existing validUntil stays as it is.
+
+                        Must be between 60 (1 minute) and 604800 (7 days).
+                      format: int32
+                      maximum: 604800
+                      minimum: 60
+                      type: integer
                     subtreeRootQuotaRef:
                       description: subtreeRootQuotaRef identifies the root of the quota subtree.
                       properties:

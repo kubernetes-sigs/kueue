@@ -666,8 +666,8 @@ spec:
               effectiveQuotas:
                 description: |-
                   effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-                  present. It is set by Dynamic Quota Orchestration (DQO), which overrides
-                  the quotas of whole flavors.
+                  present, unless the EffectiveQuotaActive condition is False. It is set by
+                  Dynamic Quota Orchestration (DQO), which overrides the quotas of whole flavors.
 
                   This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
                   feature gate is disabled.
@@ -842,6 +842,14 @@ spec:
                     maxItems: 16
                     type: array
                     x-kubernetes-list-type: atomic
+                  validUntil:
+                    description: |-
+                      validUntil is the time after which the effective quota expires. Kueue
+                      then ignores resourceGroups and uses spec.resourceGroups. The component
+                      managing the effective quota extends it while it keeps managing it.
+                      When omitted, the effective quota does not expire.
+                    format: date-time
+                    type: string
                 required:
                 - orchestratorRef
                 - resourceGroups

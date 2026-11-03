@@ -958,6 +958,17 @@ func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *Co
 	return c
 }
 
+// Condition sets a condition on the Cohort.
+func (c *CohortWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *CohortWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
+	return c
+}
+
 func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
 	if c.Spec.FairSharing == nil {
 		c.Spec.FairSharing = &kueue.FairSharing{}
@@ -1261,6 +1272,11 @@ func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
 	return &e.EffectiveQuotaStatus
 }
 
+// Clone returns a deep copy of the EffectiveQuotaStatusWrapper.
+func (e *EffectiveQuotaStatusWrapper) Clone() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{EffectiveQuotaStatus: *e.DeepCopy()}
+}
+
 // APIGroup sets the APIGroup of orchestratorRef.
 func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
 	e.OrchestratorRef.APIGroup = apiGroup
@@ -1282,6 +1298,12 @@ func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWra
 // ResourceGroups sets the resourceGroups.
 func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
 	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
+}
+
+// ValidUntil sets validUntil.
+func (e *EffectiveQuotaStatusWrapper) ValidUntil(t time.Time) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ValidUntil = &metav1.Time{Time: t}
 	return e
 }
 
