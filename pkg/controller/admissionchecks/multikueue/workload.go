@@ -359,7 +359,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	res, err := w.reconcileGroup(ctx, grp, retryCleanupAfter == 0)
+	res, err := w.reconcileGroup(ctx, grp)
 	if retryCleanupAfter > 0 && (res.RequeueAfter == 0 || retryCleanupAfter < res.RequeueAfter) {
 		res.RequeueAfter = retryCleanupAfter
 	}
@@ -518,10 +518,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 	return &grp, nil
 }
 
-// reconcileGroup reconciles the local workload with its remote workloads.
-// previousClustersClean is false while removeObjectsOnPreviousClusters still has
-// to retry a cleanup, so the workload is not marked as cleaned up yet.
-func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup, previousClustersClean bool) (reconcile.Result, error) {
+func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "reconcileGroup")
 	log.V(3).Info("Reconcile Workload Group")
 
@@ -560,7 +557,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup, previ
 			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
 		}
-		if len(errs) == 0 && previousClustersClean {
+		if len(errs) == 0 {
 			if err := w.markRemoteObjectsRemoved(ctx, group.local); err != nil {
 				errs = append(errs, err)
 			}
