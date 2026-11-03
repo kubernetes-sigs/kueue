@@ -17,6 +17,7 @@ limitations under the License.
 package waitforpodsready
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -101,6 +102,64 @@ func TestPodsScheduledTrackingEnabled(t *testing.T) {
 	}
 }
 
+func TestRecoveryTimeout(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		cfg          *configapi.WaitForPodsReady
+		want         *time.Duration
+	}{
+		"nil config": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+		},
+		"waitForPodsReady disabled by feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+		},
+		"recovery timeout unset": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"recovery timeout zero": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+		},
+		"recovery timeout positive": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+			want: ptr.To(2 * time.Minute),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if got := RecoveryTimeout(tc.cfg); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("RecoveryTimeout() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseAnnotation(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string
@@ -136,6 +195,32 @@ func TestParseAnnotation(t *testing.T) {
 			annotation: `{"timeoutSeconds":-1}`,
 			want: &WorkloadLevelConfig{
 				Timeout: -1 * time.Second,
+			},
+		},
+		// 36028797018963969 is 2^55+1: multiplied by time.Second it wraps around to exactly 1s.
+		"timeoutSeconds that would wrap around to a small duration is clamped": {
+			annotation: `{"timeoutSeconds":36028797018963969}`,
+			want: &WorkloadLevelConfig{
+				Timeout: time.Duration(math.MaxInt64),
+			},
+		},
+		"max int64 timeoutSeconds is clamped instead of wrapping to a negative duration": {
+			annotation: `{"timeoutSeconds":9223372036854775807}`,
+			want: &WorkloadLevelConfig{
+				Timeout: time.Duration(math.MaxInt64),
+			},
+		},
+		"recoveryTimeoutSeconds that would wrap around to a small duration is clamped": {
+			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":36028797018963969}`,
+			want: &WorkloadLevelConfig{
+				Timeout:         100 * time.Second,
+				RecoveryTimeout: ptr.To(time.Duration(math.MaxInt64)),
+			},
+		},
+		"min int64 timeoutSeconds is clamped": {
+			annotation: `{"timeoutSeconds":-9223372036854775808}`,
+			want: &WorkloadLevelConfig{
+				Timeout: time.Duration(math.MinInt64),
 			},
 		},
 		"unexpected end of JSON input": {
