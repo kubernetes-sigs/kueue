@@ -107,8 +107,8 @@ linter are compiled once and reused until their version, configuration, or Go
 toolchain changes. Run `make verify-ci-tools` to test installation and reuse
 without network access or containers.
 
-Tool metadata is declared in the `TOOLS` registry at the top of
-`hack/install-tool.py`: executable names, source modules/packages, upstream
+Tool metadata is declared in `hack/tools-installer/data.json`:
+executable names, source modules/packages, upstream
 repositories, release tags, asset filename templates, and checksum manifests.
 The registry key is the executable name; Make supplies the destination path and
 pinned version. Asset templates accept `{version}` (including `v`), `{number}`

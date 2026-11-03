@@ -325,7 +325,7 @@ verify-generation-order: ## Validate generation barriers and overlap without com
 
 .PHONY: verify-ci-tools
 verify-ci-tools: ## Validate tool installation without network or containers.
-	python3 $(PROJECT_DIR)/hack/install-tool_test.py
+	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation

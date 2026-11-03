@@ -84,7 +84,7 @@ NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
 .PHONY: golangci-lint
 golangci-lint: ## Download the pinned upstream golangci-lint binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
@@ -98,27 +98,27 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 
 .PHONY: controller-gen
 controller-gen: ## Download the pinned upstream controller-gen binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py controller-gen "$(CONTROLLER_GEN_VERSION)" "$(CONTROLLER_GEN)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py controller-gen "$(CONTROLLER_GEN_VERSION)" "$(CONTROLLER_GEN)"
 
 .PHONY: kustomize
 kustomize: ## Download the pinned upstream kustomize binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
 
 .PHONY: envtest
 envtest: ## Reuse generators without upstream binaries until their version changes.
-	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/install-source-tool.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 
 .PHONY: ginkgo
 ginkgo: ## Reuse generators without upstream binaries until their version changes.
-	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/install-source-tool.sh "$(GINKGO)" "github.com/onsi/ginkgo/v2" "$(GINKGO_VERSION)" "github.com/onsi/ginkgo/v2/ginkgo"
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GINKGO)" "github.com/onsi/ginkgo/v2" "$(GINKGO_VERSION)" "github.com/onsi/ginkgo/v2/ginkgo"
 
 .PHONY: gotestsum
 gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
 
 .PHONY: kind
 kind: ## Download the pinned upstream kind binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py kind "$(KIND_VERSION)" "$(KIND)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kind "$(KIND_VERSION)" "$(KIND)"
 
 .PHONY: kubectl
 kubectl: ## Download kubectl locally if necessary.
@@ -144,7 +144,7 @@ kubectl: ## Download kubectl locally if necessary.
 
 .PHONY: yq
 yq: ## Download the pinned upstream yq binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py yq "$(YQ_VERSION)" "$(YQ)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py yq "$(YQ_VERSION)" "$(YQ)"
 
 .PHONY: helm
 helm: ## Download helm locally if necessary.
@@ -184,7 +184,7 @@ helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 
 .PHONY: genref
 genref: ## Reuse generators without upstream binaries until their version changes.
-	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/install-source-tool.sh "$(GENREF)" "github.com/kubernetes-sigs/reference-docs/genref" "$(GENREF_VERSION)" "github.com/kubernetes-sigs/reference-docs/genref"
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GENREF)" "github.com/kubernetes-sigs/reference-docs/genref" "$(GENREF_VERSION)" "github.com/kubernetes-sigs/reference-docs/genref"
 
 .PHONY: hugo
 hugo: gomod-download-tools ## Download hugo locally if necessary.
@@ -192,15 +192,15 @@ hugo: gomod-download-tools ## Download hugo locally if necessary.
 
 .PHONY: mdtoc
 mdtoc: ## Download the pinned upstream mdtoc binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py mdtoc "$(MDTOC_VERSION)" "$(MDTOC)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py mdtoc "$(MDTOC_VERSION)" "$(MDTOC)"
 
 .PHONY: helm-docs
 helm-docs: ## Download the pinned upstream helm-docs binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/install-tool.py helm-docs "$(HELM_DOCS_VERSION)" "$(HELM_DOCS)"
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py helm-docs "$(HELM_DOCS_VERSION)" "$(HELM_DOCS)"
 
 .PHONY: mockgen
 mockgen: ## Reuse generators without upstream binaries until their version changes.
-	CGO_ENABLED=1 GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/install-source-tool.sh "$(MOCKGEN)" "go.uber.org/mock" "$(MOCKGEN_VERSION)" "go.uber.org/mock/mockgen"
+	CGO_ENABLED=1 GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(MOCKGEN)" "go.uber.org/mock" "$(MOCKGEN_VERSION)" "go.uber.org/mock/mockgen"
 
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.

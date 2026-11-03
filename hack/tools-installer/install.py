@@ -39,63 +39,12 @@ RATE_LIMIT_DELAY = 20
 
 # Keys are executable names; Make supplies the destination path and pinned version.
 # Packages default to their module, tags to {version}; no checksum means release API metadata.
-TOOLS = {
-    "golangci-lint": {
-        "module": "github.com/golangci/golangci-lint/v2",
-        "package": "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
-        "repository": "golangci/golangci-lint",
-        "asset": "golangci-lint-{number}-{goos}-{goarch}.tar.gz",
-        "checksum": "golangci-lint-{number}-checksums.txt",
-    },
-    "controller-gen": {
-        "module": "sigs.k8s.io/controller-tools",
-        "package": "sigs.k8s.io/controller-tools/cmd/controller-gen",
-        "repository": "kubernetes-sigs/controller-tools",
-        "asset": "controller-gen-{goos}-{goarch}",
-    },
-    "kustomize": {
-        "module": "sigs.k8s.io/kustomize/kustomize/v5",
-        "repository": "kubernetes-sigs/kustomize",
-        "tag": "kustomize/{version}",
-        "asset": "kustomize_{version}_{goos}_{goarch}.tar.gz",
-        "checksum": "checksums.txt",
-    },
-    "gotestsum": {
-        "module": "gotest.tools/gotestsum",
-        "repository": "gotestyourself/gotestsum",
-        "asset": "gotestsum_{number}_{goos}_{goarch}.tar.gz",
-        "checksum": "gotestsum-{number}-checksums.txt",
-    },
-    "kind": {
-        "module": "sigs.k8s.io/kind",
-        "repository": "kubernetes-sigs/kind",
-        "asset": "kind-{goos}-{goarch}",
-    },
-    "yq": {
-        "module": "github.com/mikefarah/yq/v4",
-        "repository": "mikefarah/yq",
-        "asset": "yq_{goos}_{goarch}",
-        "checksum": "checksums-bsd",
-    },
-    "mdtoc": {
-        "module": "sigs.k8s.io/mdtoc",
-        "repository": "kubernetes-sigs/mdtoc",
-        "asset": "mdtoc-{goarch}-{goos}",
-        "checksum": "checksums.txt",
-    },
-    "helm-docs": {
-        "module": "github.com/norwoodj/helm-docs",
-        "package": "github.com/norwoodj/helm-docs/cmd/helm-docs",
-        "repository": "norwoodj/helm-docs",
-        "asset": "helm-docs_{number}_{platform}_{arch}.tar.gz",
-        "checksum": "checksums.txt",
-    },
-}
+TOOLS = json.loads(Path(__file__).with_name("data.json").read_text())
 
 
 def configure_logging(name):
     """Keep diagnostics in both the build log and a per-tool CI artifact."""
-    artifacts = Path(os.environ.get("ARTIFACTS", Path(__file__).resolve().parents[1] / "artifacts"))
+    artifacts = Path(os.environ.get("ARTIFACTS", Path(__file__).resolve().parents[2] / "artifacts"))
     artifacts.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.DEBUG,
@@ -114,7 +63,7 @@ def install_source(name, version, destination):
     package = tool.get("package", module)
     LOG.info("Building %s from %s@%s into %s", name, package, version, destination)
     result = subprocess.run(
-        ["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(destination), module, version, package],
+        ["bash", str(Path(__file__).with_name("source.sh")), str(destination), module, version, package],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     if result.stdout:

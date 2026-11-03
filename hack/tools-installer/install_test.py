@@ -27,7 +27,7 @@ import unittest
 from unittest.mock import call, patch
 from urllib.error import HTTPError, URLError
 
-SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install-tool.py"))
+SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install.py"))
 installer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(installer)
 
@@ -113,6 +113,12 @@ class InstallTest(unittest.TestCase):
                 compile_source.assert_called_with("helm-docs", "v1", binary)
 
     def test_source_fallback_uses_pinned_package(self):
+        """Check every tool's fallback module/package and forward the pinned version.
+
+        Keep these expectations independent of data.json so an incorrect package
+        mapping cannot silently build the wrong executable on unsupported hosts.
+        Mock the subprocess to check the source install command without compiling.
+        """
         packages = {
             "golangci-lint": ("github.com/golangci/golangci-lint/v2", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"),
             "controller-gen": ("sigs.k8s.io/controller-tools", "sigs.k8s.io/controller-tools/cmd/controller-gen"),
@@ -126,7 +132,7 @@ class InstallTest(unittest.TestCase):
         for name, (module, package) in packages.items():
             with self.subTest(name=name), patch.object(installer.subprocess, "run") as run:
                 installer.install_source(name, "v1", f"/tmp/{name}")
-                self.assertEqual(run.call_args.args[0][-3:], [module, "v1", package])
+                self.assertEqual(run.call_args.args[0], ["bash", str(Path(__file__).with_name("source.sh")), f"/tmp/{name}", module, "v1", package])
 
     def test_source_build_failure_logs_compiler_output(self):
         import subprocess
@@ -149,7 +155,7 @@ class InstallTest(unittest.TestCase):
             (root / "nested").mkdir()
             (root / "nested" / "binary").touch()
             # Run the actual target in isolation from unrelated Makefile prerequisites.
-            makefile = Path(__file__).resolve().parents[1] / "Makefile"
+            makefile = Path(__file__).resolve().parents[2] / "Makefile"
             recipe = makefile.read_text().split("clean-artifacts:\n", 1)[1].split("\n\n", 1)[0]
             command = ["make", "-f", "-", "clean-artifacts", f"ARTIFACTS={root}"]
             subprocess.run(command, input="clean-artifacts:\n" + recipe + "\n", text=True, check=True, capture_output=True)
@@ -260,9 +266,10 @@ class InstallTest(unittest.TestCase):
             (root / "controller-gen.release-version").write_text("v1 linux/amd64\n")
             artifacts = root / "custom-artifacts"
             env = {**os.environ, "GO_CMD": str(fake_go), "ARTIFACTS": str(artifacts), "GH_TOKEN": "test-secret"}
-            script = str(Path(__file__).with_name("install-tool.py"))
+            script = str(Path(__file__).resolve().with_name("install.py"))
             for name, status, message in [("controller-gen", 0, "Reusing controller-gen"), ("unknown", 1, "No upstream binary configured")]:
-                result = subprocess.run([sys.executable, script, name, "v1", str(root / name)], env=env, capture_output=True, text=True)
+                # Resolve the adjacent JSON independently of the caller's directory.
+                result = subprocess.run([sys.executable, script, name, "v1", str(root / name)], cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, status, result.stderr)
                 log = (artifacts / f"install-{name}.log").read_text()
                 self.assertIn(message, log)
@@ -270,6 +277,18 @@ class InstallTest(unittest.TestCase):
                 self.assertNotIn("test-secret", log)
                 if status:
                     self.assertIn("Traceback", log)
+
+    def test_default_artifacts_are_relative_to_repository_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "hack/tools-installer/install.py"
+            with patch.object(installer, "__file__", str(script)), patch.dict(os.environ, {}, clear=True), patch.object(installer.logging, "basicConfig") as configure:
+                installer.configure_logging("kind")
+                try:
+                    self.assertTrue((root / "artifacts/install-kind.log").is_file())
+                finally:
+                    for handler in configure.call_args.kwargs["handlers"]:
+                        handler.close()
 
     def test_supported_release_names(self):
         expected = {
@@ -331,7 +350,7 @@ else:
 ''')
             fake_go.chmod(0o755)
             env = {**os.environ, "GO_CMD": str(fake_go), "GOOS": "windows", "GOARCH": "386"}
-            command = ["bash", str(Path(__file__).with_name("install-source-tool.sh")), str(directory / "generator"), "example/generator", "v1", "example/generator"]
+            command = ["bash", str(Path(__file__).with_name("source.sh")), str(directory / "generator"), "example/generator", "v1", "example/generator"]
             subprocess.run(command, env=env, check=True)
             subprocess.run(command, env=env, check=True)
             command[-2] = "v2"
@@ -351,7 +370,7 @@ else:
             root = Path(temp)
             script = root / "hack/tools/code-generator/generate.sh"
             script.parent.mkdir(parents=True)
-            shutil.copyfile(Path(__file__).parent / "tools/code-generator/generate.sh", script)
+            shutil.copyfile(Path(__file__).resolve().parents[1] / "tools/code-generator/generate.sh", script)
             module = root / "module"
             module.mkdir()
             (module / "kube_codegen.sh").write_text("\n".join(f"kube::codegen::{name}() {{ :; }}" for name in ["gen_helpers", "gen_openapi", "gen_client"]))
@@ -393,7 +412,7 @@ echo built >> "$KAL_TEST_LOG"
 ''')
             linter.chmod(0o755)
             makefile = root / "Makefile"
-            makefile.write_text(f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\nNETWORK_INSTALL_RETRY := env\ninclude {Path(__file__).resolve().parent / 'make/deps.mk'}\n")
+            makefile.write_text(f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\nNETWORK_INSTALL_RETRY := env\ninclude {Path(__file__).resolve().parents[1] / 'make/deps.mk'}\n")
             env = {**os.environ, "KAL_TEST_LOG": str(root / "builds")}
             command = ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"]
             for _ in range(2):
