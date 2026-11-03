@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testCandidate struct {
@@ -367,10 +368,14 @@ func TestPreemptWorkload(t *testing.T) {
 		Obj()
 	nodes := []*corev1.Node{node1}
 
-	existingPodWlKey := types.NamespacedName{Namespace: "default", Name: "wl1"}
-	existingPod := testingpod.MakePod("existing-pod", existingPodWlKey.Namespace).
+	const (
+		existingPodNamespace = "default"
+		existingPodWlName    = "wl1"
+	)
+	existingPodWlKey := workload.NewReference(existingPodNamespace, existingPodWlName)
+	existingPod := testingpod.MakePod("existing-pod", existingPodNamespace).
 		UID("uid-1").
-		Annotation(kueue.WorkloadAnnotation, existingPodWlKey.Name).
+		Annotation(kueue.WorkloadAnnotation, existingPodWlName).
 		NodeName("node1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
@@ -400,7 +405,7 @@ func TestPreemptWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		setup        func(*podtracker.Tracker)
-		preemptKey   types.NamespacedName
+		preemptKey   workload.Reference
 		wantFeasible bool
 	}{
 		"preempt existing workload": {
@@ -414,7 +419,7 @@ func TestPreemptWorkload(t *testing.T) {
 			setup: func(podTracker *podtracker.Tracker) {
 				podTracker.Track(existingPod)
 			},
-			preemptKey:   types.NamespacedName{Namespace: "default", Name: "non-existent"},
+			preemptKey:   workload.NewReference("default", "non-existent"),
 			wantFeasible: false,
 		},
 		"preempt when unassigned pod exists": {
@@ -618,7 +623,7 @@ func TestSimulate(t *testing.T) {
 	}
 
 	simErr := schedulerSimulator.Simulate(ctx, func() {
-		_, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+		_, err := schedulerSimulator.PreemptWorkload(ctx, workload.NewReference("default", "wl1"))
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
 		}
@@ -789,7 +794,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	}
 	wasSim := schedulerSimulator.(*wasSimulator)
 
-	pods := wasSim.pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	pods := wasSim.pods.PodsForWorkload(workload.NewReference("default", "wl1"))
 	if len(pods) != 2 {
 		t.Fatalf("Expected 2 pods in podsByWorkload, got %d", len(pods))
 	}
@@ -806,7 +811,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next snapshot failed: %v", err)
 	}
-	nextPods := nextSimulator.(*wasSimulator).pods.PodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	nextPods := nextSimulator.(*wasSimulator).pods.PodsForWorkload(workload.NewReference("default", "wl1"))
 	if diff := cmp.Diff([]*corev1.Pod{realPod}, nextPods); diff != "" {
 		t.Errorf("Virtual replacement changed tracked real pods (-want,+got):\n%s", diff)
 	}
@@ -893,7 +898,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible due to virtual pod port conflict")
 	}
 
-	revert, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+	revert, err := schedulerSimulator.PreemptWorkload(ctx, workload.NewReference("default", "wl1"))
 	if err != nil {
 		t.Fatalf("PreemptWorkload failed: %v", err)
 	}
@@ -935,14 +940,18 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			const (
+				ns         = "default"
+				victimName = "victim"
+			)
 			podTracker := &podtracker.Tracker{}
-			victim := client.ObjectKey{Namespace: "default", Name: "victim"}
+			victim := workload.NewReference(ns, victimName)
 			// One Pod per node, each holding the same host port, so every node is
 			// blocked until the whole victim is released.
 			for i := range nodes {
-				podTracker.Track(testingpod.MakePod(fmt.Sprintf("victim-%d", i), victim.Namespace).
+				podTracker.Track(testingpod.MakePod(fmt.Sprintf("victim-%d", i), ns).
 					UID(fmt.Sprintf("uid-%d", i)).
-					Annotation(kueue.WorkloadAnnotation, victim.Name).
+					Annotation(kueue.WorkloadAnnotation, victimName).
 					NodeName(nodes[i].Name).
 					StatusPhase(corev1.PodRunning).
 					Port(8080, 8080, corev1.ProtocolTCP).
@@ -952,7 +961,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			probe := testingpod.MakePod("probe", "default").Obj()
+			probe := testingpod.MakePod("probe", ns).Obj()
 			probe.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}}
 			feasible := func() []string {
 				var stats simulator.NodeExclusionStats

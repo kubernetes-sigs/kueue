@@ -19,7 +19,6 @@ package scheduler
 import (
 	"iter"
 	"maps"
-	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -293,8 +292,7 @@ func (n *nonTasUsageCache) tasPodsForWorkload(ref workload.Reference) iter.Seq[t
 			}
 			return
 		}
-		namespace, name, _ := strings.Cut(string(ref), "/")
-		for _, pod := range n.tasPods.PodsForWorkload(client.ObjectKey{Namespace: namespace, Name: name}) {
+		for _, pod := range n.tasPods.PodsForWorkload(ref) {
 			if !yield(n.tasPodUsage[client.ObjectKeyFromObject(pod)]) {
 				return
 			}
