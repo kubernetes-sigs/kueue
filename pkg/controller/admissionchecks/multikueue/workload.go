@@ -320,12 +320,9 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads,
-	// unless it still has remote objects to remove from clusters it was evicted from.
+	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
 	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
-		if _, pending := w.previousClusterNames.Get(req.String()); !pending {
-			return reconcile.Result{}, nil
-		}
+		return reconcile.Result{}, nil
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
