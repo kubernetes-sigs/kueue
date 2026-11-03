@@ -320,23 +320,21 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	grp, err := w.newGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
+	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads,
+	// unless it still has remote objects to remove from clusters it was evicted from.
+	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
+		if _, pending := w.previousClusterNames.Get(req.String()); !pending {
+			return reconcile.Result{}, nil
+		}
+	}
+
+	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
 	retryCleanupAfter, err := w.removeObjectsOnPreviousClusters(ctx, grp, req.String())
 	if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads,
-	// which costs a GET per worker cluster. Replaced slices accumulate until they are deleted.
-	if !isDeleted && isReplacedSlice(wl) {
-		return reconcile.Result{RequeueAfter: retryCleanupAfter}, nil
-	}
-
-	if err := grp.readRemotes(ctx); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -486,8 +484,7 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
-// newGroup builds the group of the local workload without reading the remote workloads.
-func (w *wlReconciler) newGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
+func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
 	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
@@ -503,29 +500,19 @@ func (w *wlReconciler) newGroup(ctx context.Context, local *kueue.Workload, acNa
 		controllerKey:       types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
 		unavailableClusters: unavailable,
 	}
-	return &grp, nil
-}
 
-// readRemotes reads the remote workload from each available cluster of the group.
-func (g *wlGroup) readRemotes(ctx context.Context) error {
-	for remote, rClient := range g.remoteClients {
+	for remote, rClient := range rClients {
 		wl := &kueue.Workload{}
-		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(g.local), wl)
+		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
 		if client.IgnoreNotFound(err) != nil {
-			return err
+			return nil, err
 		}
 		if err != nil {
 			wl = nil
 		}
-		g.remotes[remote] = wl
+		grp.remotes[remote] = wl
 	}
-	return nil
-}
-
-// isReplacedSlice reports whether wl is an elastic workload slice that finished because
-// a newer slice replaced it.
-func isReplacedSlice(wl *kueue.Workload) bool {
-	return workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status)
+	return &grp, nil
 }
 
 func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
@@ -534,14 +521,17 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 
-	// 1. Ignore an Elastic workload without quota reservation as a result of scale-up, i.e.,
-	// scaling-up in progress, unless it was evicted and its remote objects need cleanup.
-	// Reconcile already returned for a workload slice "Finished" as a result of its replacement.
+	// 1. Ignore Elastic workloads Finished when:
+	// - Workload is "Finished" as a result workload slice replacement, OR
+	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
+	//   unless it was evicted and its remote objects need cleanup.
 	scaleUpInProgress := !group.IsFinished() &&
 		!workload.HasQuotaReservation(group.local) &&
 		workloadslicing.ScaledUp(group.local) &&
 		!workloadevict.IsEvicted(group.local)
-	if group.IsElasticWorkload() && scaleUpInProgress {
+	if group.IsElasticWorkload() &&
+		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
+			scaleUpInProgress) {
 		return reconcile.Result{}, nil
 	}
 
