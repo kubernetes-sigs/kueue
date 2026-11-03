@@ -54,7 +54,7 @@ func newCohort(name kueue.CohortReference) *cohort {
 func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
-	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(apiCohort.Status.EffectiveQuotas)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(apiCohort.Status.EffectiveQuotas, apiCohort.Status.Conditions)
 
 	c.resourceNode.Quotas = createResourceQuotas(resourcegroups.EffectiveCohortResourceGroups(apiCohort))
 	if oldParent != nil && oldParent != c.Parent() {
