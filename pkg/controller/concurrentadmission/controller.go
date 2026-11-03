@@ -19,6 +19,7 @@ package concurrentadmission
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -410,8 +411,8 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 	variant := &kueue.Workload{
 		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
 		Namespace:     parent.Namespace,
-		Labels:        parent.Labels,
-		Annotations:   parent.Annotations,
+		Labels:        maps.Clone(parent.Labels),
+		Annotations:   maps.Clone(parent.Annotations),
 		ManagedFields: parent.ManagedFields,
 		Spec:          parent.Spec,
 		Status:        parent.Status,
