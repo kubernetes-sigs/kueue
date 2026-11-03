@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -91,6 +92,16 @@ const (
 	// not exercise that path today; the cap is a guard. See #11206.
 	initialEstablishTimeout = 1 * time.Minute
 	maxEstablishTimeout     = 10 * time.Minute
+
+	// The API server ends a watch that sets no timeout after --min-request-timeout
+	// times [1, 2), 30-60 minutes by default, and an ended watch makes the worker
+	// reconnect and resync all its workloads. Asking for a longer timeout makes this
+	// routine expiry rare, while the watch still moves to another API server replica
+	// every few hours. Bookmarks, sent about once a minute, keep the connection from
+	// looking idle to load balancers. The jitter spreads the expiry of workers that
+	// connected at the same time, e.g. after a manager restart.
+	watchTimeout             = 4 * time.Hour
+	watchTimeoutJitterFactor = 0.5
 )
 
 var (
@@ -486,7 +497,10 @@ func establishWatch(
 	go func() {
 		w, err := c.Watch(establishCtx, obj,
 			client.MatchingLabels{kueue.MultiKueueOriginLabel: origin},
-			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
+			&client.ListOptions{Raw: &metav1.ListOptions{
+				AllowWatchBookmarks: true,
+				TimeoutSeconds:      new(int64(wait.Jitter(watchTimeout, watchTimeoutJitterFactor).Seconds())),
+			}},
 		)
 		resultCh <- result{w: w, err: err}
 	}()

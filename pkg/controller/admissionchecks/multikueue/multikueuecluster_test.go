@@ -1538,6 +1538,35 @@ func TestEstablishWatch(t *testing.T) {
 // Pins the schedule produced by establishBackoff: 1m, 2m, 4m, 8m, 10m, 10m, ...
 // The helper itself is tested in pkg/util/wait; this is a guard against
 // accidental changes to the initial/cap/factor wiring.
+func TestEstablishWatchSetsLongTimeout(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	var gotOpts *metav1.ListOptions
+	c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+			gotOpts = (&client.ListOptions{}).ApplyOptions(opts).AsListOptions()
+			return c.Watch(ctx, list, opts...)
+		},
+	}).Build()
+
+	w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", time.Minute, &atomic.Bool{}, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	w.Stop()
+
+	if gotOpts == nil || gotOpts.TimeoutSeconds == nil {
+		t.Fatalf("want the watch opened with timeoutSeconds, got options %+v", gotOpts)
+	}
+	got := time.Duration(*gotOpts.TimeoutSeconds) * time.Second
+	if minTimeout, maxTimeout := watchTimeout, time.Duration(float64(watchTimeout)*(1+watchTimeoutJitterFactor)); got < minTimeout || got > maxTimeout {
+		t.Errorf("want timeoutSeconds in [%v, %v], got %v", minTimeout, maxTimeout, got)
+	}
+	if !gotOpts.AllowWatchBookmarks {
+		t.Error("want the watch opened with bookmarks")
+	}
+}
+
 func TestEstablishBackoffSchedule(t *testing.T) {
 	cases := map[string]struct {
 		failedAttempts uint
