@@ -1255,7 +1255,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	DeclareWorkloadFailureOnUnretriablePodGroups: {
-		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha}, // Beta and on by default in 0.21
 	},
 }
 
