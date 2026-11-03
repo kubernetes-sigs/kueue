@@ -7,11 +7,11 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1: Broken or cordoned nodes keep their quota, so admitted jobs stay Pending](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending)
+    - [Story 1: Preserve equal shares when available capacity shrinks](#story-1-preserve-equal-shares-when-available-capacity-shrinks)
     - [Story 2: New nodes sit idle until someone edits quota](#story-2-new-nodes-sit-idle-until-someone-edits-quota)
     - [Story 3: Team shares must follow a pool that changes size](#story-3-team-shares-must-follow-a-pool-that-changes-size)
     - [Story 4: Quota lags behind nodes moved between clusters](#story-4-quota-lags-behind-nodes-moved-between-clusters)
-    - [Story 5: MultiKueue worker quotas drift from the workers' nodes](#story-5-multikueue-worker-quotas-drift-from-the-workers-nodes)
+    - [Story 5: Make capacity shortages easier to explain](#story-5-make-capacity-shortages-easier-to-explain)
     - [Story 6: Low-priority jobs reuse the nodes of ProvisioningRequests](#story-6-low-priority-jobs-reuse-the-nodes-of-provisioningrequests)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
@@ -34,6 +34,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Examples](#examples)
+  - [Track the nodes of one flavor](#track-the-nodes-of-one-flavor)
   - [Shared pool for several teams](#shared-pool-for-several-teams)
   - [Proportional team shares](#proportional-team-shares)
   - [Several GPU types in one cluster](#several-gpu-types-in-one-cluster)
@@ -109,7 +110,7 @@ which was closed in favour of building on DQO.
   ProvisioningRequests.
 - Evicting running workloads when capacity drops.
 - Aggregating worker-cluster capacity into MultiKueue manager quota, which
-  [KEP-9988](../9988-multikueue-manager-quota-automation/README.md) covers.
+  [KEP-17401](../17401-dqo-multikueue-provider/README.md) covers.
 
 ## Proposal
 
@@ -131,67 +132,61 @@ the administrator writes every spec, and this controller writes only
 
 ### User Stories
 
-#### Story 1: Broken or cordoned nodes keep their quota, so admitted jobs stay Pending
+#### Story 1: Preserve equal shares when available capacity shrinks
 
-As a cluster administrator with a pool of H100 nodes, I want quota to equal the
-GPUs that are actually usable. Today, when a node fails or is cordoned, its GPUs
-stay in quota, so Kueue admits jobs that then stay Pending until someone lowers
-`nominalQuota` by hand.
+As a cluster administrator, I want two teams to share the available capacity equally. Teams can borrow unused capacity from each other and reclaim when needed.
 
-With this KEP the administrator keeps the ResourceFlavor and ClusterQueue as they
-are, and asks Kueue to track the flavor's nodes:
+For example, a cluster initially has 100 GPUs, giving each team a nominal quota of 50 GPUs. An outage then reduces healthy capacity to 50 GPUs, all occupied by Team A. Team B is eligible for the half of the capacity, but cannot reclaim its half of the remaining capacity.
+
+I want the nominal quotas to automatically adjust to 25 GPUs per team. Team A would then be borrowing 25 GPUs, allowing Team B to reclaim its share when it has workloads to run. When nodes recover, both teams’ nominal quotas should increase to reflect the restored capacity.
+
+With this KEP, the team ClusterQueues hold only the ratio and the Cohort holds 0, so DQO splits the healthy node capacity in that proportion.
+`reclaimWithinCohort: Any` lets Team B take back its share from Team A.
+The `h100` ResourceFlavor and the `nodes` CapacityProvider are the ones from
+[Track the nodes of one flavor](#track-the-nodes-of-one-flavor):
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
-kind: ResourceFlavor
+kind: ClusterQueue
 metadata:
-  name: h100
+  name: team-a        # the same for team-b
 spec:
-  nodeLabels:
-    example.com/gpu-type: h100
+  cohortName: shared-pool
+  namespaceSelector: {}
+  preemption:
+    reclaimWithinCohort: Any
+  resourceGroups:
+  - coveredResources: [nvidia.com/gpu]
+    flavors:
+    - name: h100
+      resources:
+      - {name: nvidia.com/gpu, nominalQuota: "50"}
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: CapacityProvider
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
 metadata:
-  name: nodes
+  name: shared-pool
 spec:
-  controllerName: kueue.x-k8s.io/local-capacity
-  orchestratedFlavors:
-  - name: h100
+  resourceGroups:
+  - coveredResources: [nvidia.com/gpu]
+    flavors:
+    - name: h100
+      resources:
+      - {name: nvidia.com/gpu, nominalQuota: "0"}
 ---
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: DynamicQuotaOrchestrator
 metadata:
-  name: research
+  name: shared-pool
 spec:
   capacityDiscovery:
     providers:
     - name: nodes
   capacityDistribution:
-    subtreeRootQuotaRef: {kind: ClusterQueue, name: research}
+    subtreeRootQuotaRef: {kind: Cohort, name: shared-pool}
 ```
 
-The controller then reports the healthy capacity:
-
-```yaml
-status:
-  capacity:
-    flavors:
-    - name: h100
-      resources:
-        nvidia.com/gpu: "80"
-        cpu: "1200"
-        memory: 9000Gi
-  conditions:
-  - type: CapacitySynchronized
-    status: "True"
-    reason: Synchronized
-    message: "h100: 10 nodes; excluded: NotReady=1"
-```
-
-When a node goes NotReady or is cordoned, `research` loses that node's GPUs
-within seconds. When the node is repaired or replaced, the GPUs come back.
-Running workloads are not evicted; only new admissions see the lower quota.
+With 100 GPUs, each team gets 50. After the outage, `status.effectiveQuotas` shows 25 GPUs for each team.
 
 #### Story 2: New nodes sit idle until someone edits quota
 
@@ -219,29 +214,43 @@ As an administrator replacing cluster A with cluster B, I move nodes over a few
 at a time. Today both clusters' quota must be edited after every batch, and until
 then A admits work onto nodes it no longer has.
 
-With this KEP, both clusters run the setup from Story 1 or 2 with the same
+With this KEP, both clusters run the setup from
+[Track the nodes of one flavor](#track-the-nodes-of-one-flavor) or Story 2 with the same
 flavor labels. Cordoning a node on A removes it from A's quota immediately, and
 when it joins B and becomes Ready, B's quota grows. At every step, each cluster's
 quota matches the nodes it actually has.
 
-#### Story 5: MultiKueue worker quotas drift from the workers' nodes
+#### Story 5: Make capacity shortages easier to explain
 
-As a batch administrator running MultiKueue across several worker clusters, I
-want each worker to admit only what its nodes can run. Today every worker's
-`nominalQuota` is edited by hand, so a worker that loses nodes still admits
-dispatched workloads that then stay Pending, while a worker that gains nodes
-leaves them idle.
+As a cluster administrator using TAS, I want quotas to accurately reflect healthy cluster capacity so users can understand why their workloads cannot run.
 
-With this KEP, each worker runs the setup from Story 1 or 2, so its quota follows
-its own nodes. A worker that lost capacity no longer admits the workload, and
-MultiKueue runs it on a worker that still has capacity. The manager needs no
-change.
+Today, a team may have unused nominal quota even when the cluster lacks enough healthy capacity. TAS correctly prevents admission, but users ask me why their jobs remain pending despite having quota. Answering requires investigating node availability and explaining the difference between configured quota and actual capacity.
 
-Summing the workers' node-derived quota into the manager's quota is not part of
-this KEP. It belongs to the MultiKueue capacity provider of
-[KEP-9988](../9988-multikueue-manager-quota-automation/README.md), which must
-read the workers' `effectiveQuotas`: with DQO, a worker's spec `nominalQuota` may
-hold only a ratio (Story 3).
+With quotas that track healthy capacity, I'm able to answer most capacity-related questions using quota information already visible to users.
+
+TAS diagnostics would still help explain placement-specific constraints, such as fragmentation or topology requirements, but such situations are significantly less common.
+
+With this KEP, the provider tracks the TAS flavor. A node counts only if it is healthy and has a label for every level of the flavor's Topology, the same rule TAS uses:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: h100-tas
+spec:
+  nodeLabels:
+    example.com/gpu-type: h100
+  topologyName: default
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: CapacityProvider
+metadata:
+  name: nodes
+spec:
+  controllerName: kueue.x-k8s.io/local-capacity
+  orchestratedFlavors:
+  - name: h100-tas
+```
 
 #### Story 6: Low-priority jobs reuse the nodes of ProvisioningRequests
 
@@ -500,9 +509,67 @@ None.
 
 ## Examples
 
-These are usage examples, not alternatives. They reuse the `h100` ResourceFlavor
-and the `nodes` CapacityProvider from
-[Story 1](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending).
+These are usage examples, not alternatives. All but the first reuse the `h100`
+ResourceFlavor and the `nodes` CapacityProvider from
+[Track the nodes of one flavor](#track-the-nodes-of-one-flavor).
+
+### Track the nodes of one flavor
+
+For [Story 1](#story-1-preserve-equal-shares-when-available-capacity-shrinks) and
+[Story 4](#story-4-quota-lags-behind-nodes-moved-between-clusters). The administrator keeps the ResourceFlavor and ClusterQueue as they
+are, and asks Kueue to track the flavor's nodes:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: h100
+spec:
+  nodeLabels:
+    example.com/gpu-type: h100
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: CapacityProvider
+metadata:
+  name: nodes
+spec:
+  controllerName: kueue.x-k8s.io/local-capacity
+  orchestratedFlavors:
+  - name: h100
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: DynamicQuotaOrchestrator
+metadata:
+  name: research
+spec:
+  capacityDiscovery:
+    providers:
+    - name: nodes
+  capacityDistribution:
+    subtreeRootQuotaRef: {kind: ClusterQueue, name: research}
+```
+
+The controller then reports the healthy capacity:
+
+```yaml
+status:
+  capacity:
+    flavors:
+    - name: h100
+      resources:
+        nvidia.com/gpu: "80"
+        cpu: "1200"
+        memory: 9000Gi
+  conditions:
+  - type: CapacitySynchronized
+    status: "True"
+    reason: Synchronized
+    message: "h100: 10 nodes; excluded: NotReady=1"
+```
+
+When a node goes NotReady or is cordoned, `research` loses that node's GPUs
+within seconds. When the node is repaired or replaced, the GPUs come back.
+Running workloads are not evicted; only new admissions see the lower quota.
 
 ### Shared pool for several teams
 
