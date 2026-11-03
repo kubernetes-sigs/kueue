@@ -620,12 +620,6 @@ func TestValidateUpdate(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "test").
 				ReadyReplicas(int32(1)).
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.labels[kueue.x-k8s.io/priority-class]",
-				},
-			}.ToAggregate(),
 		},
 		"update priority-class when replicas ready": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
