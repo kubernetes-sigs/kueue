@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
@@ -185,15 +186,25 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
+	parentWorkloads := make(map[workload.Reference]workload.Reference)
 
 	for _, wl := range simulator.AssumedWorkloads(options...) {
+		wlKey := workload.Key(wl)
+		// A ConcurrentAdmission Variant holds the reservation, but the job's Pods
+		// are annotated with its Parent.
+		if parent := concurrentadmission.GetParentWorkloadName(wl); parent != "" {
+			parentWorkloads[wlKey] = workload.NewReference(wl.Namespace, parent)
+		}
+
 		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
 		}
 
-		wlKey := workload.Key(wl)
 		tracker.RemoveWorkload(wlKey)
+		if parentKey, ok := parentWorkloads[wlKey]; ok {
+			tracker.RemoveWorkload(parentKey)
+		}
 
 		for _, vPod := range vPods {
 			tracker.Track(vPod)
@@ -208,6 +219,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	snapshot := &wasSimulator{
 		wasSnapshot:        clusterSnap,
 		pods:               tracker,
+		parentWorkloads:    parentWorkloads,
 		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
 		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}

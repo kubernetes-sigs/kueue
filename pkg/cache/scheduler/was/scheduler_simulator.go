@@ -54,6 +54,9 @@ type wasSimulator struct {
 	// pods is this cycle's tracker, including unmanaged and virtual Pods.
 	// PreemptWorkload only releases Pods indexed by Workload.
 	pods *podtracker.Tracker
+	// parentWorkloads maps each ConcurrentAdmission Variant to its Parent, whose
+	// name the job's Pods carry. The Variant is preempted together with them.
+	parentWorkloads map[workload.Reference]workload.Reference
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.
 	emptyCluster lazyCluster
@@ -163,7 +166,7 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Refer
 	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
-	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.pods.PodsForWorkload(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsForWorkload(wlKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
@@ -172,6 +175,16 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Refer
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err
 	}, nil
+}
+
+// podsForWorkload returns the Workload's Pods in this cycle's tracker, including
+// those of its Parent when it is a ConcurrentAdmission Variant.
+func (s *wasSimulator) podsForWorkload(wlKey workload.Reference) []*corev1.Pod {
+	pods := s.pods.PodsForWorkload(wlKey)
+	if parentKey, ok := s.parentWorkloads[wlKey]; ok {
+		pods = append(pods, s.pods.PodsForWorkload(parentKey)...)
+	}
+	return pods
 }
 
 func (s *wasSimulator) PreemptPods(ctx context.Context, podRefs []simulator.PodRef) (func() error, error) {
