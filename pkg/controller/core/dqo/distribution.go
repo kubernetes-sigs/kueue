@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
@@ -38,54 +39,57 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 )
 
 // reconcileDistribution performs Phase 2 reconciliation: validates subtree conflicts, resolves the target hierarchy, and distributes effective quotas.
-func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) error {
+// After a successful distribution it returns when the earliest validUntil in the subtree needs renewal.
+func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) (time.Time, error) {
 	rootRef := orchestrator.Spec.CapacityDistribution.SubtreeRootQuotaRef
 	if rootRef.Kind != kueuealpha.CohortSubtreeRootRefKind && rootRef.Kind != kueuealpha.ClusterQueueSubtreeRootRefKind {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured, fmt.Sprintf("unsupported subtree root kind %q", rootRef.Kind))
-		return nil
+		return time.Time{}, nil
 	}
 
 	otherOrchestrators, err := r.listDistributingDQOs(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 
 	conflictMsg, err := r.findConflictingDistributingDQO(ctx, orchestrator, otherOrchestrators)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if conflictMsg != "" {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonConflictingDynamicQuotaOrchestrator, conflictMsg)
-		return nil
+		return time.Time{}, nil
 	}
 
 	targetClusterQueues, targetCohorts, err := r.resolveSubtree(ctx, rootRef)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured, fmt.Sprintf("%s %q not found", rootRef.Kind, rootRef.Name))
-			return nil
+			return time.Time{}, nil
 		}
-		return err
+		return time.Time{}, err
 	}
 
 	if err := r.findOwnershipConflict(ctx, orchestrator, targetClusterQueues, targetCohorts, otherOrchestrators); err != nil {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict, err.Error())
-		return nil
+		return time.Time{}, nil
 	}
 
 	allocatedQuantities := calculateAllocations(effectiveCapacity, targetCohorts, targetClusterQueues)
-	if err := r.applyEffectiveQuotas(ctx, orchestrator.Name, targetClusterQueues, targetCohorts, allocatedQuantities); err != nil {
+	renewAt, err := r.applyEffectiveQuotas(ctx, orchestrator.Name, utildqo.EffectiveQuotaTTL(orchestrator), targetClusterQueues, targetCohorts, allocatedQuantities)
+	if err != nil {
 		// Earlier participants may already have received new quotas.
 		r.setDistributionCondition(orchestrator, metav1.ConditionUnknown,
 			kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
-		return err
+		return time.Time{}, err
 	}
 
 	r.setDistributionCondition(orchestrator, metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed, "Quotas successfully distributed")
-	return nil
+	return renewAt, nil
 }
 
 // listDistributingDQOs returns all DynamicQuotaOrchestrators currently configured for distribution.
@@ -245,15 +249,30 @@ func calculateAllocations(
 	return allocatedQuantities
 }
 
-// applyEffectiveQuotas updates status.effectiveQuotas on all target ClusterQueues and Cohorts in the subtree.
+// applyEffectiveQuotas updates status.effectiveQuotas on all target ClusterQueues and Cohorts in the subtree,
+// and returns when the earliest validUntil among them needs renewal. With a ttl of 0 it writes no validUntil
+// and returns the zero time.
 func (r *Reconciler) applyEffectiveQuotas(
 	ctx context.Context,
 	orchestratorName string,
+	ttl time.Duration,
 	targetClusterQueues []kueue.ClusterQueue,
 	targetCohorts []kueue.Cohort,
 	allocatedQuantities map[quotaKey]map[string]resource.Quantity,
-) error {
+) (time.Time, error) {
 	var errs []error
+	var earliest time.Time
+	// The clock is read per target, so a long pass does not write a validUntil
+	// that has already passed.
+	setValidUntil := func(oldEffectiveQuotas, newEffectiveQuotas *kueue.EffectiveQuotaStatus) {
+		if ttl == 0 {
+			return
+		}
+		newEffectiveQuotas.ValidUntil = nextValidUntil(oldEffectiveQuotas, newEffectiveQuotas, ttl, r.clock.Now())
+		if earliest.IsZero() || newEffectiveQuotas.ValidUntil.Time.Before(earliest) {
+			earliest = newEffectiveQuotas.ValidUntil.Time
+		}
+	}
 
 	// Step 1: Apply calculated effective quotas to all target ClusterQueues in the subtree.
 	for i := range targetClusterQueues {
@@ -265,6 +284,7 @@ func (r *Reconciler) applyEffectiveQuotas(
 			allocatedQuantities,
 			getParticipantID(kueuealpha.ClusterQueueSubtreeRootRefKind, clusterQueue.Name),
 		)
+		setValidUntil(clusterQueue.Status.EffectiveQuotas, newEffectiveQuotas)
 		if !equality.Semantic.DeepEqual(clusterQueue.Status.EffectiveQuotas, newEffectiveQuotas) {
 			clusterQueue.Status.EffectiveQuotas = newEffectiveQuotas
 			if err := r.client.Status().Update(ctx, clusterQueue); err != nil {
@@ -283,6 +303,7 @@ func (r *Reconciler) applyEffectiveQuotas(
 			allocatedQuantities,
 			getParticipantID(kueuealpha.CohortSubtreeRootRefKind, cohort.Name),
 		)
+		setValidUntil(cohort.Status.EffectiveQuotas, newEffectiveQuotas)
 		if !equality.Semantic.DeepEqual(cohort.Status.EffectiveQuotas, newEffectiveQuotas) {
 			cohort.Status.EffectiveQuotas = newEffectiveQuotas
 			if err := r.client.Status().Update(ctx, cohort); err != nil {
@@ -291,7 +312,25 @@ func (r *Reconciler) applyEffectiveQuotas(
 		}
 	}
 
-	return errors.Join(errs...)
+	if len(errs) > 0 || earliest.IsZero() {
+		return time.Time{}, errors.Join(errs...)
+	}
+	return earliest.Add(-ttl / 2), nil
+}
+
+// nextValidUntil keeps the current validUntil while the quota is unchanged and
+// more than half of the TTL, and at most the TTL, is left. Otherwise it returns
+// now plus the TTL, in whole seconds as the API server stores it.
+func nextValidUntil(oldEffectiveQuotas, newEffectiveQuotas *kueue.EffectiveQuotaStatus, ttl time.Duration, now time.Time) *metav1.Time {
+	if oldEffectiveQuotas != nil && oldEffectiveQuotas.ValidUntil != nil {
+		oldQuotas := *oldEffectiveQuotas
+		oldQuotas.ValidUntil = newEffectiveQuotas.ValidUntil
+		left := oldEffectiveQuotas.ValidUntil.Sub(now)
+		if left > ttl/2 && left <= ttl && equality.Semantic.DeepEqual(&oldQuotas, newEffectiveQuotas) {
+			return oldEffectiveQuotas.ValidUntil
+		}
+	}
+	return &metav1.Time{Time: now.Add(ttl).Truncate(time.Second)}
 }
 
 type quotaKey struct {
