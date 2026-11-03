@@ -865,10 +865,6 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 // that owner sends the admission check only and would drop the condition.
 const remoteObjectsRemovedFieldOwner = kueue.MultiKueueControllerName + "-remote-cleanup"
 
-// remoteObjectsRemoved reports whether the remote objects of the finished wl were removed
-// from every worker cluster. A finished workload is never dispatched again, so the
-// condition stays valid, and a stale cached copy of wl cannot show it while a remote
-// object still exists.
 func remoteObjectsRemoved(wl *kueue.Workload) bool {
 	return workloadfinish.IsFinished(wl) &&
 		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved)
