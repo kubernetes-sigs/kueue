@@ -321,10 +321,16 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
-	// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
-	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
-		log.V(4).Info("Skip replaced workload slice")
-		return reconcile.Result{}, nil
+	if !isDeleted {
+		// reconcileGroup does nothing for a replaced slice, so skip reading its remote workloads.
+		if workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
+			log.V(4).Info("Skip replaced workload slice")
+			return reconcile.Result{}, nil
+		}
+		if remoteObjectsRemoved(wl) {
+			log.V(4).Info("Skip finished workload whose remote objects were removed")
+			return reconcile.Result{}, nil
+		}
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
@@ -552,6 +558,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if len(group.unavailableClusters) > 0 {
 			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+		}
+		if len(errs) == 0 {
+			if err := w.markRemoteObjectsRemoved(ctx, group.local); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		return reconcile.Result{}, errors.Join(errs...)
 	}
@@ -849,6 +860,35 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 		return nil
 	}
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
+}
+
+const remoteObjectsRemovedFieldOwner = kueue.MultiKueueControllerName + "-remote-cleanup"
+
+func remoteObjectsRemoved(wl *kueue.Workload) bool {
+	return workloadfinish.IsFinished(wl) &&
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved)
+}
+
+// markRemoteObjectsRemoved records that the remote objects of a finished workload were
+// removed from every worker cluster.
+func (w *wlReconciler) markRemoteObjectsRemoved(ctx context.Context, wl *kueue.Workload) error {
+	if !workloadfinish.IsFinished(wl) {
+		// TODO(kevin85421): this condition can also be used for evicted workloads once the
+		// eviction is made atomic.
+		return nil
+	}
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadRemoteObjectsRemoved) {
+		return nil
+	}
+	return workloadpatching.PatchStatus(ctx, w.client, wl, remoteObjectsRemovedFieldOwner, func(wl *kueue.Workload) (bool, error) {
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadRemoteObjectsRemoved,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.WorkloadFinished,
+			Message:            "The remote objects were removed from all worker clusters",
+			LastTransitionTime: metav1.NewTime(w.clock.Now()),
+		}), nil
+	})
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
