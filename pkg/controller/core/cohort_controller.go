@@ -350,7 +350,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	log.V(2).Info("Cohort is being created or updated",
 		"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
-		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
+		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil && !utildqo.IsInactive(cohort.Status.Conditions),
 	)
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
 	// The new label values are stored above, before AddOrUpdateCohort takes

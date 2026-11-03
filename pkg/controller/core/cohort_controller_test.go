@@ -397,6 +397,16 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 	rootToA := utiltestingapi.MakeCohort("root").Parent("cohort-a").Obj()
 	aToRoot := utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj()
 	aNoParent := utiltestingapi.MakeCohort("cohort-a").Obj()
+	rootValid := utiltestingapi.MakeCohort("root").
+		ResourceGroup(quota("5")).
+		EffectiveQuotas(quota("10")).
+		Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").
+		Obj()
+	rootExpired := utiltestingapi.MakeCohort("root").
+		ResourceGroup(quota("5")).
+		EffectiveQuotas(quota("10")).
+		Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+		Obj()
 
 	type cohortEvent struct {
 		create *kueue.Cohort
@@ -405,8 +415,9 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 		delete *kueue.Cohort
 	}
 	tests := []struct {
-		name   string
-		events []cohortEvent
+		name         string
+		dynamicQuota bool
+		events       []cohortEvent
 		// reconcile runs the leader's Reconcile for root after the events.
 		reconcile bool
 		// wantSubtreeQuota is the red cpu quota of root in the snapshot, nil
@@ -440,6 +451,20 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 			wantCQActive:     true,
 		},
 		{
+			name:             "the effective quota is used while it is active",
+			dynamicQuota:     true,
+			events:           []cohortEvent{{create: rootValid}},
+			wantSubtreeQuota: new(resources.NewAmount(10_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "the effective quota turning inactive switches to the spec quota",
+			dynamicQuota:     true,
+			events:           []cohortEvent{{create: rootValid}, {old: rootValid, update: rootExpired}},
+			wantSubtreeQuota: new(resources.NewAmount(5_000)),
+			wantCQActive:     true,
+		},
+		{
 			name:         "a cycle deactivates the ClusterQueue",
 			events:       []cohortEvent{{create: rootToA}, {create: aToRoot}},
 			wantCQActive: false,
@@ -458,6 +483,7 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, tc.dynamicQuota)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().Build()
 			cache := schdcache.New(cl)
