@@ -1705,7 +1705,8 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if partialPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims)); partialPlan.CanFit() && !partialPlan.Assignment.WaitingForResidualTASPods {
+			partialPlan := planner.Plan(ctx, &initialAssignment, assignment.WithCommittedPreemptionVictims(committedVictims))
+			if partialPlan.CanFit() && !partialPlan.Assignment.WaitingForResidualTASPods {
 				// A reduced count may fit only by evicting another victim. Keep
 				// waiting for residual Pods unless it fits without preemption.
 				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
