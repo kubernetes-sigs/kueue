@@ -56,23 +56,30 @@ func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	}
 }
 
-// WithIgnoreEmptyContainerImage makes ComparePodSets tolerate an empty image on
-// the named containers of the named PodSet in the second (stored) PodSet, while
-// still detecting a change between two non-empty images. The tolerance is
-// one-directional: an empty image in the first PodSet and a non-empty one in the
-// second is still a difference. Multiple calls are merged, so the option can be
-// used for several PodSets and containers. It applies only through ComparePodSets
-// and ComparePodSetSlices, not direct ComparePodTemplate calls, and only to
-// Containers, not InitContainers.
-func WithIgnoreEmptyContainerImage(podSet kueue.PodSetReference, names ...string) ComparePodSetsOption {
+// WithIgnoreEmptyContainerImage makes ComparePodSets(a, b) treat a container
+// image as equal when it is empty in b (the stored PodSet), but only for the
+// containers selected by podSetName and containerNames:
+//   - podSetName must match the Name of both a and b;
+//   - the container must have the same Name at the same index in a and b, and
+//     that Name must be one of containerNames.
+//
+// For example, WithIgnoreEmptyContainerImage("head", "autoscaler") ignores
+// {Name: "autoscaler", Image: ""} in the stored "head" PodSet.
+//
+// Everything else is compared as usual: other PodSets, other containers,
+// InitContainers, any other container field, a change between two non-empty
+// images, and an empty image in a with a non-empty one in b. Multiple calls are
+// merged. The option applies only through ComparePodSets and
+// ComparePodSetSlices, not direct ComparePodTemplate calls.
+func WithIgnoreEmptyContainerImage(podSetName kueue.PodSetReference, containerNames ...string) ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		if options.ignoreEmptyImages == nil {
 			options.ignoreEmptyImages = make(map[kueue.PodSetReference]sets.Set[string])
 		}
-		if options.ignoreEmptyImages[podSet] == nil {
-			options.ignoreEmptyImages[podSet] = sets.New[string]()
+		if options.ignoreEmptyImages[podSetName] == nil {
+			options.ignoreEmptyImages[podSetName] = sets.New[string]()
 		}
-		options.ignoreEmptyImages[podSet].Insert(names...)
+		options.ignoreEmptyImages[podSetName].Insert(containerNames...)
 	}
 }
 
