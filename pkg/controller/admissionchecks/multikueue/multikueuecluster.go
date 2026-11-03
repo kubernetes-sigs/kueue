@@ -192,9 +192,6 @@ type remoteClient struct {
 	// resyncPending tracks whether a workload resync after reconnect is pending
 	// due to a previous list failure. Protected by updateConfigLock.
 	resyncPending bool
-	// resyncDisconnectedSince is when the client lost the connection that the pending resync
-	// follows, or nil when unknown. Protected by updateConfigLock.
-	resyncDisconnectedSince *time.Time
 
 	clock clock.Clock
 
@@ -434,10 +431,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	return true, nil, nil
 }
 
-// requeueWorkloadsForCluster queues the manager workloads assigned to or nominated for the
-// cluster, so that they observe the remote changes missed while the cluster was disconnected
-// since disconnectedSince (nil when unknown).
-func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context, disconnectedSince *time.Time) *time.Duration {
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Duration {
 	wls := &kueue.WorkloadList{}
 	if err := rc.localClient.List(ctx, wls); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
@@ -445,40 +439,12 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context, disconne
 		return &retryAfter
 	}
 	for i := range wls.Items {
-		wl := &wls.Items[i]
-		if ptr.Deref(wl.Status.ClusterName, "") != rc.clusterName &&
-			!slices.Contains(wl.Status.NominatedClusterNames, rc.clusterName) {
-			continue
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
+			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
 		}
-		if !needsResyncAfterReconnect(wl, disconnectedSince) {
-			continue
-		}
-		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl))
 	}
 	return nil
-}
-
-// needsResyncAfterReconnect reports whether a reconcile of wl can act on the remote changes
-// missed while the cluster was disconnected since disconnectedSince (nil when unknown).
-// A finished workload only needs its remote objects deleted. When it finished before the
-// disconnect, its reconcile ran while the cluster was connected and already deleted them, or
-// failed and is retried, or found the cluster disconnected and retries after workerLostTimeout.
-func needsResyncAfterReconnect(wl *kueue.Workload, disconnectedSince *time.Time) bool {
-	if !wl.DeletionTimestamp.IsZero() {
-		return true
-	}
-	if isReplacedSlice(wl) {
-		return false
-	}
-	if disconnectedSince == nil {
-		return true
-	}
-	finished := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
-	if finished == nil || finished.Status != metav1.ConditionTrue {
-		return true
-	}
-	// LastTransitionTime is truncated to seconds, so the workload finished within a second after it.
-	return finished.LastTransitionTime.Add(time.Second).After(*disconnectedSince)
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
@@ -977,7 +943,6 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
 	hadClientBefore := client.getClient() != nil
-	disconnectedSince := client.connState.lostSince()
 
 	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
 	if err != nil {
@@ -991,21 +956,12 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	}
 
 	shouldResync := hadClientBefore && refreshed
-	if shouldResync {
-		if client.resyncPending {
-			// The pending resync follows an earlier disconnect; resync everything to cover both.
-			client.resyncDisconnectedSince = nil
-		} else {
-			client.resyncDisconnectedSince = disconnectedSince
-		}
+	if shouldResync || client.resyncPending {
 		client.resyncPending = true
-	}
-	if client.resyncPending {
-		if retryAfter := client.requeueWorkloadsForCluster(clientCtx, client.resyncDisconnectedSince); retryAfter != nil {
+		if retryAfter := client.requeueWorkloadsForCluster(clientCtx); retryAfter != nil {
 			return retryAfter, nil
 		}
 		client.resyncPending = false
-		client.resyncDisconnectedSince = nil
 	}
 
 	return nil, nil
