@@ -561,9 +561,9 @@ committing the changes necessary to implement this enhancement.
 
 - Positive feedback from users.
 - Gate defaults to enabled.
-- Resolve unbounded series retention for
-  `kueue_workload_creation_latency_seconds` when LocalQueue labels change
-  or LocalQueues are deleted.
+- Add `kueue_local_queue_workload_creation_latency_seconds`, keyed by LocalQueue,
+  and move the LocalQueue custom labels of `kueue_workload_creation_latency_seconds` to it.
+  Like the other `local_queue_` histograms, it is recorded only for known LocalQueues.
 - Re-evaluate implementing the [Tracking custom workload label value combinations](#tracking-custom-workload-label-value-combinations).
 
 **GA**
