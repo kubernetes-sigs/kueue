@@ -860,9 +860,6 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
-// remoteObjectsRemovedFieldOwner applies the RemoteObjectsRemoved condition. It differs
-// from the owner used for the admission check state, because each server-side apply by
-// that owner sends the admission check only and would drop the condition.
 const remoteObjectsRemovedFieldOwner = kueue.MultiKueueControllerName + "-remote-cleanup"
 
 func remoteObjectsRemoved(wl *kueue.Workload) bool {
