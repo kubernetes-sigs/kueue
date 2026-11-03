@@ -236,9 +236,8 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 
 			ginkgo.By("Create a local queue with --dry-run=server and unknown cluster queue", func() {
 				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"}, kueuectlRunOptions{
-					commandOutput:        commandOutputCombined,
-					errorMatcher:         gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName))),
-					omitErrorDescription: true,
+					commandOutput: commandOutputCombined,
+					errorMatcher:  gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName))),
 				})
 			})
 		})
