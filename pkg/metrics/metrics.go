@@ -102,6 +102,10 @@ var (
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",dispatcher="the name of the MultiKueue dispatcher that nominated the worker clusters",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueWorkloadNominationRounds *prometheus.HistogramVec
+
+	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueClusterByStatus *prometheus.GaugeVec
 
@@ -439,6 +443,18 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
 		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
 	)
+
+	MultiKueueWorkloadNominationRounds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "workload_nomination_rounds",
+			Help: `The number of nomination rounds a workload went through before a worker cluster admitted it, per 'cluster_queue' and 'dispatcher'. A nomination round is a change of the workload's nominated worker clusters, so the metric covers every dispatcher, including external ones. The AllAtOnce dispatcher always reports 1.
+A workload is observed once per admission, so it is observed again if it is evicted and re-admitted. Rounds are tracked in memory, so a workload that is being dispatched while the manager restarts is not observed.`,
+			// Rounds are small integers, so exponential buckets would merge adjacent values.
+			Buckets: prometheus.LinearBuckets(1, 1, 10),
+		}, []string{"cluster_queue", "dispatcher", "replica_role"},
+	)
+
 	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.MultiKueueName,
@@ -1155,6 +1171,10 @@ func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
+func ReportMultiKueueWorkloadNominationRounds(cqName kueue.ClusterQueueReference, dispatcherName string, rounds int, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadNominationRounds.WithLabelValues(string(cqName), dispatcherName, roletracker.GetRole(tracker)).Observe(float64(rounds))
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
@@ -1711,6 +1731,7 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		MultiKueueWorkloadsEvictedTotal,
+		MultiKueueWorkloadNominationRounds,
 		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
