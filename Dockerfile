@@ -4,11 +4,14 @@ ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 # compilation stage for the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 WORKDIR /workspace
-# Build with the repository's vendored dependencies.
+# fetch dependencies first, for iterative development
+COPY go.mod go.sum ./
+COPY hack/testing/retry.sh /usr/local/bin/retry.sh
+RUN retry.sh --attempts 7 --delay 2 --exponential --stream -- go mod download
+# copy the rest of the sources and build
 COPY . .
 ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    make build GIT_TAG="${GIT_TAG}" GIT_COMMIT="${GIT_COMMIT}" GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
+RUN make build GIT_TAG="${GIT_TAG}" GIT_COMMIT="${GIT_COMMIT}" GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
 
 # final image, implicitly --platform=${TARGETPLATFORM}
 FROM ${BASE_IMAGE}

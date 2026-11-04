@@ -242,14 +242,9 @@ run: compile-crd-manifests generate fmt vet ## Run a controller from your host.
 # Build the multiplatform container image locally.
 .PHONY: image-local-build
 image-local-build:
-	$(MAKE) image-presubmit
-
-# Keep compiler caches available until every presubmit image has been built.
-.PHONY: image-presubmit
-image-presubmit:
-	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
-	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
-	BUILDX_BUILDER="$$builder" $(MAKE) -j1 image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
+	$(MAKE) image-build PUSH="$(PUSH)" IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS)"
+	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push

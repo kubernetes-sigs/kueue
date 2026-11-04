@@ -8,13 +8,17 @@ ARG TARGETARCH
 
 WORKDIR /workspace
 
-# Build from the root module with its vendored dependencies.
+# Build from repo root so the local replace in
+# cmd/experimental/kueue-populator/go.mod:
+#   replace sigs.k8s.io/kueue => ../../..
+# resolves correctly inside the container.
 COPY . .
 
 WORKDIR /workspace/cmd/experimental/kueue-populator
 
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
+COPY hack/testing/retry.sh /usr/local/bin/retry.sh
+RUN retry.sh --attempts 7 --delay 2 --exponential --stream -- go mod download
+RUN make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
 FROM ${BASE_IMAGE}
 WORKDIR /
