@@ -6779,7 +6779,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 			})
 
-			// Regression coverage for https://github.com/kubernetes-sigs/kueue/issues/15337.
 			ginkgo.When("A workload replacing a failed node has a free node to relocate to", func() {
 				var nodes []corev1.Node
 

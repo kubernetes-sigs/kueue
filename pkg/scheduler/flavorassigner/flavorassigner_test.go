@@ -9112,10 +9112,9 @@ func TestAssignTopology(t *testing.T) {
 			wantPlan:          false,
 			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
-		// A node replacement must never fall back to preempting an unrelated
-		// workload: if no free capacity exists for it, it stays NoFit instead
-		// of Preempt. We request 5 CPU against node-1's 4 CPU so the
-		// non-simulated search fails.
+		// A node replacement must never preempt. The PodSet enters as Preempt
+		// because its quota does not fit, and AssignTopology turns that into
+		// NoFit without searching for a placement.
 		"a replacement for an unhealthy node is demoted to NoFit instead of preempting": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})

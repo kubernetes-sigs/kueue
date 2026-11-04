@@ -2765,6 +2765,306 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		// A PodSet admitted without a topology assignment keeps running where
+		// kube-scheduler put its Pods, so a fresh placement would not move them and
+		// the TAS cache would count nodes they are not on. Leave it alone and
+		// replace only the PodSet that lost its node.
+		"workload with unhealthyNode annotation; second pass; two podsets; one without topology assignment": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x0").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("two", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("two").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("two").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode annotation; second pass; two podsets; one implied without topology assignment": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x0").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).
+							PreferredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("two", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("two").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("two").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		// A workload replacing a failed node must only look at capacity that is
+		// free right now, not preempt an unrelated workload for it. With none
+		// free it stays on its stale admission. x1, needs-replacement's
+		// original node, is not in nodes any more, and x2 is fully held by
+		// low-prio-admitted.
+		"workload with unhealthyNode annotation; second pass; no fit; does not preempt; FailFast disabled": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("5"),
+						corev1.ResourceMemory: resource.MustParse("5Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "10Gi").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low-prio-admitted", "default").
+					UID("low-prio-admitted-uid").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("needs-replacement", "default").
+					UID("needs-replacement-uid").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					Priority(3).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASFailedNodeReplacementFailFast: false,
+			},
+			// low-prio-admitted must stay untouched: the lack of free capacity
+			// means needs-replacement must not fall back to preempting it.
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/needs-replacement": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "5").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "needs-replacement", "SecondPassFailed", corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 1; excluded: resource "cpu": 1`).
+					Obj(),
+			},
+		},
+		// The same, with a node free for the replacement: needs-replacement is
+		// admitted onto it and low-prio-admitted is not preempted for it.
+		"workload with unhealthyNode annotation; second pass; fits on a free node; does not preempt; FailFast disabled": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("y1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "y1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("5"),
+						corev1.ResourceMemory: resource.MustParse("5Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("y2").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "y2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("5"),
+						corev1.ResourceMemory: resource.MustParse("5Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "10Gi").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low-prio-admitted", "default").
+					UID("low-prio-admitted-uid").
+					Queue("tas-main").
+					Priority(1).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("needs-replacement", "default").
+					UID("needs-replacement-uid").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					Priority(3).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "5").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASFailedNodeReplacementFailFast: false,
+			},
+			// low-prio-admitted must stay untouched, and needs-replacement
+			// gets cleanly admitted onto the free node (y2): its own quota is
+			// already held, so no preemption is ever considered.
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/needs-replacement": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "5").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y2"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
 		"workload with unhealthyNode; second pass; slices; baseline": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
@@ -5278,209 +5578,6 @@ func TestScheduleForTAS(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Warning").
 					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit; 0/1 slice(s) fit on level cloud.provider.com/rack; 2/3 slice(s) fit on level kubernetes.io/hostname`).
-					Obj(),
-			},
-		},
-		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/15337:
-		// a workload replacing a failed node that also needs preemption to fit
-		// used to skip topology assignment entirely and could end up admitted
-		// with no TopologyAssignment at all. It must instead only look at
-		// genuinely free capacity (not simulate preempting others, since
-		// that's not what a failed-node replacement is for) and, if that's
-		// not enough, stay on its stale admission rather than being pushed
-		// through with no topology assignment or preempting an unrelated
-		// workload. x1 (marked-needs-preempt's original node) is omitted
-		// from nodes, modeling it having already failed and dropped out of
-		// the cluster; only x2 remains, fully held by low-prio-admitted.
-		"workload with unhealthyNode needing preemption does not force-preempt others": {
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("x2").
-					Label("tas-node", "true").
-					Label(corev1.LabelHostname, "x2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("5"),
-						corev1.ResourceMemory: resource.MustParse("5Gi"),
-						corev1.ResourcePods:   resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			topologies:      []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltestingapi.MakeClusterQueue("tas-main").
-					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
-						Resource(corev1.ResourceCPU, "10").
-						Resource(corev1.ResourceMemory, "10Gi").Obj()).
-					Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("low-prio-admitted", "default").
-					UID("low-prio-admitted-uid").
-					Queue("tas-main").
-					Priority(1).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("tas-main").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "tas-default", "5").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(),
-						now,
-					).
-					AdmittedAt(true, now).
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "5").
-						Obj()).
-					Obj(),
-				*utiltestingapi.MakeWorkload("marked-needs-preempt", "default").
-					UID("marked-needs-preempt-uid").
-					UnhealthyNodes("x1").
-					Queue("tas-main").
-					Priority(3).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("tas-main").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "tas-default", "5").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(),
-						now,
-					).
-					AdmittedAt(true, now).
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "5").
-						Obj()).
-					Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TASFailedNodeReplacementFailFast: false,
-			},
-			// low-prio-admitted must stay untouched: the lack of free capacity
-			// means marked-needs-preempt must not fall back to preempting it.
-			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/marked-needs-preempt": *utiltestingapi.MakeAdmission("tas-main").
-					PodSets(utiltestingapi.MakePodSetAssignment("one").
-						Assignment(corev1.ResourceCPU, "tas-default", "5").
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-							Obj()).
-						Obj()).
-					Obj(),
-			},
-			eventCmpOpts: cmp.Options{
-				eventIgnoreMessage,
-				cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Reason"),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "marked-needs-preempt", "", corev1.EventTypeWarning).Obj(),
-			},
-		},
-		// A second regression case for #15337, requested during review of
-		// #15536: TASFailedNodeReplacementFailFast disabled, quota exhausted,
-		// but a node genuinely free for the replacement. The workload's own
-		// quota need looks like it requires preemption (low-prio-admitted
-		// already holds the rest of it), but the failed node's replacement
-		// domain (y2) is free, so no one should actually be preempted for it.
-		"workload with unhealthyNode needing preemption finds a free node without preempting anyone": {
-			nodes: []corev1.Node{
-				*testingnode.MakeNode("y1").
-					Label("tas-node", "true").
-					Label(corev1.LabelHostname, "y1").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("5"),
-						corev1.ResourceMemory: resource.MustParse("5Gi"),
-						corev1.ResourcePods:   resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-				*testingnode.MakeNode("y2").
-					Label("tas-node", "true").
-					Label(corev1.LabelHostname, "y2").
-					StatusAllocatable(corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("5"),
-						corev1.ResourceMemory: resource.MustParse("5Gi"),
-						corev1.ResourcePods:   resource.MustParse("10"),
-					}).
-					Ready().
-					Obj(),
-			},
-			topologies:      []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues: []kueue.ClusterQueue{
-				*utiltestingapi.MakeClusterQueue("tas-main").
-					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
-						Resource(corev1.ResourceCPU, "10").
-						Resource(corev1.ResourceMemory, "10Gi").Obj()).
-					Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("low-prio-admitted", "default").
-					UID("low-prio-admitted-uid").
-					Queue("tas-main").
-					Priority(1).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("tas-main").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "tas-default", "5").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y1"}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(),
-						now,
-					).
-					AdmittedAt(true, now).
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "5").
-						Obj()).
-					Obj(),
-				*utiltestingapi.MakeWorkload("marked-needs-preempt", "default").
-					UID("marked-needs-preempt-uid").
-					UnhealthyNodes("x1").
-					Queue("tas-main").
-					Priority(3).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("tas-main").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "tas-default", "5").
-								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
-									Obj()).
-								Obj()).
-							Obj(),
-						now,
-					).
-					AdmittedAt(true, now).
-					PodSets(*utiltestingapi.MakePodSet("one", 1).
-						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "5").
-						Obj()).
-					Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TASFailedNodeReplacementFailFast: false,
-			},
-			// low-prio-admitted must stay untouched, and marked-needs-preempt
-			// gets cleanly admitted onto the free node (y2): its own quota is
-			// already held, so no preemption is ever considered.
-			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/marked-needs-preempt": *utiltestingapi.MakeAdmission("tas-main").
-					PodSets(utiltestingapi.MakePodSetAssignment("one").
-						Assignment(corev1.ResourceCPU, "tas-default", "5").
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"y2"}, 1).Obj()).
-							Obj()).
-						Obj()).
 					Obj(),
 			},
 		},
