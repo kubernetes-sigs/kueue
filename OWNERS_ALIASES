@@ -47,6 +47,11 @@ aliases:
     - mbobrovskyi
     - olekzabl
     - pbundyra
+  test-reviewers:
+    - ivnovakov
+    - mykysha
+    - reruno
+    - vladikkuzn
   agent-approvers:
     - amy
     - kannon92
