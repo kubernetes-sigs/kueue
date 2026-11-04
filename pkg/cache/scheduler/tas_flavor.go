@@ -193,15 +193,13 @@ func (c *TASFlavorCache) snapshot(
 		"levels", c.topology.Levels,
 		"nodeCount", len(tree.nodes),
 		"treeReused", treeReused,
-	}
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
+		"crossFlavorAggregation", aggregatedDomainUsages != nil,
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
 	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
-	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
+	if aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
 	snapshot.addTASUsageForHeldDomains(tasDomainUsages)

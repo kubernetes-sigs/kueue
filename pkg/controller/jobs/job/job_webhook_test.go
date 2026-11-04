@@ -283,6 +283,39 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "maximum execution time equal to the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483647").
+				Indexed(true).
+				Obj(),
+		},
+		{
+			name: "maximum execution time just above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "2147483648").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 2147483648, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
+			name: "maximum execution time far above the int32 maximum",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.MaxExecTimeSecondsLabel, "3000000000").
+				Indexed(true).
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(maxExecTimeLabelPath, 3000000000, "should be less than or equal to 2147483647"),
+			},
+		},
+		{
 			name: "valid topology request",
 			job: testingutil.MakeJob("job", "default").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").

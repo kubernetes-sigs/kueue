@@ -29,6 +29,13 @@ VERIFY_NPROCS ?= 8
 # These limits apply to verify; standalone artifact builds retain their defaults.
 VERIFY_GOMAXPROCS ?= 2
 VERIFY_CLI_BUILD_NPROCS ?= 2
+# Keep CLI coverage by default; set to 0 only when a required standalone job handles it.
+VERIFY_CLI_ARTIFACTS ?= 1
+ifneq ($(VERIFY_CLI_ARTIFACTS),0)
+ifneq ($(VERIFY_CLI_ARTIFACTS),1)
+$(error VERIFY_CLI_ARTIFACTS must be 0 or 1)
+endif
+endif
 # Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
 CI_LINT_NPROCS ?= 2
 # Output sync mode for parallel verification. Set to empty to disable.
@@ -278,10 +285,16 @@ verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
 verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
-	@echo "Artifact build concurrency: platforms=$(CLI_BUILD_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
+	@echo "Artifact build concurrency: platforms=$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(CLI_BUILD_NPROCS),skipped), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
+	$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(_cli_artifacts_recipe))
+
+.PHONY: verify-cli-artifacts
+# Build after Go generation, module verification, and Git-tag verification finish.
+verify-cli-artifacts: verify-go-prereqs gomod-verify verify-git-tag ## Verify CLI builds and packaging for all configured platforms.
+	$(_cli_artifacts_recipe)
 
 .PHONY: verify-ci-lint
 # Site and manifest generators do not rewrite the Go sources that lint reads.

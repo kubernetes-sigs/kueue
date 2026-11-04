@@ -557,9 +557,12 @@ func TestReconciler(t *testing.T) {
 				UID("sts-uid").
 				DeepCopy(),
 		},
-		"should adopt legacy workload instead of creating duplicate": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+		"should adopt legacy workload instead of creating duplicate when fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                false,
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -595,9 +598,79 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should list pods by legacy workload name": {
+		"should create new UID-named workload and leave legacy workload unadopted when fallback disabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("lq").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should list pods by legacy workload name when fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                false,
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Replicas(0).
@@ -1209,7 +1282,10 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should label new pod with legacy name when legacy workload exists": {
+		"should label new pod with legacy name when legacy workload exists and fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
