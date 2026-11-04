@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -97,7 +98,16 @@ func sanitizeContainer(container *corev1.Container) {
 }
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
-func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
+// It also records it for the Workload's LocalQueue when queues exposes metrics for that LocalQueue.
+func RecordWorkloadCreationLatency(
+	ctx context.Context,
+	job client.Object,
+	jobKind string,
+	wl *kueue.Workload,
+	queues *qcache.Manager,
+	customLabels *metrics.CustomLabels,
+	tracker *roletracker.RoleTracker,
+) {
 	if job.GetGeneration() > 1 {
 		ctrl.LoggerFrom(ctx).V(4).Info("Skip recording the workload creation metrics as the owner generation is already greater than 1", "generation", job.GetGeneration())
 		return
@@ -105,8 +115,12 @@ func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKi
 	jobCreationTime := job.GetCreationTimestamp().Time
 	wlCreationTime := wl.CreationTimestamp.Time
 	latency := wlCreationTime.Sub(jobCreationTime)
-	customLabelValues := customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
-	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
+	metrics.RecordWorkloadCreationLatency(jobKind, latency, tracker)
+	lqKey := utilqueue.KeyFromWorkload(wl)
+	// Unit tests and out-of-tree integrations can build reconcilers without WithQueues.
+	if queues != nil && queues.ShouldExposeLocalQueueMetrics(lqKey) {
+		metrics.RecordLocalQueueWorkloadCreationLatency(metrics.LQRefFromWorkload(wl), jobKind, latency, customLabels.LQGet(lqKey), tracker)
+	}
 }
 
 type workloadShouldBeSuspendedOptions struct {
