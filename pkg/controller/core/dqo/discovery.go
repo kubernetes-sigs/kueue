@@ -49,6 +49,7 @@ func providerNotReadyMessage(cp *kueuealpha.CapacityProvider) string {
 	}
 	return ""
 }
+
 // maxEffectiveCapacityFlavors must match the MaxItems marker on
 // EffectiveCapacity.Flavors in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
 const maxEffectiveCapacityFlavors = 128
