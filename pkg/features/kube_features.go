@@ -943,6 +943,12 @@ const (
 	// workloads are only looked up by UID-based names. When disabled, the controller falls back to checking
 	// for legacy-named workloads.
 	DisableStatefulSetWorkloadNameFallback featuregate.Feature = "DisableStatefulSetWorkloadNameFallback"
+
+	// owner: @kevin85421
+	//
+	// Serves MultiKueue's reads of remote Workloads from an informer on each worker cluster,
+	// scoped to the manager's origin label, instead of a GET to every worker in every reconcile.
+	MultiKueueRemoteWorkloadCache featuregate.Feature = "MultiKueueRemoteWorkloadCache"
 )
 
 func init() {
@@ -989,6 +995,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	FlavorFungibilityPreserveScanProgress:               {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:        {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers:     {MultiKueue},
+	MultiKueueRemoteWorkloadCache:                       {MultiKueue},
 	TASTopologySpreading:                                {TopologyAwareScheduling},
 	AdmissionFairSharingAnchorAtQuotaReservation:        {AdmissionFairSharing},
 	KueueDRADeviceFeasibility:                           {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
@@ -1467,6 +1474,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DisableStatefulSetWorkloadNameFallback: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.22
+	},
+
+	MultiKueueRemoteWorkloadCache: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

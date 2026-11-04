@@ -166,9 +166,12 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 }
 
 type remoteClient struct {
-	clusterName  string
-	localClient  client.Client
-	client       SelectivelyCachingClient
+	clusterName string
+	localClient client.Client
+	client      SelectivelyCachingClient
+	// wlCache serves the remote Workload reads while the watchers run, when the
+	// MultiKueueRemoteWorkloadCache feature is enabled. Protected by mu.
+	wlCache      *remoteWorkloadCache
 	wlUpdateCh   chan<- event.GenericEvent
 	watchEndedCh chan<- event.GenericEvent
 	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
@@ -379,6 +382,22 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
 		return false, rc.increaseFailedConnAttempt(), err
+	}
+
+	// Unit tests override the builder with fake clients, which cannot back an informer.
+	if features.Enabled(features.MultiKueueRemoteWorkloadCache) && rc.builderOverride == nil {
+		restConfig, err := config.toRESTConfig()
+		if err != nil {
+			return false, rc.increaseFailedConnAttempt(), err
+		}
+		wlCache, err := startRemoteWorkloadCache(watchCtx, restConfig, rc.localClient.Scheme(), rc.origin, rc.clock, func(key types.NamespacedName) {
+			rc.queueWorkloadEvent(watchCtx, key)
+		})
+		if err != nil {
+			return false, rc.increaseFailedConnAttempt(), err
+		}
+		remoteClient = &workloadWriteRecordingClient{SelectivelyCachingClient: remoteClient, cache: wlCache}
+		rc.setWorkloadCache(wlCache)
 	}
 
 	rc.setClient(remoteClient)
@@ -687,6 +706,29 @@ func (rc *remoteClient) setClient(c SelectivelyCachingClient) {
 	rc.client = c
 }
 
+func (rc *remoteClient) getWorkloadCache() *remoteWorkloadCache {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.wlCache
+}
+
+func (rc *remoteClient) setWorkloadCache(c *remoteWorkloadCache) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.wlCache = c
+}
+
+// getRemoteWorkload reads the remote Workload key into wl, from the cache when it can serve the
+// read and from the API server otherwise. It returns whether the cache served the read.
+func (rc *remoteClient) getRemoteWorkload(ctx context.Context, key types.NamespacedName, wl *kueue.Workload) (bool, error) {
+	if features.Enabled(features.MultiKueueRemoteWorkloadCache) {
+		if served, err := rc.getWorkloadCache().get(ctx, key, wl); served {
+			return true, err
+		}
+	}
+	return false, rc.getClient().Get(ctx, key, wl)
+}
+
 // setWatchCancel stores the cancel func of the watch context the next watchers will observe.
 // A non-nil value is what marks the client as accepting new watchers, see runWatcher.
 func (rc *remoteClient) setWatchCancel(cancel context.CancelFunc) {
@@ -714,6 +756,8 @@ func (rc *remoteClient) StopWatchers() {
 		rc.watchCancel()
 		rc.watchCancel = nil
 	}
+	// The informer stops with the watch context, so its store is no longer kept up to date.
+	rc.wlCache = nil
 	rc.mu.Unlock()
 
 	// Not under rc.mu: watcher goroutines take it themselves via getClient.
