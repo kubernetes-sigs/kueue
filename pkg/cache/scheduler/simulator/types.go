@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // Candidate represents an abstract scheduleable domain.
@@ -81,10 +82,10 @@ type PodRequirements struct {
 type PreemptionFilter interface {
 	// PreemptWorkload notifies the filter that the candidate workload with wlKey
 	// has been tentatively preempted during the simulation.
-	PreemptWorkload(wlKey client.ObjectKey)
+	PreemptWorkload(wlKey workload.Reference)
 	// UnpreemptWorkload notifies the filter that the candidate workload with wlKey
 	// has been reprieved and is no longer preempted in the simulation.
-	UnpreemptWorkload(wlKey client.ObjectKey)
+	UnpreemptWorkload(wlKey workload.Reference)
 	// MayFit reports whether the external constraints are satisfied given the
 	// currently preempted workloads.
 	MayFit() bool
@@ -93,17 +94,17 @@ type PreemptionFilter interface {
 type ScheduleOptions struct {
 	// PreemptionCandidates is the ordered sequence of candidate workloads
 	// that may be preempted to make room for the scheduled workload.
-	PreemptionCandidates iter.Seq[client.ObjectKey]
+	PreemptionCandidates iter.Seq[workload.Reference]
 	// PreemptionFilter evaluates whether preempting candidate workloads
 	// satisfies non-node constraints (such as quota).
 	PreemptionFilter PreemptionFilter
 	// SimulateEmpty configures the simulator to schedule the workload against
 	// a cluster snapshot containing only Pods not managed by Kueue.
 	SimulateEmpty bool
-	// CommittedPreemptionVictims lists the ObjectKeys of workloads that have
+	// CommittedPreemptionVictims lists the References of workloads that have
 	// already been established as preemption targets/victims.
 	// The list should never contain duplicate keys.
-	CommittedPreemptionVictims []client.ObjectKey
+	CommittedPreemptionVictims []workload.Reference
 }
 
 type ScheduleOption func(*ScheduleOptions)
@@ -121,7 +122,7 @@ func BuildScheduleOptions(options ...ScheduleOption) *ScheduleOptions {
 
 // WithPreemptionCandidates configures the ordered sequence of candidate workloads
 // that may be preempted to make room for the scheduled workload.
-func WithPreemptionCandidates(candidates iter.Seq[client.ObjectKey]) ScheduleOption {
+func WithPreemptionCandidates(candidates iter.Seq[workload.Reference]) ScheduleOption {
 	return func(o *ScheduleOptions) {
 		o.PreemptionCandidates = candidates
 	}
@@ -146,9 +147,9 @@ func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 
 // WithCommittedPreemptionVictims configures the simulator to recognize Pods that
 // are still running on the cluster but are meant for preemption.
-// Takes the ObjectKeys representing Victim Workloads as input.
+// Takes the References representing Victim Workloads as input.
 // All Workloads listed as input must be absent from the ScheduleSimulator's cache.
-func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
+func WithCommittedPreemptionVictims(targets []workload.Reference) ScheduleOption {
 	return func(opts *ScheduleOptions) {
 		opts.CommittedPreemptionVictims = targets
 	}
@@ -157,7 +158,7 @@ func WithCommittedPreemptionVictims(targets []client.ObjectKey) ScheduleOption {
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.
 type SchedulingResult struct {
 	PodPlacements     PodPlacements
-	PreemptionVictims []client.ObjectKey
+	PreemptionVictims []workload.Reference
 	Error             error
 }
 

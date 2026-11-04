@@ -1321,6 +1321,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			waitForPodsReady := &configapi.WaitForPodsReady{
 				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				BlockAdmission: new(false),
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					BackoffBaseSeconds: new(int32(60)),
+					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
+				},
 			}
 			// Stop the restarted manager before restoring its per-spec feature gate.
 			ginkgo.DeferCleanup(fwk.StopManager, ctx)

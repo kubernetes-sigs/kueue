@@ -127,6 +127,13 @@ const (
 	// to put them on closely located nodes (e.g. within the same rack or block).
 	TopologyAwareScheduling featuregate.Feature = "TopologyAwareScheduling"
 
+	// owner: @gola
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/16337
+	//
+	// Account for bound TAS Pods after their Workload reservation ends and defer
+	// admission rather than preempting additional Workloads while they release.
+	TASResidualPodAccounting featuregate.Feature = "TASResidualPodAccounting"
+
 	// owner: @kpostoffice
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1833-metrics-for-local-queue
 	//
@@ -193,6 +200,13 @@ const (
 	//
 	// Evict Workload if Kueue couldn't find replacement for a failed node in TAS in the first attempt.
 	TASFailedNodeReplacementFailFast featuregate.Feature = "TASFailedNodeReplacementFailFast"
+
+	// owner: @bolubo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Defers the fail-fast eviction of a TAS replacement when in-flight
+	// evictions may free a suitable placement for the replacement.
+	TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions featuregate.Feature = "TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions"
 
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -902,6 +916,33 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @tenzen-y
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18154
+	//
+	// Finishes the Workload of a Pod group with reason Failed when the group finishes
+	// because a Pod has the kueue.x-k8s.io/retriable-in-group: "false" annotation and
+	// not all Pods of the group succeeded. When disabled, such a Workload finishes with
+	// reason Succeeded, as before https://github.com/kubernetes-sigs/kueue/pull/16156.
+	DeclareWorkloadFailureOnUnretriablePodGroups featuregate.Feature = "DeclareWorkloadFailureOnUnretriablePodGroups"
+
+	// owner: @rjgoyln
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15867
+	//
+	// Reject a Pod whose kueue.x-k8s.io/pod-group-pod-index-label annotation names a
+	// label that does not hold the Pod's index within its group, rather than admitting
+	// the group without rank-based ordering. Disable where a controller creating Pods
+	// cannot guarantee the index label on every Pod, replacements included.
+	TASRejectInvalidPodIndexLabel featuregate.Feature = "TASRejectInvalidPodIndexLabel"
+
+	// owner: @Dasmat13
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17936
+	//
+	// Disables the fallback mechanism in the StatefulSet controller and webhook that looked up
+	// workloads using the legacy name without the owner UID. When enabled (the default), StatefulSet
+	// workloads are only looked up by UID-based names. When disabled, the controller falls back to checking
+	// for legacy-named workloads.
+	DisableStatefulSetWorkloadNameFallback featuregate.Feature = "DisableStatefulSetWorkloadNameFallback"
 )
 
 func init() {
@@ -909,7 +950,20 @@ func init() {
 	runtime.Must(utilfeature.DefaultMutableFeatureGate.AddDependencies(defaultFeatureGateDependencies))
 }
 
+// defaultFeatureGateDependencies defines feature gate dependencies.
+//
+// TAS sub-features that graduate to GA (e.g., TASProfileMixed,
+// TASHandleOverlappingFlavors) are omitted here because a locked GA gate cannot
+// depend on TopologyAwareScheduling while it remains in Beta as an on/off
+// switch. Those features remain inactive when TopologyAwareScheduling is disabled.
+//
+// TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions intentionally has
+// no dependencies. It is on by default in 0.21, but its path is only reachable
+// through the existing fail-fast gate. Adding prerequisites here would make
+// older configs fail validation merely because they disabled TAS or failed-node
+// replacement.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
+	TASResidualPodAccounting:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
@@ -922,10 +976,8 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASGroupedPodSetSlicing:                             {TopologyAwareScheduling},
 	TASRejectFalseUnconstrainedTopology:                 {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:                   {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                         {TopologyAwareScheduling},
 	TASNodeFeasibilityForAllLevels:                      {TopologyAwareScheduling},
 	TASLeaderPodSetFeasibility:                          {TopologyAwareScheduling},
-	TASProfileMixed:                                     {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
@@ -1006,7 +1058,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
 	},
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -1035,6 +1088,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
@@ -1116,7 +1172,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
 	},
 	AssignQueueLabelsForPods: {
-		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -1205,7 +1262,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASHandleOverlappingFlavors: {
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
+	},
+	TASResidualPodAccounting: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASNodeFeasibilityForAllLevels: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
@@ -1394,6 +1455,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	DeclareWorkloadFailureOnUnretriablePodGroups: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASRejectInvalidPodIndexLabel: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	DisableStatefulSetWorkloadNameFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.22
 	},
 }
 

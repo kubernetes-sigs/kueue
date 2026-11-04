@@ -558,7 +558,10 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in queue label with quota reserved in legacy workload": {
+		"change in queue label with quota reserved in legacy workload when fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
 					Queue("test-queue").
@@ -583,6 +586,26 @@ func TestValidateUpdate(t *testing.T) {
 					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"change in queue label with quota reserved in legacy workload when fallback disabled (default)": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Obj(),
 		},
 		"change in queue label after quota released": {
 			objs: []runtime.Object{

@@ -19,6 +19,7 @@ package jobframework
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -308,6 +309,13 @@ func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
 
 		if v <= 0 {
 			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be greater than 0")}
+		}
+
+		// MaximumExecutionTimeSecondsForObject parses the label as a 32-bit value
+		// and Workload.spec.maximumExecutionTimeSeconds is an int32, so a larger
+		// value would be silently dropped and the job would run without a limit.
+		if v > math.MaxInt32 {
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, fmt.Sprintf("should be less than or equal to %d", math.MaxInt32))}
 		}
 	}
 	return nil
