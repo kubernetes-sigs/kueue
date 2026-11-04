@@ -36,6 +36,8 @@ import (
 	multikueueac "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -259,4 +261,78 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 			}, reconnectResyncTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should dispatch a workload that reserved quota while every worker was disconnected once a worker reconnects", func() {
+		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
+		restoreConnectionToWorker2 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, managersConfigNamespace.Name)
+
+		wlLookupKey := createJobAndReserveQuota(f, "reconnect-undispatched-job")
+		expectNotDispatched(f, wlLookupKey)
+
+		restoreConnectionToWorker1()
+		expectDispatchedToWorker1(wlLookupKey)
+		restoreConnectionToWorker2()
+	})
+
+	ginkgo.It("Should dispatch a workload that reserved quota before the worker's first connection", func() {
+		ginkgo.By("removing the worker clusters so their remote clients are dropped", func() {
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, true)
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, true)
+		})
+
+		wlLookupKey := createJobAndReserveQuota(f, "first-connect-job")
+		expectNotDispatched(f, wlLookupKey)
+
+		ginkgo.By("creating the worker clusters again", func() {
+			f.workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, f.managerMultiKueueSecret1.Name).Obj()
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1)
+			f.workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, f.managerMultiKueueSecret2.Name).Obj()
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2)
+		})
+
+		expectDispatchedToWorker1(wlLookupKey)
+	})
 })
+
+func createJobAndReserveQuota(f *multiKueueFixture, name string) types.NamespacedName {
+	ginkgo.GinkgoHelper()
+	job := testingjob.MakeJob(name, f.managerNs.Name).
+		Queue(kueue.LocalQueueName(f.managerLq.Name)).
+		Obj()
+	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+	wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+	admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+		Obj()
+	ginkgo.By("reserving quota for the workload on the manager", func() {
+		integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+	})
+	return wlLookupKey
+}
+
+func expectNotDispatched(f *multiKueueFixture, wlLookupKey types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By("verifying the workload is not nominated or dispatched while no worker is connected", func() {
+		gomega.Consistently(func(g gomega.Gomega) {
+			managerWl := &kueue.Workload{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.BeEmpty())
+			g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+			acState := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(f.multiKueueAC.Name))
+			g.Expect(acState).NotTo(gomega.BeNil())
+			g.Expect(acState.State).To(gomega.Equal(kueue.CheckStatePending))
+			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+}
+
+func expectDispatchedToWorker1(wlLookupKey types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By("verifying the workload is dispatched to worker1 promptly after it connects", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+		}, reconnectResyncTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+}

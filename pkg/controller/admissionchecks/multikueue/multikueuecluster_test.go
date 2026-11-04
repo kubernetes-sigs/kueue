@@ -962,6 +962,104 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	}
 }
 
+func TestResyncOnConnect(t *testing.T) {
+	pendingCheck := kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}
+	baseWorkload := utiltestingapi.MakeWorkload("wl", TestNamespace).
+		AdmissionCheck(pendingCheck).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now())
+
+	cases := map[string]struct {
+		reconnect    bool
+		workload     *kueue.Workload
+		wantEnqueued bool
+	}{
+		"first connect enqueues a workload that reserved quota before any worker connected": {
+			workload:     baseWorkload.Clone().Obj(),
+			wantEnqueued: true,
+		},
+		"reconnect enqueues a workload that reserved quota while every worker was disconnected": {
+			reconnect:    true,
+			workload:     baseWorkload.Clone().Obj(),
+			wantEnqueued: true,
+		},
+		"first connect enqueues a workload nominated for the cluster": {
+			workload:     baseWorkload.Clone().NominatedClusterNames("worker1").Obj(),
+			wantEnqueued: true,
+		},
+		"first connect skips a workload nominated for another cluster": {
+			workload: baseWorkload.Clone().NominatedClusterNames("worker2").Obj(),
+		},
+		"first connect skips a workload assigned to another cluster": {
+			workload: baseWorkload.Clone().ClusterName("worker2").Obj(),
+		},
+		"first connect skips a workload without quota reservation": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).AdmissionCheck(pendingCheck).Obj(),
+		},
+		"first connect skips a finished workload": {
+			workload: baseWorkload.Clone().Finished().Obj(),
+		},
+		"first connect skips a workload without a pending admission check": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			kubeconfig := testKubeconfig("worker1")
+			cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+				KubeConfig(kueue.SecretLocationType, "worker1").
+				Generation(1).
+				Obj()
+			secret := makeTestSecret("worker1", kubeconfig)
+
+			c := getClientBuilder(ctx).
+				WithObjects(cluster, &secret, tc.workload).
+				WithStatusSubresource(&kueue.MultiKueueCluster{}, &kueue.Workload{}).
+				Build()
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			reconciler := newClustersReconciler(c, TestNamespace,
+				withAdapters(adapters),
+				withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
+				withEventRecorder(&utiltesting.EventRecorder{}),
+			)
+			reconciler.rootContext = ctx
+			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			if tc.reconnect {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+					t.Fatalf("unexpected reconcile error: %v", err)
+				}
+				reconciler.disconnectCluster("worker1")
+				for len(reconciler.wlUpdateCh) > 0 {
+					<-reconciler.wlUpdateCh
+				}
+			}
+
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+				t.Fatalf("unexpected reconcile error: %v", err)
+			}
+			rc, found := reconciler.controllerFor("worker1")
+			if !found || !rc.connState.isConnected() {
+				t.Fatalf("expected worker1 to be connected")
+			}
+			defer rc.StopWatchers()
+
+			var gotEnqueued bool
+			for len(reconciler.wlUpdateCh) > 0 {
+				if (<-reconciler.wlUpdateCh).Object.GetName() == tc.workload.Name {
+					gotEnqueued = true
+				}
+			}
+			if gotEnqueued != tc.wantEnqueued {
+				t.Errorf("workload enqueued = %v, want %v", gotEnqueued, tc.wantEnqueued)
+			}
+		})
+	}
+}
+
 func TestConnectionStateTransitions(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
