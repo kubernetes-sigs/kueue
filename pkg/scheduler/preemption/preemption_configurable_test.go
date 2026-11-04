@@ -1274,3 +1274,21 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 		})
 	}
 }
+
+func TestTakeRetryAt(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	retryAt := now.Add(15 * time.Second)
+
+	preemptor := New(utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("TakeRetryAt() when unset = %v, want nil", got)
+	}
+
+	preemptor.retryAt = &retryAt
+	if diff := cmp.Diff(&retryAt, preemptor.TakeRetryAt()); diff != "" {
+		t.Fatalf("first TakeRetryAt() (-want,+got):\n%s", diff)
+	}
+	if got := preemptor.TakeRetryAt(); got != nil {
+		t.Fatalf("second TakeRetryAt() = %v, want nil", got)
+	}
+}

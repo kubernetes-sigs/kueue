@@ -319,12 +319,12 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	selectorIndex int,
 ) {
 	for _, targetCq := range snapshot.ClusterQueues() {
-		if !matchesClusterQueue(filter, targetCq) {
+		if !filter.MatchesClusterQueue(targetCq) {
 			continue
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			retryAt, matches := matchesWorkload(filter, wlInfo)
+			retryAt, matches := filter.MatchesWorkload(wlInfo)
 			if !matches && retryAt == nil {
 				continue
 			}
@@ -362,39 +362,6 @@ func (p *PreemptionEvaluator) ensureCandidate(
 
 	*candidates = append(*candidates, candidate)
 	return candidate
-}
-
-func matchesClusterQueue(filter *filters.CandidateFilters, cq *schdcache.ClusterQueueSnapshot) bool {
-	for _, cqFilter := range filter.CQFilters {
-		if !cqFilter.Matches(cq) {
-			return false
-		}
-	}
-	return true
-}
-
-// matchesWorkload reports whether wl matches all workload filters, or, when unmatched,
-// the earliest time all failing time filters may match (nil if any filter cannot match by waiting).
-func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) (*time.Time, bool) {
-	for _, wlFilter := range filter.WLFilters {
-		if !wlFilter.Matches(wl) {
-			return nil, false
-		}
-	}
-	var candidateRetryAt *time.Time
-	for _, timeFilter := range filter.WLTimeFilters {
-		retryAt, matches := timeFilter.Matches(wl)
-		if matches {
-			continue
-		}
-		if retryAt == nil {
-			return nil, false
-		}
-		if candidateRetryAt == nil || retryAt.After(*candidateRetryAt) {
-			candidateRetryAt = retryAt
-		}
-	}
-	return candidateRetryAt, candidateRetryAt == nil
 }
 
 func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {

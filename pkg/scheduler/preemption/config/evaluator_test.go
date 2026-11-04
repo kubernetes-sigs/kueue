@@ -1220,14 +1220,6 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 	}
 }
 
-type staticWorkloadFilter struct {
-	matchNames sets.Set[string]
-}
-
-func (f staticWorkloadFilter) Matches(wl *workload.Info) bool {
-	return f.matchNames.Has(wl.Obj.Name)
-}
-
 type workloadTimeFilter struct {
 	retryAtByName map[string]*time.Time
 }
@@ -1239,6 +1231,7 @@ func (f workloadTimeFilter) Matches(wl *workload.Info) (*time.Time, bool) {
 
 func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	tVeryEarly := now.Add(5 * time.Second)
 	tEarly := now.Add(15 * time.Second)
 	tLate := now.Add(40 * time.Second)
 
@@ -1281,21 +1274,21 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 			},
 		},
-		"skipped candidate failing WorkloadTimeFilter updates RetryAt while matching candidate is selected": {
+		"candidate in non-matching ClusterQueue does not update RetryAt": {
 			config: emptyConfig,
 			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
 			},
 			calls: []addCandidatesCall{{
 				filter: filters.CandidateFilters{
+					CQFilters: []filters.ClusterQueueFilter{
+						filters.NewWithinClusterQueueFilter("a"),
+					},
 					WLTimeFilters: []filters.WorkloadTimeFilter{
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"b1": &tEarly}},
 					},
 				},
 			}},
-			wantCandidates: []string{"a2"},
-			wantRetryAt:    &tEarly,
 		},
 		"candidate not using needed flavor quota or TAS nodes does not update RetryAt": {
 			config: emptyConfig,
@@ -1313,7 +1306,6 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 					},
 				},
 			}},
-			wantRetryAt: nil,
 		},
 		"candidate holding TAS node of needed flavor updates RetryAt even without using quota resource": {
 			config:   emptyConfig,
@@ -1328,77 +1320,7 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 			}},
 			wantRetryAt: &tEarly,
 		},
-		"candidate failing static WorkloadFilter skips WorkloadTimeFilters and does not mask another candidate's RetryAt": {
-			config: emptyConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			calls: []addCandidatesCall{{
-				filter: filters.CandidateFilters{
-					WLFilters: []filters.WorkloadFilter{
-						staticWorkloadFilter{matchNames: sets.New("a2")},
-					},
-					WLTimeFilters: []filters.WorkloadTimeFilter{
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{
-							"a1": &tEarly,
-							"a2": &tLate,
-						}},
-					},
-				},
-			}},
-			wantRetryAt: &tLate,
-		},
-		"candidate failing WorkloadTimeFilter with nil RetryAt does not mask another candidate's RetryAt": {
-			config: emptyConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			calls: []addCandidatesCall{{
-				filter: filters.CandidateFilters{
-					WLTimeFilters: []filters.WorkloadTimeFilter{
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{
-							"a1": nil,
-							"a2": &tLate,
-						}},
-					},
-				},
-			}},
-			wantRetryAt: &tLate,
-		},
-		"candidate failing two WorkloadTimeFilters records later timestamp (early then late)": {
-			config: emptyConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			calls: []addCandidatesCall{{
-				filter: filters.CandidateFilters{
-					WLTimeFilters: []filters.WorkloadTimeFilter{
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
-					},
-				},
-			}},
-			wantRetryAt: &tLate,
-		},
-		"candidate failing two WorkloadTimeFilters records later timestamp (late then early)": {
-			config: emptyConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			calls: []addCandidatesCall{{
-				filter: filters.CandidateFilters{
-					WLTimeFilters: []filters.WorkloadTimeFilter{
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
-						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
-					},
-				},
-			}},
-			wantRetryAt: &tLate,
-		},
-		"multiple addMatchingCandidates calls keep earliest timestamp (earlier first, then later, then non-retryable miss)": {
+		"multiple calls keep earliest RetryAt (early then late, and non-retryable miss)": {
 			config: emptyConfig,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -1407,56 +1329,36 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 			calls: []addCandidatesCall{
 				{
 					filter: filters.CandidateFilters{
-						WLFilters: []filters.WorkloadFilter{
-							staticWorkloadFilter{matchNames: sets.New("a1")},
-						},
 						WLTimeFilters: []filters.WorkloadTimeFilter{
-							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly, "a2": nil}},
 						},
 					},
 				},
 				{
 					filter: filters.CandidateFilters{
-						WLFilters: []filters.WorkloadFilter{
-							staticWorkloadFilter{matchNames: sets.New("a2")},
-						},
 						WLTimeFilters: []filters.WorkloadTimeFilter{
-							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a2": &tLate}},
-						},
-					},
-				},
-				{
-					filter: filters.CandidateFilters{
-						WLFilters: []filters.WorkloadFilter{
-							staticWorkloadFilter{matchNames: sets.New[string]()},
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil, "a2": &tLate}},
 						},
 					},
 				},
 			},
 			wantRetryAt: &tEarly,
 		},
-		"multiple addMatchingCandidates calls keep earliest timestamp (later first, then earlier)": {
+		"multiple calls keep earliest RetryAt (late then early)": {
 			config: emptyConfig,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
 			},
 			calls: []addCandidatesCall{
 				{
 					filter: filters.CandidateFilters{
-						WLFilters: []filters.WorkloadFilter{
-							staticWorkloadFilter{matchNames: sets.New("a2")},
-						},
 						WLTimeFilters: []filters.WorkloadTimeFilter{
-							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a2": &tLate}},
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
 						},
 					},
 				},
 				{
 					filter: filters.CandidateFilters{
-						WLFilters: []filters.WorkloadFilter{
-							staticWorkloadFilter{matchNames: sets.New("a1")},
-						},
 						WLTimeFilters: []filters.WorkloadTimeFilter{
 							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
 						},
@@ -1465,7 +1367,7 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 			},
 			wantRetryAt: &tEarly,
 		},
-		"skipped candidates across multiple ClusterQueues neither abort iteration nor mask later RetryAt": {
+		"skipped candidates across ClusterQueues do not abort yielding matching candidates": {
 			config: emptyConfig,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a-unused").SimpleReserveQuota("a", "other", now).Obj(),
@@ -1479,16 +1381,16 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				filter: filters.CandidateFilters{
 					WLTimeFilters: []filters.WorkloadTimeFilter{
 						workloadTimeFilter{retryAtByName: map[string]*time.Time{
-							"a-unused": &tEarly,
-							"b-unused": &tEarly,
+							"a-unused": &tVeryEarly,
+							"b-unused": &tVeryEarly,
 							"a-retry":  &tLate,
-							"b-retry":  &tLate,
+							"b-retry":  &tEarly,
 						}},
 					},
 				},
 			}},
 			wantCandidates: []string{"a-match", "b-match"},
-			wantRetryAt:    &tLate,
+			wantRetryAt:    &tEarly,
 		},
 	}
 

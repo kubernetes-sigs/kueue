@@ -47,3 +47,39 @@ type CandidateFilters struct {
 	WLFilters     []WorkloadFilter
 	WLTimeFilters []WorkloadTimeFilter
 }
+
+// MatchesClusterQueue reports whether cq matches all ClusterQueue filters.
+func (f *CandidateFilters) MatchesClusterQueue(cq *schdcache.ClusterQueueSnapshot) bool {
+	for _, cqFilter := range f.CQFilters {
+		if !cqFilter.Matches(cq) {
+			return false
+		}
+	}
+	return true
+}
+
+// MatchesWorkload reports whether wl matches all workload filters.
+//
+// When unmatched, retryAt is the earliest time all failing time filters may match,
+// or nil if waiting cannot make wl match.
+func (f *CandidateFilters) MatchesWorkload(wl *workload.Info) (retryAt *time.Time, matches bool) {
+	for _, wlFilter := range f.WLFilters {
+		if !wlFilter.Matches(wl) {
+			return nil, false
+		}
+	}
+	var candidateRetryAt *time.Time
+	for _, timeFilter := range f.WLTimeFilters {
+		filterRetryAt, filterMatches := timeFilter.Matches(wl)
+		if filterMatches {
+			continue
+		}
+		if filterRetryAt == nil {
+			return nil, false
+		}
+		if candidateRetryAt == nil || filterRetryAt.After(*candidateRetryAt) {
+			candidateRetryAt = filterRetryAt
+		}
+	}
+	return candidateRetryAt, candidateRetryAt == nil
+}

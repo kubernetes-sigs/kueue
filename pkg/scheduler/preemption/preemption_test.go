@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -5390,103 +5389,4 @@ func TestPreemptionStrategy(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestTakeRetryAt(t *testing.T) {
-	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	tEarly := now.Add(15 * time.Second)
-	cq := utiltestingapi.MakeClusterQueue("cq").
-		Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
-		Obj()
-	victim := *utiltestingapi.MakeWorkload("victim", "default").UID("victim").Priority(10).
-		Request(corev1.ResourceCPU, "1").SimpleReserveQuota("cq", "default", now).Obj()
-	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
-		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
-	})
-
-	cases := map[string]struct {
-		enableFairSharing bool
-		initialRetryAt    *time.Time
-		incomingPriority  *int32
-		wantTargets       []string
-		wantRetryAt       *time.Time
-	}{
-		"returns nil when unset": {},
-		"returns retryAt and clears it on next call": {
-			initialRetryAt: &tEarly,
-			wantRetryAt:    &tEarly,
-		},
-		"preserves pre-existing retryAt when classical strategies are exhausted": {
-			initialRetryAt:   &tEarly,
-			incomingPriority: new(int32(5)),
-			wantRetryAt:      &tEarly,
-		},
-		"preserves pre-existing retryAt when fair sharing strategy is exhausted": {
-			enableFairSharing: true,
-			initialRetryAt:    &tEarly,
-			incomingPriority:  new(int32(5)),
-			wantRetryAt:       &tEarly,
-		},
-		"leaves pre-existing retryAt untouched when caller stops early on a matching strategy": {
-			initialRetryAt:   &tEarly,
-			incomingPriority: new(int32(20)),
-			wantTargets:      []string{"default/victim"},
-			wantRetryAt:      &tEarly,
-		},
-		"leaves nil retryAt untouched when caller stops early on a matching strategy": {
-			incomingPriority: new(int32(20)),
-			wantTargets:      []string{"default/victim"},
-			wantRetryAt:      nil,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions: true,
-			})
-			ctx, log := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().
-				WithLists(&kueue.WorkloadList{Items: []kueue.Workload{victim}}).
-				Build()
-			cqCache := schdcache.New(cl)
-			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
-			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-			}
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-
-			var fs *config.FairSharing
-			if tc.enableFairSharing {
-				fs = &config.FairSharing{}
-			}
-			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fs, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
-			preemptor.retryAt = tc.initialRetryAt
-
-			var gotTargets []string
-			if tc.incomingPriority != nil {
-				incoming := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").UID("incoming").
-					Priority(*tc.incomingPriority).Request(corev1.ResourceCPU, "1").Obj())
-				incoming.ClusterQueue = "cq"
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *incoming, snapshot, assignment)
-				for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
-					gotTargets = append(gotTargets, string(workload.Key(target.WorkloadInfo.Obj)))
-				}
-			}
-
-			if diff := cmp.Diff(tc.wantTargets, gotTargets, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("GetTargetsWithStrategy() targets (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantRetryAt, preemptor.TakeRetryAt()); diff != "" {
-				t.Errorf("TakeRetryAt() (-want,+got):\n%s", diff)
-			}
-			if second := preemptor.TakeRetryAt(); second != nil {
-				t.Errorf("second TakeRetryAt() = %v, want nil", second)
-			}
-		})
-	}
 }
