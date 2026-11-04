@@ -10,6 +10,8 @@
     - [Story 1: Dynamically adjust quota based on built-in plugins](#story-1-dynamically-adjust-quota-based-on-built-in-plugins)
     - [Story 2: Capacity discovered by an external controller](#story-2-capacity-discovered-by-an-external-controller)
     - [Story 3: Adjusting the discovered capacity before distributing as quota](#story-3-adjusting-the-discovered-capacity-before-distributing-as-quota)
+    - [Story 4: Return to spec quota after the orchestrator stops](#story-4-return-to-spec-quota-after-the-orchestrator-stops)
+    - [Story 5: Temporary quota that ends on time](#story-5-temporary-quota-that-ends-on-time)
   - [Notes](#notes)
     - [Relation to KEP-9988](#relation-to-kep-9988)
   - [Risks and Mitigations](#risks-and-mitigations)
@@ -170,6 +172,31 @@ in the related "MultiKueue Manager Quota Automation" KEP.
 
 The effectiveCapacityMultiplier parameter provides flexibility in translating observed
 capacity into the effective capacity made available by Kueue for quota distribution.
+
+#### Story 4: Return to spec quota after the orchestrator stops
+
+As a cluster administrator, I configure `spec.resourceGroups` as the quota that
+teams get when no orchestrator manages it. When a DQO stops distributing, I want
+Kueue to go back to that quota by itself, after a bounded time. For example:
+
+- The provider loses access to its capacity source and reports
+  `CapacitySynchronized=False`, so `Distributed` becomes `False`.
+- I delete the DQO or remove `capacityDistribution`, for example to hand the
+  subtree to another orchestrator.
+- I move a ClusterQueue out of the subtree.
+
+Today Kueue keeps admitting workloads against the last effective quota until I
+find each ClusterQueue and Cohort and clear its status by hand. A short outage
+of the capacity source should not change the quota, so the fallback should wait
+for a while instead of happening right away.
+
+#### Story 5: Temporary quota that ends on time
+
+As a cluster administrator, I give a team more quota for a time window, for
+example while an autoscaler reservation is active ([#8654]). The controller that
+writes the effective quota sets `validUntil` to the end of the window. If that
+controller is not running when the window ends, the quota still goes back to
+`spec.resourceGroups` on time.
 
 ### Notes
 
