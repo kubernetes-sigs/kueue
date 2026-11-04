@@ -109,6 +109,23 @@ func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured 
 	return
 }
 
+// AllLabelsHaveTrackedValues reports whether kind has custom labels and every
+// one of them has a non-empty trackedValues list, which bounds the values its
+// series can carry. It returns false when CustomMetricLabels is disabled.
+// Callers do not need to check Workload labels, because validation requires
+// trackedValues for them.
+func (cl *CustomLabels) AllLabelsHaveTrackedValues(kind configapi.SourceKind) bool {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return false
+	}
+	for _, spec := range cl.m[kind].labelSpecs {
+		if len(spec.TrackedValues) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return EmptyValsSet()
