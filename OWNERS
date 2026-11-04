@@ -68,6 +68,8 @@ filters:
   "_test\\.go$":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
 
   # Test and verification makefiles
   "^hack/make/(verify|test)\\.mk$":
