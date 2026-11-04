@@ -1551,20 +1551,12 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
 				// Reconcile the root so reportTreeAdmittedActiveWorkloads runs the
 				// one-pass rebuild instead of the per-ClusterQueue walk.
+				// Clear first so wantValues cannot pass on leftover setup series.
+				for _, name := range []kueue.CohortReference{"child", "root"} {
+					kueuemetrics.ClearCohortSubtreeAdmittedActiveWorkloads(name)
+				}
 				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("root").Obj()); err != nil {
 					t.Fatal(err)
-				}
-				cache.RLock()
-				defer cache.RUnlock()
-				for _, name := range []kueue.CohortReference{"child", "root"} {
-					ch := cache.hm.Cohort(name)
-					if ch == nil {
-						t.Fatalf("cohort %s missing after rebuild", name)
-					}
-					for _, team := range []string{"alpha", "beta"} {
-						want := float64(ch.admittedWorkloadsInCQsWithLabels([]string{team}))
-						expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels(name, team), want)
-					}
 				}
 			},
 			wantValues: []struct {
@@ -1609,6 +1601,9 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 					Obj(), now).AdmittedAt(true, now).Obj(),
 			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				for _, name := range []kueue.CohortReference{"left", "right", "root"} {
+					kueuemetrics.ClearCohortSubtreeAdmittedActiveWorkloads(name)
+				}
 				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("root").Obj()); err != nil {
 					t.Fatal(err)
 				}
