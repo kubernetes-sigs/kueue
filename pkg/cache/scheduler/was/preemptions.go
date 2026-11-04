@@ -20,6 +20,7 @@ package was
 
 import (
 	"iter"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -51,8 +52,9 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 			if committedVictims.Has(wlKey) {
 				continue
 			}
+			// Pods with DeletionTimestamp count as individual committed victims.
+			pods := filterActivePods(s.pods.PodsForWorkload(wlKey))
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
-			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
 				continue
 			}
@@ -68,10 +70,7 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 }
 
 func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Reference]) []schedlib.PreemptionVictim {
-	if len(victimWorkloads) == 0 {
-		return nil
-	}
-	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
+	cv := make([]schedlib.PreemptionVictim, 0)
 	for preemptedWlKey := range victimWorkloads {
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
@@ -83,12 +82,12 @@ func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Refere
 	}
 	for _, pod := range s.pods.Pods() {
 		if !pod.DeletionTimestamp.IsZero() {
-			wlRef := workload.Reference(pod.Annotations[kueue.WorkloadAnnotation])
+			wlName := pod.Annotations[kueue.WorkloadAnnotation]
+			wlRef := workload.NewReference(pod.Namespace, wlName)
 			if victimWorkloads.Has(wlRef) {
 				continue
 			}
 			cv = append(cv, &preemptionVictim{
-				wlKey:     wlRef,
 				pods:      []*corev1.Pod{pod},
 				committed: true,
 			})
@@ -126,4 +125,10 @@ func (a *preemptionFilterAdapter) UnpreemptVictim(victim schedlib.PreemptionVict
 	if wlVictim, ok := victim.(*preemptionVictim); ok {
 		a.UnpreemptWorkload(wlVictim.wlKey)
 	}
+}
+
+func filterActivePods(pods []*corev1.Pod) []*corev1.Pod {
+	return slices.DeleteFunc(pods, func(pod *corev1.Pod) bool {
+		return !pod.DeletionTimestamp.IsZero()
+	})
 }

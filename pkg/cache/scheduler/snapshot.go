@@ -23,6 +23,7 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -464,8 +465,10 @@ func (c *Cache) isPreempted(ctx context.Context, log logr.Logger, wlKey client.O
 	}
 
 	wl := &kueue.Workload{}
-	if err := c.client.Get(ctx, wlKey, wl); err != nil {
+	if err := c.client.Get(ctx, wlKey, wl); apierrors.IsNotFound(err) {
 		return true
+	} else if err != nil {
+		return false
 	}
 
 	condEvicted := &metav1.Condition{

@@ -31,31 +31,30 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type simulatorOptions struct {
-	assumedWorkloads []*kueue.Workload
+type SimulatorOptions struct {
 	AssumedWorkloads []*kueue.Workload
 	CommittedVictims []workload.Reference
 }
 
-type Option func(*simulatorOptions)
+type Option func(*SimulatorOptions)
 
 // WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
 func WithAssumedWorkloads(wls []*kueue.Workload) Option {
-	return func(o *simulatorOptions) {
+	return func(o *SimulatorOptions) {
 		o.AssumedWorkloads = wls
 	}
 }
 
 // AssumedWorkloads extracts the assumed workloads from the given snapshot options.
 func WithCommittedVictims(victims []workload.Reference) Option {
-	return func(o *simulatorOptions) {
+	return func(o *SimulatorOptions) {
 		o.CommittedVictims = victims
 	}
 }
 
 // BuildOptions extracts the assumed workloads from the given snapshot options.
-func BuildOptions(options ...Option) *simulatorOptions {
-	opts := &simulatorOptions{}
+func BuildOptions(options ...Option) *SimulatorOptions {
+	opts := &SimulatorOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(opts)
