@@ -38,6 +38,18 @@
     (e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
     primary workload ordering when dispatching component workloads to worker clusters atomically.
 
+- key: kueue.x-k8s.io/concurrent-admission-parent
+  type: Label
+  example: '`kueue.x-k8s.io/concurrent-admission-parent: "true"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The label is set to `"true"` on a Workload that is a parent of variant workloads
+    when using the [Concurrent Admission](/docs/concepts/cluster_queue/#concurrent-admission) feature.
+    It identifies parent workloads to coordinate variant creation and admission.
+
+    This label is alpha-level for the `ConcurrentAdmission` feature gate.
+
 - key: kueue.x-k8s.io/elastic-job
   type: Annotation
   example: '`kueue.x-k8s.io/elastic-job: "true"`'
@@ -51,6 +63,18 @@
     to delay their scheduling until the associated workload slice has been admitted.
 
     This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: kueue.x-k8s.io/elastic-job-scale-up-strategy
+  type: Annotation
+  example: '`kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"`'
+  used_on: |
+    Kueue-managed Jobs supporting workload slicing.
+  description: |
+    The annotation selects how scale-up replicas are admitted for elastic jobs.
+    Supported values are `"atomic"` (default when unset) and `"partial"`.
+
+    This annotation requires `kueue.x-k8s.io/elastic-job: "true"` and the
+    `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate.
 
 - key: kueue.x-k8s.io/is-group-workload
   type: Annotation
@@ -157,6 +181,16 @@
     The annotation stores the UID of the original object from the management cluster on remote objects
     in worker clusters. Used by job types (e.g., LeaderWorkerSet) that generate workload names based on
     their UID, ensuring workload names match between management and worker clusters.
+
+- key: kueue.x-k8s.io/multikueue-worker-workload-pod
+  type: Label
+  example: '`kueue.x-k8s.io/multikueue-worker-workload-pod: "true"`'
+  used_on: |
+    Pods.
+  description: |
+    The label indicates that the Pod is running on a [MultiKueue](/docs/concepts/multikueue/)
+    worker cluster and was dispatched from a management cluster.
+    It is added to Pods of workloads that carry the `kueue.x-k8s.io/multikueue-origin` label.
 
 - key: kueue.x-k8s.io/pod-group-fast-admission
   type: Annotation
