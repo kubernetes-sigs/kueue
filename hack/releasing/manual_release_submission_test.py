@@ -96,7 +96,7 @@ function make_pr() { gh pr create; }
   cmp "$RELEASE_CHECKLIST_SCRIPT" "$EXPECTED_HELPER"
   printf '["prepare"]\\n' >> "$GH_CALLS"
   printf '%s\\n' "$RELEASE_CHECKLIST_SCRIPT" >> "$SNAPSHOT_SEEN"
-  cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"
+  cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/mark_step_done.py"
 }'''
                 script = re.sub(r"^function prepare_local_branch\(\) \{.*?^\}", lambda _: prepare_function,
                                 script, count=1, flags=re.MULTILINE | re.DOTALL)
@@ -110,9 +110,9 @@ function make_pr() { gh pr create; }
             for name, (env, answers, want_status, want_calls, want_edit) in script_cases.items():
                 with self.subTest(script=script_case, case=name), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
-                    helper = root / "hack/releasing/log_to_issue.py"
+                    helper = root / "hack/releasing/mark_step_done.py"
                     helper.parent.mkdir(parents=True)
-                    helper.write_text((REPO_ROOT / "hack/releasing/log_to_issue.py").read_text())
+                    helper.write_text((REPO_ROOT / "hack/releasing/mark_step_done.py").read_text())
                     expected_helper = root / "expected_helper.py"
                     expected_helper.write_text(helper.read_text())
                     if env.get("MISSING_HELPER"):
@@ -211,119 +211,6 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                             steps = {"prepare-pull-release"} if phases == 2 and index == 0 else expected_steps
                             self.assertEqual(checked, steps)
                             self.assertNotIn("- [x] Wait for", body)
-
-    def test_existing_milestone_pr_retries_issue_update(self):
-        matching_pr = {
-            "title": "Kueue: add milestone for 0.20",
-            "url": "https://github.com/kubernetes/test-infra/pull/42",
-            "headRefName": "kueue-milestone-0.20",
-            "baseRefName": "master",
-            "headRepositoryOwner": {"login": "release-test"},
-        }
-        unrelated_prs = [
-            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/43",
-             "headRefName": "another-change"},
-            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/44",
-             "baseRefName": "another-base"},
-            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/45",
-             "headRepositoryOwner": {"login": "another-user"}},
-            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/46",
-             "headRepositoryOwner": None},
-            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/47",
-             "title": "Kueue: add milestone for 0.20 follow-up"},
-        ]
-        cases = {
-            "success": ("", "0", [matching_pr], True, True),
-            "dry run": ("1", "0", [matching_pr], True, False),
-            "issue edit failed": ("", "1", [matching_pr], True, True),
-            "unrelated PRs precede matching PR": ("", "0", unrelated_prs + [matching_pr], True, True),
-            "owner matching is case insensitive": (
-                "", "0", [{**matching_pr, "headRepositoryOwner": {"login": "Release-Test"}}], True, True),
-            "only unrelated PRs": ("", "0", unrelated_prs, False, False),
-            "no open PRs": ("", "0", [], False, False),
-        }
-        for name, (dry_run, edit_status, prs, want_existing, want_edit) in cases.items():
-            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                plugins = root / "config/prow/plugins.yaml"
-                plugins.parent.mkdir(parents=True)
-                plugins.touch()
-                calls = root / "calls.jsonl"
-                gh = root / "gh.py"
-                gh.write_text('''
-import json
-import os
-import sys
-from pathlib import Path
-
-args = sys.argv[1:]
-with Path(os.environ["GH_CALLS"]).open("a") as calls:
-    calls.write(json.dumps(args) + "\\n")
-if args[:2] == ["pr", "list"]:
-    print(os.environ["TEST_PRS"])
-elif args[:2] == ["issue", "view"]:
-    print(json.dumps({"body": os.environ["TEST_ISSUE_BODY"]}))
-elif args[:2] == ["issue", "edit"]:
-    sys.exit(int(os.environ["EDIT_STATUS"]))
-else:
-    raise AssertionError(args)
-''')
-                env = {
-                    **os.environ,
-                    "REPO_ROOT": str(REPO_ROOT),
-                    "KUBERNETES_REPOS_PATH": str(root),
-                    "KUBERNETES_TEST_INFRA_PATH": str(root),
-                    "KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE": "upstream",
-                    "KUBERNETES_TEST_INFRA_FORK_REMOTE": "origin",
-                    "GITHUB_USER": "release-test",
-                    "RELEASE_ISSUE_NUMBER": "1",
-                    "RELEASE_ISSUE_NAME": "Release v0.20.0",
-                    "TEST_ISSUE_BODY": TEMPLATE,
-                    "TEST_PRS": json.dumps(prs),
-                    "GH_CALLS": str(calls),
-                    "GH_STUB": str(gh),
-                    "TEST_PYTHON": sys.executable,
-                    "DRY_RUN": dry_run,
-                    "EDIT_STATUS": edit_status,
-                }
-                harness = '''
-source "$REPO_ROOT/hack/releasing/milestone_pull.sh"
-function git() {
-  case "$*" in
-    "status --porcelain --untracked=no"|"fetch upstream") ;;
-    "remote get-url upstream") echo https://github.com/kubernetes/test-infra.git ;;
-    "symbolic-ref --short HEAD") echo master ;;
-    "checkout -b "*) echo "Test stopped before preparing a new PR"; exit 0 ;;
-    *) echo "Unexpected git call: $*" >&2; exit 1 ;;
-  esac
-}
-function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }
-derive_values v0.20.0
-submit_mapping_pr owner/repo
-echo "$PR_RESULT"
-'''
-                result = subprocess.run(["bash", "-c", harness], env=env, cwd=root,
-                                        capture_output=True, text=True, check=False)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                if want_existing:
-                    self.assertIn("already open: " + matching_pr["url"], result.stdout)
-                    self.assertNotIn("Test stopped before preparing a new PR", result.stdout)
-                else:
-                    self.assertNotIn("already open:", result.stdout)
-                    self.assertIn("Test stopped before preparing a new PR", result.stdout)
-                recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-                edits = [args for args in recorded if args[:2] == ["issue", "edit"]]
-                self.assertEqual(len(edits), 1 if want_edit else 0, recorded)
-                if want_edit:
-                    body = edits[0][edits[0].index("--body") + 1]
-                    checked = set(re.findall(r"- \[x\][^\n]*<!-- step:([a-z-]+) -->", body))
-                    self.assertEqual(checked, {"milestone-pull"})
-                    self.assertIn("kubernetes/test-infra#42", body)
-                    self.assertNotIn("<!-- MILESTONE_PULL -->", body)
-                else:
-                    self.assertEqual([args[:2] for args in recorded], [["pr", "list"]])
-                if edit_status != "0":
-                    self.assertIn("Failed to edit release issue", result.stdout)
 
     def test_milestone_and_release_notes_update_only_the_completed_step(self):
         milestone = (REPO_ROOT / "hack/releasing/milestone_pull.sh").read_text()

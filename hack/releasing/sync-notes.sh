@@ -301,5 +301,6 @@ NEW_RELEASE_ISSUE_BODY=$(awk -v previous_version="$PREVIOUS_VERSION" -v changelo
   }
 ' <<< "$RELEASE_ISSUE_BODY")
 
-NEW_RELEASE_ISSUE_BODY=$(printf '%s' "${NEW_RELEASE_ISSUE_BODY}" | python3 "${REPO_ROOT}/hack/releasing/log_to_issue.py" --mark-step-done sync-release-notes)
+# ChatOps marks this step via report-result; this call marks it for local runs.
+NEW_RELEASE_ISSUE_BODY=$(printf '%s' "${NEW_RELEASE_ISSUE_BODY}" | python3 "${REPO_ROOT}/hack/releasing/mark_step_done.py" sync-release-notes)
 gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}"

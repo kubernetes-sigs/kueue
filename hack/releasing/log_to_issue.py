@@ -14,35 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
 import sys
 import re
 import os
 from datetime import datetime, timezone
 
-LOG_MARKER_START = "<!-- release-log-start -->"
+from mark_step_done import LOG_MARKER_START, mark_step_done
+
 LOG_MARKER_END = "<!-- release-log-end -->"
 LOG_HEADER = "## Release log"
 HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
-STEP_MARKER = "<!-- step:{} -->"
-
-def mark_step_done(issue_body: str, command: str) -> str:
-    """Check the release checklist item tagged with <!-- step:<command> -->.
-    Only unchecked items ("- [ ]") on the same line as the marker are changed,
-    and only in the part of the body before the release log, so log messages
-    can never affect the checklist. Bodies without the marker (e.g. issues
-    created from an older template) are returned unchanged.
-    """
-    log_start = issue_body.find(LOG_MARKER_START)
-    if log_start == -1:
-        checklist, rest = issue_body, ""
-    else:
-        checklist, rest = issue_body[:log_start], issue_body[log_start:]
-
-    marker = re.escape(STEP_MARKER.format(command))
-    pattern = re.compile(r'^([ \t]*[-*][ \t]+)\[ \]([^\n]*' + marker + r')', re.MULTILINE)
-    return pattern.sub(r'\1[x]\2', checklist) + rest
-
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
@@ -186,11 +167,4 @@ def main():
     print(final_body)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Update a release issue body.")
-    parser.add_argument("--mark-step-done", metavar="COMMAND",
-                        help="Check a checklist step in the body read from stdin, without adding a log entry.")
-    args = parser.parse_args()
-    if args.mark_step_done:
-        sys.stdout.write(mark_step_done(sys.stdin.read(), args.mark_step_done))
-    else:
-        main()
+    main()
