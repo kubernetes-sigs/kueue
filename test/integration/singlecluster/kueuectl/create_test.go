@@ -214,7 +214,9 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			cqName := "cq-unknown"
 
 			ginkgo.By("Create a local queue with --dry-run=server and unknown cluster queue", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"}, withErrorMatcher(gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName)))))
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"},
+					withErrorMatcher(gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName)))),
+				)
 			})
 		})
 	})
