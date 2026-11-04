@@ -149,18 +149,33 @@ rely on. In this KEP, "DisaggregatedSet controller" means the LWS controller tha
 manages DisaggregatedSets. The "DisaggregatedSet planner" is the part of that
 controller that decides how many groups of each revision exist during a rollout.
 
+The example below has a role `prefill` with a leader template, `replicas: 2` and
+`size: 3`, and a role `decode` without a leader template, `replicas: 1` and `size: 1`.
+`<rev>` is the revision of the role.
+
 ```
 DisaggregatedSet "llm" (slices: 2)
-├── slice 0
-│   ├── prefill: child LWS, StatefulSets, Pods ─┐
-│   └── decode:  child LWS, StatefulSets, Pods ─┴─ Workload llm-0
-│                                                  PodSets: prefill-leader, prefill-worker,
-│                                                           decode-leader,  decode-worker
-└── slice 1
-    ├── prefill: child LWS, StatefulSets, Pods ─┐
-    └── decode:  child LWS, StatefulSets, Pods ─┴─ Workload llm-1
-                                                   PodSets: same as llm-0
+├── slice 0                                              Workload llm-0
+│   ├── child LWS llm-0-<rev>-prefill
+│   │   └── leader StatefulSet llm-0-<rev>-prefill
+│   │       ├── leader Pod llm-0-<rev>-prefill-0         PodSet prefill-leader
+│   │       │   └── worker StatefulSet llm-0-<rev>-prefill-0
+│   │       │       ├── worker Pod llm-0-<rev>-prefill-0-1   PodSet prefill-worker
+│   │       │       └── worker Pod llm-0-<rev>-prefill-0-2   PodSet prefill-worker
+│   │       └── leader Pod llm-0-<rev>-prefill-1         PodSet prefill-leader
+│   │           └── worker StatefulSet llm-0-<rev>-prefill-1
+│   │               ├── worker Pod llm-0-<rev>-prefill-1-1   PodSet prefill-worker
+│   │               └── worker Pod llm-0-<rev>-prefill-1-2   PodSet prefill-worker
+│   └── child LWS llm-0-<rev>-decode
+│       └── leader StatefulSet llm-0-<rev>-decode
+│           └── leader Pod llm-0-<rev>-decode-0          PodSet decode
+│               (size 1: no worker StatefulSet)
+└── slice 1: the same tree, named llm-1-<rev>-...        Workload llm-1
 ```
+
+Each slice has one child LWS per role. Each LWS group is a leader Pod and, when
+`size > 1`, a worker StatefulSet that the leader Pod owns. A rollout adds one more
+child LWS per role, with the new revision, under the same slice Workload.
 
 1. The user sets `kueue.x-k8s.io/queue-name` on the DisaggregatedSet metadata.
 2. When Kueue manages the DisaggregatedSet, the Kueue DisaggregatedSet webhook
@@ -466,8 +481,10 @@ StatefulSet, which is owned by the leader Pod.
 An owner reference does not prove where a Pod came from: a user can create a Pod whose
 owner reference points to a real StatefulSet. The Kueue DisaggregatedSet reconciler
 therefore also checks that:
-- the Pod name is `<statefulset-name>-<ordinal>`, with an ordinal below the
-  StatefulSet replicas;
+- the Pod name is `<statefulset-name>-<ordinal>`, with an ordinal in the range of
+  the StatefulSet. A leader StatefulSet numbers its Pods from `0` to `replicas - 1`.
+  A worker StatefulSet starts at ordinal `1`, so its Pods are numbered from `1` to
+  `replicas`;
 - the slice, role and revision labels match the child LWS.
 
 A Pod that fails a check is not adopted and stays gated. The Kueue DisaggregatedSet
@@ -693,8 +710,8 @@ The mutating webhook runs on create and update:
 1. It applies the namespace default LocalQueue and the default
    WorkloadPriorityClass to the DisaggregatedSet, as for other integrations.
    On update, it applies each default only while every role reports zero Ready
-   replicas in the `status.roleStatuses[]` of the old object. This is the rule that
-   [Validation on update](#validation-on-update) enforces for adding the queue name
+   replicas in the `status.roleStatuses[]` of the old object. This is the Ready-replicas
+   rule that [Validation on update](#validation-on-update) enforces for adding the queue name
    and the priority class. Without it, the default would be added to every update
    of a running unmanaged DisaggregatedSet and then rejected, including an update
    that scales every role to zero. A running unmanaged DisaggregatedSet therefore
@@ -749,7 +766,8 @@ rules as the LWS integration:
 
 - removing the queue name is rejected;
 - adding or changing the queue name is allowed only while every role reports zero
-  Ready replicas in the `status.roleStatuses[]` of the old object.
+  Ready replicas in the `status.roleStatuses[]` of the old object, and no slice
+  Workload of the DisaggregatedSet has reserved quota.
 
 Adding a queue name to an unmanaged DisaggregatedSet makes it managed, and the
 mutating webhook stamps its templates, which starts a rollout of every role. No Pod
@@ -1175,8 +1193,8 @@ In the webhook suite, which runs only the Kueue webhooks:
   it is always rejected, and changing it is accepted;
 - immutability rules for size, shape, TAS annotations, roles and replicas;
 - removing the queue name is rejected, and adding or changing it is accepted only
-  while every role has zero Ready replicas, on managed and unmanaged
-  DisaggregatedSets;
+  while every role has zero Ready replicas and no slice Workload has reserved quota,
+  on managed and unmanaged DisaggregatedSets;
 - re-applying a manifest without the stamped annotations leaves templates unchanged;
 - the workload-level `waitForPodsReady` and admission-gate annotations are
   validated on create and update when their feature gates are enabled, and
