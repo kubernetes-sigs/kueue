@@ -30,18 +30,9 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 )
 
-type commandOutputMode int
-
-const (
-	commandOutputDefault commandOutputMode = iota
-	commandOutputSeparate
-	commandOutputCombined
-)
-
 type kueuectlRunOptions struct {
 	clock            clock.Clock
 	defaultNamespace *string
-	commandOutput    commandOutputMode
 	errorMatcher     types.GomegaMatcher
 }
 
@@ -56,12 +47,6 @@ func withClock(c clock.Clock) kueuectlRunOption {
 func withDefaultNamespace(ns string) kueuectlRunOption {
 	return func(opts *kueuectlRunOptions) {
 		opts.defaultNamespace = new(ns)
-	}
-}
-
-func withCommandOutput(mode commandOutputMode) kueuectlRunOption {
-	return func(opts *kueuectlRunOptions) {
-		opts.commandOutput = mode
 	}
 }
 
@@ -90,18 +75,8 @@ func executeKueuectl(cfg *rest.Config, args []string, options ...kueuectlRunOpti
 		configFlags.Namespace = opts.defaultNamespace
 	}
 	kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: opts.clock})
-	// Cobra's output writers are independent of the application's IOStreams.
-	// Preserve their routing without changing streams.ErrOut or the warning printer.
-	switch opts.commandOutput {
-	case commandOutputDefault:
-		// Leave Cobra's output writers unset to preserve its defaults.
-	case commandOutputSeparate:
-		kueuectl.SetOut(output)
-		kueuectl.SetErr(errOutput)
-	case commandOutputCombined:
-		kueuectl.SetOut(output)
-		kueuectl.SetErr(output)
-	}
+	kueuectl.SetOut(output)
+	kueuectl.SetErr(errOutput)
 	kueuectl.SetArgs(args)
 	err := kueuectl.Execute()
 	gomega.Expect(err).To(opts.errorMatcher, "%s: %s %s", err, output, errOutput)
