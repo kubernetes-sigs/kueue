@@ -13,14 +13,11 @@ jobs:
           ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test')
               && github.event.pull_request.user.login == 'dependabot[bot]'
               && github.actor == 'dependabot[bot]'
-              && (contains(github.event.pull_request.title, 'hugo')
-                  || contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools'))
               && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test') }}
         runs-on: ubuntu-latest
 
         concurrency:
           group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-          cancel-in-progress: true
 
         # Permission required to edit a PR
         permissions:

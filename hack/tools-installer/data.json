@@ -6,12 +6,6 @@
         "asset": "golangci-lint-{number}-{goos}-{goarch}.tar.gz",
         "checksum": "golangci-lint-{number}-checksums.txt"
     },
-    "controller-gen": {
-        "module": "sigs.k8s.io/controller-tools",
-        "package": "sigs.k8s.io/controller-tools/cmd/controller-gen",
-        "repository": "kubernetes-sigs/controller-tools",
-        "asset": "controller-gen-{goos}-{goarch}"
-    },
     "kustomize": {
         "module": "sigs.k8s.io/kustomize/kustomize/v5",
         "repository": "kubernetes-sigs/kustomize",
@@ -28,7 +22,8 @@
     "kind": {
         "module": "sigs.k8s.io/kind",
         "repository": "kubernetes-sigs/kind",
-        "asset": "kind-{goos}-{goarch}"
+        "asset": "kind-{goos}-{goarch}",
+        "checksum": "kind-{goos}-{goarch}.sha256sum"
     },
     "yq": {
         "module": "github.com/mikefarah/yq/v4",

@@ -97,19 +97,19 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 	printf '%s\n' "$$identity" > "$$marker"
 
 .PHONY: controller-gen
-controller-gen: ## Download the pinned upstream controller-gen binary if necessary.
-	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py controller-gen "$(CONTROLLER_GEN_VERSION)" "$(CONTROLLER_GEN)"
+controller-gen: ## Build and reuse the pinned controller-gen tool.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(CONTROLLER_GEN)" "sigs.k8s.io/controller-tools" "$(CONTROLLER_GEN_VERSION)" "sigs.k8s.io/controller-tools/cmd/controller-gen"
 
 .PHONY: kustomize
 kustomize: ## Download the pinned upstream kustomize binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
 
 .PHONY: envtest
-envtest: ## Reuse generators without upstream binaries until their version changes.
+envtest: ## Build and reuse the pinned setup-envtest tool.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 
 .PHONY: ginkgo
-ginkgo: ## Reuse generators without upstream binaries until their version changes.
+ginkgo: ## Build and reuse the pinned Ginkgo test runner.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GINKGO)" "github.com/onsi/ginkgo/v2" "$(GINKGO_VERSION)" "github.com/onsi/ginkgo/v2/ginkgo"
 
 .PHONY: gotestsum
@@ -183,7 +183,7 @@ helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	fi
 
 .PHONY: genref
-genref: ## Reuse generators without upstream binaries until their version changes.
+genref: ## Build and reuse the pinned reference documentation generator.
 	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GENREF)" "github.com/kubernetes-sigs/reference-docs/genref" "$(GENREF_VERSION)" "github.com/kubernetes-sigs/reference-docs/genref"
 
 .PHONY: hugo
@@ -199,8 +199,10 @@ helm-docs: ## Download the pinned upstream helm-docs binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py helm-docs "$(HELM_DOCS_VERSION)" "$(HELM_DOCS)"
 
 .PHONY: mockgen
-mockgen: ## Reuse generators without upstream binaries until their version changes.
+mockgen: ## Build and reuse the pinned mock generator.
 	CGO_ENABLED=1 GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(MOCKGEN)" "go.uber.org/mock" "$(MOCKGEN_VERSION)" "go.uber.org/mock/mockgen"
+
+##@ External CRDs
 
 .PHONY: mpi-operator-crd
 mpi-operator-crd: ## Copy the CRDs from the mpi-operator to the dep-crds directory.

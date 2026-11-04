@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A few generators have no upstream binaries. Compile once per toolchain/version.
+# Reuse source-built tools until their version or build configuration changes.
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -30,5 +30,8 @@ marker="$binary.source-version"
 if [[ -x "$binary" && -f "$marker" && "$(cat "$marker")" == "$identity" ]]; then
     exit 0
 fi
-GOBIN=$(dirname "$binary") GOOS="$host_os" GOARCH="$host_arch" "$go_cmd" install "$package@$version"
+retry_script="$(dirname "${BASH_SOURCE[0]}")/../testing/retry.sh"
+bash "$retry_script" --attempts 7 --delay 2 --exponential --stream -- \
+    env GOBIN="$(dirname "$binary")" GOOS="$host_os" GOARCH="$host_arch" \
+    "$go_cmd" install "$package@$version"
 printf '%s\n' "$identity" > "$marker"

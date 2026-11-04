@@ -13,6 +13,7 @@ type: docs
 - Docker (required for shell-lint and npm-depcheck)
 - `kubectl`
 - GNU sed (macOS: `brew install gnu-sed`)
+- Python 3.9 or later (tool installation and installer tests)
 
 ## Running lint
 
@@ -96,44 +97,20 @@ make npm-depcheck      # frontend dependency check (requires Docker)
 make gomod-verify      # go.mod / go.sum tidy check
 ```
 
-Verification downloads pinned upstream binaries for golangci-lint, controller-gen,
-kustomize, gotestsum, kind, yq, mdtoc, and helm-docs instead of compiling them.
-Helm also uses its upstream binary. Hosts absent from upstream release assets
-retain a cached source build; network or checksum failures do not fall back to
-compilation. Versions continue to come from
-`hack/tools/go.mod`. Downloaded tools are reused until their version or host
-platform changes. Generators without upstream binaries and the custom API
-linter are compiled once and reused until their version, configuration, or Go
-toolchain changes. Run `make verify-ci-tools` to test installation and reuse
-without network access or containers.
+Tool versions come from `hack/tools/go.mod`. The installer downloads and verifies
+pinned upstream binaries for golangci-lint, kustomize, gotestsum, kind, yq, mdtoc,
+and helm-docs, then reuses them until the version or host platform changes.
+Unavailable releases or host binaries fall back to cached source builds;
+checksum mismatches fail installation. Controller-gen and other source tools
+are rebuilt when their version or Go build settings change. The custom API
+linter also tracks its configuration and base linter.
 
-Tool metadata is declared in `hack/tools-installer/data.json`:
-executable names, source modules/packages, upstream
-repositories, release tags, asset filename templates, and checksum manifests.
-The registry key is the executable name; Make supplies the destination path and
-pinned version. Asset templates accept `{version}` (including `v`), `{number}`
-(without `v`), `{goos}`, `{goarch}`, and the upstream `{platform}`/`{arch}`
-spellings used by helm-docs. Packages default to the module path and tags to
-`{version}`. Omitting a checksum manifest selects GitHub release API metadata.
-
-Release downloads retry transient failures up to seven attempts, starting with a
-two-second delay and doubling it after each failure, matching
-`NETWORK_INSTALL_RETRY`. HTTP 408 responses use the same exponential backoff;
-HTTP 429 responses wait 20 seconds before each retry. Other HTTP 4xx responses
-fail immediately. Installer diagnostics, including
-release selection, cache reuse, checksum verification, and download errors, are
-written to the build log and `$(ARTIFACTS)/install-<tool>.log` (the repository's
-`artifacts/` directory by default). Artifact cleanup preserves these logs so
-tool preparation diagnostics remain available after full verification.
-
-Build metadata normally records the current time. To compare consecutive builds
-with identical inputs and reuse Go's link cache, keep `BUILD_DATE` fixed:
-
-```shell
-export BUILD_DATE="$(git show -s --format=%cI HEAD)"
-make build
-make build
-```
+Release metadata is declared in `hack/tools-installer/data.json`. Run
+`make verify-ci-tools` to check installation, reuse, and failure handling offline.
+Console output includes installation summaries; detailed per-tool logs are
+overwritten on each invocation in `INSTALL_LOG_DIR` (default:
+`.cache/tool-installation`). Prow collects these logs as job artifacts, separately
+from generated release files.
 
 Limit parallelism if needed:
 ```shell

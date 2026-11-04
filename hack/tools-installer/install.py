@@ -17,6 +17,7 @@
 
 import hashlib
 from http.client import HTTPException
+import io
 import json
 import logging
 import os
@@ -38,23 +39,48 @@ DOWNLOAD_INITIAL_DELAY = 2
 RATE_LIMIT_DELAY = 20
 
 # Keys are executable names; Make supplies the destination path and pinned version.
-# Packages default to their module, tags to {version}; no checksum means release API metadata.
+# Packages default to their module and tags to {version}.
 TOOLS = json.loads(Path(__file__).with_name("data.json").read_text())
 
 
+def log_directory():
+    return Path(os.environ.get("INSTALL_LOG_DIR", Path(__file__).resolve().parents[2] / ".cache/tool-installation"))
+
+
 def configure_logging(name):
-    """Keep diagnostics in both the build log and a per-tool CI artifact."""
-    artifacts = Path(os.environ.get("ARTIFACTS", Path(__file__).resolve().parents[2] / "artifacts"))
-    artifacts.mkdir(parents=True, exist_ok=True)
+    """Keep concise console output and replace each tool's detailed log on invocation."""
+    log_dir = log_directory()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    logfile = logging.FileHandler(log_dir / f"install-{name}.log", mode="w")
+    logfile.setLevel(logging.DEBUG)
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.StreamHandler(), logging.FileHandler(artifacts / f"install-{name}.log")],
+        handlers=[console, logfile],
     )
 
 
+def collect_logs():
+    """Archive Prow diagnostics without coupling local logs to release artifacts."""
+    if not os.environ.get("PROW_JOB_ID") or not os.environ.get("ARTIFACTS"):
+        return
+    try:
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        destination = Path(os.environ["ARTIFACTS"]) / "tool-installation"
+        if log_directory().resolve() == destination.resolve():
+            return
+        destination.mkdir(parents=True, exist_ok=True)
+        for source in log_directory().glob("install-*.log"):
+            shutil.copyfile(source, destination / source.name)
+    except Exception as error:
+        LOG.warning("Could not collect tool installation logs: %s", error)
+
+
 class NoReleaseBinary(ValueError):
-    """The requested release exists but has no binary for this host."""
+    """The requested release or a verified binary for this host is unavailable."""
 
 
 def install_source(name, version, destination):
@@ -74,8 +100,6 @@ def install_source(name, version, destination):
 def download(url):
     """Match NETWORK_INSTALL_RETRY's seven attempts and exponential backoff."""
     headers = {"User-Agent": "kueue-tool-installer"}
-    if url.startswith("https://api.github.com/") and os.environ.get("GH_TOKEN"):
-        headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
     last_attempt = DOWNLOAD_ATTEMPTS - 1
     for attempt in range(DOWNLOAD_ATTEMPTS):
         LOG.debug("Downloading %s (attempt %d/%d)", url, attempt + 1, DOWNLOAD_ATTEMPTS)
@@ -100,7 +124,7 @@ def download(url):
 
 
 def release(name, version, goos, goarch):
-    """Use the same versions as hack/tools/go.mod, without compiling tools."""
+    """Resolve the repository, release tag, and binary asset for a pinned tool."""
     if name not in TOOLS:
         raise ValueError(f"No upstream binary configured for {name}")
     tool = TOOLS[name]
@@ -115,9 +139,11 @@ def release(name, version, goos, goarch):
     return tool["repository"], tool.get("tag", "{version}").format(**values), tool["asset"].format(**values)
 
 
-def parse_checksums(text):
-    """Read standard SHA256 and BSD checksum manifests."""
+def parse_checksums(text, filename=None):
+    """Read SHA256 manifests, including a bare digest for a known binary asset."""
     checksums = {}
+    if filename and re.fullmatch(r"[a-fA-F0-9]{64}", text.strip()):
+        return {filename: text.strip()}
     for line in text.splitlines():
         match = re.fullmatch(r"([a-fA-F0-9]{64})\s+\*?(.+)", line.strip())
         if match:
@@ -128,53 +154,30 @@ def parse_checksums(text):
     return checksums
 
 
-def release_assets(name, version, repo, tag):
-    checksum_template = TOOLS[name].get("checksum")
-    if not checksum_template:
-        return json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
-    # Prow jobs need no API token for tools with independent checksum manifests.
-    base = f"https://github.com/{repo}/releases/download/{quote(tag, safe='')}/"
-    checksum_file = checksum_template.format(version=version, number=version.removeprefix("v"))
-    checksums = parse_checksums(download(base + checksum_file).decode())
-    if not checksums:
-        raise ValueError(f"No SHA256 checksums in {checksum_file}")
-    return [{"name": asset, "digest": "sha256:" + digest, "browser_download_url": base + asset} for asset, digest in checksums.items()]
-
-
 def release_binary(name, version, goos, goarch):
     repo, tag, filename = release(name, version, goos, goarch)
     LOG.debug("Selected release %s@%s, asset %s", repo, tag, filename)
-    assets = {asset["name"]: asset for asset in release_assets(name, version, repo, tag)}
-    if filename not in assets:
-        # A partial manifest must not turn a published binary into a source build.
-        # API-backed tools already provided the complete published asset list.
-        if TOOLS[name].get("checksum"):
-            published = json.loads(download(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}"))["assets"]
-            if any(asset["name"] == filename for asset in published):
-                raise ValueError(f"No SHA256 checksum for {filename}")
-        raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no {filename}")
-    asset = assets[filename]
-    content = download(asset["browser_download_url"])
-    digest = asset.get("digest") or ""
-    if digest.startswith("sha256:"):
-        expected = digest.removeprefix("sha256:")
-    else:
-        expected = None
-        # Older releases have checksum files but no GitHub asset digest.
-        for checksum in assets:
-            if "checksums" not in checksum or checksum.endswith((".sig", ".pem", ".bundle")):
-                continue
-            expected = parse_checksums(download(assets[checksum]["browser_download_url"]).decode()).get(filename)
-            if expected:
-                break
-        if not expected:
-            raise ValueError(f"No SHA256 checksum for {filename}")
+    base = f"https://github.com/{repo}/releases/download/{quote(tag, safe='')}/"
+    checksum_file = TOOLS[name]["checksum"].format(
+        version=version, number=version.removeprefix("v"), goos=goos, goarch=goarch, asset=filename,
+    )
+    try:
+        checksums = parse_checksums(download(base + checksum_file).decode(), filename)
+        if not checksums:
+            raise ValueError(f"No SHA256 checksums in {checksum_file}")
+        if filename not in checksums:
+            raise NoReleaseBinary(f"Upstream checksum manifest has no {filename}")
+        content = download(base + filename)
+    except HTTPError as error:
+        if error.code != 404:
+            raise
+        # A Go module tag can be available before its release binaries are published.
+        raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no verified {filename}") from error
+    expected = checksums[filename]
     if hashlib.sha256(content).hexdigest() != expected.lower():
         raise ValueError(f"SHA256 mismatch for {filename}")
     LOG.debug("Verified SHA256 %s for %s", expected.lower(), filename)
     if filename.endswith(".tar.gz"):
-        import io
-
         with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
             candidates = [member for member in archive.getmembers() if member.isfile() and Path(member.name).name == name]
             if len(candidates) != 1:
@@ -204,7 +207,7 @@ def install(name, version, destination):
         binary = release_binary(name, version, goos, goarch)
     except NoReleaseBinary as error:
         LOG.info("%s; using a source build", error)
-        # Preserve hosts not covered by upstream assets; never hide download or checksum errors.
+        # Preserve unpublished releases and unsupported hosts without hiding integrity failures.
         install_source(name, version, destination)
         marker.write_text(identity + "source\n")
         return
@@ -220,9 +223,14 @@ def install(name, version, destination):
 
 
 if __name__ == "__main__":
-    configure_logging(sys.argv[1])
-    try:
-        install(*sys.argv[1:])
-    except Exception:
-        LOG.exception("Tool installation failed")
-        sys.exit(1)
+    if sys.argv[1:] == ["--collect-logs"]:
+        collect_logs()
+    else:
+        configure_logging(sys.argv[1])
+        try:
+            install(*sys.argv[1:])
+        except Exception:
+            LOG.exception("Tool installation failed")
+            sys.exit(1)
+        finally:
+            collect_logs()

@@ -85,6 +85,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
+	@trap 'python3 "$(PROJECT_DIR)/hack/tools-installer/install.py" --collect-logs' EXIT; \
 	$(PROJECT_DIR)/hack/make-failure-summary.sh $(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \

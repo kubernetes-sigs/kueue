@@ -52,7 +52,6 @@ IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_T
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
-export ARTIFACTS
 RELEASE_ARTIFACTS ?= $(PROJECT_DIR)/release-artifacts
 HACK_DIR := $(PROJECT_DIR)/hack
 TOOLS_DIR := $(HACK_DIR)/tools
@@ -109,11 +108,9 @@ ifeq ($(shell ${SED} --version 2>&1 | grep -q GNU; echo $$?),1)
 endif
 
 version_pkg = sigs.k8s.io/kueue/pkg/version
-# CI can use the commit timestamp so identical builds also reuse the link cache.
-BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(GIT_COMMIT)'
-LD_FLAGS += -X '$(version_pkg).BuildDate=$(BUILD_DATE)'
+LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
@@ -368,8 +365,7 @@ site-server: hugo
 ##@ Release
 .PHONY: clean-artifacts
 clean-artifacts:
-	# Preserve installer diagnostics produced before or during verification.
-	if [ -d "$(ARTIFACTS)" ]; then find "$(ARTIFACTS)" -mindepth 1 -maxdepth 1 ! -name 'install-*.log' -exec rm -r -- {} +; fi
+	if [ -d "$(ARTIFACTS)" ]; then rm -rf "$(ARTIFACTS)"; fi
 
 .PHONY: clean-release-artifacts
 clean-release-artifacts:
