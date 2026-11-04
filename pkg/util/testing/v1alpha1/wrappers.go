@@ -453,3 +453,36 @@ func appendPriorityClassRequirement(
 		Values:   names,
 	})
 }
+
+// MultiKueueCapacityProviderConfigWrapper wraps a MultiKueueCapacityProviderConfig.
+type MultiKueueCapacityProviderConfigWrapper struct {
+	kueuealpha.MultiKueueCapacityProviderConfig
+}
+
+// MakeMultiKueueCapacityProviderConfig creates a MultiKueueCapacityProviderConfig wrapper.
+func MakeMultiKueueCapacityProviderConfig(name string) *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "MultiKueueCapacityProviderConfig",
+		Name:       name,
+	}
+}
+
+// Obj returns the inner MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) Obj() *kueuealpha.MultiKueueCapacityProviderConfig {
+	return &w.MultiKueueCapacityProviderConfig
+}
+
+// Clone returns a deep copy of the wrapper.
+func (w *MultiKueueCapacityProviderConfigWrapper) Clone() *MultiKueueCapacityProviderConfigWrapper {
+	return &MultiKueueCapacityProviderConfigWrapper{MultiKueueCapacityProviderConfig: *w.DeepCopy()}
+}
+
+// ManagerSubtreeRootRef sets the managerSubtreeRootRef of the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) ManagerSubtreeRootRef(kind kueuealpha.SubtreeRootRefKind, name string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Spec.ManagerSubtreeRootRef = kueuealpha.CapacityDistributionSubtreeRootRef{
+		Kind: kind,
+		Name: name,
+	}
+	return w
+}

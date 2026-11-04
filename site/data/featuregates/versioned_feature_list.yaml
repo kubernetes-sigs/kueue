@@ -107,6 +107,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.21"
+- name: DQOMultiKueueCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: DynamicQuotaOrchestration
   versionedSpecs:
   - default: false
