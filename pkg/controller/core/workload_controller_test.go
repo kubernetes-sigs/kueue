@@ -62,6 +62,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -72,10 +73,21 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	now := time.Now()
 	minuteAgo := now.Add(-time.Minute)
 	fakeClock := testingclock.NewFakeClock(now)
+	tasAdmission := utiltestingapi.MakeAdmission("cq").
+		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "tas", "2").
+			Count(2).
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(
+					utiltas.TopologyDomainAssignment{Values: []string{"node1"}, Count: 1},
+					utiltas.TopologyDomainAssignment{Values: []string{"node2"}, Count: 1},
+				).Obj()).Obj()).
+		Obj()
 
 	testCases := map[string]struct {
 		workload            kueue.Workload
 		waitForPodsReady    *waitForPodsReadyConfig
+		managerConfig       *configapi.WaitForPodsReady
 		featureGates        map[featuregate.Feature]bool
 		wantUnderlyingCause kueue.EvictionUnderlyingCause
 		wantRecheckAfter    time.Duration
@@ -258,6 +270,94 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 				},
 			},
 			waitForPodsReady: &waitForPodsReadyConfig{recoveryTimeout: nil},
+		},
+		"TAS recovery with global recovery timeout disabled; not counting": {
+			managerConfig: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(tasAdmission, now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				UnhealthyNodes("node1", "node2").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+				}).Obj(),
+		},
+		"TAS recovery with positive global recovery timeout still times out": {
+			managerConfig: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 30 * time.Minute},
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(tasAdmission, now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				UnhealthyNodes("node1", "node2").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+				}).Obj(),
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
+		},
+		"non-TAS recovery with global recovery timeout disabled; not counting": {
+			managerConfig: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+				}).Obj(),
+		},
+		"TAS initial readiness still times out with global recovery timeout disabled": {
+			managerConfig: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 30 * time.Second},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(tasAdmission, minuteAgo).
+				AdmittedAt(true, minuteAgo).
+				UnhealthyNodes("node1", "node2").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).Obj(),
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+		},
+		"workload recovery override still times out with global recovery timeout disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			managerConfig: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 1800, RecoveryTimeoutSeconds: new(int64(30))}).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).Obj(),
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 		},
 		"workload with Admitted=Unknown; not counting": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1030,6 +1130,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if tc.managerConfig != nil {
+				wRec.waitForPodsReady = waitForPodsReady(tc.managerConfig)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(ctx, &tc.workload)
 

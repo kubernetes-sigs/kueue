@@ -245,8 +245,9 @@ of the entire TAS workload we introduce the node hot swap feature.
 
 With this feature, TAS tries to find a replacement of the failed or deleted node for
 all the affected workloads, without changing the rest of the topology assignment.
-Currently this works only for a single node failure at the time and in case of multiple failures,
-the workload gets evicted.
+By default, this handles one failed node at a time: a second distinct node failure
+while replacement is pending evicts the workload. To queue multiple failures for
+incremental replacement, see [Retaining admission during node recovery](#retaining-admission-during-node-recovery).
 
 #### Replace Node on Pod termination 
 
@@ -291,7 +292,80 @@ You can disable it by editing the `TASFailedNodeReplacementFailFast` feature gat
 for instructions on configuring feature gates.
 {{% /alert %}}
 
-By default, Kueue tries to find a replacement for a failed node until it succeeds or until the workload is evicted (for example, by `waitForPodsReady.recoveryTimeout`). To prevent Kueue from retrying indefinitely, you can enable the `TASFailedNodeReplacementFailFast` feature gate. When enabled, Kueue will only attempt to find a replacement node once. If it fails, it will not try again, and the workload will get evicted and requeued.
+With `TASFailedNodeReplacementFailFast` enabled, an unsuccessful replacement
+attempt normally evicts and requeues the workload. With
+`TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions` enabled, Kueue can
+defer that eviction when useful in-flight evictions may free the required
+capacity; this is not a general guarantee of retrying indefinitely.
+With fail-fast disabled, Kueue retries until replacement succeeds or another
+eviction mechanism applies, such as
+`waitForPodsReady.recoveryTimeout`.
+
+#### Retaining admission during node recovery
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+For a large, long-running distributed job, whole-workload eviction tears down
+healthy placements as well as failed ones. Re-admission can require finding
+capacity for the entire job again and can discard application progress since
+the last checkpoint. If the job's controller supports replacement Pods within
+the same Workload, incremental node replacement can avoid that disruption.
+Retaining admission does **not** guarantee that the application keeps making
+progress: it may need all workers to recover before continuing.
+
+Administrators can compose existing controls to keep admitted workloads waiting
+for replacement capacity:
+
+```yaml
+featureGates:
+  TopologyAwareScheduling: true
+  TASFailedNodeReplacement: true
+  TASReplaceMultipleFailedNodes: true
+  TASFailedNodeReplacementFailFast: false
+waitForPodsReady:
+  timeout: 30m
+  recoveryTimeout: 0s
+```
+
+Keep `DisableWaitForPodsReady` disabled so that the initial readiness timeout
+remains enforced. These are explicit configuration choices, not changes to
+Kueue's shipped defaults:
+
+| Control | Effect |
+| --- | --- |
+| `TASReplaceMultipleFailedNodes: true` | Enables incremental replacement with up to eight concurrently unhealthy nodes per Workload. A ninth distinct failure while all eight remain unhealthy still triggers eviction. |
+| `TASFailedNodeReplacementFailFast: false` | Retries when no compatible replacement fits, instead of evicting after an unsuccessful attempt. Enabling multiple-node replacement alone does not disable fail-fast. |
+| `waitForPodsReady.recoveryTimeout: 0s` | Disables timeout eviction for `PodsReady=False` with reason `WaitForRecovery`. This setting is global, **not TAS-specific**: it also disables recovery-timeout eviction for non-TAS workloads using the cluster-level setting. |
+| `waitForPodsReady.timeout: 30m` | Preserves the initial readiness deadline measured from admission. A workload that never becomes ready is still subject to startup-timeout eviction. |
+
+When workload-level timeouts are enabled, a positive per-workload
+`recoveryTimeoutSeconds` can still impose a recovery deadline. Review those
+overrides before relying on indefinite recovery waiting. See
+[Wait for Pods Ready](/docs/tasks/manage/setup_wait_for_pods_ready/).
+
+Replacement normally handles the first queued unhealthy node in a scheduling
+cycle. Other unhealthy nodes do not make that head's assignment stale, and
+unreplaced entries remain queued after the replacement is committed. An
+unreplaceable head can block later entries, even if those nodes have available
+replacements. Required topology constraints still apply: healthy placements may
+pin the job to a rack without spare capacity. Some PodSet groups must be
+re-placed together, so not every recovery changes only one node.
+
+{{% alert title="Warning" color="warning" %}}
+With fail-fast and recovery-timeout eviction disabled, an unrecoverable admitted
+job can retain scarce quota and healthy-node reservations indefinitely, preventing
+other workloads from using them. This is an explicit availability-versus-fairness
+tradeoff, not a way to release quota while keeping admission.
+
+Other eviction mechanisms, including preemption, queue draining, and workload
+deactivation, still apply. Operators can deactivate an affected workload to release
+its reservation. To restore bounded recovery for subsequent reconciliations,
+configure a positive `recoveryTimeout` and restart Kueue; a workload whose recovery
+has already exceeded that duration may then be evicted. Re-enabling fail-fast
+restores eviction on unsuccessful replacement attempts, subject to its capacity
+deferral. Disabling multiple-node replacement restores eviction on a newly
+observed additional distinct failure; it is not an immediate drain command.
+{{% /alert %}}
 
 #### Replace Node on Node Taints
 {{< feature-state state="beta" for_version="v0.17" >}}

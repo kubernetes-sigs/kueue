@@ -81,7 +81,12 @@ progress, leading to wasted resources. To prevent this, users can configure
 a timeout period they are willing to wait for a recovery Pod. If the
 `recoveryTimeout` expires, similar to the regular timeout, the workload is evicted and requeued.
 If not specified, it defaults to the value of `timeout`. Setting `recoveryTimeout: 0s` disables
-recovery timeout checking.
+recovery timeout checking for workloads using the cluster-level setting, including
+non-TAS workloads; it does not disable the initial `timeout`. A positive
+per-workload recovery timeout, when enabled, can still apply.
+For the interaction with incremental node replacement, fail-fast, and the
+unhealthy-node limit, see
+[Retaining admission during node recovery](/docs/concepts/topology_aware_scheduling/#retaining-admission-during-node-recovery).
 
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock

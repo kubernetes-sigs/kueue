@@ -28,10 +28,12 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -43,8 +45,52 @@ func TestReconcileRequeue(t *testing.T) {
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
+	tasAdmission := utiltestingapi.MakeAdmission("q1").
+		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "tas", "2").
+			Count(2).
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(
+					utiltas.TopologyDomainAssignment{Values: []string{"node1"}, Count: 1},
+					utiltas.TopologyDomainAssignment{Values: []string{"node2"}, Count: 1},
+				).Obj()).Obj()).
+		Obj()
 
 	cases := map[string]reconcileTestCase{
+		"global zero recovery timeout retains TAS admission quota and queued failures": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes:    true,
+				features.TASFailedNodeReplacementFailFast: false,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(waitForPodsReady(&configapi.WaitForPodsReady{
+					Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+					RecoveryTimeout: &metav1.Duration{},
+				})),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(tasAdmission, now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				UnhealthyNodes("node1", "node2").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+				}).Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(tasAdmission, now.Add(-2*time.Hour)).
+				AdmittedAt(true, now.Add(-2*time.Hour)).
+				UnhealthyNodes("node1", "node2").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+				}).Obj(),
+		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
