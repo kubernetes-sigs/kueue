@@ -13,6 +13,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API](#api)
+  - [Validation](#validation)
   - [RBAC](#rbac)
   - [Behavior](#behavior)
   - [Test Plan](#test-plan)
@@ -107,6 +108,13 @@ manager-side ones.
   each job type's own status from generic code. Both couple the framework to
   per-type details it deliberately abstracts.
 
+- Collecting an owner whose prebuilt Workload finished as `OutOfSync` before
+  the job itself completed. `ensureOneWorkload` returns nil for an out-of-sync
+  prebuilt Workload, and `handleJobWithNoWorkload` suspends the job rather than
+  creating a replacement, so the completion path is reached with no Workload
+  and no finish timestamp to stamp. Deriving one would require the per-type
+  completion time that `GenericJob` does not expose, as above.  
+
 ## Proposal
 
 Add a new field, `Jobs`, to `ObjectRetentionPolicies`, sibling to the existing
@@ -124,7 +132,6 @@ type's own `ttlSecondsAfterFinished` is inert on the manager copy, because
 reconciliation, so without this the manager accumulates finished owners at the
 submission rate. I don't want to run a separate janitor per job kind to clean
 them up.
-
 
 #### Story 2 - Retention for integrations without a native TTL
 
@@ -192,6 +199,16 @@ want (see [Alternatives](#alternatives)).
   enabling it is a deliberate act. Administrators should choose
   `jobs.afterFinished` knowing it is evaluated against each owner's original
   finish time. This is the same behavior as `workloads.afterFinished`.  
+- **R**: The finish timestamp is an annotation on the owner, which is a
+  user-editable object — `job-editor-role` grants patch on `batch/jobs`. A
+  user could set a past timestamp to have a running Job collected, or a future
+  one to keep a finished Job past its retention period.
+  **M**: While the Workload still exists it is the authority on whether the
+  work finished, so a stamp that disagrees with it is ignored. A timestamp in
+  the future is rejected. Once the Workload is gone the stamp is
+  unverifiable, but by then the owner was already eligible for collection, and
+  the capability is bounded to a user's own Jobs — which they can already
+  delete.
 
 
 ## Design Details
@@ -231,6 +248,21 @@ is non-negative, mirroring `validateObjectRetentionPolicies`
 keeps a config valid across enabling and disabling the gate, and avoids making
 the feature gate a breaking change for anyone who sets the field ahead of
 enabling it.
+
+### Validation
+
+`jobs.afterFinished` must be non-negative. Validation mirrors
+`validateObjectRetentionPolicies`, which does not consult its own feature gate
+either, so when `JobOwnerRetentionPolicy` is disabled the field is accepted and
+ignored rather than rejected. That keeps a config valid across enabling and
+disabling the gate.
+
+The `kueue.x-k8s.io/workload-finished-at` annotation is not validated on write,
+since Kueue writes it itself. On read, an empty or unparseable value is ignored:
+the evaluator logs at V(2) and the owner is not collected. The stamp is only
+written when the annotation is absent, so an invalid value is never rewritten
+and such an owner is never collected. No condition, event or metric is exposed
+for this — it indicates a hand-edited annotation rather than a Kueue failure.
 
 ### RBAC
 
