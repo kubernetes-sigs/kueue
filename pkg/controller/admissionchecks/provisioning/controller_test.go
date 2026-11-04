@@ -52,6 +52,7 @@ import (
 
 var (
 	errInvalidPodTemplate         = errors.New("invalid PodTemplate error")
+	errGetResourceFlavor          = errors.New("get ResourceFlavor error")
 	errInvalidProvisioningRequest = errors.New("invalid ProvisioningRequest error")
 	errProvisioningRequestExists  = apierrors.NewAlreadyExists(
 		schema.GroupResource{Group: "autoscaling.x-k8s.io", Resource: "provisioningrequests"}, "wl-check1-1")
@@ -226,7 +227,9 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := mergePodSets(t.Context(), tc.wl, prcSpec, tc.previousCounts)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			got, err := mergePodSets(ctx, builder.Build(), tc.wl, prcSpec, tc.previousCounts)
 			if err != nil {
 				t.Fatalf("mergePodSets: %v", err)
 			}
@@ -403,7 +406,9 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			got, err := mergePodSets(ctx, builder.Build(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
 				PodSetMergePolicy: tc.mergePolicy,
 			}, nil)
 			if err != nil {
@@ -425,81 +430,152 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
-func TestMergePodSetsKeepsDifferentFlavorsApart(t *testing.T) {
-	makeWorkload := func(flavors ...kueue.ResourceFlavorReference) *kueue.Workload {
-		podSets := make([]kueue.PodSet, len(flavors))
-		assignments := make([]kueue.PodSetAssignment, len(flavors))
-		for i, flavor := range flavors {
-			name := kueue.PodSetReference(fmt.Sprintf("ps%d", i))
-			podSets[i] = *utiltestingapi.MakePodSet(name, 2).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			assignments[i] = kueue.PodSetAssignment{
-				Name:    name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: flavor},
-				Count:   new(int32(2)),
-			}
-		}
-		return utiltestingapi.MakeWorkload("wl", TestNamespace).
-			PodSets(podSets...).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(assignments...).Obj(), time.Now()).
-			Obj()
-	}
+func TestMergePodSetsComparesEffectiveTemplates(t *testing.T) {
+	tolerationA := corev1.Toleration{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "a", Effect: corev1.TaintEffectNoSchedule}
+	tolerationB := corev1.Toleration{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "b", Effect: corev1.TaintEffectNoSchedule}
 
 	type mergedPodSet struct {
-		Name   kueue.PodSetReference
-		Count  int32
-		Flavor kueue.ResourceFlavorReference
+		Name  kueue.PodSetReference
+		Count int32
 	}
 
 	cases := map[string]struct {
-		workload    *kueue.Workload
-		mergePolicy kueue.ProvisioningRequestConfigPodSetMergePolicy
+		flavors     []kueue.ResourceFlavor
+		podSets     []kueue.PodSet
+		assignments []kueue.PodSetAssignment
 		want        []mergedPodSet
 	}{
-		"IdenticalPodTemplates, same flavor": {
-			workload:    makeWorkload("flv1", "flv1"),
-			mergePolicy: kueue.IdenticalPodTemplates,
-			want:        []mergedPodSet{{Name: "ps0", Count: 4, Flavor: "flv1"}},
-		},
-		"IdenticalPodTemplates, different flavors": {
-			workload:    makeWorkload("flv1", "flv2"),
-			mergePolicy: kueue.IdenticalPodTemplates,
-			want: []mergedPodSet{
-				{Name: "ps0", Count: 2, Flavor: "flv1"},
-				{Name: "ps1", Count: 2, Flavor: "flv2"},
+		"same flavor": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
 			},
-		},
-		"IdenticalWorkloadSchedulingRequirements, different flavors": {
-			workload:    makeWorkload("flv1", "flv2"),
-			mergePolicy: kueue.IdenticalWorkloadSchedulingRequirements,
-			want: []mergedPodSet{
-				{Name: "ps0", Count: 2, Flavor: "flv1"},
-				{Name: "ps1", Count: 2, Flavor: "flv2"},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
 			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 4}},
+		},
+		"flavors with different node labels": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+				*utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("zone", "b").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv2", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 2}, {Name: "ps1", Count: 2}},
+		},
+		"different flavors with the same node labels and tolerations": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Toleration(tolerationA).Obj(),
+				*utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("zone", "a").Toleration(tolerationA).Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv2", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 4}},
+		},
+		"flavors with the same node labels and different tolerations": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Toleration(tolerationA).Obj(),
+				*utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("zone", "a").Toleration(tolerationB).Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv2", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 2}, {Name: "ps1", Count: 2}},
+		},
+		"same CPU flavor and memory flavors with different node labels": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("cpu").NodeLabel("cpu", "fast").Obj(),
+				*utiltestingapi.MakeResourceFlavor("mem1").NodeLabel("memory", "a").Obj(),
+				*utiltestingapi.MakeResourceFlavor("mem2").NodeLabel("memory", "b").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "1Gi").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "1Gi").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "cpu", "1").Assignment(corev1.ResourceMemory, "mem1", "1Gi").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "cpu", "1").Assignment(corev1.ResourceMemory, "mem2", "1Gi").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 2}, {Name: "ps1", Count: 2}},
+		},
+		"node selector of a PodSet equal to the node labels of its flavor": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").NodeSelector(map[string]string{"zone": "a"}).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 4}},
+		},
+		"same tolerations in a different order": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Toleration(tolerationA).Toleration(tolerationB).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Toleration(tolerationB).Toleration(tolerationA).Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 4}},
 		},
 	}
 
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
-				PodSetMergePolicy: &tc.mergePolicy,
-			}, nil)
-			if err != nil {
-				t.Fatalf("mergePodSets() error = %v", err)
-			}
-			gotMerged := make([]mergedPodSet, len(got))
-			for i := range got {
-				gotMerged[i] = mergedPodSet{
-					Name:   got[i].Name,
-					Count:  got[i].Count,
-					Flavor: got[i].PodSetAssignment.Flavors[corev1.ResourceCPU],
+		for _, mergePolicy := range []kueue.ProvisioningRequestConfigPodSetMergePolicy{kueue.IdenticalPodTemplates, kueue.IdenticalWorkloadSchedulingRequirements} {
+			t.Run(fmt.Sprintf("%s, %s", name, mergePolicy), func(t *testing.T) {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				builder, ctx := getClientBuilder(ctx)
+				cl := builder.WithLists(&kueue.ResourceFlavorList{Items: tc.flavors}).Build()
+				wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+					PodSets(tc.podSets...).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(tc.assignments...).Obj(), time.Now()).
+					Obj()
+
+				got, err := mergePodSets(ctx, cl, wl, &kueue.ProvisioningRequestConfigSpec{
+					PodSetMergePolicy: &mergePolicy,
+				}, nil)
+				if err != nil {
+					t.Fatalf("mergePodSets() error = %v", err)
 				}
-			}
-			if diff := cmp.Diff(tc.want, gotMerged); diff != "" {
-				t.Errorf("unexpected merged PodSets (-want/+got):\n%s", diff)
-			}
-		})
+				gotMerged := make([]mergedPodSet, len(got))
+				for i := range got {
+					gotMerged[i] = mergedPodSet{Name: got[i].Name, Count: got[i].Count}
+				}
+				if diff := cmp.Diff(tc.want, gotMerged); diff != "" {
+					t.Errorf("unexpected merged PodSets (-want/+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
@@ -827,6 +903,7 @@ func TestReconcile(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		interceptorFuncsGet    func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 		interceptorFuncsCreate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error
 		interceptorFuncsUpdate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error
 
@@ -2306,6 +2383,55 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"with podSetMergePolicy when reading a flavor fails": {
+			interceptorFuncsGet: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueue.ResourceFlavor); ok {
+					return errGetResourceFlavor
+				}
+				return client.Get(ctx, key, obj, opts...)
+			},
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("ps2", 2).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending}).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+					utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+					utiltestingapi.MakePodSetAssignment("ps2").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+				).Obj(), now).
+				Obj(),
+			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalPodTemplates).Obj()},
+			wantReconcileError: errGetResourceFlavor,
+			wantWorkloads: map[string]*kueue.Workload{
+				"wl": utiltestingapi.MakeWorkload("wl", TestNamespace).
+					PodSets(
+						*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("ps2", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStatePending,
+						Message: "Error merging PodSets: get ResourceFlavor error",
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+						utiltestingapi.MakePodSetAssignment("ps2").Assignment(corev1.ResourceCPU, "flv1", "1").Count(2).Obj(),
+					).Obj(), now).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeWarning,
+					Reason:    "FailedCreate",
+					Message:   "Error merging PodSets: get ResourceFlavor error",
+				},
+			},
+		},
 		"when provisioning request creation error": {
 			interceptorFuncsCreate: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if _, ok := obj.(*autoscaling.ProvisioningRequest); ok {
@@ -3361,6 +3487,9 @@ func TestReconcile(t *testing.T) {
 
 				interceptorFuncs := interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}
+				if tc.interceptorFuncsGet != nil {
+					interceptorFuncs.Get = tc.interceptorFuncsGet
 				}
 				if tc.interceptorFuncsCreate != nil {
 					interceptorFuncs.Create = tc.interceptorFuncsCreate
