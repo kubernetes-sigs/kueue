@@ -419,7 +419,7 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
-		isRayObjectManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		isManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
 		allErrors = append(
 			allErrors,
 			field.Forbidden(
@@ -463,19 +463,6 @@ func EquivalenceOptions() []equality.ComparePodSetsOption {
 func CanDefaultManagedBy(managedBy *string) bool {
 	return features.Enabled(features.MultiKueue) &&
 		(managedBy == nil || *managedBy == rayutils.KubeRayController)
-}
-
-func isRayObjectManagedByMultiKueue(object client.Object) bool {
-	switch job := object.(type) {
-	case *rayv1.RayCluster:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	case *rayv1.RayJob:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	case *rayv1.RayService:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	default:
-		return false
-	}
 }
 
 func ValidateTopologyRequest(
@@ -554,6 +541,8 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
 	switch job := object.(type) {
+	case *rayv1.RayCluster:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayJob:
 		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayService:
