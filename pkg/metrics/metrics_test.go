@@ -419,10 +419,10 @@ func TestReportAndCleanupClusterQueueEvictedNumber(t *testing.T) {
 
 func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadMetrics, true)
-	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", "ns1", "wl1", nil, nil)
-	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", "ns1", "wl2", nil, nil)
-	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", "ns1", "wl3", nil, nil)
-	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", "ns1", "wl4", nil, nil)
+	ReportPreemption("cluster_queue1", "InClusterQueue", "cluster_queue1", "ns1", "wl1", nil, nil, nil)
+	ReportPreemption("cluster_queue1", "InCohortReclamation", "cluster_queue1", "ns1", "wl2", nil, nil, nil)
+	ReportPreemption("cluster_queue1", "InCohortFairSharing", "cluster_queue1", "ns1", "wl3", nil, nil, nil)
+	ReportPreemption("cluster_queue1", "InCohortReclaimWhileBorrowing", "cluster_queue1", "ns1", "wl4", nil, nil, nil)
 
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 4, "preempting_cluster_queue", "cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cluster_queue1", "reason", "InClusterQueue")
@@ -469,9 +469,9 @@ func TestReportAndCleanupReplacedWorkloadSlices(t *testing.T) {
 func TestWorkloadPreemptionsTotalAccumulates(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadMetrics, true)
 	// Preempt the same workload three times; the counter value must accumulate.
-	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
-	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
-	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil)
+	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil, nil)
+	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil, nil)
+	ReportPreemption("cq1", "InClusterQueue", "cq1", "ns-acc", "wl-acc", nil, nil, nil)
 
 	// One series, value == 3.
 	pts := metrics.CollectFilteredGaugeVec(WorkloadPreemptionsTotal, prometheus.Labels{
@@ -612,7 +612,7 @@ func TestMetricsWithReplicaRoleLabel(t *testing.T) {
 	ReportEvictedWorkloads("cq_standalone", "Preempted", "", "", nil, nil)
 	expectFilteredMetricsCount(t, EvictedWorkloadsTotal, 1, "cluster_queue", "cq_standalone", "replica_role", "standalone")
 
-	ReportPreemption("cq_standalone", "InClusterQueue", "cq_standalone", "ns", "wl-standalone", nil, nil)
+	ReportPreemption("cq_standalone", "InClusterQueue", "cq_standalone", "ns", "wl-standalone", nil, nil, nil)
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 1, "preempting_cluster_queue", "cq_standalone", "replica_role", "standalone")
 
 	lq := LocalQueueReference{Name: "lq_standalone", Namespace: "ns"}

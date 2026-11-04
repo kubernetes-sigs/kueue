@@ -856,6 +856,7 @@ The label 'reason' can have the following values:
 - "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.
 - "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.
 - "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.
+- "ConfigurablePreemption" means that the workload was preempted by a PreemptionConfig rule.
 This counter is deleted when the workload is completed or deleted.`,
 		}, append([]string{"namespace", "workload", "cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
 	)
@@ -1340,13 +1341,13 @@ func ReportPreemption(
 	preemptingReason string,
 	targetCqName kueue.ClusterQueueReference,
 	targetNamespace, targetWorkloadName string,
-	customLabelValues []string,
+	preemptingCustomLabelValues, targetCustomLabelValues []string,
 	tracker *roletracker.RoleTracker,
 ) {
-	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, preemptingCustomLabelValues...)
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
 	if features.Enabled(features.WorkloadMetrics) {
-		wlLabels := append([]string{targetNamespace, targetWorkloadName, string(targetCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+		wlLabels := append([]string{targetNamespace, targetWorkloadName, string(targetCqName), preemptingReason, roletracker.GetRole(tracker)}, targetCustomLabelValues...)
 		WorkloadPreemptionsTotal.WithLabelValues(wlLabels...).Inc()
 	}
 }
