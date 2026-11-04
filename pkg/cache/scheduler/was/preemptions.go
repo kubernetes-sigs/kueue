@@ -32,10 +32,18 @@ import (
 )
 
 type preemptionVictim struct {
-	wlKey     workload.Reference
-	pods      []*corev1.Pod
-	committed bool
+	wlKey      workload.Reference
+	pods       []*corev1.Pod
+	victimType victimType
 }
+
+type victimType int
+
+const (
+	candidateWorkload victimType = iota
+	preemptedWorkload
+	strayPod
+)
 
 var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
 
@@ -74,24 +82,24 @@ func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Refere
 	for preemptedWlKey := range victimWorkloads {
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
-				wlKey:     preemptedWlKey,
-				pods:      victimPods,
-				committed: true,
+				wlKey:      preemptedWlKey,
+				pods:       victimPods,
+				victimType: preemptedWorkload,
 			})
 		}
 	}
 	for _, pod := range s.pods.Pods() {
-		if !pod.DeletionTimestamp.IsZero() {
-			wlName := pod.Annotations[kueue.WorkloadAnnotation]
-			wlRef := workload.NewReference(pod.Namespace, wlName)
-			if victimWorkloads.Has(wlRef) {
-				continue
-			}
-			cv = append(cv, &preemptionVictim{
-				pods:      []*corev1.Pod{pod},
-				committed: true,
-			})
+		if pod.DeletionTimestamp.IsZero() {
+			continue
 		}
+		if wlName := pod.Annotations[kueue.WorkloadAnnotation]; wlName != "" && victimWorkloads.Has(workload.NewReference(pod.Namespace, wlName)) {
+			// victimWorkloads are already accounted for in their entirety
+			continue
+		}
+		cv = append(cv, &preemptionVictim{
+			pods:       []*corev1.Pod{pod},
+			victimType: strayPod,
+		})
 	}
 	return cv
 }
@@ -102,7 +110,7 @@ func toPreemptionVictims(victims []schedlib.PreemptionVictim) []workload.Referen
 	}
 	preemptionVictims := make([]workload.Reference, 0, len(victims))
 	for _, victim := range victims {
-		if wlVictim, ok := victim.(*preemptionVictim); ok && !wlVictim.committed {
+		if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType == candidateWorkload {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)
 		}
 	}
@@ -116,13 +124,13 @@ type preemptionFilterAdapter struct {
 var _ schedlib.PreemptionFilter = (*preemptionFilterAdapter)(nil)
 
 func (a *preemptionFilterAdapter) PreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*preemptionVictim); ok {
+	if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType != strayPod {
 		a.PreemptWorkload(wlVictim.wlKey)
 	}
 }
 
 func (a *preemptionFilterAdapter) UnpreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*preemptionVictim); ok {
+	if wlVictim, ok := victim.(*preemptionVictim); ok && wlVictim.victimType != strayPod {
 		a.UnpreemptWorkload(wlVictim.wlKey)
 	}
 }
