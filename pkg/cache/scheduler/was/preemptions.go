@@ -40,12 +40,15 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey], committedVictims sets.Set[client.ObjectKey]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for wlKey := range candidates {
+			if committedVictims.Has(wlKey) {
+				continue
+			}
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
 			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
