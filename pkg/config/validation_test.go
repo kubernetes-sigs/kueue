@@ -67,6 +67,180 @@ func TestValidate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"metrics access control IPv4 loopback": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control IPv4 loopback range": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.2:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control IPv6 loopback": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "[::1]:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control mapped loopback": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "[::ffff:127.0.0.1]:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control minimum port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:1"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control maximum port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:65535"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control disabled metrics": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "0"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+		},
+		"metrics access control wildcard without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: ":8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: false},
+		},
+		"metrics access control loopback without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: false},
+		},
+		"metrics access control disabled metrics without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "0"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: false},
+		},
+		"metrics access control empty address": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: ""},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control wildcard": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: ":8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control IPv4 wildcard": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "0.0.0.0:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control IPv6 wildcard": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "[::]:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control pod IP": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "10.0.0.1:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control mapped pod IP": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "[::ffff:10.0.0.1]:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control hostname": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "localhost:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control missing port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control empty port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control zero port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:0"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control out of range port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:65536"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control named port": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "127.0.0.1:https"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
+		"metrics access control URL": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics:      configapi.ControllerMetrics{BindAddress: "https://127.0.0.1:8443"},
+			},
+			featureGates: map[featuregate.Feature]bool{features.DisableMetricsAccessControl: true},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: "metrics.bindAddress"}},
+		},
 		"empty": {
 			cfg: &configapi.Configuration{},
 			wantErr: field.ErrorList{
