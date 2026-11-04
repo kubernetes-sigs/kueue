@@ -246,6 +246,13 @@ image-local-build:
 	$(MAKE) image-build PUSH="$(PUSH)" IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS)"
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
+# Keep compiler caches available until every presubmit image has been built.
+.PHONY: image-presubmit
+image-presubmit:
+	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
+	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
+	BUILDX_BUILDER="$$builder" $(MAKE) image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
+
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
 image-local-push: PUSH=--push

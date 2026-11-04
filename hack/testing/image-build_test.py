@@ -1,0 +1,106 @@
+# Copyright 2026 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Exercise image-presubmit's real Make recipes without a Docker daemon."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class ImageBuildTest(unittest.TestCase):
+    def build_images(self, fail=""):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            docker = directory / "docker"
+            docker.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+with pathlib.Path(os.environ["IMAGE_TEST_LOG"]).open("a") as log:
+    log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER")}) + "\\n")
+if args[:2] == ["buildx", "create"]:
+    if os.environ["IMAGE_TEST_FAIL"] == "create":
+        sys.exit(1)
+    print("test-builder")
+elif args[:2] == ["buildx", "build"]:
+    assert os.environ["BUILDX_BUILDER"] == "test-builder"
+    if os.environ["IMAGE_TEST_FAIL"] == "build" and "./cmd/importer/Dockerfile" in args:
+        sys.exit(1)
+elif args == ["buildx", "rm", "test-builder"]:
+    if os.environ["IMAGE_TEST_FAIL"] == "cleanup":
+        sys.exit(1)
+else:
+    sys.exit("Unexpected Docker command: " + repr(args))
+''')
+            docker.chmod(0o755)
+            log = directory / "commands.jsonl"
+            env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail}
+            # Execute the real parent and component Makefiles, replacing only Docker.
+            result = subprocess.run(
+                ["make", "--no-print-directory", "image-presubmit",
+                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
+                 "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
+                 "RELEASE_BRANCH=main", "IMAGE_BUILD_EXTRA_OPTS=--progress=plain"],
+                cwd=ROOT, env=env, text=True, capture_output=True,
+            )
+            return result, [json.loads(line) for line in log.read_text().splitlines()]
+
+    def test_all_images_share_one_builder_and_keep_platform_coverage(self):
+        result, commands = self.build_images()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container"])
+        self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
+        builds = commands[1:-1]
+        self.assertEqual(len(builds), 6)
+        dockerfiles = ["Dockerfile", "./cmd/importer/Dockerfile", "./cmd/kueueviz/backend/Dockerfile",
+                       "./cmd/kueueviz/frontend/Dockerfile", "Dockerfile", "Dockerfile"]
+        for index, (command, dockerfile) in enumerate(zip(builds, dockerfiles)):
+            with self.subTest(image=index):
+                self.assertEqual(command["builder"], "test-builder")
+                args = command["args"]
+                self.assertEqual(args[:2], ["buildx", "build"])
+                self.assertIn("--progress=plain", args)
+                expected_platforms = "linux/amd64,linux/arm64,linux/s390x,linux/ppc64le" if index == 0 else "linux/amd64"
+                self.assertIn(f"--platform={expected_platforms}", args)
+                if index:
+                    self.assertEqual(args[args.index("-f") + 1], dockerfile)
+                    self.assertIn("--load", args)
+                else:
+                    self.assertNotIn("--load", args)
+                self.assertNotIn("--push", args)
+
+    def test_failed_build_stops_remaining_images_and_removes_builder(self):
+        result, commands = self.build_images("build")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(commands), 4)
+        self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
+
+    def test_failed_creation_does_not_build_or_remove_another_builder(self):
+        result, commands = self.build_images("create")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(commands), 1)
+
+    def test_cleanup_failure_is_reported(self):
+        result, commands = self.build_images("cleanup")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
+
+
+if __name__ == "__main__":
+    unittest.main()

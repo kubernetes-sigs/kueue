@@ -14,6 +14,16 @@ type: docs
 - `kubectl`
 - GNU sed (macOS: `brew install gnu-sed`)
 
+## Building presubmit images
+
+Run `make image-presubmit` to build the manager for all configured `PLATFORMS`
+and load host-platform importer, KueueViz backend/frontend, populator, and
+priority-booster images. The target uses one temporary BuildKit builder so Go
+compilation caches are shared across the builds, and removes the builder and
+its cache when the command finishes or a build fails. Existing image targets
+remain available for building individual images. Run `make verify-image-build-test`
+to check builder cleanup and platform selection without Docker.
+
 ## Running lint
 
 Run Go linting across all modules:
