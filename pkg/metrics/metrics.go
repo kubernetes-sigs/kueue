@@ -253,6 +253,10 @@ var (
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadCreationLatency *prometheus.HistogramVec
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueWorkloadCreationLatency *prometheus.HistogramVec
+
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
@@ -741,7 +745,16 @@ The label 'underlying_cause' can have the following values:
 			Name:      "workload_creation_latency_seconds",
 			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
-		}, append([]string{"job_kind", "replica_role"}, localQueueMetricsLabels...),
+		}, []string{"job_kind", "replica_role"},
+	)
+
+	LocalQueueWorkloadCreationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_workload_creation_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'local_queue'. Entries are only recorded for objects with generation 1 whose LocalQueue exists and is not stopped.",
+			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
+		}, append([]string{"name", "namespace", "job_kind", "replica_role"}, localQueueMetricsLabels...),
 	)
 
 	PodSchedulingGateRemovalSeconds = prometheus.NewHistogramVec(
@@ -1155,9 +1168,13 @@ func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
-func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
-	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
+func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, tracker *roletracker.RoleTracker) {
+	WorkloadCreationLatency.WithLabelValues(jobKind, roletracker.GetRole(tracker)).Observe(latency.Seconds())
+}
+
+func RecordLocalQueueWorkloadCreationLatency(lq LocalQueueReference, jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueWorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1401,6 +1418,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueWorkloadCreationLatency.DeletePartialMatch(lbls)
 }
 
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
@@ -1781,6 +1799,7 @@ func RegisterLQMetrics() {
 		LocalQueueAdmissionFairSharingUsage,
 		LocalQueueUnadmittedWorkloads,
 		LocalQueueExecutionTimeSeconds,
+		LocalQueueWorkloadCreationLatency,
 	)
 }
 

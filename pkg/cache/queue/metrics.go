@@ -26,6 +26,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
+// ShouldExposeLocalQueueMetrics reports whether the manager holds the LocalQueue
+// and the LocalQueue metrics configuration selects it.
+func (m *Manager) ShouldExposeLocalQueueMetrics(localQueueKey queue.LocalQueueReference) bool {
+	if !m.lqMetrics.IsEnabled() {
+		return false
+	}
+	m.RLock()
+	defer m.RUnlock()
+	lq, ok := m.localQueues[localQueueKey]
+	return ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels)
+}
+
 // reportPendingWorkloads reports metrics for both ClusterQueue,
 // and all of its matching LocalQueues.
 func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {

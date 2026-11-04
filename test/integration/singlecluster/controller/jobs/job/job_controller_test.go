@@ -7262,6 +7262,11 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 						SourceKind:          new(configapi.SourceKindWorkload),
 						TrackedValues:       []string{"annotation-value"},
 					},
+					{
+						Name:           "team",
+						SourceLabelKey: "team",
+						SourceKind:     new(configapi.SourceKindLocalQueue),
+					},
 				},
 			},
 		}
@@ -7352,6 +7357,65 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		}
 		// The reconciler sets the job UID label itself.
 		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(job.UID)))
+	})
+
+	ginkgo.When("the LocalQueue exists", func() {
+		var (
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("creation-latency-cq").Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			lq = utiltestingapi.MakeLocalQueue("creation-latency-lq", ns.Name).
+				ClusterQueue(cq.Name).
+				Label("team", "red").
+				Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("should record the LocalQueue workload creation latency until the LocalQueue is deleted", func() {
+			job := testingjob.MakeJob("test-job-creation-latency", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("checking the latency is recorded with the LocalQueue custom label", func() {
+				behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "Job", 1, "red")
+			})
+
+			ginkgo.By("deleting the LocalQueue", func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			})
+
+			ginkgo.By("checking the latency series is removed", func() {
+				behavioral.ExpectNoLQWorkloadCreationLatencyMetric(lq)
+			})
+		})
+
+		ginkgo.It("should not record the LocalQueue workload creation latency while the LocalQueue is stopped", func() {
+			heldLQ := utiltestingapi.MakeLocalQueue("creation-latency-held-lq", ns.Name).
+				ClusterQueue(cq.Name).
+				StopPolicy(kueue.Hold).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, heldLQ)
+			job := testingjob.MakeJob("test-job-held-lq", ns.Name).Queue(kueue.LocalQueueName(heldLQ.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("waiting for the Workload to be created", func() {
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, &kueue.Workload{})).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking no latency series is recorded", func() {
+				behavioral.ExpectNoLQWorkloadCreationLatencyMetric(heldLQ)
+			})
+		})
 	})
 })
 
