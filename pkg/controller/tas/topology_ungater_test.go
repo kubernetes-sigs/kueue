@@ -209,6 +209,27 @@ func TestReconcile(t *testing.T) {
 		AdmittedAt(true, now)
 	countsR3 := counts{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r3"}, Count: 1}
 
+	repeatedHostnameWorkload := utiltestingapi.MakeWorkload("unit-test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+					Count(2).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(
+							utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj(),
+							utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj(),
+						).Obj()).
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now)
+	repeatedHostnamePod := testingpod.MakePod("", "ns").
+		Annotation(kueue.WorkloadAnnotation, "unit-test").
+		Label(constants.PodSetLabel, string(kueue.DefaultPodSetName))
+
 	testCases := map[string]struct {
 		featureGates           map[featuregate.Feature]bool
 		expectUIDs             []types.UID
@@ -219,6 +240,81 @@ func TestReconcile(t *testing.T) {
 		wantCounts             []counts
 		wantErr                error
 	}{
+		"greedy: count running pod once across repeated hostname entries": {
+			workloads: []kueue.Workload{*repeatedHostnameWorkload.Clone().Obj()},
+			pods: []corev1.Pod{
+				*repeatedHostnamePod.Clone().Name("gated").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("running").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*repeatedHostnamePod.Clone().Name("gated").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*repeatedHostnamePod.Clone().Name("running").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			},
+			wantCounts: []counts{{NodeSelector: map[string]string{corev1.LabelHostname: "node"}, Count: 2}},
+		},
+		"greedy: consume running counts across multiple slices without exceeding domain capacity": {
+			workloads: []kueue.Workload{
+				*repeatedHostnameWorkload.Clone().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "6").
+								Count(6).
+								TopologyAssignment(&kueue.TopologyAssignment{
+									Levels: []string{corev1.LabelHostname},
+									Slices: []kueue.TopologyAssignmentSlice{
+										{
+											DomainCount: 2,
+											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{{
+												Individual: &kueue.TopologyAssignmentSliceLevelIndividualValues{
+													Prefix: new("node-"),
+													Roots:  []string{"a", "b"},
+												},
+											}},
+											PodCounts: kueue.TopologyAssignmentSlicePodCounts{Universal: new(int32(1))},
+										},
+										{
+											DomainCount:    2,
+											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{{Universal: new("node-a")}},
+											PodCounts:      kueue.TopologyAssignmentSlicePodCounts{Individual: []int32{2, 1}},
+										},
+										{
+											DomainCount:    1,
+											ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{{Universal: new("node-b")}},
+											PodCounts:      kueue.TopologyAssignmentSlicePodCounts{Universal: new(int32(1))},
+										},
+									},
+								}).
+								Obj()).
+							Obj(), now,
+					).AdmittedAt(true, now).Obj(),
+			},
+			pods: []corev1.Pod{
+				*repeatedHostnamePod.Clone().Name("gated-0").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-1").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-2").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-3").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("running-a-0").NodeSelector(corev1.LabelHostname, "node-a").Obj(),
+				*repeatedHostnamePod.Clone().Name("running-a-1").NodeSelector(corev1.LabelHostname, "node-a").Obj(),
+				*repeatedHostnamePod.Clone().Name("running-b").NodeSelector(corev1.LabelHostname, "node-b").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			wantPods: []corev1.Pod{
+				*repeatedHostnamePod.Clone().Name("gated-0").Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-1").Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-2").Obj(),
+				*repeatedHostnamePod.Clone().Name("gated-3").TopologySchedulingGate().Obj(),
+				*repeatedHostnamePod.Clone().Name("running-a-0").Obj(),
+				*repeatedHostnamePod.Clone().Name("running-a-1").Obj(),
+				*repeatedHostnamePod.Clone().Name("running-b").Obj(),
+			},
+			wantCounts: []counts{
+				{NodeSelector: map[string]string{corev1.LabelHostname: "node-a"}, Count: 4},
+				{NodeSelector: map[string]string{corev1.LabelHostname: "node-b"}, Count: 2},
+			},
+		},
 		"ungate single pod": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).

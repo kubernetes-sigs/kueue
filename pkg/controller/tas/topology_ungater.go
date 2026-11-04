@@ -494,7 +494,10 @@ func assignGatedPodsToDomainsGreedy(
 	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
 		ungatedInDomainCnt := domainIDToUngatedCnt[domainID]
-		remainingUngatedInDomain := max(psaDomain.Count-ungatedInDomainCnt, 0)
+		// Count running Pods only once when a domain occurs in multiple entries.
+		consumedUngatedInDomain := min(ungatedInDomainCnt, psaDomain.Count)
+		domainIDToUngatedCnt[domainID] -= consumedUngatedInDomain
+		remainingUngatedInDomain := psaDomain.Count - consumedUngatedInDomain
 		if remainingUngatedInDomain > 0 {
 			remainingGatedCnt := int32(max(len(gatedPods)-len(toUngate), 0))
 			toUngateCnt := min(remainingUngatedInDomain, remainingGatedCnt)

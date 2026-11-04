@@ -4327,6 +4327,64 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 				})
+				ginkgo.It("should ungate a pod when its hostname reservation spans repeated assignment slices", func() {
+					wl := utiltestingapi.MakeWorkload("wl-repeated-domain", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(corev1.LabelHostname).Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						Request(corev1.ResourceCPU, "250m").Obj()
+					ginkgo.By("admitting both pods onto one hostname")
+					behavioral.MustCreate(ctx, k8sClient, wl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					assignment := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+					gomega.Expect(assignment.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
+					gomega.Expect(assignment.Domains).To(gomega.HaveLen(1))
+					gomega.Expect(assignment.Domains[0].Count).To(gomega.Equal(int32(2)))
+					hostname := assignment.Domains[0].Values[0]
+
+					ginkgo.By("submitting an equivalent reservation as two slices through the status API")
+					splitAssignment := utiltestingapi.MakeTopologyAssignment(assignment.Levels).
+						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{hostname}, 1).Obj()).Obj()
+					splitAssignment.Slices = append(splitAssignment.Slices, splitAssignment.Slices[0])
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						wl.Status.Admission.PodSetAssignments[0].TopologyAssignment = splitAssignment
+						g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("creating one already-running pod and one gated pod without rank labels")
+					running := testingpod.MakePod("running", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+						Label(constants.PodSetLabel, "worker").
+						Request(corev1.ResourceCPU, "250m").
+						NodeSelector(corev1.LabelHostname, hostname).
+						NodeName(hostname).Obj()
+					behavioral.MustCreate(ctx, k8sClient, running)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, running)
+					gated := testingpod.MakePod("gated", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+						Label(constants.PodSetLabel, "worker").
+						Request(corev1.ResourceCPU, "250m").
+						TopologySchedulingGate().Obj()
+					behavioral.MustCreate(ctx, k8sClient, gated)
+
+					ginkgo.By("ungating the second pod without changing the admitted reservation")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gated), gated)).To(gomega.Succeed())
+						g.Expect(gated.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(gated.Spec.NodeSelector).To(gomega.HaveKeyWithValue(corev1.LabelHostname, hostname))
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(running), running)).To(gomega.Succeed())
+						g.Expect(running.Spec.NodeSelector).To(gomega.HaveKeyWithValue(corev1.LabelHostname, hostname))
+						g.Expect(running.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+						g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeComparableTo(splitAssignment))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
 				// Fixes https://github.com/kubernetes-sigs/kueue/issues/9210
 				ginkgo.It("should fallback to greedy assignment when replacement pod conflicts with already running pod", framework.SlowSpec, func() {
 					// Scenario: This test simulates an edge case during node replacement where a running pod (p1, rank 1)
