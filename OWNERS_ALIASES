@@ -27,6 +27,8 @@ aliases:
     - mbobrovskyi
   statefulset-integration-approvers:
     - mbobrovskyi
+  jobframework-implementation-approvers:
+    - mbobrovskyi
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
