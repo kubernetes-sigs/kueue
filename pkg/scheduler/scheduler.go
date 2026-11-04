@@ -673,16 +673,11 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
 		return false
 	}
-	arm := newAssignment.RepresentativeMode()
-	// Fit is returned by the native path until it is updated to handle committed victims.
-	// DeferredFit is returned by the WAS path when placement depends on the victims' Pods.
-	if arm != flavorassigner.Fit && (arm != flavorassigner.DeferredFit || newAssignment.WaitingForResidualTASPods) {
+	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
 		return false
 	}
 	e.recordAssignment(newAssignment, newTargets)
-	if arm == flavorassigner.Fit {
-		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-	}
+	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
 	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 	e.requeueReason = qcache.RequeueReasonPendingPreemption
