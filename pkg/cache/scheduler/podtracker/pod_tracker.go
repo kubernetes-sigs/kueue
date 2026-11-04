@@ -59,6 +59,8 @@ func (t *Tracker) PodsForWorkload(wlKey workload.Reference) []*corev1.Pod {
 	return t.workloadPods[wlKey].toSlice()
 }
 
+// TrackedWorkloads returns a set of references to all of the Workloads
+// that have at least one Pod recorded in the PodTracker.
 func (t *Tracker) TrackedWorkloads() sets.Set[workload.Reference] {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

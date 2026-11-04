@@ -45,14 +45,15 @@ func WithAssumedWorkloads(wls []*kueue.Workload) Option {
 	}
 }
 
-// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
+// WithCommittedVictims configures the list of past-cycle-origin preemption victims,
+// whose pods are to be excluded from scheduler-library calculations
+// as though they are already terminated.
 func WithCommittedVictims(victims []workload.Reference) Option {
 	return func(o *SimulatorOptions) {
 		o.CommittedVictims = victims
 	}
 }
 
-// BuildOptions extracts the assumed workloads from the given snapshot options.
 func BuildOptions(options ...Option) *SimulatorOptions {
 	opts := &SimulatorOptions{}
 	for _, opt := range options {
