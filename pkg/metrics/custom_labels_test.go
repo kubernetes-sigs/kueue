@@ -493,6 +493,72 @@ func TestValuesChanged(t *testing.T) {
 	}
 }
 
+func TestAllLabelsHaveTrackedValues(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	tests := map[string]struct {
+		entries     []configapi.ControllerMetricsCustomLabel
+		kind        configapi.SourceKind
+		nilReceiver bool
+		want        bool
+	}{
+		"nil receiver": {
+			kind:        configapi.SourceKindClusterQueue,
+			nilReceiver: true,
+			want:        false,
+		},
+		"kind not configured": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindLocalQueue).TrackedValues("a").Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"every label tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a", "b").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("c").Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: true,
+		},
+		"no label tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"one label of the kind not tracked": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: false,
+		},
+		"untracked label of another kind does not count": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("a").Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceKind(configapi.SourceKindLocalQueue).Obj(),
+			},
+			kind: configapi.SourceKindClusterQueue,
+			want: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(tc.entries)
+			}
+			if got := cl.AllLabelsHaveTrackedValues(tc.kind); got != tc.want {
+				t.Errorf("AllLabelsHaveTrackedValues(%q) = %v, want %v", tc.kind, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCustomLabelsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
 	entries := []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()}
@@ -514,6 +580,9 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	}
 	if got := nilCl.Store(configapi.SourceKindClusterQueue, "cq", nil, nil); got {
 		t.Error("expected false for Store")
+	}
+	if got := nilCl.AllLabelsHaveTrackedValues(configapi.SourceKindClusterQueue); got {
+		t.Error("expected false for AllLabelsHaveTrackedValues")
 	}
 	if got := nilCl.Get(configapi.SourceKindClusterQueue, "cq"); got != nil {
 		t.Errorf("expected nil Get, got %v", got)
