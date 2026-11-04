@@ -1069,21 +1069,23 @@ func mergePodSets(
 			return nil, err
 		}
 
-		merged := false
-		for i, effectiveTemplate := range effectiveTemplates {
-			if merged = canMergePodSets(effectiveTemplate, template, mergePolicy); merged {
-				mergedPodSets[i].Count += candidate.Count
-				break
-			}
+		if i := findMergeTarget(effectiveTemplates, template, mergePolicy); i >= 0 {
+			mergedPodSets[i].Count += candidate.Count
+			continue
 		}
-
-		if !merged {
-			mergedPodSets = append(mergedPodSets, candidate)
-			effectiveTemplates = append(effectiveTemplates, template)
-		}
+		mergedPodSets = append(mergedPodSets, candidate)
+		effectiveTemplates = append(effectiveTemplates, template)
 	}
 
 	return mergedPodSets, nil
+}
+
+// findMergeTarget returns the index of the first of templates that template can
+// merge with, or -1 if there is none.
+func findMergeTarget(templates []*corev1.PodTemplateSpec, template *corev1.PodTemplateSpec, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) int {
+	return arrayslices.IndexFunc(templates, func(other *corev1.PodTemplateSpec) bool {
+		return canMergePodSets(other, template, mergePolicy)
+	})
 }
 
 // requestedPodSets returns the PodSets that the ProvisioningRequest must cover,
