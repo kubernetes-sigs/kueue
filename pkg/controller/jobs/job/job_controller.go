@@ -183,25 +183,24 @@ func (j *Job) Suspend() {
 // call that suspends the Job.
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
 	object := j.Object()
-	stoppedNow := false
+	// IsSuspended is false for a Job an earlier, unfinished Stop already
+	// suspended (its stopping annotation is still set), so read Spec.Suspend
+	// directly: that Job was stopped then, not now.
+	wasSuspended := ptr.Deref(j.Spec.Suspend, false)
+	stoppedNow := !wasSuspended
 
-	if !j.IsSuspended() {
-		// IsSuspended is false here even for a Job an earlier, unfinished Stop
-		// already suspended (its stopping annotation is still set), so read
-		// Spec.Suspend directly: that Job was stopped then, not now.
-		wasSuspended := ptr.Deref(j.Spec.Suspend, false)
+	// One patch suspends the Job and marks the stop as pending. The annotation
+	// makes sure all updates finished successfully, and it keeps the restore
+	// pending while the Job still has active Pods. A Job that is suspended and
+	// already marked, or suspended with no active Pods left, needs no patch.
+	if !wasSuspended || (j.IsActive() && !j.IsStopPending()) {
 		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
-			if j.Annotations == nil {
-				j.Annotations = map[string]string{}
-			}
-			// We are using annotation to be sure that all updates finished successfully.
-			j.Annotations[StoppingAnnotation] = "true"
+			metav1.SetMetaDataAnnotation(&j.ObjectMeta, StoppingAnnotation, "true")
 			return true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = !wasSuspended
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
@@ -219,20 +218,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	// the Job still has active Pods. Keep the stopping annotation and wait: the
 	// job controller's status update to active == 0 triggers the next reconcile,
 	// which restores the PodSets info.
-	if j.Status.Active > 0 {
-		// A Job suspended before this Stop carries no marker yet; set it so
-		// the restore is still pending when the Pods are gone.
-		if !j.IsStopPending() {
-			if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
-				if j.Annotations == nil {
-					j.Annotations = map[string]string{}
-				}
-				j.Annotations[StoppingAnnotation] = "true"
-				return true, nil
-			}); err != nil {
-				return stoppedNow, fmt.Errorf("mark stopping: %w", err)
-			}
-		}
+	if j.IsActive() {
 		return stoppedNow, nil
 	}
 
