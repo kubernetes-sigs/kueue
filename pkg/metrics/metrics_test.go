@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/version"
 )
 
@@ -924,6 +925,45 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+}
+
+func TestClearCohortCounterMetricsOnlyClearsCohortCounters(t *testing.T) {
+	const cohortName = "cohort-counters"
+	const otherCohortName = "cohort-counters-other"
+
+	ReportCohortSubtreeAdmittedWorkload(cohortName, "", nil, nil)
+	ReportCohortSubtreeAdmittedWorkload(otherCohortName, "", nil, nil)
+	ReportCohortSubtreeAdmittedActiveWorkloads(cohortName, 1, nil, nil)
+
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", otherCohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+
+	ClearCohortCounterMetrics(cohortName, nil)
+
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 0, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", otherCohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+
+	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+	ClearCohortAdmittedWorkloadsMetrics(otherCohortName)
+}
+
+func TestClearCohortCounterMetricsMatchesCustomLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
+	})
+	t.Cleanup(func() { InitMetricVectors(nil) })
+	const cohortName = "cohort-counters-labels"
+
+	ReportCohortSubtreeAdmittedWorkload(cohortName, "", []string{"alpha"}, nil)
+	ReportCohortSubtreeAdmittedWorkload(cohortName, "", []string{"beta"}, nil)
+
+	ClearCohortCounterMetrics(cohortName, map[string]string{"custom_team": "alpha"})
+
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 0, "cohort", cohortName, "custom_team", "alpha")
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", cohortName, "custom_team", "beta")
 }
 
 func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {

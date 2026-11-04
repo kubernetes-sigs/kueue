@@ -181,7 +181,25 @@ func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, ann
 	if !cl.enabled() || cl.m[kind] == nil {
 		return false
 	}
-	return cl.m[kind].store(ref, labels, annotations)
+	_, changed := cl.m[kind].store(ref, labels, annotations)
+	return changed
+}
+
+// Swap stores the values for ref like Store, and also returns the values it
+// replaced, keyed by their metric label names (e.g. "custom_team"). Labels
+// with no previous value map to "". Reading and storing happen in one step,
+// so no other store can come between them.
+func (cl *CustomLabels) Swap(kind configapi.SourceKind, ref string, labels, annotations map[string]string) (old map[string]string, changed bool) {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return nil, false
+	}
+	store := cl.m[kind]
+	oldVals, changed := store.store(ref, labels, annotations)
+	old = make(map[string]string, len(store.labelNames))
+	for i, name := range store.labelNames {
+		old[name] = oldVals[i]
+	}
+	return old, changed
 }
 
 func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
@@ -290,10 +308,13 @@ func (s *SourceKindLabelStore) extractValues(labels, annotations map[string]stri
 	return vals
 }
 
-func (s *SourceKindLabelStore) store(key string, labels, annotations map[string]string) bool {
+func (s *SourceKindLabelStore) store(key string, labels, annotations map[string]string) (old []string, changed bool) {
 	newVals := s.extractValues(labels, annotations)
 	old, existed := s.values.Swap(key, newVals)
-	return existed && !slices.Equal(old, newVals)
+	if !existed {
+		return make([]string, len(s.labelNames)), false
+	}
+	return old, !slices.Equal(old, newVals)
 }
 
 func (s *SourceKindLabelStore) get(key string) []string {

@@ -559,6 +559,69 @@ func TestAllLabelsHaveTrackedValues(t *testing.T) {
 	}
 }
 
+func TestSwap(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	entries := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
+		utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+	tests := map[string]struct {
+		nilReceiver bool
+		kind        configapi.SourceKind
+		stored      map[string]string
+		labels      map[string]string
+		wantOld     map[string]string
+		wantChanged bool
+	}{
+		"nil receiver": {
+			nilReceiver: true,
+			kind:        configapi.SourceKindCohort,
+			labels:      map[string]string{"team": "alpha"},
+		},
+		"kind not configured": {
+			kind:   configapi.SourceKindClusterQueue,
+			labels: map[string]string{"team": "alpha"},
+		},
+		"first store": {
+			kind:    configapi.SourceKindCohort,
+			labels:  map[string]string{"team": "alpha"},
+			wantOld: map[string]string{"custom_team": "", "custom_cost": ""},
+		},
+		"same values": {
+			kind:    configapi.SourceKindCohort,
+			stored:  map[string]string{"team": "alpha", "cost": "high"},
+			labels:  map[string]string{"team": "alpha", "cost": "high"},
+			wantOld: map[string]string{"custom_team": "alpha", "custom_cost": "high"},
+		},
+		"changed values": {
+			kind:        configapi.SourceKindCohort,
+			stored:      map[string]string{"team": "alpha", "cost": "high"},
+			labels:      map[string]string{"team": "beta", "cost": "high"},
+			wantOld:     map[string]string{"custom_team": "alpha", "custom_cost": "high"},
+			wantChanged: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			var cl *CustomLabels
+			if !tc.nilReceiver {
+				cl = NewCustomLabels(entries)
+			}
+			if tc.stored != nil {
+				cl.Store(tc.kind, "cohort-a", tc.stored, nil)
+			}
+			gotOld, gotChanged := cl.Swap(tc.kind, "cohort-a", tc.labels, nil)
+			if diff := cmp.Diff(tc.wantOld, gotOld); diff != "" {
+				t.Errorf("Unexpected old label set (-want,+got):\n%s", diff)
+			}
+			if gotChanged != tc.wantChanged {
+				t.Errorf("Swap changed = %v, want %v", gotChanged, tc.wantChanged)
+			}
+		})
+	}
+}
+
 func TestCustomLabelsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
 	entries := []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()}
@@ -583,6 +646,9 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	}
 	if got := nilCl.AllLabelsHaveTrackedValues(configapi.SourceKindClusterQueue); got {
 		t.Error("expected false for AllLabelsHaveTrackedValues")
+	}
+	if old, changed := nilCl.Swap(configapi.SourceKindCohort, "cohort", map[string]string{"team": "alpha"}, nil); old != nil || changed {
+		t.Errorf("expected nil, false for Swap, got %v, %v", old, changed)
 	}
 	if got := nilCl.Get(configapi.SourceKindClusterQueue, "cq"); got != nil {
 		t.Errorf("expected nil Get, got %v", got)

@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"maps"
 	"strconv"
 	"time"
 
@@ -1427,8 +1428,17 @@ func ClearCohortMetrics(cohortName kueue.CohortReference) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeCohort, prometheus.Labels{"cohort": string(cohortName)})
 }
 
+// ClearCohortCounterMetrics removes the counters keyed by cohortName whose
+// labels also match customLabels. A nil customLabels matches every series of
+// the Cohort.
+func ClearCohortCounterMetrics(cohortName kueue.CohortReference, customLabels map[string]string) {
+	lbls := prometheus.Labels{"cohort": string(cohortName)}
+	maps.Copy(lbls, customLabels)
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
+}
+
 func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
-	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+	ClearCohortCounterMetrics(cohortName, nil)
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
