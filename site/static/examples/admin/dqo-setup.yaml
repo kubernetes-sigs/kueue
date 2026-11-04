@@ -1,0 +1,52 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: default-flavor
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: org
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: team-a
+spec:
+  cohortName: org
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: cpu
+        nominalQuota: 10
+      - name: memory
+        nominalQuota: 40Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: team-b
+spec:
+  cohortName: org
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: cpu
+        nominalQuota: 20
+      - name: memory
+        nominalQuota: 80Gi
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: CapacityProvider
+metadata:
+  name: demo-provider
+spec:
+  controllerName: example.com/demo-provider
+  orchestratedFlavors:
+  - name: default-flavor

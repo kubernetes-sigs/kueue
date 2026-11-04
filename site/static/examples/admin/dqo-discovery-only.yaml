@@ -1,0 +1,9 @@
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: DynamicQuotaOrchestrator
+metadata:
+  name: org-dqo
+spec:
+  capacityDiscovery:
+    providers:
+    - name: demo-provider
+      effectiveCapacityMultiplier: "0.8"
