@@ -622,7 +622,7 @@ func TestClusterQueueReadinessWithTAS(t *testing.T) {
 				`there is no Topology "example-topology" for TAS flavor "tas-flavor-3".`,
 		},
 		{
-			name:         "Referenced TAS flavor without topology; TAS disabled",
+			name:         "Missing topology on TAS flavor is ignored when TAS is disabled",
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			skipTopology: true,
 			cq: utiltestingapi.MakeClusterQueue("cq").
