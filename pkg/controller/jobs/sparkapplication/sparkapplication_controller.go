@@ -406,16 +406,23 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	initialExecutors := max(j.numInitialExecutors(),
 		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
 		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
-	// The driver creates its initial executors in batches, so fewer executors before
-	// it has created them all are not a scale-down. The Spark Operator keeps every
-	// executor of the current submission in status.executorState after it stops.
-	createdAll := len(j.Status.ExecutorState) >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
-	if c == nil || !j.driverStarted() || !createdAll {
+	if c == nil || !j.driverStarted() {
 		return initialExecutors, nil
 	}
 	count, err := j.numActiveExecutors(ctx, c)
 	if err != nil {
 		return 0, err
+	}
+	// The driver creates its initial executors in batches, so fewer executors before
+	// it has created them all are not a scale-down. The driver can lower its target
+	// before it creates them all, and it stops an executor only after lowering its
+	// target, so once one has stopped the driver is no longer ramping up. The Spark
+	// Operator keeps every executor of the current submission in status.executorState
+	// after it stops.
+	created := len(j.Status.ExecutorState)
+	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
+	if !createdAll && created <= int(count) {
+		return initialExecutors, nil
 	}
 	// Clamp the count to [minExecutors, maxExecutors].
 	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
