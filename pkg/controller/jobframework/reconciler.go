@@ -1326,6 +1326,12 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	return updateWorkloadPriorities(ctx, c, r, obj, customPriorityClassFunc, wl)
 }
 
+// UpdateWorkloadPriorities is UpdateWorkloadPriority for several workloads of obj.
+// It resolves the class once, so that all of them get the same value.
+func UpdateWorkloadPriorities(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	return updateWorkloadPriorities(ctx, c, r, obj, customPriorityClassFunc, wls...)
+}
+
 // updateWorkloadPriorities reconciles the priority of each workload that still
 // follows the object's kueue.x-k8s.io/priority-class label. Every workload passed
 // must belong to obj, since the class is resolved once for the whole set rather
@@ -1374,7 +1380,7 @@ func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.Eve
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 		wl.Spec.Priority = new(priority)
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
+			return fmt.Errorf("updating priority of workload %s: %w", klog.KObj(wl), err)
 		}
 		r.Eventf(obj,
 			nil,
