@@ -575,6 +575,53 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"discovery-only: exactly 128 distinct flavors is accepted": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(append(makeEffectiveCapacityFlavors("a", 64), makeEffectiveCapacityFlavors("b", 64)...)...).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: more than 128 distinct flavors fails aggregation": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+				makeSynchronizedProvider("cp-3", "c", 1),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+					Message: "Aggregated capacity covers 129 distinct flavors, which exceeds the supported limit of 128",
+				}).
+				Obj(),
+		},
 		"feature gate disabled": {
 			enableFeatureGate: new(bool),
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
