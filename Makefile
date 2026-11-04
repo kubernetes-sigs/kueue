@@ -251,7 +251,7 @@ image-local-build:
 image-presubmit:
 	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
 	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
-	BUILDX_BUILDER="$$builder" $(MAKE) image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
+	BUILDX_BUILDER="$$builder" $(MAKE) -j1 image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
 
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
