@@ -80,6 +80,23 @@ class ScriptsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("kubernetes-sigs/kueue", res.stderr)
 
+    def test_merge_base_no_fetch_needs_tracking_ref(self):
+        git(self.repo, "update-ref", "-d", "refs/remotes/upstream/main")
+        (self.repo / ".git" / "FETCH_HEAD").write_text(self.head + "\n")  # stale fetch result
+        res = self.run_script(MERGE_BASE, "--worktree", self.repo, "--no-fetch", check=False)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("refs/remotes/upstream/main not found", res.stderr)
+
+    def test_worktree_relative_root(self):
+        self.env["PR_EVIDENCE_WORKTREE_ROOT"] = "wt-rel"
+        res = subprocess.run([str(KUEUE_WORKTREE), "add", self.base, "--repo", str(self.repo)],
+                             capture_output=True, text=True, env=self.env, cwd=self.dir, check=True)
+        path = res.stdout.strip()
+        self.assertTrue(path.startswith(str(self.dir.resolve() / "wt-rel")) or path.startswith(str(self.dir / "wt-rel")), path)
+        subprocess.run([str(KUEUE_WORKTREE), "remove", path], capture_output=True, text=True,
+                       env=self.env, cwd=self.dir, check=True)
+        self.assertFalse(Path(path).exists())
+
     def test_merge_base_url_match_is_anchored(self):
         git(self.repo, "remote", "set-url", "upstream", "https://evilgithub.com/kubernetes-sigs/kueue.git")
         res = self.run_script(MERGE_BASE, "--worktree", self.repo, "--no-fetch", check=False)

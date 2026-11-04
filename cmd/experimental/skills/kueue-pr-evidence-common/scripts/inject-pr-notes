@@ -67,6 +67,8 @@ def header_line(skill: str, base: str, head: str) -> str:
     # Plain (non-code) SHAs so GitHub autolinks them to commits.
     return f"**{skill}** base {base[:12]} -> head {head[:12]}"
 
+CODE_SPAN_RE = re.compile(r"(?<!`)(`+).*?(?<!`)\1(?!`)")
+
 
 def visible_lines(content: str) -> int:
     """Non-blank lines a reviewer sees without expanding <details>.
@@ -90,8 +92,9 @@ def visible_lines(content: str) -> int:
         if m:
             fence = m.group(1)
             continue
-        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
-        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
+        tags = CODE_SPAN_RE.sub("", line)  # `<details>` in a code span is text
+        opens = len(re.findall(r"<details\b", tags, re.IGNORECASE))
+        closes = len(re.findall(r"</details\s*>", tags, re.IGNORECASE))
         depth = max(0, depth + opens - closes)
     return count
 

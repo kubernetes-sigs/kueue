@@ -83,7 +83,7 @@ checkout of the PR head.
 |---|---|
 | 0 | Block rendered. A base assertion failure is evidence of the bug. |
 | 2 | Usage or scenario error, or the scenario needs the kind runner. |
-| 3 | Head failed an assertion, both sides failed, or the run broke. Fix the scenario or the PR and publish nothing. |
+| 3 | Head failed an assertion, both sides failed, or the run broke. Fix the scenario or the PR and publish nothing. A head failure writes the block to `state-diff/<scenario>/block.head-failed.md`, never to the publish path. |
 
 `RUN BROKEN` with `cache entry not found` or `bad checksum` means something
 cleaned the Go build cache during the build. Re-run with a private
@@ -110,8 +110,8 @@ capture paths and the scenario YAML. The CLI exits 3 when the block exceeds the
   (`make kind-image-build` in each tree, then the e2e harness), write captures
   in the [capture format](../kueue-pr-evidence-common/capture-schema.md) to
   `$OUT/state-diff/<scenario>/capture.{base,head}.json`, and use `render`.
-  When `run.json` is missing, `render` builds it from the captures' `run`
-  fields.
+  When `run.json` is missing or disagrees with the captures' `run` fields,
+  `render` rebuilds it from them.
 
 ## Tests
 

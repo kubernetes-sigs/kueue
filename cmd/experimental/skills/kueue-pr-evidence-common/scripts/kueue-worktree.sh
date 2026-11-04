@@ -37,6 +37,7 @@ set -o nounset
 set -o pipefail
 
 root="${PR_EVIDENCE_WORKTREE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/kueue-pr-evidence/worktrees}"
+[[ "$root" == /* ]] || root="$PWD/$root"  # `add --repo` must not resolve it elsewhere
 
 die() { echo "kueue-worktree.sh: $*" >&2; exit 2; }
 usage() { sed -n '17,33p' "$0" | sed 's/^# \{0,1\}//'; }

@@ -122,6 +122,8 @@ the captures.
   compiled driver input per side, with gates applied.
 - `<out>/state-diff/<scenario>/base.log`, `head.log`: `make` and `go test` output.
 - `<out>/kueue-pr-evidence-state-diff.md`: block content for `inject-pr-notes`.
+  `run` deletes it first, and a head failure writes
+  `<out>/state-diff/<scenario>/block.head-failed.md` instead.
 
 `state-diff render --dir <out>/state-diff/<scenario>` rebuilds the block from these
 files without rerunning either side.

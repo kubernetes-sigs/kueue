@@ -191,6 +191,7 @@ class RewriteBodyTest(unittest.TestCase):
         fenced = "```\n<details>\n" + "x\n" * 30 + "</details>\n```"
         self.assertEqual(inj.visible_lines(fenced), 34)
         self.assertEqual(inj.visible_lines("<details>\n~~~\n</details>\n~~~\n</details>\nz"), 2)
+        self.assertEqual(inj.visible_lines("use `<details>` here\na\nb"), 3)
 
 
 class CliTest(unittest.TestCase):

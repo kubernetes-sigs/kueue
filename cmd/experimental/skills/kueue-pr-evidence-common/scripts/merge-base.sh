@@ -77,7 +77,8 @@ if [[ "$fetch" == 1 ]]; then
   g fetch --quiet "$remote" "+refs/heads/$branch:$ref" >&2
 fi
 if ! g rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
-  ref=FETCH_HEAD
+  echo "merge-base.sh: $ref not found; run without --no-fetch" >&2
+  exit 2
 fi
 
 merge_base="$(g merge-base HEAD "$ref")"

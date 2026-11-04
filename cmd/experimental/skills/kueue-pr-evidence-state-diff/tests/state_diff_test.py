@@ -421,6 +421,10 @@ class DiffRenderTest(unittest.TestCase):
         rows = L.diff_captures(with_lqs((0, 0)), with_lqs((0, 1)))["checkpoints"][0]["rows"]
         self.assertEqual([(r["object"], r["field"]) for r in rows], [("lq ns-b/q", "pending")])
 
+    def test_visible_lines_ignores_details_in_code_spans(self):
+        self.assertEqual(L.visible_lines("use `<details>` here\na\nb"), 3)
+        self.assertEqual(L.visible_lines("``a `<details>` b``\nc"), 2)
+
     def test_cell_fences_backticks(self):
         self.assertEqual(L._cell("plain"), "`plain`")
         self.assertEqual(L._cell("a `b` c"), "``a `b` c``")
@@ -454,6 +458,48 @@ class CliTest(unittest.TestCase):
             self.assertEqual(meta["headSha"], head["run"]["sha"])
             self.assertEqual(meta["checkpoints"], len(head["checkpoints"]))
             self.assertTrue((Path(t) / f"{L.SKILL}.md").read_text().startswith("**Verdict:**"))
+
+    def render_dir(self, t, mutate):
+        sdir = Path(t) / "state-diff" / "priority-boost-no-wpc"
+        shutil.copytree(FIXTURES / "run-priority-boost", sdir)
+        mutate(sdir)
+        p = subprocess.run([sys.executable, "-B", str(SCRIPTS / "state-diff"), "render", "--dir", str(sdir)],
+                           capture_output=True, text=True)
+        return sdir, p
+
+    def test_render_rebuilds_stale_run_json(self):
+        def bump(sdir):
+            cap = json.loads((sdir / "capture.head.json").read_text())
+            cap["run"]["k8sVersion"] = "1.38.0"
+            (sdir / "capture.head.json").write_text(json.dumps(cap))
+        with tempfile.TemporaryDirectory() as t:
+            sdir, p = self.render_dir(t, bump)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("rebuilding it", p.stderr)
+            self.assertEqual(json.loads((sdir / "run.json").read_text())["k8sVersion"], "1.38.0")
+
+    def test_render_rejects_mismatched_captures(self):
+        def rename(sdir):
+            cap = json.loads((sdir / "capture.base.json").read_text())
+            cap["run"]["scenario"] = "other"
+            (sdir / "capture.base.json").write_text(json.dumps(cap))
+        with tempfile.TemporaryDirectory() as t:
+            _, p = self.render_dir(t, rename)
+            self.assertEqual(p.returncode, 2)
+            self.assertIn("different scenarios", p.stderr)
+
+    def test_head_failure_block_is_not_publishable(self):
+        def fail_head(sdir):
+            meta = json.loads((sdir / "run.json").read_text())
+            meta["headFailure"] = {"step": 3, "action": "waitFor", "assertion": "x", "message": "timed out",
+                                   "checkpoint": None, "observed": None}
+            (sdir / "run.json").write_text(json.dumps(meta))
+            (Path(t) / f"{L.SKILL}.md").write_text("old block")
+        with tempfile.TemporaryDirectory() as t:
+            sdir, p = self.render_dir(t, fail_head)
+            self.assertEqual(p.returncode, 3, p.stderr)
+            self.assertFalse((Path(t) / f"{L.SKILL}.md").exists())
+            self.assertTrue((sdir / "block.head-failed.md").exists())
 
     def test_commit_excludes_base_and_head(self):
         cli = load_cli()

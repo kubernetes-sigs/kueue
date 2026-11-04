@@ -698,6 +698,8 @@ def render_block(diff: dict, meta: dict, verdict: str | None = None) -> str:
 
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
+CODE_SPAN_RE = re.compile(r"(?<!`)(`+).*?(?<!`)\1(?!`)")
+
 
 def visible_lines(content: str) -> int:
     """Same rule as inject-pr-notes: non-blank lines outside <details> bodies,
@@ -717,7 +719,8 @@ def visible_lines(content: str) -> int:
         if m:
             fence = m.group(1)
             continue
-        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
-        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
+        tags = CODE_SPAN_RE.sub("", line)  # `<details>` in a code span is text
+        opens = len(re.findall(r"<details\b", tags, re.IGNORECASE))
+        closes = len(re.findall(r"</details\s*>", tags, re.IGNORECASE))
         depth = max(0, depth + opens - closes)
     return count

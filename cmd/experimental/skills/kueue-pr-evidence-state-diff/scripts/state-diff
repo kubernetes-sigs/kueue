@@ -342,6 +342,10 @@ def finish(sdir: Path, out_root: Path, meta: dict, verdict: str | None, a: argpa
     (sdir / "diff.json").write_text(L.dumps(diff))
     content = L.render_block(diff, meta, verdict)
     block = Path(a.out_file) if getattr(a, "out_file", None) else out_root / f"{L.SKILL}.md"
+    if meta.get("headFailure"):
+        # Not publishable: keep it next to the captures, away from the inject path.
+        block.unlink(missing_ok=True)
+        block = sdir / "block.head-failed.md"
     block.parent.mkdir(parents=True, exist_ok=True)
     block.write_text(content)
     n = L.visible_lines(content) + 1
@@ -363,6 +367,8 @@ def finish(sdir: Path, out_root: Path, meta: dict, verdict: str | None, a: argpa
 
 
 def cmd_run(a: argparse.Namespace) -> int:
+    if a.out:  # before any early exit: a failed run must not leave an earlier block behind
+        (Path(a.out).resolve() / f"{L.SKILL}.md").unlink(missing_ok=True)
     path, token = resolve_scenario(a.scenario)
     try:
         sc = L.load_scenario_file(path)
@@ -428,14 +434,33 @@ def cmd_run(a: argparse.Namespace) -> int:
     return finish(sdir, out_root, meta, a.verdict, a)
 
 
-def meta_from_captures(sdir: Path) -> dict:
-    """run.json for captures written by hand (kind runner), from their `run` fields."""
+def load_captures(sdir: Path) -> dict[str, dict]:
     runs = {}
     for side in ("base", "head"):
         p = sdir / f"capture.{side}.json"
         if not p.exists():
             die(f"{p} missing: write both captures (capture-schema.md) before `render`")
         runs[side] = json.loads(p.read_text())
+        if runs[side].get("run", {}).get("side", side) != side:
+            die(f"{p}: run.side is {runs[side]['run']['side']!r}, expected {side!r}")
+    scenarios = {runs[s].get("run", {}).get("scenario") for s in runs} - {None}
+    if len(scenarios) > 1:
+        die(f"captures name different scenarios: {sorted(scenarios)}")
+    return runs
+
+
+def stale_meta(meta: dict, sdir: Path) -> list[str]:
+    """Fields of run.json that disagree with the captures' run fields."""
+    runs = load_captures(sdir)
+    b, h = runs["base"].get("run", {}), runs["head"].get("run", {})
+    want = {"baseSha": b.get("sha"), "headSha": h.get("sha"), "scenario": h.get("scenario"),
+            "runner": h.get("runner"), "k8sVersion": h.get("k8sVersion"), "featureGates": h.get("featureGates")}
+    return sorted(k for k, v in want.items() if v is not None and meta.get(k) != v)
+
+
+def meta_from_captures(sdir: Path) -> dict:
+    """run.json for captures written by hand (kind runner), from their `run` fields."""
+    runs = load_captures(sdir)
     b, h = runs["base"]["run"], runs["head"]["run"]
     try:
         return {"scenario": h.get("scenario") or sdir.name, "runner": h["runner"], "runnerReason": "captures written by hand",
@@ -451,9 +476,11 @@ def meta_from_captures(sdir: Path) -> dict:
 def cmd_render(a: argparse.Namespace) -> int:
     sdir = Path(a.dir).resolve()
     meta_path = sdir / "run.json"
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text())
-    else:
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else None
+    stale = stale_meta(meta, sdir) if meta else []
+    if meta is None or stale:
+        if stale:
+            log(f"{meta_path} does not match the captures ({', '.join(stale)}): rebuilding it")
         meta = meta_from_captures(sdir)
         meta_path.write_text(L.dumps(meta))
         log(f"wrote {meta_path} from the captures' run fields")
