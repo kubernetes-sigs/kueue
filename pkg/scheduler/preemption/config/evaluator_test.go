@@ -738,24 +738,18 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		disableOverlappingFlavors bool
-		wantCandidates            []string
+		wantCandidates []string
 	}{
 		"workloads on the nodes of the flavor are selected, whatever flavor and resource they use": {
 			wantCandidates: []string{"a-mem", "a1", "b1"},
-		},
-		"only workloads using the flavor resource are selected when TASHandleOverlappingFlavors is disabled": {
-			disableOverlappingFlavors: true,
-			wantCandidates:            []string{"a1"},
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.ConfigurablePreemptions:     true,
-				features.TopologyAwareScheduling:     true,
-				features.TASHandleOverlappingFlavors: !tc.disableOverlappingFlavors,
+				features.ConfigurablePreemptions: true,
+				features.TopologyAwareScheduling: true,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cqCache := schdcache.New(utiltesting.NewFakeClient())

@@ -202,9 +202,8 @@ func TestConfigurablePreemptions(t *testing.T) {
 	tasAdmittedWl := func(name, node string) kueue.Workload {
 		return tasAdmittedWlIn(name, "a", "tas-default", node)
 	}
-	// tasOverlapFlavor selects the same nodes as tasFlavor, so that, with
-	// TASHandleOverlappingFlavors, the usage of either flavor also counts on the
-	// nodes of the other one.
+	// tasOverlapFlavor selects the same nodes as tasFlavor, so the usage of
+	// either flavor also counts on the nodes of the other one.
 	tasOverlapFlavor := utiltestingapi.MakeResourceFlavor("tas-overlap").
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-single-level").

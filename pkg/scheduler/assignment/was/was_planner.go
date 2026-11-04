@@ -171,7 +171,7 @@ func (p *wasPlanner) schedule(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	opts ...simulator.ScheduleOption,
-) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, error) {
+) (podSetPlacementSummary, podSetFailureSummary, []workload.Reference, error) {
 	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
 	if schedulingResult.Error != nil {
 		return nil, nil, nil, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
@@ -191,6 +191,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			simulator.WithPreemptionFilter(&strategy),
 			simulator.WithCommittedPreemptionVictims(committedVictims),
 		)
 		strategy.Reset()
@@ -213,6 +214,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			}
 		}
 	}
+	ctrl.LoggerFrom(ctx).V(5).Info("Preemption target search found no suitable targets")
 
 	// No preemption targets succeeded. Simulate against an empty cluster to check
 	// if the workload can fit at all and, if so, reserve TAS resources while waiting
