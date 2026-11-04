@@ -108,8 +108,10 @@ capture paths and the scenario YAML. The CLI exits 3 when the block exceeds the
   `requires: [pods-ready|dra|tas-node-fit|multikueue]` or `runner: kind`. The
   CLI prints the choice and stops. Run each side with `E2E_MODE=dev`
   (`make kind-image-build` in each tree, then the e2e harness), write captures
-  in the [capture format](../kueue-pr-evidence-common/capture-schema.md), and
-  use `render`.
+  in the [capture format](../kueue-pr-evidence-common/capture-schema.md) to
+  `$OUT/state-diff/<scenario>/capture.{base,head}.json`, and use `render`.
+  When `run.json` is missing, `render` builds it from the captures' `run`
+  fields.
 
 ## Tests
 

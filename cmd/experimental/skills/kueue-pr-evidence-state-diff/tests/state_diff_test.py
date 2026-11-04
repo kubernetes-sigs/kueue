@@ -20,7 +20,10 @@
 Run: python3 -B -m unittest discover -s cmd/experimental/skills/kueue-pr-evidence-state-diff/tests -p '*_test.py'
 """
 
+import argparse
+import contextlib
 import importlib.machinery
+import io
 import importlib.util
 import json
 import re
@@ -393,6 +396,36 @@ class DiffRenderTest(unittest.TestCase):
         block = L.render_block(L.diff_captures(self.base, self.head), self.meta)
         self.assertEqual(inj.visible_lines(block), L.visible_lines(block))
 
+    def test_visible_lines_counts_fenced_lines(self):
+        fenced = "v\n```\n<details>\n" + "x\n" * 30 + "</details>\n```\n<details>\nhidden\n```\n</details>\n```\n</details>"
+        self.assertEqual(L.visible_lines(fenced), 1 + 1 + 1 + 30 + 1 + 1 + 1)
+
+    def test_repeated_events_compare_as_multisets(self):
+        def with_events(*msgs):
+            e = [{**nev("Pending", "a", i), "message": m} for i, m in enumerate(msgs)]
+            return capture(("x", [], [], e))
+        rows = L.diff_captures(with_events("first", "same"), with_events("same"))["checkpoints"][0]["rows"]
+        self.assertEqual([(r["field"], r["base"], r["head"]) for r in rows],
+                         [("event Normal Pending.message", "first", L.ABSENT)])
+        rows = L.diff_captures(with_events("x", "y"), with_events("x", "y"))["checkpoints"][0]["rows"]
+        self.assertEqual(rows, [])
+        rows = L.diff_captures(with_events(), with_events("x", "y"))["checkpoints"][0]["rows"]
+        self.assertEqual([(r["field"], r["base"], r["head"]) for r in rows], [("event", L.ABSENT, "Normal Pending ×2")])
+
+    def test_local_queue_namespaces_select_qualified_names(self):
+        def with_lqs(pending):
+            lqs = [{"namespace": ns, "name": "q", "pendingWorkloads": p, "reservingWorkloads": 0, "admittedWorkloads": 0}
+                   for ns, p in zip(("ns-a", "ns-b"), pending)]
+            return {"schemaVersion": L.SCHEMA_VERSION, "run": {}, "checkpoints": [
+                {"index": 0, "name": "x", "assertion": "", "workloads": [], "clusterQueues": [], "localQueues": lqs, "events": []}]}
+        rows = L.diff_captures(with_lqs((0, 0)), with_lqs((0, 1)))["checkpoints"][0]["rows"]
+        self.assertEqual([(r["object"], r["field"]) for r in rows], [("lq ns-b/q", "pending")])
+
+    def test_cell_fences_backticks(self):
+        self.assertEqual(L._cell("plain"), "`plain`")
+        self.assertEqual(L._cell("a `b` c"), "``a `b` c``")
+        self.assertEqual(L._cell("`x``"), "``` `x`` ```")
+
 
 class CliTest(unittest.TestCase):
     def test_render_offline_from_fixture_dir(self):
@@ -407,6 +440,28 @@ class CliTest(unittest.TestCase):
             block = out.read_text()
             self.assertTrue(block.startswith("**Verdict:**"))
             self.assertLessEqual(L.visible_lines(block) + 1, L.BUDGET)
+
+    def test_render_builds_run_json_from_captures(self):
+        with tempfile.TemporaryDirectory() as t:
+            sdir = Path(t) / "state-diff" / "priority-boost-no-wpc"
+            shutil.copytree(FIXTURES / "run-priority-boost", sdir)
+            (sdir / "run.json").unlink()
+            p = subprocess.run([sys.executable, "-B", str(SCRIPTS / "state-diff"), "render", "--dir", str(sdir)],
+                               capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            meta = json.loads((sdir / "run.json").read_text())
+            head = json.loads((sdir / "capture.head.json").read_text())
+            self.assertEqual(meta["headSha"], head["run"]["sha"])
+            self.assertEqual(meta["checkpoints"], len(head["checkpoints"]))
+            self.assertTrue((Path(t) / f"{L.SKILL}.md").read_text().startswith("**Verdict:**"))
+
+    def test_commit_excludes_base_and_head(self):
+        cli = load_cli()
+        a = argparse.Namespace(commit="abc", base="def", head=None)
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(io.StringIO()) as err:
+            cli.resolve_shas(a, Path("."))
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--commit cannot be combined", err.getvalue())
 
     def test_driver_template_placeholders(self):
         cli = load_cli()

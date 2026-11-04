@@ -187,6 +187,10 @@ class RewriteBodyTest(unittest.TestCase):
     def test_visible_lines(self):
         self.assertEqual(inj.visible_lines(fx("block.txt")), 4)  # 3 table rows + <details> summary
         self.assertEqual(inj.visible_lines("a\n\nb\n<details>\n1\n2\n</details>\nc"), 4)
+        # Fenced lines render in full; tags inside a fence are literal.
+        fenced = "```\n<details>\n" + "x\n" * 30 + "</details>\n```"
+        self.assertEqual(inj.visible_lines(fenced), 34)
+        self.assertEqual(inj.visible_lines("<details>\n~~~\n</details>\n~~~\n</details>\nz"), 2)
 
 
 class CliTest(unittest.TestCase):

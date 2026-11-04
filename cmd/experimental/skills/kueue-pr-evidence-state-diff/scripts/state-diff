@@ -242,6 +242,9 @@ def run_envtest(side: str, sha: str, sc: dict, repo: Path, work: Path, keep: boo
         log(f"{side}: manager: " + (f"driver starts it with {info['managerSetup']}" if info["managerSetup"]
                                      else "started by the suite's BeforeSuite"))
         wanted = dict(sc.get("featureGates") or {})
+        if wanted and not info["managerSetup"]:
+            log(f"{side}: warning: the suite started the manager before the scenario gates were set; gates read "
+                "at controller setup keep their suite value (set managerSetup to start a dedicated manager)")
         known = {k: v for k, v in wanted.items() if k in info["gates"]}
         unknown = sorted(set(wanted) - set(known))
         if unknown and side == "head":
@@ -299,6 +302,8 @@ def git(repo: Path, *args: str) -> str:
 
 def resolve_shas(a: argparse.Namespace, repo: Path) -> tuple[str, str]:
     if a.commit:
+        if a.base or a.head:
+            die("--commit cannot be combined with --base or --head")
         head = git(repo, "rev-parse", "--verify", f"{a.commit}^{{commit}}")
         return git(repo, "rev-parse", f"{head}^1"), head
     if a.base or a.head:
@@ -378,6 +383,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     out_root = Path(a.out).resolve() if a.out else cache_root() / head_sha[:12]
     sdir = out_root / "state-diff" / sc["name"]
     sdir.mkdir(parents=True, exist_ok=True)
+    # A broken run must not leave an earlier block behind for inject-pr-notes.
+    (out_root / f"{L.SKILL}.md").unlink(missing_ok=True)
 
     results: dict[str, dict] = {}
     errors: dict[str, str] = {}
@@ -421,12 +428,35 @@ def cmd_run(a: argparse.Namespace) -> int:
     return finish(sdir, out_root, meta, a.verdict, a)
 
 
+def meta_from_captures(sdir: Path) -> dict:
+    """run.json for captures written by hand (kind runner), from their `run` fields."""
+    runs = {}
+    for side in ("base", "head"):
+        p = sdir / f"capture.{side}.json"
+        if not p.exists():
+            die(f"{p} missing: write both captures (capture-schema.md) before `render`")
+        runs[side] = json.loads(p.read_text())
+    b, h = runs["base"]["run"], runs["head"]["run"]
+    try:
+        return {"scenario": h.get("scenario") or sdir.name, "runner": h["runner"], "runnerReason": "captures written by hand",
+                "baseSha": b["sha"], "headSha": h["sha"], "featureGates": h.get("featureGates") or {},
+                "gatesUnknownAtBase": sorted(set(h.get("featureGates") or {}) - set(b.get("featureGates") or {})),
+                "k8sVersion": h.get("k8sVersion"), "checkpoints": len(runs["head"]["checkpoints"]),
+                "repro": f"{REPRO_PREFIX} render --dir {shown_path(sdir)}",
+                "baseFailure": None, "headFailure": None}
+    except KeyError as e:
+        die(f"capture run.{e.args[0]} missing (capture-schema.md)")
+
+
 def cmd_render(a: argparse.Namespace) -> int:
     sdir = Path(a.dir).resolve()
     meta_path = sdir / "run.json"
-    if not meta_path.exists():
-        die(f"{meta_path} missing (produced by `state-diff run`)")
-    meta = json.loads(meta_path.read_text())
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text())
+    else:
+        meta = meta_from_captures(sdir)
+        meta_path.write_text(L.dumps(meta))
+        log(f"wrote {meta_path} from the captures' run fields")
     out_root = sdir.parent.parent
     return finish(sdir, out_root, meta, a.verdict, a)
 

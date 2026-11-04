@@ -72,14 +72,26 @@ def visible_lines(content: str) -> int:
     """Non-blank lines a reviewer sees without expanding <details>.
 
     The <details> opening line (summary) counts once; its body does not.
+    Lines inside a fenced code block outside <details> all count, and
+    <details> tags inside a fence are literal text.
     """
-    depth = 0
-    count = 0
+    depth = count = 0
+    fence = ""  # open code fence marker; tags inside a fence are literal text
     for line in content.split("\n"):
-        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
-        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
+        m = FENCE_RE.match(line)
+        if fence:
+            if depth == 0:
+                count += 1  # GitHub renders every fenced line, blank ones too
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = ""
+            continue
         if depth == 0 and line.strip():
             count += 1
+        if m:
+            fence = m.group(1)
+            continue
+        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
+        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
         depth = max(0, depth + opens - closes)
     return count
 

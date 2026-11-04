@@ -52,7 +52,7 @@ g rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   exit 2
 }
 
-is_kueue_url() { [[ "$1" =~ github\.com[:/]kubernetes-sigs/kueue(\.git)?/?$ ]]; }
+is_kueue_url() { [[ "$1" =~ ^((https|ssh|git)://)?([^@/:]+@)?github\.com[:/]kubernetes-sigs/kueue(\.git)?/?$ ]]; }
 
 remote="${PR_EVIDENCE_UPSTREAM_REMOTE:-}"
 if [[ -z "$remote" ]]; then
@@ -70,10 +70,12 @@ if [[ -z "$remote" ]]; then
   exit 2
 fi
 
-if [[ "$fetch" == 1 ]]; then
-  g fetch --quiet "$remote" "$branch" >&2
-fi
 ref="refs/remotes/$remote/$branch"
+if [[ "$fetch" == 1 ]]; then
+  # Explicit refspec: the tracking ref is updated even when the remote's
+  # configured refspec does not map this branch.
+  g fetch --quiet "$remote" "+refs/heads/$branch:$ref" >&2
+fi
 if ! g rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
   ref=FETCH_HEAD
 fi
@@ -85,5 +87,6 @@ if [[ -n "$(g status --porcelain --untracked-files=no)" ]]; then
   echo "merge-base.sh: warning: uncommitted changes are not part of HEAD_SHA" >&2
 fi
 
-printf 'UPSTREAM_REMOTE=%s\nUPSTREAM_REF=%s\nMERGE_BASE=%s\nHEAD_SHA=%s\n' \
+# %q keeps the output safe to eval whatever the remote is called.
+printf 'UPSTREAM_REMOTE=%q\nUPSTREAM_REF=%q\nMERGE_BASE=%s\nHEAD_SHA=%s\n' \
   "$remote" "$ref" "$merge_base" "$head_sha"

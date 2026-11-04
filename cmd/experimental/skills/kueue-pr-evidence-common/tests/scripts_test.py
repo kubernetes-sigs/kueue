@@ -80,6 +80,37 @@ class ScriptsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("kubernetes-sigs/kueue", res.stderr)
 
+    def test_merge_base_url_match_is_anchored(self):
+        git(self.repo, "remote", "set-url", "upstream", "https://evilgithub.com/kubernetes-sigs/kueue.git")
+        res = self.run_script(MERGE_BASE, "--worktree", self.repo, "--no-fetch", check=False)
+        self.assertEqual(res.returncode, 2)
+        for url in ("git@github.com:kubernetes-sigs/kueue.git", "ssh://git@github.com/kubernetes-sigs/kueue",
+                    "https://github.com/kubernetes-sigs/kueue/"):
+            git(self.repo, "remote", "set-url", "upstream", url)
+            self.run_script(MERGE_BASE, "--worktree", self.repo, "--no-fetch")
+
+    def test_merge_base_output_is_eval_safe(self):
+        name = "a;touch${IFS}injected"
+        git(self.repo, "remote", "add", name, "https://github.com/kubernetes-sigs/kueue.git")
+        git(self.repo, "update-ref", f"refs/remotes/{name}/main", self.base)
+        self.env["PR_EVIDENCE_UPSTREAM_REMOTE"] = name
+        out = self.run_script(MERGE_BASE, "--worktree", self.repo, "--no-fetch").stdout
+        res = subprocess.run(["bash", "-c", f'eval "$1"; printf %s "$UPSTREAM_REMOTE"', "_", out],
+                             capture_output=True, text=True, cwd=self.dir, check=True)
+        self.assertEqual(res.stdout, name)
+        self.assertFalse((self.dir / "injected").exists())
+
+    def test_merge_base_fetch_updates_tracking_ref(self):
+        up = self.dir / "up"
+        git(self.dir, "clone", "-q", "--bare", str(self.repo), str(up))
+        git(up, "update-ref", "refs/heads/main", self.head)  # upstream moved on
+        git(self.repo, "remote", "add", "local", str(up))
+        git(self.repo, "config", "remote.local.fetch", "+refs/heads/other:refs/remotes/local/other")
+        git(self.repo, "update-ref", "refs/remotes/local/main", self.base)  # stale
+        self.env["PR_EVIDENCE_UPSTREAM_REMOTE"] = "local"
+        kv = dict(line.split("=", 1) for line in self.run_script(MERGE_BASE, "--worktree", self.repo).stdout.splitlines())
+        self.assertEqual(kv["MERGE_BASE"], self.head)
+
     def test_worktree_add_list_remove(self):
         path = self.run_script(KUEUE_WORKTREE, "add", self.base, "--repo", self.repo).stdout.strip()
         self.assertTrue(path.startswith(str(self.dir / "wt")))
@@ -99,6 +130,16 @@ class ScriptsTest(unittest.TestCase):
     def test_worktree_gc(self):
         self.run_script(KUEUE_WORKTREE, "add", self.base, "--repo", self.repo)
         self.run_script(KUEUE_WORKTREE, "add", self.head, "--repo", self.repo)
+        res = self.run_script(KUEUE_WORKTREE, "gc", "--repo", self.repo)
+        self.assertEqual(len(self.run_script(KUEUE_WORKTREE, "list").stdout.split()), 2)  # locked: in use
+        self.assertIn("skipped", res.stderr)
+        self.run_script(KUEUE_WORKTREE, "gc", "--repo", self.repo, "--force")
+        self.assertEqual(self.run_script(KUEUE_WORKTREE, "list").stdout, "")
+        self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
+
+    def test_worktree_gc_removes_unlocked(self):
+        path = self.run_script(KUEUE_WORKTREE, "add", self.base, "--repo", self.repo).stdout.strip()
+        git(self.repo, "worktree", "unlock", path)
         self.run_script(KUEUE_WORKTREE, "gc", "--repo", self.repo)
         self.assertEqual(self.run_script(KUEUE_WORKTREE, "list").stdout, "")
 

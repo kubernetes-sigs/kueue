@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -512,13 +513,14 @@ def flatten(cp: dict, multi_ns: bool) -> dict[tuple[str, str], tuple[str, str]]:
     return out
 
 
-def _event_keys(cp: dict, multi_ns: bool) -> dict[str, str]:
-    out = {}
+def _event_keys(cp: dict, multi_ns: bool) -> dict[str, list[str]]:
+    """Messages per (object, type reason); repeated Events keep every message."""
+    out: dict[str, list[str]] = {}
     for e in cp.get("events", []):
         io = e["involvedObject"]
         short = {"Workload": "wl", "ClusterQueue": "cq", "LocalQueue": "lq"}.get(io["kind"], io["kind"])
         who = f"{short} {io['namespace']}/{io['name']}" if multi_ns and io.get("namespace") else f"{short} {io['name']}"
-        out[f"{who}\x00{e['type']} {e['reason']}"] = e.get("message", "")
+        out.setdefault(f"{who}\x00{e['type']} {e['reason']}", []).append(e.get("message", ""))
     return out
 
 
@@ -539,17 +541,25 @@ def diff_checkpoint(base: dict | None, head: dict | None, multi_ns: bool) -> lis
     eh = _event_keys(head, multi_ns) if head else {}
     for k in sorted(set(eb) | set(eh)):
         who, what = k.split("\x00")
-        if k in eb and k in eh:
-            if eb[k] != eh[k]:
-                rows.append({"object": who, "field": f"event {what}.message", "base": eb[k], "head": eh[k], "category": CAT_MSG})
+        mb, mh = eb.get(k, []), eh.get(k, [])
+        if not (mb and mh):
+            n = len(mb or mh)
+            label = what if n == 1 else f"{what} ×{n}"
+            rows.append({"object": who, "field": "event", "base": label if mb else ABSENT,
+                         "head": label if mh else ABSENT, "category": CAT_EV})
             continue
-        rows.append({"object": who, "field": "event", "base": what if k in eb else ABSENT,
-                     "head": what if k in eh else ABSENT, "category": CAT_EV})
+        gone = sorted((Counter(mb) - Counter(mh)).elements())
+        new = sorted((Counter(mh) - Counter(mb)).elements())
+        for i in range(max(len(gone), len(new))):
+            rows.append({"object": who, "field": f"event {what}.message",
+                         "base": gone[i] if i < len(gone) else ABSENT,
+                         "head": new[i] if i < len(new) else ABSENT, "category": CAT_MSG})
     return rows
 
 
 def diff_captures(base: dict, head: dict, base_failure: dict | None = None, head_failure: dict | None = None) -> dict:
-    multi_ns = len({w["namespace"] for c in base["checkpoints"] + head["checkpoints"] for w in c["workloads"]}) > 1
+    cps = base["checkpoints"] + head["checkpoints"]
+    multi_ns = len({o["namespace"] for c in cps for o in c["workloads"] + c.get("localQueues", [])}) > 1
     bmap = {c["name"]: c for c in base["checkpoints"]}
     hmap = {c["name"]: c for c in head["checkpoints"]}
     names = [c["name"] for c in head["checkpoints"]] + [c["name"] for c in base["checkpoints"] if c["name"] not in hmap]
@@ -587,7 +597,12 @@ def _cell(s: Any, limit: int | None = 60) -> str:
     s = str(s).replace("\n", " ").replace("|", "\\|")
     if limit and len(s) > limit:
         s = s[: limit - 1] + "…"
-    return f"`{s}`" if s not in (ABSENT, "") else (s or "\"\"")
+    if s in (ABSENT, ""):
+        return s or "\"\""
+    # A code span closes on a backtick run of its own length: fence with a longer one.
+    tick = "`" * (max((len(r) for r in re.findall(r"`+", s)), default=0) + 1)
+    pad = " " if s.startswith("`") or s.endswith("`") else ""
+    return f"{tick}{pad}{s}{pad}{tick}"
 
 
 def _elide_common_prefix(a: str, b: str, keep: int = 12) -> tuple[str, str]:
@@ -681,13 +696,28 @@ def render_block(diff: dict, meta: dict, verdict: str | None = None) -> str:
     return "\n".join(out) + "\n"
 
 
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
 def visible_lines(content: str) -> int:
-    """Same rule as inject-pr-notes: non-blank lines outside <details> bodies."""
+    """Same rule as inject-pr-notes: non-blank lines outside <details> bodies,
+    plus every fenced line outside <details>."""
     depth = count = 0
+    fence = ""  # open code fence marker; tags inside a fence are literal text
     for line in content.split("\n"):
-        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
-        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
+        m = FENCE_RE.match(line)
+        if fence:
+            if depth == 0:
+                count += 1  # GitHub renders every fenced line, blank ones too
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = ""
+            continue
         if depth == 0 and line.strip():
             count += 1
+        if m:
+            fence = m.group(1)
+            continue
+        opens = len(re.findall(r"<details\b", line, re.IGNORECASE))
+        closes = len(re.findall(r"</details\s*>", line, re.IGNORECASE))
         depth = max(0, depth + opens - closes)
     return count

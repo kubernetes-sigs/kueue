@@ -20,7 +20,7 @@
 #   kueue-worktree.sh add <sha> [--repo DIR]   # prints the new worktree path
 #   kueue-worktree.sh remove <path>            # only paths under the managed root
 #   kueue-worktree.sh list                     # managed worktrees
-#   kueue-worktree.sh gc [--repo DIR]          # remove all managed worktrees, prune
+#   kueue-worktree.sh gc [--repo DIR] [--force] # remove unlocked managed worktrees, prune
 #
 # Managed root: $PR_EVIDENCE_WORKTREE_ROOT, else
 #   ${XDG_CACHE_HOME:-~/.cache}/kueue-pr-evidence/worktrees
@@ -29,6 +29,8 @@
 # out, resets, or switches branches in --repo (default: current directory); it
 # only adds an entry under the shared .git/worktrees/ that `remove` and `gc`
 # delete. The new tree has its own bin/; nothing is shared with the PR tree.
+# `add` locks the tree (`git worktree lock`) until `remove`, so `gc` skips
+# trees another run still uses; `gc --force` also removes locked leftovers.
 
 set -o errexit
 set -o nounset
@@ -37,7 +39,7 @@ set -o pipefail
 root="${PR_EVIDENCE_WORKTREE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/kueue-pr-evidence/worktrees}"
 
 die() { echo "kueue-worktree.sh: $*" >&2; exit 2; }
-usage() { sed -n '17,31p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '17,33p' "$0" | sed 's/^# \{0,1\}//'; }
 
 abs() { (cd "$1" 2>/dev/null && pwd -P); }
 
@@ -53,12 +55,19 @@ remove_one() {
   under_root "$path" || die "refusing: $path is not under $root"
   common="$(git -C "$path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
   if [[ -n "$common" ]]; then
+    git --git-dir="$common" worktree unlock "$path" 2>/dev/null || true
     git --git-dir="$common" worktree remove --force "$path" 2>/dev/null || rm -rf "$path"
     git --git-dir="$common" worktree prune
   else
     rm -rf "$path"
   fi
   echo "removed $path" >&2
+}
+
+is_locked() {
+  local gd
+  gd="$(git -C "$1" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+  [[ -f "$gd/locked" ]]
 }
 
 cmd="${1:-}"
@@ -78,7 +87,7 @@ case "$cmd" in
     mkdir -p "$root"
     path="$(mktemp -d "$root/${full:0:12}.XXXXXX")"
     rmdir "$path"
-    git -C "$repo" -c core.hooksPath=/dev/null worktree add --quiet --detach "$path" "$full" >&2
+    git -C "$repo" -c core.hooksPath=/dev/null worktree add --quiet --detach --lock "$path" "$full" >&2
     echo "$path"
     ;;
   remove)
@@ -91,9 +100,22 @@ case "$cmd" in
     ;;
   gc)
     repo=.
-    [[ "${1:-}" == --repo ]] && repo="$2"
+    force=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --repo) repo="$2"; shift 2 ;;
+        --force) force=1; shift ;;
+        *) die "unknown arg: $1" ;;
+      esac
+    done
     if [[ -d "$root" ]]; then
-      find "$root" -mindepth 1 -maxdepth 1 -type d -print | while read -r p; do remove_one "$p"; done
+      find "$root" -mindepth 1 -maxdepth 1 -type d -print | while read -r p; do
+        if [[ "$force" == 0 ]] && is_locked "$p"; then
+          echo "skipped $p (locked: in use; gc --force removes it)" >&2
+          continue
+        fi
+        remove_one "$p"
+      done
     fi
     git -C "$repo" worktree prune 2>/dev/null || true
     ;;

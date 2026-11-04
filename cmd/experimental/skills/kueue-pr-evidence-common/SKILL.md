@@ -62,7 +62,9 @@ checkout that contains this skill; it can be the same tree.
    Run the base side in `$BASE_WT` and the head side in `$PR_WORKTREE`. Leave
    the user's trees as they are: use `kueue-worktree.sh` instead of checkout,
    reset, stash, or a branch switch. The base tree keeps its own `bin/`, so
-   tool versions can differ from head.
+   tool versions can differ from head. `add` locks the tree until `remove`, so
+   `kueue-worktree.sh gc` skips trees that a run still uses; `gc --force` also
+   removes locked trees left by a crashed run.
 
 3. Write the block content to `$OUT/<skill>.md`. The injector adds the markers
    and the header line, so leave both out of the file.
