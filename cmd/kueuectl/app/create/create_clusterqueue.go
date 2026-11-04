@@ -79,12 +79,7 @@ var (
 	`)
 )
 
-var (
-	errMisconfiguredFlavor  = errors.New("misconfigured flavor")
-	errInvalidResourceGroup = errors.New("invalid resource group")
-	errInvalidResourceQuota = errors.New("invalid resource quota")
-	errInvalidResourcesSpec = errors.New("invalid resources specification")
-)
+var errMisconfiguredFlavor = errors.New("misconfigured flavor")
 
 type ClusterQueueOptions struct {
 	PrintFlags *genericclioptions.PrintFlags
@@ -319,7 +314,7 @@ func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]k
 	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;)*(\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;?$`)
 	for _, r := range resources {
 		if !regex.MatchString(r) {
-			return resourceGroups, errInvalidResourcesSpec
+			return resourceGroups, errors.New("invalid resources specification")
 		}
 
 		rg, err := toResourceGroup(r, quotaType)
@@ -391,7 +386,7 @@ func toResourceQuota(spec, quotaType string) (kueue.ResourceQuota, error) {
 
 	quantity, err := resource.ParseQuantity(quota)
 	if err != nil {
-		return kueue.ResourceQuota{}, errInvalidResourceQuota
+		return kueue.ResourceQuota{}, errors.New("invalid resource quota")
 	}
 
 	switch quotaType {
@@ -423,6 +418,10 @@ func mergeResourcesByFlavor(resourceGroups []kueue.ResourceGroup) ([]kueue.Resou
 		flavorName := rg.Flavors[0].Name
 		idx, found := indexByFlavor[flavorName]
 		if !found {
+			// --nominal-quota entries come first, so a limit entry here has no nominal quota.
+			if quotaType := quotaTypeOf(rg.Flavors[0].Resources[0]); quotaType != nominalQuota {
+				return mergedResources, fmt.Errorf("%w %q: flavor is set in --%s but has no matching --%s", errMisconfiguredFlavor, flavorName, quotaType, nominalQuota)
+			}
 			mergedResources = append(mergedResources, rg)
 			indexByFlavor[flavorName] = index
 			index++
@@ -506,29 +505,30 @@ func quotaTypeOf(rq kueue.ResourceQuota) string {
 func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
 	var mergedResources []kueue.ResourceGroup
 
-	coveredResources := sets.New[corev1.ResourceName]()
 	for _, rg := range resourceGroups {
 		resourceGroupResources := sets.New(rg.CoveredResources...)
+		// Merged groups are disjoint, so a group equal to rg is the only one sharing resources with it.
 		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
-			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
+			return resourceGroupResources.HasAny(existing.CoveredResources...)
 		})
-		if idx != -1 {
-			// The webhook requires resources in coveredResources order.
-			covered := mergedResources[idx].CoveredResources
-			for i := range rg.Flavors {
-				slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
-					return cmp.Compare(slices.Index(covered, a.Name), slices.Index(covered, b.Name))
-				})
-			}
-			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
+		if idx == -1 {
+			mergedResources = append(mergedResources, rg)
 			continue
 		}
 
-		if coveredResources.HasAny(rg.CoveredResources...) {
-			return mergedResources, errInvalidResourceGroup
+		existing := mergedResources[idx]
+		if !resourceGroupResources.Equal(sets.New(existing.CoveredResources...)) {
+			return mergedResources, fmt.Errorf("invalid resource group: flavor %q covers %v but flavor %q covers %v; flavors that share a resource must cover the same resources",
+				rg.Flavors[0].Name, rg.CoveredResources, existing.Flavors[0].Name, existing.CoveredResources)
 		}
-		mergedResources = append(mergedResources, rg)
-		coveredResources.Insert(rg.CoveredResources...)
+
+		// The webhook requires resources in coveredResources order.
+		for i := range rg.Flavors {
+			slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
+				return cmp.Compare(slices.Index(existing.CoveredResources, a.Name), slices.Index(existing.CoveredResources, b.Name))
+			})
+		}
+		mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 	}
 
 	return mergedResources, nil

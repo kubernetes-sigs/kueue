@@ -15,6 +15,18 @@ aliases:
     - sohankunkerkar
     - amy
     - j-skiba
+  kueuectl-approvers:
+    - mbobrovskyi
+  kueuectl-reviewers:
+    - henry3260
+  deployment-integration-approvers:
+    - mbobrovskyi
+  leaderworkerset-integration-approvers:
+    - mbobrovskyi
+  pod-integration-approvers:
+    - mbobrovskyi
+  statefulset-integration-approvers:
+    - mbobrovskyi
   dependency-approvers:
     - mbobrovskyi
     - pbundyra

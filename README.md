@@ -83,7 +83,7 @@ Install the latest release, or see the [other installation options, including He
 
 ```shell
 kubectl apply --server-side -f \
-  https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.3/manifests.yaml
+  https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.4/manifests.yaml
 ```
 
 Then follow the **[quick start](https://kueue.sigs.k8s.io/docs/getting-started/quick-start/)** to set up resource flavors, queues and quota, and run your first job.

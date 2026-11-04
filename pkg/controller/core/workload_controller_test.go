@@ -903,6 +903,127 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    4 * time.Minute,
 		},
+		"Stale workload level wait for pods ready has no effect": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: false,
+				features.DisableWaitForPodsReady:       true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 300}).
+				Admission(&kueue.Admission{}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Obj(),
+			waitForPodsReady:    nil,
+			wantUnderlyingCause: "",
+			wantRecheckAfter:    0,
+		},
+		"PodsReady=False/WorkloadWaitForStart with spec timeout only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WorkloadWaitForStart with annotation timeout only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 300}`,
+					},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		// Both the spec and the legacy annotation are set to different timeouts; the spec takes
+		// precedence. The spec's 300s yields a 4m recheck, whereas the annotation's 60s (or the
+		// cluster-level 1m) would yield 0, so the expectation proves the spec wins.
+		"PodsReady=False/WorkloadWaitForStart with spec and annotation; spec takes precedence": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 60}`,
+					},
+				},
+				Spec: kueue.WorkloadSpec{
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1085,6 +1206,62 @@ type reconcileTestCase struct {
 	wantResult                reconcile.Result
 	reconcilerOpts            []Option
 	beforeReconcile           func(context.Context, client.Client, *qcache.Manager)
+}
+
+func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
+	cases := map[string]struct {
+		tasEnabled bool
+		create     bool
+	}{
+		"pending update with TAS enabled":  {tasEnabled: true},
+		"pending create with TAS enabled":  {tasEnabled: true, create: true},
+		"pending update with TAS disabled": {},
+		"pending create with TAS disabled": {create: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.tasEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{})
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).Obj()
+			setupClusterQueue(ctx, t, cl, queues, cache, cq, false)
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to scheduler cache: %v", err)
+			}
+			setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+			pending := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Request(corev1.ResourceCPU, "2").Obj()
+			assumed := (&utiltestingapi.WorkloadWrapper{Workload: *pending.DeepCopy()}).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), time.Now()).Obj()
+			if !cache.AddOrUpdateWorkload(ctx, log, assumed) {
+				t.Fatal("adding scheduler assumption")
+			}
+			if tc.create {
+				r.handleCreate(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: pending})
+			} else {
+				updated := pending.DeepCopy()
+				updated.Annotations = map[string]string{"test": "pending update"}
+				r.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: pending, ObjectNew: updated})
+			}
+			if !cache.IsAdded(*workload.NewInfo(log, assumed)) {
+				t.Fatal("stale pending event removed assumed reservation")
+			}
+			usage, err := cache.Usage(cq)
+			if err != nil {
+				t.Fatalf("reading quota usage: %v", err)
+			}
+			if usage.ReservingWorkloads != 1 || len(usage.ReservedResources) != 1 ||
+				len(usage.ReservedResources[0].Resources) != 1 || usage.ReservedResources[0].Resources[0].Total.Cmp(resource.MustParse("2")) != 0 {
+				t.Fatalf("pending event changed assumed quota: %+v", usage)
+			}
+		})
+	}
 }
 
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {

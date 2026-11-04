@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +309,40 @@ func TestAssignFlavors(t *testing.T) {
 		"single flavor, fits tainted flavor with toleration": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("taint_and_toleration").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj(),
+
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "taint_and_toleration", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+					Count: 1,
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{Flavor: "taint_and_toleration", Mode: Fit},
+					},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+				}}},
+			},
+		},
+		"single flavor, fits tainted flavor with toleration, PodSet tolerations have spare capacity": {
+			wlPods: []kueue.PodSet{
+				withSpareTolerationCapacity(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Toleration(corev1.Toleration{Key: "other", Operator: corev1.TolerationOpExists}).
+					Obj()),
 			},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
@@ -5211,6 +5246,13 @@ func TestAssignFlavors(t *testing.T) {
 				}, tc.infoOptions...)
 				wlInfo.FlavorScanState = tc.flavorScanState
 
+				// cmp only compares up to len, so a write into spare capacity is invisible to a Workload diff.
+				tolerationsBefore := make([][]corev1.Toleration, len(tc.wlPods))
+				for i := range tc.wlPods {
+					ts := tc.wlPods[i].Template.Spec.Tolerations
+					tolerationsBefore[i] = slices.Clone(ts[:cap(ts)])
+				}
+
 				cache := schdcache.New(utiltesting.NewFakeClient())
 				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
 					t.Fatalf("Failed to add CQ to cache")
@@ -5294,9 +5336,23 @@ func TestAssignFlavors(t *testing.T) {
 				}
 
 				flexAssertConsidered(t, tc.wantAssignment, assignment, cmpOpts...)
+
+				for i := range tc.wlPods {
+					ts := tc.wlPods[i].Template.Spec.Tolerations
+					if diff := cmp.Diff(tolerationsBefore[i], ts[:cap(ts)]); diff != "" {
+						t.Errorf("AssignFlavors wrote into the tolerations of PodSet %d (-before,+after):\n%s", i, diff)
+					}
+				}
 			})
 		}
 	}
+}
+
+// withSpareTolerationCapacity leaves room past len in the PodSet's tolerations,
+// where an append to them would write without reallocating.
+func withSpareTolerationCapacity(ps kueue.PodSet) kueue.PodSet {
+	ps.Template.Spec.Tolerations = slices.Grow(ps.Template.Spec.Tolerations, 1)
+	return ps
 }
 
 // We have 3 flavors: uno, due, tre. Each has 10 compute and 10 gpu.
@@ -9414,6 +9470,130 @@ func TestResolveNoFitReason(t *testing.T) {
 			assignment.ResolveNoFitReason(tc.cq)
 			if diff := cmp.Diff(tc.want, assignment.NoFitReason); diff != "" {
 				t.Errorf("unexpected NoFitReason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAssignment_DemoteTo(t *testing.T) {
+	nonFitStatus := *NewStatus("insufficient quota")
+	cases := map[string]struct {
+		assignment             Assignment
+		targetMode             FlavorAssignmentMode
+		wantPodSets            []PodSetAssignment
+		wantRepresentativeMode FlavorAssignmentMode
+	}{
+		"lowers Fit and DeferredFit flavors to Preempt": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "leader",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+					{
+						Name:   "worker",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "flavor-a", Mode: DeferredFit},
+							corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+						},
+					},
+				},
+			},
+			targetMode: Preempt,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name: "leader",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+				{
+					Name:   "worker",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: Preempt},
+						corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: Preempt,
+		},
+		"does not promote NoFit flavors or NoFit representative mode": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "ps-fit",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+					{
+						Name:   "ps-nofit",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "flavor-a", Mode: NoFit},
+							corev1.ResourceMemory: {Name: "flavor-a", Mode: Fit},
+						},
+					},
+				},
+			},
+			targetMode: Preempt,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name: "ps-fit",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+				{
+					Name:   "ps-nofit",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "flavor-a", Mode: NoFit},
+						corev1.ResourceMemory: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: NoFit,
+		},
+		"no-op when all modes are already below target": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:   "main",
+						Status: nonFitStatus,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+						},
+					},
+				},
+			},
+			targetMode: Fit,
+			wantPodSets: []PodSetAssignment{
+				{
+					Name:   "main",
+					Status: nonFitStatus,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-a", Mode: Preempt},
+					},
+				},
+			},
+			wantRepresentativeMode: Preempt,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assignment := tc.assignment
+			assignment.DemoteTo(tc.targetMode)
+			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantRepresentativeMode {
+				t.Errorf("RepresentativeMode() = %v, want %v", gotMode, tc.wantRepresentativeMode)
+			}
+			if diff := cmp.Diff(tc.wantPodSets, assignment.PodSets, cmp.AllowUnexported(Status{}, FlavorAssignment{})); diff != "" {
+				t.Errorf("PodSets mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

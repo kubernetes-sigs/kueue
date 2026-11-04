@@ -338,6 +338,8 @@ This section captures all known limitations and incompatibilities introduced by,
 
 A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
 
+This limitation applies to the `kueue.x-k8s.io/job-min-parallelism` mechanism. Partial scale-up via `kueue.x-k8s.io/elastic-job-scale-up-strategy: partial` (see [KEP-12100](../12100-partial-scaleup-for-elasticjob/README.md)) does not mutate `.spec.parallelism` and is compatible with `ElasticJob`.
+
 **Rationale**
 
 * `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
@@ -354,7 +356,7 @@ To avoid delayed or implicit validation errors, any Kueue-integrated Job that su
 
 ```yaml
 annotations:
-  kueue.x-k8s.io/dynamically-sized-job: "true"
+  kueue.x-k8s.io/elastic-job: "true"
   kueue.x-k8s.io/job-min-parallelism: "1"
 ```
 
@@ -374,11 +376,22 @@ Scaling up and down for `batch/v1.Job` will be the initial phase of the MVP, as 
 
 #### Scale Up
 
+On scale-up, Kueue creates a new Workload slice with the same PodSet name.
+Its `spec.podSets[].count` is `min(.spec.parallelism, .spec.completions)`, or `.spec.parallelism` when `.spec.completions` is unset.
+
+The Job API limits how the count can grow:
+- `NonIndexed` Job: raise `.spec.parallelism`. When `.spec.completions` is set, the count cannot exceed it.
+- `NonIndexed` Job without `.spec.completions` (a work-queue Job): the count follows `.spec.parallelism`, but Kubernetes creates no new Pods once any Pod has succeeded, so a scale-up only adds Pods before the first success.
+- `Indexed` Job: to grow beyond `.spec.completions`, raise `.spec.completions` and `.spec.parallelism` together, to the same new value.
+
 1. Create a `batch/v1.Job` with workload-slice enablement and an initial `parallelism` value greater than 0.
 2. Verify that a corresponding `Workload` is created and admitted, and that the Job’s pods are in the `Running` state, matching the specified parallelism.
-3. Increase the Job’s `parallelism` value to trigger a scale-up event.
+3. Increase the Job's `.spec.parallelism` (for an `Indexed` Job growing beyond `.spec.completions`, also `.spec.completions`) to trigger a scale-up event.
 4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is marked as `Finished`.
-5. Observe that the total number of running pods increases to match the updated parallelism, with the original pods continuing to run without disruption.
+5. Observe that the total number of running pods increases to match the new PodSet count, with the original pods continuing to run without disruption.
+
+Partial admission of a replacement slice when quota is insufficient is covered in
+[KEP-12100](../12100-partial-scaleup-for-elasticjob/README.md).
 
 ### Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration
 This phase mirrors the steps from Phase 1 but is adapted specifically for RayCluster workloads, taking into account their autoscaling behavior and internal lifecycle management.

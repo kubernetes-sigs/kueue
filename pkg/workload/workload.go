@@ -1765,9 +1765,14 @@ func ShouldSkipClusterNomination(acs *kueue.AdmissionCheckState, wl *kueue.Workl
 
 func PriorityChanged(log logr.Logger, old, new *kueue.Workload) bool {
 	// Updates to Pod Priority are not supported.
-	if IsPodPriorityClass(old) || !IsWorkloadPriorityClass(new) {
+	if IsPodPriorityClass(old) || IsPodPriorityClass(new) {
 		return false
 	}
+
+	if !IsWorkloadPriorityClass(new) && !features.Enabled(features.PriorityBoost) {
+		return false
+	}
+
 	// Check if priority class reference changed.
 	if workloadpatching.PriorityClassName(new) != "" &&
 		workloadpatching.PriorityClassName(old) != workloadpatching.PriorityClassName(new) {

@@ -294,7 +294,7 @@ data:
     apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     featureGates:
-      ManagedJobsNamespaceSelectorAlwaysRespected: true
+      PartialAdmission: true
   ...
 ```
 

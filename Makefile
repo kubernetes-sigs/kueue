@@ -114,7 +114,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.20.3
+RELEASE_VERSION=v0.20.4
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -273,7 +273,7 @@ image-pushing-periodic:
 
 .PHONY: image-pushing-postsubmit
 image-pushing-postsubmit:
-	$(MAKE) -j3 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+	$(MAKE) -j2 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
@@ -406,6 +406,9 @@ $(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS
 $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 $(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
 @$(call set-release-branch-images)
+endef
+
+define _cli_artifacts_recipe
 CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" BUILD_NPROCS="$(CLI_BUILD_NPROCS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 endef
 
@@ -418,6 +421,7 @@ artifacts: verify-git-tag clean-artifacts kustomize helm yq ## Generate local ar
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
+	$(_cli_artifacts_recipe)
 
 .PHONY: release-artifacts
 release-artifacts: ## Generate release artifacts.

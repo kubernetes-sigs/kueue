@@ -144,7 +144,26 @@ yq: gomod-download-tools ## Download yq locally if necessary.
 
 .PHONY: helm
 helm: gomod-download-tools ## Download helm locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install helm.sh/helm/v4/cmd/helm@$(HELM_VERSION)
+	@if [ "$$($(HELM) version --template '{{.Version}}' 2>/dev/null)" = "$(HELM_VERSION)" ]; then exit 0; fi; \
+	echo "Downloading helm $(HELM_VERSION) locally..."; \
+	platform="$$($(GO_CMD) env GOOS)-$$($(GO_CMD) env GOARCH)"; \
+	case "$$platform" in \
+		linux-amd64|linux-arm64|linux-ppc64le|linux-s390x|darwin-amd64|darwin-arm64) ;; \
+		*) echo "Unsupported helm platform: $$platform" >&2; exit 1 ;; \
+	esac; \
+	tmp_dir=$$(mktemp -d); \
+	trap 'rm -r "$$tmp_dir"' EXIT; \
+	archive="helm-$(HELM_VERSION)-$$platform.tar.gz"; \
+	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time 300 -o "$$tmp_dir/$$archive" "https://get.helm.sh/$$archive"; \
+	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time 300 -o "$$tmp_dir/$$archive.sha256sum" "https://get.helm.sh/$$archive.sha256sum"; \
+	if command -v sha256sum >/dev/null; then \
+		(cd "$$tmp_dir" && sha256sum -c "$$archive.sha256sum"); \
+	else \
+		(cd "$$tmp_dir" && shasum -a 256 -c "$$archive.sha256sum"); \
+	fi || exit 1; \
+	tar -xzf "$$tmp_dir/$$archive" -C "$$tmp_dir"; \
+	mkdir -p "$(BIN_DIR)"; \
+	install -m 0755 "$$tmp_dir/$$platform/helm" "$(HELM)"
 
 .PHONY: helm-unittest-plugin
 helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
