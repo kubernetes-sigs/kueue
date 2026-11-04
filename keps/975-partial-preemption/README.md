@@ -65,9 +65,8 @@ PodSet to a target count, instead of evicting the whole Workload.
 Kueue evicts the Pods above the target without changing the job's spec, and keeps the Pods that the
 job recreates gated until quota is available again.
 The scheduler selects the largest target count that lets the preemptor fit, so it reclaims only the
-replicas needed. The victim keeps running at a smaller size; Kueue evicts it whole only when
-shrinking cannot free enough quota in time. The feature is alpha and gated by the
-`PartialPreemption` feature gate; when the gate is off, behavior is identical to today.
+replicas needed. The victim keeps running at a smaller size. Kueue evicts it whole only when
+shrinking cannot free enough quota in time.
 
 ## Motivation
 
