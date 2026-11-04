@@ -126,10 +126,10 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-	committedVictims []client.ObjectKey,
+	committedVictims []workload.Reference,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		var preemptionVictims []client.ObjectKey
+		var preemptionVictims []workload.Reference
 		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, simulator.WithCommittedPreemptionVictims(committedVictims))
 		if err != nil {
 			return nil, nil, nil, err
@@ -184,7 +184,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
-	committedVictims []client.ObjectKey,
+	committedVictims []workload.Reference,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
@@ -200,7 +200,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 		}
 		if len(committedVictims) > 0 {
 			cvs := sets.New(committedVictims...)
-			preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl client.ObjectKey) bool {
+			preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl workload.Reference) bool {
 				return cvs.Has(wl)
 			})
 		}

@@ -1684,9 +1684,9 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
 
-	committedVictims := make([]client.ObjectKey, 0, len(preemptedWorkloads))
+	committedVictims := make([]workload.Reference, 0, len(preemptedWorkloads))
 	for _, wl := range preemptedWorkloads {
-		committedVictims = append(committedVictims, client.ObjectKeyFromObject(wl.Obj))
+		committedVictims = append(committedVictims, workload.Key(wl.Obj))
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
