@@ -657,6 +657,10 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [ ] Re-evaluate integration frameworks leveraging `ElasticJobsViaWorkloadSlices`.
 * [ ] Re-evaluate MultiKueue JobAdapter Sync routine for elastic-specific functionality ([#7065](https://github.com/kubernetes-sigs/kueue/issues/7065)).
 * [ ] Re-evaluate cache-level quota accounting during slice replacement to avoid temporary double-counting.
+* [ ] Re-evaluate the scale-down approach. Today a scale-down lowers the PodSet count of the admitted `Workload`
+  in place, so the admission in the status (counts, resource usage, topology assignment) stays larger than the spec.
+  Alternatives are reducing the admission in a follow-up status update, creating a new `Workload` slice
+  as for scale-up, or reporting the removed Pods as `ReclaimablePods`.
 
 ### `ElasticJobsViaWorkloadSlicesWithTAS` Graduation Criteria
 
@@ -690,6 +694,14 @@ SparkApplication support is gated separately via `ElasticJobsViaWorkloadSlicesFo
 #### Beta
 
 * [ ] Re-evaluate reading dynamic allocation settings from `spec.sparkConf`.
+* [ ] Re-evaluate the scale-down approach for `SparkApplication` (updating the admitted `Workload` in place
+  or creating a new `Workload` slice), as listed in the `ElasticJobsViaWorkloadSlices` GA criteria.
+
+#### GA (Stable)
+
+* [ ] Re-evaluate taking the executor count from the executor Pods, based on the discussion with the Spark operator
+  community about exposing the current number of executors in the `SparkApplication` spec or status, as KubeRay
+  does with the worker group `replicas` ([kubeflow/spark-operator#3283](https://github.com/kubeflow/spark-operator/issues/3283)).
 
 ## Implementation History
 
