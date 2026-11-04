@@ -17,13 +17,10 @@ limitations under the License.
 package kueuectl
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -62,7 +59,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 			})
 
 			ginkgo.By("Stop the created Workload", func() {
-				executeKueuectl(cfg, []string{"stop", "workload", wl.Name, "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
+				executeKueuectl(cfg, []string{"stop", "workload", wl.Name, "--namespace", ns.Name})
 			})
 
 			ginkgo.By("Check that the Workload successfully stopped", func() {
@@ -166,7 +163,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop created ClusterQueue", func() {
-					executeKueuectl(cfg, append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...), withClock(testingclock.NewFakeClock(time.Now())))
+					executeKueuectl(cfg, append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...))
 				})
 
 				ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {

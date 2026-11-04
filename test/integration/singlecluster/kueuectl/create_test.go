@@ -19,7 +19,6 @@ package kueuectl
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -27,7 +26,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -59,10 +57,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			lqName := "lq"
 
 			ginkgo.By("Create a local queue with full flags", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name},
-					withClock(testingclock.NewFakeClock(time.Now())),
-					withCommandOutput(commandOutputCombined),
-				)
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
