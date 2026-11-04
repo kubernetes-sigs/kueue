@@ -26,11 +26,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ImageBuildTest(unittest.TestCase):
     def build_images(self, fail=""):
+        """Run real Make recipes with a recording stub and optional failure injection."""
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             docker = directory / "docker"
             docker.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import fcntl, json, os, pathlib, sys, time
 args = sys.argv[1:]
 with pathlib.Path(os.environ["IMAGE_TEST_LOG"]).open("a") as log:
     log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER")}) + "\\n")
@@ -40,8 +41,15 @@ if args[:2] == ["buildx", "create"]:
     print("test-builder")
 elif args[:2] == ["buildx", "build"]:
     assert os.environ["BUILDX_BUILDER"] == "test-builder"
-    if os.environ["IMAGE_TEST_FAIL"] == "build" and "./cmd/importer/Dockerfile" in args:
-        sys.exit(1)
+    with pathlib.Path(os.environ["IMAGE_TEST_LOCK"]).open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit("Overlapping image build")
+        # Keep simulated builds active long enough to detect overlapping recipes.
+        time.sleep(0.2)
+        if os.environ["IMAGE_TEST_FAIL"] == "build" and "./cmd/importer/Dockerfile" in args:
+            sys.exit(1)
 elif args == ["buildx", "rm", "test-builder"]:
     if os.environ["IMAGE_TEST_FAIL"] == "cleanup":
         sys.exit(1)
@@ -50,7 +58,8 @@ else:
 ''')
             docker.chmod(0o755)
             log = directory / "commands.jsonl"
-            env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail}
+            env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
+                   "IMAGE_TEST_LOCK": str(directory / "build.lock")}
             # The image pipeline must remain sequential even under parallel verify.
             # Execute the real parent and component Makefiles, replacing only Docker.
             result = subprocess.run(
