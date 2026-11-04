@@ -14,6 +14,7 @@
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Terminology](#terminology)
   - [Two-phase model: request != release](#two-phase-model-request--release)
   - [Workload API](#workload-api)
   - [Opt-in annotation](#opt-in-annotation)
@@ -253,6 +254,18 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 
 ## Design Details
 
+### Terminology
+
+- **Floor** — a PodSet's `preemptionMinCount`, the lowest count partial preemption shrinks it to.
+- **Target** — a PodSet's `preemptionTargetCount`, the count Kueue shrinks it to.
+- **In-flight target** — a target with Pods still above it.
+- **Request phase** — Kueue sets the target and evicts the Pods above it; the quota stays charged.
+- **Release phase** — no Pod above the target is left, so Kueue releases their quota through
+  `status.reclaimablePods`.
+- **Reactive downscaling** — Kueue evicts the Pods; the job's runtime does not shrink itself.
+- **Proactive downscaling** — the job's runtime lowers its own spec count to shrink, which the job
+  framework must adapt to; it is not the default (see [Proactive downscaling](#proactive-downscaling)).
+
 ### Two-phase model: request != release
 
 The target and the quota release are intentionally decoupled to avoid any over-subscription window:
@@ -339,9 +352,13 @@ Users set the floor through the job's own minimum, which the integration copies:
 | Integration | PodSet | `preemptionMinCount` |
 |---|---|---|
 | RayCluster, RayJob, RayService | each worker group with `numOfHosts` of 1 | `minReplicas`, 0 if unset |
-| SparkApplication | executors, with `spec.dynamicAllocation.enabled` | `minExecutors`, or `spec.executor.instances` if unset |
+| SparkApplication | executors, with `spec.dynamicAllocation.enabled` | `minExecutors`, 0 if unset |
 
 The Ray head, the RayJob submitter and the Spark driver never get a floor, so they never shrink.
+
+An integration copies the floor only when it creates the Workload or a scale-up slice; a later change
+to the job's minimum takes effect on the next slice, not on the admitted Workload. The webhook
+therefore rejects changing `preemptionMinCount` on an admitted Workload (see [Validation](#validation)).
 
 ### Scheduler / Preemption
 
@@ -366,7 +383,10 @@ Workload carries the opt-in annotation with value `"true"` and is elastic, and e
 has an effective used count above its `preemptionMinCount`. That PodSet must not have a topology
 assignment. Otherwise the candidate falls back to whole eviction; shrinking several PodSets is a
 Beta criterion. The used count comes from the Workload's usage; an existing lower
-`preemptionTargetCount` is used as the effective count for simulation.
+`preemptionTargetCount` is used as the effective count for simulation. A Workload whose
+`PartiallyPreempted` condition is `False` with reason `Timeout` is no longer eligible and is evicted
+whole rather than shrunk again. A Workload that has not yet reached PodsReady is likewise evicted
+whole rather than shrunk.
 
 #### Candidate ordering
 
@@ -422,20 +442,26 @@ segment-by-segment, the scheduler fully exhausts one segment before moving to th
 reaches higher-disruption candidates while lower-disruption ones can still contribute. This mirrors
 how whole-eviction preemption works, just extended across multiple rounds.
 
+A candidate that carries an in-flight `preemptionTargetCount` appears in both halves: its replicas
+above the target sit in the evicted/shrinking segment and are resumed in the leading pass, while its
+replicas below the target sit in the matching non-evicted segment and are shed in the multi-round
+walk. It is the one candidate that lives at both ends of the layout.
+
 Within each multi-round segment, candidates are ordered by `used - preemptionMinCount` (capped by
 any in-flight target), so the one that can shed the most is visited first. This key is recomputed
 each cycle, so a victim already shrunk in a prior cycle falls behind its peers and the load spreads
 across victims.
 
-The `partialPreemption.enableStrictPriorityPreemption` flag controls whether rounds within a segment
-cross priority boundaries. When off (the default), a round walks the entire segment regardless of
-priority, spreading the reduction across all priorities and avoiding over-reducing a single
-low-priority victim. When on, a round is bounded to the priority of the first candidate returned and
-only advances to higher-priority candidates once the lower-priority ones in the segment are
-exhausted.
+The `partialPreemption.disableStrictPriorityPreemption` flag controls whether rounds within a segment
+cross priority boundaries. When off (the default), a round is bounded to the priority of the first
+candidate returned and only advances to higher-priority candidates once the lower-priority ones in
+the segment are exhausted, so partial preemption reduces lower-priority victims first, as
+whole-eviction preemption does. When on, a round walks the entire segment regardless of priority,
+spreading the reduction across all priorities and avoiding over-reducing a single low-priority
+victim.
 
 With the gate off the walk degenerates to the single forward pass of today's whole-eviction
-preemption, and the segment layout and `enableStrictPriorityPreemption` have no effect.
+preemption, and the segment layout and `disableStrictPriorityPreemption` have no effect.
 
 #### Target selection
 
@@ -471,39 +497,70 @@ victim's admission status to set `preemptionTargetCount`, and sets the `Partiall
 condition to `True`. Its reason and message are the same as for the `Preempted` condition, plus the
 PodSet and target count. Kueue emits a `PartiallyPreempted` event on the victim and a
 `PreemptedWorkload` event on the preemptor, and increments
-`kueue_partially_preempted_workloads_total`. Quota is not released here (that is the release phase
-of the two-phase model).
+`kueue_partially_preempted_workloads_total`. Kueue records the event and the metric only when it
+newly sets or lowers the target; a cycle that reuses an unchanged in-flight target does neither.
+Quota is not released here (that is the release phase of the two-phase model).
 
 #### No-fit behavior
 
-Partial targets are issued only when the resulting target set makes the preemptor fit. If the
-preemptor still does not fit, tentative partial and whole-eviction targets are discarded, no
-preemption is issued, and the preemptor remains `Pending` for a later scheduling cycle.
+Partial targets are issued only when the resulting target set makes the preemptor fit. The scheduler
+reuses the existing over-preemption trimming: once it has a target set that frees enough quota,
+`fillBackWorkloads` walks the targets and restores each candidate to the largest count that still
+lets the preemptor fit, so a victim gives up only what the preemptor needs and is evicted whole only
+when shrinking is not enough. With partial preemption enabled, `fillBackWorkloads` starts from the
+last target rather than the second-to-last: whole-eviction preemption skips the last target because
+it is always required, but a partial last victim can still be restored to a count above its floor.
+If even reducing every eligible candidate to its floor does not free enough quota, the tentative
+partial and whole-eviction targets are discarded, no preemption is issued, and the preemptor remains
+`Pending` for a later scheduling cycle.
 
 #### Example
 
-All victims below belong to the same ClusterQueue as the arriving preemptor, so they all fall in
-the same-queue segment; no hierarchical or cross-queue priority advantage applies, and the ordering
-shown below is the priority tie-break within that single segment.
+All victims below belong to the same ClusterQueue as the arriving preemptor, so they share the
+same-queue segment; no hierarchical or cross-queue priority advantage applies.
+`disableStrictPriorityPreemption` is off (the default), and each victim caps a single round's
+reduction at a max-reclaimed-count of 3.
 
-The ClusterQueue is fully used by three partial-preemptible victims: `L1` and `L2` at low priority
-and `H` at medium priority. `L1` can shed 4 executors above its `preemptionMinCount`, and `L2` can
-shed 3. A higher-priority preemptor arrives, `enableStrictPriorityPreemption` is on, and each
-victim's annotation caps a single round's reduction at a max-reclaimed-count of 2. The three stages
-interact as follows:
+The ClusterQueue is fully used by four partial-preemptible victims:
 
-1. **Ordering** puts the low-priority band `{L1, L2}` ahead of `H`; within the band the
-   shed-count tie-break puts `L1` ahead of `L2`. Order: `L1`, `L2`, then `H`.
-2. **Consumption** with `enableStrictPriorityPreemption` on keeps the walk inside the low band, so
-   `H` is never considered while `L1`/`L2` can still contribute. Round 1 shrinks `L1` then `L2`, each
-   by the per-round cap of 2. If that is still short, `L2` being partial triggers a second round over
-   the same band; round 2 returns to `L1` first (its reclaimable count is still highest).
-3. **Target selection** in round 2 lowers `L1`'s tentative target from round 1 by up to 2, stopping
-   at the largest target that makes the preemptor fit.
+| Victim | priority | used | `preemptionMinCount` | in-flight target |
+|---|---|---|---|---|
+| `L1` | low    | 5 | 2 | — |
+| `L2` | low    | 5 | 3 | — |
+| `M`  | medium | 5 | 1 | 3 (still draining) |
+| `H`  | high   | 5 | 2 | — |
 
-`H` keeps running untouched. While `L1`/`L2` have in-flight targets whose executors have not yet
-exited, ordering criterion 1 keeps them at the front across the scheduling cycles the reduction takes
-to converge, so the preemptor resumes the same victims instead of starting new ones.
+`M` already carries an in-flight `preemptionTargetCount` of 3 from an earlier cycle whose Pods have
+not all exited. A higher-priority preemptor arrives needing 14.
+
+**Ordering.** Criterion 1 puts `M`'s in-flight reduction at the front. The rest sort by priority,
+then by how much they can still shed (`used - preemptionMinCount`): the low band `L1` (3) before
+`L2` (2), then `H`. `M` splits across two segments: its replicas above the in-flight target 3 join
+the evicted/shrinking segment, walked once up front, while its replicas below target 3 join the
+non-evicted segment at medium priority. So `M` is visited both first and last.
+
+**Consumption and target selection**, step by step, with `still needed` starting at 14:
+
+| Step | Visit | Reclaimed this step | Still needed |
+|---|---|---|---|
+| 1 | `M` above target | resume to target 3: `used - target` = 5 − 3 = **2** | 12 |
+| 2 | `L1` | shrink by cap: min(`used - min`, 3) = min(3, 3) = **3**, reaching floor 2 | 9 |
+| 3 | `L2` | shrink by cap: min(2, 3) = **2**, reaching floor 3 | 7 |
+| 4 | `L1` | at floor, now a whole-eviction candidate: reclaim its floor **2** | 5 |
+| 5 | `L2` | at floor, whole-evicted: reclaim its floor **3** | 2 |
+| 6 | `M` below target | shrink to floor: min(`used - min`, 3) = min(3 − 1, 3) = **2** | 0, the preemptor fits |
+
+With `disableStrictPriorityPreemption` off (the default), steps 4 and 5 stay inside the low band and
+whole-evict `L1` and `L2` once they reach their floor, before the walk advances to medium or high
+priority, so `H` is never touched. With the flag on a step is not bounded by priority, so the walk
+reaches `H` instead of returning to the low band.
+
+Step 6 shows `M`'s dual role. Its above-target replicas were resumed in step 1 from the
+evicted/shrinking segment, and only now, after the low band is exhausted, is its below-target part
+shed down to its floor of 1 from the non-evicted segment. `M` keeps running at its floor, and `H`
+keeps running untouched. While `M`, `L1` and `L2` have in-flight targets whose Pods have not yet
+exited, ordering criterion 1 keeps them at the front across the scheduling cycles the reduction
+takes to converge, so the preemptor resumes the same victims instead of starting new ones.
 
 ### Shrinking the PodSet
 
@@ -535,8 +592,10 @@ Workload even while a scale-up slice for the job is pending.
 After the release, the Workload runs fewer Pods than its job requests. The target stays set and
 keeps capping ungating until the Workload is replaced or finishes. Currently, Kueue creates a
 scale-up slice only when the job's count exceeds the Workload's count or its admitted count. Kueue
-also creates one after the release, and partial scale-up (KEP-12100) uses the count after the
-release as its baseline. The job then grows back through `ElasticJobsViaWorkloadSlices`: with the
+also creates one after the release: the trigger is the effective count (the admitted count minus
+the reclaimed Pods) dropping below the spec count once no target is in flight, so the admission
+record is never rewritten. Partial scale-up (KEP-12100) uses the count after the release as its
+baseline. The job then grows back through `ElasticJobsViaWorkloadSlices`: with the
 `partial` scale-up strategy as quota frees, otherwise once its whole size fits.
 
 - While Pods above a target are still running, the scheduler does not admit a scale-up slice for
@@ -549,7 +608,8 @@ release as its baseline. The job then grows back through `ElasticJobsViaWorkload
 ### Timeout
 
 Kueue starts the clock when it sets the `PartiallyPreempted` condition to `True`. Lowering the
-target later does not restart it, and the timeout never expires before the evicted Pods' longest
+target while the condition is still `True` does not restart it; lowering it again after the quota
+was released starts a new clock. The timeout never expires before the evicted Pods' longest
 `terminationGracePeriodSeconds` has passed. If Pods above the target are still present when
 `partialPreemption.timeout` expires, Kueue sets the condition to `False` with reason `Timeout`, and
 the scheduler treats the victim as a whole-eviction candidate. If a preemptor still needs the quota,
@@ -563,6 +623,7 @@ stateDiagram-v2
     Shrinking --> TimedOut: timeout expires, Timeout
     TimedOut --> Released: no Pod above the target
     TimedOut --> [*]: evicted whole if a preemptor still needs the quota
+    Released --> Shrinking: target lowered again, new clock
     Released --> [*]
 ```
 
@@ -585,10 +646,10 @@ type PartialPreemption struct {
     // +optional
     Timeout *metav1.Duration `json:"timeout,omitempty"`
 
-    // enableStrictPriorityPreemption bounds each round of partial preemption to the priority of
-    // its first candidate. Defaults to false.
+    // disableStrictPriorityPreemption lets each round of partial preemption cross priority
+    // boundaries instead of being bounded to the priority of its first candidate. Defaults to false.
     // +optional
-    EnableStrictPriorityPreemption *bool `json:"enableStrictPriorityPreemption,omitempty"`
+    DisableStrictPriorityPreemption *bool `json:"disableStrictPriorityPreemption,omitempty"`
 }
 ```
 
@@ -637,7 +698,8 @@ Configuration validation rejects a `partialPreemption.timeout` that is not posit
 | `WaitForPodsReady` | A shrink keeps the Alpha integrations' Workloads ready; see [Integrations](#integrations). |
 | `PrioritizePreemptorWorkloads` | Recommended, so the waiting preemptor is considered before the victim's scale-up slice. |
 | `ConfigurablePreemptions` | In Alpha, victims selected by a `PreemptionConfig` rule are evicted whole. Shrinking them is a Beta criterion. |
-| Fair Sharing | The fair-sharing strategies simulate the victim at its target count, as classical preemption does. |
+| Fair Sharing | A strategy pops each candidate from its ordered list; a candidate that is only partially preempted is simulated at its target count and reinserted, so a later round can reduce it further, while a whole-evicted candidate is removed. |
+| `AdmissionFairSharing` | Orders candidates by LocalQueue usage before priority; the partial-preemption ordering criteria apply only within that existing order. |
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
 | Topology-Aware Scheduling | In Alpha, a PodSet with a topology assignment is not eligible, so partial preemption never applies in a ClusterQueue that uses TAS. |
