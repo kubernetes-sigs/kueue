@@ -59,10 +59,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			lqName := "lq"
 
 			ginkgo.By("Create a local queue with full flags", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name}, kueuectlRunOptions{
-					clock:         testingclock.NewFakeClock(time.Now()),
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name},
+					withClock(testingclock.NewFakeClock(time.Now())),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
@@ -80,9 +80,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			cqName := "cq-unknown"
 
 			ginkgo.By("Create a local queue with unknown cluster queue", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--ignore-unknown-cq"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--ignore-unknown-cq"}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
@@ -99,10 +97,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			lqName := "lq"
 
 			ginkgo.By("Create a local queue with default namespace", func() {
-				executeKueuectl(cfg, []string{"create", "lq", lqName, "-c", cq.Name}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"create", "lq", lqName, "-c", cq.Name},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the local queue successfully created", func() {
@@ -120,10 +118,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			cqName := "cq-unknown"
 
 			ginkgo.By("Create a local queue with unknown cluster queue (no bypass flag)", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-					errorMatcher:  gomega.HaveOccurred(),
-				})
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name},
+					withCommandOutput(commandOutputCombined),
+					withErrorMatcher(gomega.HaveOccurred()),
+				)
 			})
 
 			ginkgo.By("Check that the local queue was not created", func() {
@@ -139,9 +137,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 
 			var output string
 			ginkgo.By("Create a local queue and capture YAML output", func() {
-				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "yaml"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "yaml"}, withCommandOutput(commandOutputCombined))
 				output = out.String()
 			})
 
@@ -165,9 +161,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			lqName := "lq-json"
 
 			ginkgo.By("Create a local queue and capture JSON output", func() {
-				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "json"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "-o", "json"}, withCommandOutput(commandOutputCombined))
 
 				ginkgo.By("Verify the JSON output round-trips into the LocalQueue type", func() {
 					var created kueue.LocalQueue
@@ -191,9 +185,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			lqName := "lq-dryrun"
 
 			ginkgo.By("Create a local queue with --dry-run=client", func() {
-				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "--dry-run=client"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cq.Name, "--namespace", ns.Name, "--dry-run=client"}, withCommandOutput(commandOutputCombined))
 
 				ginkgo.By("Verify the local queue was NOT created in the cluster", func() {
 					var createdQueue kueue.LocalQueue
@@ -213,9 +205,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			cqName := "cq-unknown"
 
 			ginkgo.By("Create a local queue with --dry-run=client and unknown cluster queue", func() {
-				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=client"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				out, _ := executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=client"}, withCommandOutput(commandOutputCombined))
 
 				ginkgo.By("Verify the local queue was NOT created in the cluster", func() {
 					var createdQueue kueue.LocalQueue
@@ -235,10 +225,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			cqName := "cq-unknown"
 
 			ginkgo.By("Create a local queue with --dry-run=server and unknown cluster queue", func() {
-				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-					errorMatcher:  gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName))),
-				})
+				executeKueuectl(cfg, []string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"},
+					withCommandOutput(commandOutputCombined),
+					withErrorMatcher(gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName)))),
+				)
 			})
 		})
 	})
@@ -257,10 +247,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 
 		ginkgo.It("Should create a cluster queue with default values", func() {
 			ginkgo.By("Create a cluster queue with default values", func() {
-				executeKueuectl(cfg, []string{"create", "cq", cqName}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"create", "cq", cqName},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -286,10 +276,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					"--reclaim-within-cohort", "Any",
 					"--preemption-within-cluster-queue", "LowerPriority",
 					"--nominal-quota", "alpha:cpu=0;memory=0",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -323,10 +313,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			ginkgo.By("Create a cluster queue with default values", func() {
 				executeKueuectl(cfg, []string{"create", "cq", cqName,
 					"--nominal-quota", "alpha:cpu=0;memory=0,beta:cpu=0;memory=0",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -357,10 +347,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			ginkgo.By("Create a cluster queue with flavors listing resources in different order", func() {
 				executeKueuectl(cfg, []string{"create", "cq", cqName,
 					"--nominal-quota", "alpha:cpu=1;memory=1,beta:memory=2;cpu=2",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -390,10 +380,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			ginkgo.By("Create a cluster queue with default values", func() {
 				executeKueuectl(cfg, []string{"create", "cq", cqName,
 					"--nominal-quota", "alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -439,10 +429,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					"--nominal-quota", "alpha:cpu=0;memory=0",
 					"--borrowing-limit", "alpha:cpu=0;memory=0",
 					"--lending-limit", "alpha:cpu=0;memory=0",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -479,10 +469,10 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					"--borrowing-limit", "alpha:cpu=1;memory=1,gamma:cpu=1;memory=1",
 					"--borrowing-limit", "beta:gpu=1",
 					"--lending-limit", "alpha:cpu=0;memory=0,beta:gpu=0,gamma:cpu=0;memory=0",
-				}, kueuectlRunOptions{
-					defaultNamespace: new(ns.Name),
-					commandOutput:    commandOutputCombined,
-				})
+				},
+					withDefaultNamespace(ns.Name),
+					withCommandOutput(commandOutputCombined),
+				)
 			})
 
 			ginkgo.By("Check that the cluster queue successfully created", func() {
@@ -539,9 +529,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 
 		ginkgo.It("Should create a resource flavor", func() {
 			ginkgo.By("Create a resource flavor", func() {
-				out, outErr := executeKueuectl(cfg, []string{"create", "resourceflavor", rfName}, kueuectlRunOptions{
-					commandOutput: commandOutputSeparate,
-				})
+				out, outErr := executeKueuectl(cfg, []string{"create", "resourceflavor", rfName}, withCommandOutput(commandOutputSeparate))
 				gomega.Expect(out.String()).Should(gomega.Equal(
 					fmt.Sprintf("resourceflavor.kueue.x-k8s.io/%s created\n", rfName)),
 				)
@@ -566,9 +554,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux",
 					"--node-taints", "key1=value1:NoSchedule,key2=value2:NoSchedule",
 					"--tolerations", "key1=value1:NoSchedule,key2:NoSchedule",
-				}, kueuectlRunOptions{
-					commandOutput: commandOutputSeparate,
-				})
+				}, withCommandOutput(commandOutputSeparate))
 				gomega.Expect(out.String()).Should(gomega.Equal(
 					fmt.Sprintf("resourceflavor.kueue.x-k8s.io/%s created\n", rfName)),
 				)
@@ -615,9 +601,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 
 		ginkgo.It("Shouldn't create a resource flavor with server dry-run strategy", func() {
 			ginkgo.By("Create a resource flavor", func() {
-				out, outErr := executeKueuectl(cfg, []string{"create", "resourceflavor", rfName, "--dry-run", "server"}, kueuectlRunOptions{
-					commandOutput: commandOutputSeparate,
-				})
+				out, outErr := executeKueuectl(cfg, []string{"create", "resourceflavor", rfName, "--dry-run", "server"}, withCommandOutput(commandOutputSeparate))
 				gomega.Expect(out.String()).Should(gomega.Equal(
 					fmt.Sprintf("resourceflavor.kueue.x-k8s.io/%s created (server dry run)\n", rfName)),
 				)

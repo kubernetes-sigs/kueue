@@ -45,10 +45,47 @@ type kueuectlRunOptions struct {
 	errorMatcher     types.GomegaMatcher
 }
 
-func executeKueuectl(cfg *rest.Config, args []string, opts kueuectlRunOptions) (*bytes.Buffer, *bytes.Buffer) {
+type kueuectlRunOption func(*kueuectlRunOptions)
+
+func withClock(c clock.Clock) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.clock = c
+	}
+}
+
+func withDefaultNamespace(ns string) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.defaultNamespace = new(ns)
+	}
+}
+
+func withCommandOutput(mode commandOutputMode) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.commandOutput = mode
+	}
+}
+
+func withErrorMatcher(matcher types.GomegaMatcher) kueuectlRunOption {
+	return func(opts *kueuectlRunOptions) {
+		opts.errorMatcher = matcher
+	}
+}
+
+func executeKueuectl(cfg *rest.Config, args []string, options ...kueuectlRunOption) (*bytes.Buffer, *bytes.Buffer) {
 	ginkgo.GinkgoHelper()
+	opts := kueuectlRunOptions{errorMatcher: gomega.Not(gomega.HaveOccurred())}
+	for _, opt := range options {
+		opt(&opts)
+	}
+
 	streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
-	configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+	configFlags := genericclioptions.
+		NewConfigFlags(true).
+		WithDiscoveryQPS(50.0).
+		WithWarningPrinter(streams).
+		WithWrapConfigFn(func(*rest.Config) *rest.Config {
+			return cfg
+		})
 	if opts.defaultNamespace != nil {
 		configFlags.Namespace = opts.defaultNamespace
 	}
@@ -67,20 +104,6 @@ func executeKueuectl(cfg *rest.Config, args []string, opts kueuectlRunOptions) (
 	}
 	kueuectl.SetArgs(args)
 	err := kueuectl.Execute()
-	matcher := opts.errorMatcher
-	if matcher == nil {
-		matcher = gomega.Not(gomega.HaveOccurred())
-	}
-	gomega.Expect(err).To(matcher, "%s: %s %s", err, output, errOutput)
+	gomega.Expect(err).To(opts.errorMatcher, "%s: %s %s", err, output, errOutput)
 	return output, errOutput
-}
-
-func CreateConfigFlagsWithRestConfig(cfg *rest.Config, streams genericiooptions.IOStreams) *genericclioptions.ConfigFlags {
-	return genericclioptions.
-		NewConfigFlags(true).
-		WithDiscoveryQPS(50.0).
-		WithWarningPrinter(streams).
-		WithWrapConfigFn(func(*rest.Config) *rest.Config {
-			return cfg
-		})
 }

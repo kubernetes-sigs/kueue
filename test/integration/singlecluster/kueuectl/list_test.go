@@ -70,9 +70,7 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 		ginkgo.It("Should print local queues list filtered by field selector", func() {
 			executeTime := time.Now()
 			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--field-selector",
-				fmt.Sprintf("metadata.name=%s", lq1.Name), "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+				fmt.Sprintf("metadata.name=%s", lq1.Name), "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -92,9 +90,7 @@ lq1    cq1            0                   0                    false    %s
 
 			ginkgo.By("Listing active local queues", func() {
 				executeTime := time.Now()
-				output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--active=true", "--namespace", ns.Name}, kueuectlRunOptions{
-					clock: testingclock.NewFakeClock(executeTime),
-				})
+				output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--active=true", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -108,9 +104,7 @@ very-long-local-queue-name   cq1            0                   0               
 
 			ginkgo.By("Listing inactive local queues", func() {
 				executeTime := time.Now()
-				output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--active=false", "--namespace", ns.Name}, kueuectlRunOptions{
-					clock: testingclock.NewFakeClock(executeTime),
-				})
+				output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--active=false", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -125,9 +119,7 @@ lq2    very-long-cluster-queue-name   0                   0                    f
 		ginkgo.It("Should print local queues list with paging", func() {
 			executeTime := time.Now()
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
-			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -142,7 +134,7 @@ very-long-local-queue-name   cq1                            0                   
 		})
 
 		ginkgo.It("Should list local queues in the current namespace as JSON", func() {
-			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--namespace", ns.Name, "-o", "json"}, kueuectlRunOptions{})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--namespace", ns.Name, "-o", "json"})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 			ginkgo.By("Verify the JSON output round-trips into the LocalQueueList type", func() {
@@ -169,7 +161,7 @@ very-long-local-queue-name   cq1                            0                   
 			primaryLq := utiltestingapi.MakeLocalQueue("lq-primary", ns.Name).ClusterQueue("cq1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, primaryLq)
 
-			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "-A", "-o", "json"}, kueuectlRunOptions{})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "-A", "-o", "json"})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
 			ginkgo.By("Verify the JSON output contains the LQs from both namespaces", func() {
@@ -212,9 +204,7 @@ very-long-local-queue-name   cq1                            0                   
 		ginkgo.It("Should print cluster queues list filtered by field selector", func() {
 			executeTime := time.Now()
 			output, errOutput := executeKueuectl(cfg, []string{"list", "clusterqueue", "--field-selector",
-				fmt.Sprintf("metadata.name=%s", cq1.Name)}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+				fmt.Sprintf("metadata.name=%s", cq1.Name)}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
 cq1             0                   0                    true     %s
@@ -227,9 +217,7 @@ cq1             0                   0                    true     %s
 		ginkgo.It("Should print cluster queues list with paging", func() {
 			executeTime := time.Now()
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
-			output, errOutput := executeKueuectl(cfg, []string{"list", "clusterqueue"}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "clusterqueue"}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
 cq1                                     0                   0                    true     %s
@@ -263,9 +251,7 @@ very-long-cluster-queue-name            0                   0                   
 		ginkgo.It("Should print workloads list filtered by field selector", func() {
 			executeTime := time.Now()
 			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+				fmt.Sprintf("metadata.name=%s", wl1.Name), "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
 wl1                          lq1                         PENDING                                   %s
@@ -277,9 +263,7 @@ wl1                          lq1                         PENDING                
 		ginkgo.It("Should print workloads list with paging", func() {
 			executeTime := time.Now()
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
-			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).
 				Should(gomega.Equal(fmt.Sprintf(`NAME                      JOB TYPE   JOB NAME   LOCALQUEUE                   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -311,9 +295,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for a specific ClusterQueue")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue=cq2", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(time.Now()),
-			})
+				"status.admission.clusterQueue=cq2", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
@@ -323,9 +305,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for any ClusterQueue (all reserved workloads)")
 			output, errOutput = executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue!=", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(time.Now()),
-			})
+				"status.admission.clusterQueue!=", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq1"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
@@ -335,9 +315,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for workloads without quota reserved")
 			output, errOutput = executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue=", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(time.Now()),
-			})
+				"status.admission.clusterQueue=", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-pending"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
@@ -352,9 +330,7 @@ wl2                                             very-long-local-queue-name      
 			wlNoQueue := utiltestingapi.MakeWorkload("wl-no-queue", ns.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlNoQueue)
 
-			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(time.Now()),
-			})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-no-queue"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
@@ -386,9 +362,7 @@ wl2                                             very-long-local-queue-name      
 		ginkgo.It("Should print resource flavor list filtered by field selector", func() {
 			executeTime := time.Now()
 			output, errOutput := executeKueuectl(cfg, []string{"list", "resourceflavor", "--field-selector",
-				fmt.Sprintf("metadata.name=%s", rf1.Name)}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+				fmt.Sprintf("metadata.name=%s", rf1.Name)}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   NODE LABELS   AGE
 rf1                  %s
@@ -401,9 +375,7 @@ rf1                  %s
 		ginkgo.It("Should print resource flavor list with paging", func() {
 			executeTime := time.Now()
 			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
-			output, errOutput := executeKueuectl(cfg, []string{"list", "resourceflavor"}, kueuectlRunOptions{
-				clock: testingclock.NewFakeClock(executeTime),
-			})
+			output, errOutput := executeKueuectl(cfg, []string{"list", "resourceflavor"}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             NODE LABELS   AGE
 rf1                                            %s

@@ -62,9 +62,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 			})
 
 			ginkgo.By("Resume the created Workload", func() {
-				executeKueuectl(cfg, []string{"resume", "workload", wl.Name, "--namespace", ns.Name}, kueuectlRunOptions{
-					clock: testingclock.NewFakeClock(time.Now()),
-				})
+				executeKueuectl(cfg, []string{"resume", "workload", wl.Name, "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			})
 
 			ginkgo.By("Check that the Workload successfully resumed", func() {
@@ -94,7 +92,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 				})
 
 				ginkgo.By("Resume created LocalQueue", func() {
-					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, kueuectlRunOptions{})
+					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name})
 				})
 
 				ginkgo.By("Check that the LocalQueue is successfully resumed", func() {
@@ -131,7 +129,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 				})
 
 				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
+					executeKueuectl(cfg, []string{"resume", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
 				})
 
 				ginkgo.By("Check that the LocalQueue is still stopped", func() {
@@ -166,9 +164,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 				})
 
 				ginkgo.By("Resume created ClusterQueue", func() {
-					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name}, kueuectlRunOptions{
-						clock: testingclock.NewFakeClock(time.Now()),
-					})
+					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 				})
 
 				ginkgo.By("Check that the ClusterQueue is successfully resumed", func() {
@@ -207,7 +203,7 @@ var _ = ginkgo.Describe("Kueuectl Resume", func() {
 				})
 
 				ginkgo.By("Resume with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
+					executeKueuectl(cfg, []string{"resume", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
 				})
 
 				ginkgo.By("Check that the ClusterQueue is still stopped", func() {

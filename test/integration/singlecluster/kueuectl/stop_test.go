@@ -62,9 +62,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 			})
 
 			ginkgo.By("Stop the created Workload", func() {
-				executeKueuectl(cfg, []string{"stop", "workload", wl.Name, "--namespace", ns.Name}, kueuectlRunOptions{
-					clock: testingclock.NewFakeClock(time.Now()),
-				})
+				executeKueuectl(cfg, []string{"stop", "workload", wl.Name, "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
 			})
 
 			ginkgo.By("Check that the Workload successfully stopped", func() {
@@ -94,7 +92,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop created LocalQueue", func() {
-					executeKueuectl(cfg, append([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, stopCmdArgs...), kueuectlRunOptions{})
+					executeKueuectl(cfg, append([]string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name}, stopCmdArgs...))
 				})
 
 				ginkgo.By("Check that the LocalQueue is successfully stopped", func() {
@@ -133,7 +131,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
+					executeKueuectl(cfg, []string{"stop", "localqueue", createdLocalQueue.Name, "--namespace", ns.Name, "--dry-run", dryRunStrategy})
 				})
 
 				ginkgo.By("Check that the LocalQueue is still active", func() {
@@ -168,9 +166,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop created ClusterQueue", func() {
-					executeKueuectl(cfg, append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...), kueuectlRunOptions{
-						clock: testingclock.NewFakeClock(time.Now()),
-					})
+					executeKueuectl(cfg, append([]string{"stop", "clusterqueue", createdClusterQueue.Name}, stopCmdArgs...), withClock(testingclock.NewFakeClock(time.Now())))
 				})
 
 				ginkgo.By("Check that the ClusterQueue is successfully stopped", func() {
@@ -211,7 +207,7 @@ var _ = ginkgo.Describe("Kueuectl Stop", func() {
 				})
 
 				ginkgo.By("Stop with --dry-run="+dryRunStrategy, func() {
-					executeKueuectl(cfg, []string{"stop", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy}, kueuectlRunOptions{})
+					executeKueuectl(cfg, []string{"stop", "clusterqueue", createdClusterQueue.Name, "--dry-run", dryRunStrategy})
 				})
 
 				ginkgo.By("Check that the ClusterQueue is still active", func() {

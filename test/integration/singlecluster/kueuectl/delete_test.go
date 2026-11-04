@@ -50,9 +50,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
-				executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name, "--yes"}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
@@ -69,9 +67,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete kueueworkload with --yes", func() {
-				executeKueuectl(cfg, []string{"delete", "kueueworkload", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"delete", "kueueworkload", wlName, "--namespace", ns.Name, "--yes"}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
@@ -88,9 +84,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete kueueworkloads with --yes", func() {
-				executeKueuectl(cfg, []string{"delete", "kueueworkloads", wlName, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"delete", "kueueworkloads", wlName, "--namespace", ns.Name, "--yes"}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster by the command", func() {
@@ -113,9 +107,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
-				executeKueuectl(cfg, []string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				executeKueuectl(cfg, []string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"}, withCommandOutput(commandOutputCombined))
 			})
 
 			ginkgo.By("Verify the Job is removed from the cluster", func() {
@@ -140,9 +132,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			ginkgo.By("Run kueuectl delete workload without --yes (declined confirmation)", func() {
 				// Stdin is empty; confirmation prompt receives no input, which the
 				// command treats as decline and prints "Deletion is canceled".
-				output, _ := executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name}, kueuectlRunOptions{
-					commandOutput: commandOutputCombined,
-				})
+				output, _ := executeKueuectl(cfg, []string{"delete", "workload", wlName, "--namespace", ns.Name}, withCommandOutput(commandOutputCombined))
 				gomega.Expect(output.String()).To(gomega.ContainSubstring("Deletion is canceled"))
 			})
 
