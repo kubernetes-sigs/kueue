@@ -590,6 +590,31 @@ func TestClearClusterQueueGaugeMetricsOnlyClearsClusterQueueScopedGauges(t *test
 	ClearClusterQueueMetrics(cqName)
 }
 
+func TestClearLocalQueueGaugeMetricsOnlyClearsLocalQueueScopedGauges(t *testing.T) {
+	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq-gauge-only"), Namespace: "ns1"}
+
+	ReportLocalQueuePendingWorkloads(lq, 1, 0, nil, nil)
+	ReportLocalQueueFinishedWorkloads(lq, 2, nil, nil)
+	LocalQueueAdmittedWorkload(lq, "", time.Second, nil, nil)
+	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil, nil)
+
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueFinishedWorkloads, 1, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueAdmittedWorkloadsTotal, 1, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueAdmissionWaitTime, 1, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq-gauge-only", "namespace", "ns1")
+
+	ClearLocalQueueGaugeMetrics(lq)
+
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 0, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueFinishedWorkloads, 0, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueAdmittedWorkloadsTotal, 1, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueAdmissionWaitTime, 1, "name", "lq-gauge-only", "namespace", "ns1")
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", "lq-gauge-only", "namespace", "ns1")
+
+	ClearLocalQueueMetrics(lq)
+}
+
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil, nil)

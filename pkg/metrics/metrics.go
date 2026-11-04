@@ -1397,14 +1397,19 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
+// Cache and resource gauges are cleared by ClearLocalQueueCacheMetrics and
+// ClearLocalQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
 func ClearLocalQueueGaugeMetrics(lq LocalQueueReference) {
-	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
-	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
+// ClearLocalQueueMetrics removes the gauges cleared by
+// ClearLocalQueueGaugeMetrics, and the counters and histograms keyed by lq.
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
-	ClearLocalQueueGaugeMetrics(lq)
 	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
+	ClearLocalQueueGaugeMetrics(lq)
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
