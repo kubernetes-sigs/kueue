@@ -23,7 +23,10 @@ import (
 	"slices"
 
 	"github.com/go-logr/logr"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -268,7 +272,8 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsUsageLedger *queueafs.AfsUsageLedger
+	afsUsageLedger         *queueafs.AfsUsageLedger
+	preemptionExpectations *expectations.Store
 }
 
 type SnapshotOption func(*snapshotOption)
@@ -276,6 +281,12 @@ type SnapshotOption func(*snapshotOption)
 func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	return func(o *snapshotOption) {
 		o.afsUsageLedger = ledger
+	}
+}
+
+func WithPreemptionExpectations(pExp *expectations.Store) SnapshotOption {
+	return func(o *snapshotOption) {
+		o.preemptionExpectations = pExp
 	}
 }
 
@@ -300,11 +311,13 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
+		committedVictims := c.committedVictims(ctx, opts.preemptionExpectations)
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			c.podTracker,
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithCommittedVictims(committedVictims),
 		)
 		if err != nil {
 			return nil, err
@@ -428,6 +441,40 @@ func (c *Cache) assumedWorkloads() []*kueue.Workload {
 		}
 	}
 	return assumedWorkloads
+}
+
+func (c *Cache) committedVictims(ctx context.Context, preemptionExpectations *expectations.Store) (victims []workload.Reference) {
+	log := ctrl.LoggerFrom(ctx)
+	for wlRef := range c.podTracker.TrackedWorkloads() {
+		ns, n, err := toolscache.SplitMetaNamespaceKey(string(wlRef))
+		if err != nil {
+			log.V(3).Error(err, "Unable to parse workload key")
+			continue
+		}
+		if c.isPreempted(ctx, log, client.ObjectKey{Namespace: ns, Name: n}, preemptionExpectations) {
+			victims = append(victims, wlRef)
+		}
+	}
+	return
+}
+
+func (c *Cache) isPreempted(ctx context.Context, log logr.Logger, wlKey client.ObjectKey, preemptionExpectations *expectations.Store) bool {
+	if preemptionExpectations != nil && !preemptionExpectations.Satisfied(log, wlKey) {
+		return true
+	}
+
+	wl := &kueue.Workload{}
+	if err := c.client.Get(ctx, wlKey, wl); err != nil {
+		return true
+	}
+
+	condEvicted := &metav1.Condition{
+		Type:   kueue.WorkloadEvicted,
+		Status: metav1.ConditionTrue,
+		Reason: kueue.WorkloadEvictedByPreemption,
+	}
+	return workload.HasConditionWithTypeAndReason(wl, condEvicted) ||
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(

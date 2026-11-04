@@ -25,13 +25,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type preemptionVictim struct {
-	wlKey workload.Reference
-	pods  []*corev1.Pod
+	wlKey     workload.Reference
+	pods      []*corev1.Pod
+	committed bool
 }
 
 var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
@@ -65,21 +67,30 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 	}
 }
 
-func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []schedlib.PreemptionVictim {
+func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Reference]) []schedlib.PreemptionVictim {
 	if len(victimWorkloads) == 0 {
 		return nil
 	}
 	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
-	present := sets.New[workload.Reference]()
-	for _, preemptedWlKey := range victimWorkloads {
-		if present.Has(preemptedWlKey) {
-			continue
-		}
-		present.Insert(preemptedWlKey)
+	for preemptedWlKey := range victimWorkloads {
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
-				wlKey: preemptedWlKey,
-				pods:  victimPods,
+				wlKey:     preemptedWlKey,
+				pods:      victimPods,
+				committed: true,
+			})
+		}
+	}
+	for _, pod := range s.pods.Pods() {
+		if !pod.DeletionTimestamp.IsZero() {
+			wlRef := workload.Reference(pod.Annotations[kueue.WorkloadAnnotation])
+			if victimWorkloads.Has(wlRef) {
+				continue
+			}
+			cv = append(cv, &preemptionVictim{
+				wlKey:     wlRef,
+				pods:      []*corev1.Pod{pod},
+				committed: true,
 			})
 		}
 	}
@@ -92,7 +103,7 @@ func toPreemptionVictims(victims []schedlib.PreemptionVictim) []workload.Referen
 	}
 	preemptionVictims := make([]workload.Reference, 0, len(victims))
 	for _, victim := range victims {
-		if wlVictim, ok := victim.(*preemptionVictim); ok {
+		if wlVictim, ok := victim.(*preemptionVictim); ok && !wlVictim.committed {
 			preemptionVictims = append(preemptionVictims, wlVictim.wlKey)
 		}
 	}
