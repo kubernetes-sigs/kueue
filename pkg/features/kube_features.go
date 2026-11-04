@@ -934,6 +934,15 @@ const (
 	// the group without rank-based ordering. Disable where a controller creating Pods
 	// cannot guarantee the index label on every Pod, replacements included.
 	TASRejectInvalidPodIndexLabel featuregate.Feature = "TASRejectInvalidPodIndexLabel"
+
+	// owner: @Dasmat13
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17936
+	//
+	// Disables the fallback mechanism in the StatefulSet controller and webhook that looked up
+	// workloads using the legacy name without the owner UID. When enabled (the default), StatefulSet
+	// workloads are only looked up by UID-based names. When disabled, the controller falls back to checking
+	// for legacy-named workloads.
+	DisableStatefulSetWorkloadNameFallback featuregate.Feature = "DisableStatefulSetWorkloadNameFallback"
 )
 
 func init() {
@@ -1454,6 +1463,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASRejectInvalidPodIndexLabel: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	DisableStatefulSetWorkloadNameFallback: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.22
 	},
 }
 

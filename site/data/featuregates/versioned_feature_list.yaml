@@ -89,6 +89,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: DisableStatefulSetWorkloadNameFallback
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false

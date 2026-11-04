@@ -263,8 +263,10 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	// TODO(#9497, v0.20): Remove this test when legacy workload name fallback is removed.
-	ginkgo.It("Should find and use a pre-existing legacy workload instead of creating a new one", func() {
+	// TODO(#17936): Remove this test when DisableStatefulSetWorkloadNameFallback is GAed and legacy fallback is removed.
+	ginkgo.It("Should find and use a pre-existing legacy workload instead of creating a new one when fallback is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DisableStatefulSetWorkloadNameFallback, false)
+
 		ginkgo.By("Pre-creating a workload with the legacy name (no UID in name)")
 		legacyName := statefulset.GetWorkloadName("", "test-sts")
 		legacyWl := utiltestingapi.MakeWorkload(legacyName, ns.Name).
@@ -293,6 +295,40 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(workloads.Items).To(gomega.HaveLen(1))
 			g.Expect(workloads.Items[0].Name).To(gomega.Equal(legacyName))
 			behavioral.MustHaveOwnerReference(g, workloads.Items[0].OwnerReferences, createdSTS, k8sClient.Scheme())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should create a new UID-named workload and ignore legacy workload when fallback is disabled (default)", func() {
+		ginkgo.By("Pre-creating a workload with the legacy name (no UID in name)")
+		legacyName := statefulset.GetWorkloadName("", "test-sts")
+		legacyWl := utiltestingapi.MakeWorkload(legacyName, ns.Name).
+			Queue("lq").
+			Annotation(constants.IsGroupWorkloadAnnotationKey, constants.IsGroupWorkloadAnnotationValue).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, legacyWl)
+
+		ginkgo.By("Creating the StatefulSet")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		expectedWlName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		ginkgo.By("Verifying both workloads exist and only the UID-named one is owned by STS")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var workloads kueue.WorkloadList
+			g.Expect(k8sClient.List(ctx, &workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).To(gomega.HaveLen(2))
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expectedWlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			behavioral.MustHaveOwnerReference(g, wl.OwnerReferences, createdSTS, k8sClient.Scheme())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
