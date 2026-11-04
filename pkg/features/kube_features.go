@@ -326,6 +326,12 @@ const (
 	// Enables TLSOptions for TLS MinVersion, CipherSuites, and CurvePreferences for kueue servers
 	TLSOptions featuregate.Feature = "TLSOptions"
 
+	// owner: @ankushbbbr
+	// kep: https://kep.k8s.io/16029
+	// Disables metrics authentication and authorization for trusted loopback scrapers.
+	// Release-0.19 backport; v0.21 uses MetricsAccessControl and metrics.accessControlMode instead.
+	DisableMetricsAccessControl featuregate.Feature = "DisableMetricsAccessControl"
+
 	// owner: @mykysha
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/3899-remove-finalizers-with-strict-patch
 	//
@@ -1007,6 +1013,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
+	DisableMetricsAccessControl: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.20 (https://github.com/kubernetes-sigs/kueue/issues/10704)
 	},

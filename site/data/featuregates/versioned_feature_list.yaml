@@ -69,6 +69,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DisableMetricsAccessControl
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
