@@ -499,14 +499,27 @@ func (s *TASFlavorSnapshot) normalizeTailLast(ta *utiltas.TopologyAssignment, tr
 }
 
 // assignmentSliceAligned reports whether the assignment groups pods into whole
-// slices: every domain at the slice level holds a multiple of sliceSize pods,
-// except the last, which may hold the trailing pods of a partial slice.
+// slices. For indexed PodSets, domain boundaries must coincide with slice
+// boundaries in rank order, including when a domain appears more than once.
 func (s *TASFlavorSnapshot) assignmentSliceAligned(ta *utiltas.TopologyAssignment, tr *kueue.PodSetTopologyRequest, sliceSize int32) bool {
 	if !features.Enabled(features.TASPartialSlices) || !slicesRequested(tr) || sliceSize <= 1 {
 		return true
 	}
 	sliceLevelIdx, found := s.resolveLevelIdx(s.sliceLevelKeyWithDefault(tr, s.explicitLowestLevel()))
 	if !found {
+		return true
+	}
+	if tr.PodIndexLabel != nil {
+		var previous *domain
+		var count int32
+		for _, assignment := range ta.Domains {
+			current := s.sliceLevelDomain(ta.Levels, assignment.Values, sliceLevelIdx)
+			if current == nil || (previous != nil && current != previous && count%sliceSize != 0) {
+				return false
+			}
+			count += assignment.Count
+			previous = current
+		}
 		return true
 	}
 	usages := s.sliceLevelUsages(ta, sliceLevelIdx)

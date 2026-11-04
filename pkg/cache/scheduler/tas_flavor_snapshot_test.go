@@ -33,6 +33,7 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -3319,6 +3320,34 @@ func TestAssignmentSliceAligned(t *testing.T) {
 				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
 				TopologyAssignment,
 			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
+		"indexed repeated rack runs retain whole slices and a trailing partial slice": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"indexed rack totals cannot hide split slices in rank order": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 				SliceRequiredTopologyRequest(rackLabel).
 				SliceSizeTopologyRequest(2).
 				Obj().TopologyRequest,

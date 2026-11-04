@@ -248,6 +248,12 @@ all the affected workloads, without changing the rest of the topology assignment
 Currently this works only for a single node failure at the time and in case of multiple failures,
 the workload gets evicted.
 
+For indexed PodSets, such as an Indexed Job, the order and counts of domains in the
+assignment determine each Pod's rank-to-domain mapping. Node replacement fills the
+failed node's positions without reordering unaffected ranks. For example, an
+assignment of ranks `0, 1, 2` to nodes `A, B, C` becomes `A, Z, C` when `Z` replaces
+`B`, not `A, C, Z`. Nonindexed PodSets retain the sorted domain merge.
+
 #### Replace Node on Pod termination 
 
 {{< feature-state state="beta" for_version="v0.14" >}}
