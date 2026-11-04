@@ -309,8 +309,10 @@ The message is `CapacityProvider "demo-provider" synchronization is stale (obser
 
 Kueue does not clear effective quotas when you delete a DynamicQuotaOrchestrator.
 The ClusterQueues and the Cohort keep the last values, and Kueue keeps
-admitting workloads against them. Delete the orchestrator, then clear the
-effective quotas by hand:
+admitting workloads against them. If `effectiveQuotaTTLSeconds` is set, this
+lasts until their `validUntil` passes, at most `effectiveQuotaTTLSeconds` after
+the orchestrator last wrote them. To go back to `spec.resourceGroups` right
+away, delete the orchestrator, then clear the effective quotas by hand:
 
 ```shell
 kubectl delete dynamicquotaorchestrator org-dqo
