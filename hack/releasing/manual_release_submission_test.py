@@ -19,6 +19,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,74 @@ TEMPLATE = (REPO_ROOT / ".github/ISSUE_TEMPLATE/NEW_RELEASE.md").read_text()
 
 
 class ManualReleaseSubmissionTest(unittest.TestCase):
+    def test_python_is_required_before_release_operations(self):
+        scripts = {
+            "prepare all": ("prepare_pull.sh", ["--target", "all", "v0.20.0"], 1),
+            "prepare release": ("prepare_pull.sh", ["--target", "release", "v0.20.0"], 1),
+            "prepare main": ("prepare_pull.sh", ["--target", "main", "v0.20.0"], 1),
+            "promote": ("promote_pull.sh", ["v0.20.0"], 1),
+            "CI": ("ci_pull.sh", ["v0.20.0"], 1),
+            "milestone": ("milestone_pull.sh", ["v0.20.0"], 2),
+            "release notes": ("sync-notes.sh", ["v0.20.0"], 1),
+        }
+        harness = '''
+function git() {
+  case "$*" in
+    "rev-parse --show-toplevel") printf '%s\\n' "$TEST_REPO_ROOT" ;;
+    "symbolic-ref --short HEAD") echo main ;;
+    "remote get-url upstream") echo https://github.com/kubernetes-sigs/kueue.git ;;
+    *) printf 'git %s\\n' "$*" >> "$TEST_CALLS"; return 97 ;;
+  esac
+}
+function gh() { printf 'gh %s\\n' "$*" >> "$TEST_CALLS"; return 97; }
+function make() { return 0; }
+export -f git gh make
+exec "$BASH" --noprofile --norc "$@"
+'''
+        for name, (script, args, missing_status) in scripts.items():
+            for python_available in (False, True):
+                with self.subTest(script=name, python_available=python_available), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    tools = root / "bin"
+                    tools.mkdir()
+                    # A restricted PATH makes python3 genuinely unavailable in the missing case.
+                    (tools / "dirname").symlink_to(shutil.which("dirname"))
+                    if python_available:
+                        (tools / "python3").symlink_to(sys.executable)
+                    for path in ("test-infra/config/jobs/kubernetes-sigs/kueue",
+                                 "k8s.io/registry.k8s.io/images/k8s-staging-kueue"):
+                        (root / path).mkdir(parents=True)
+                    calls = root / "calls"
+                    calls.write_text("")
+                    env = {
+                        "PATH": str(tools),
+                        "TEST_REPO_ROOT": str(REPO_ROOT),
+                        "TEST_CALLS": str(calls),
+                        "GITHUB_USER": "release-test",
+                        "KUBERNETES_REPOS_PATH": str(root),
+                        "MAIN_REPO_ORG": "kubernetes-sigs",
+                        "MAIN_REPO_NAME": "kueue",
+                        "KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG": "kubernetes-sigs",
+                        "KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME": "kueue",
+                        "KUBERNETES_TEST_INFRA_MAIN_REPO_ORG": "kubernetes",
+                        "KUBERNETES_TEST_INFRA_MAIN_REPO_NAME": "test-infra",
+                        "KUBERNETES_K8S_IO_MAIN_REPO_ORG": "kubernetes",
+                        "KUBERNETES_K8S_IO_MAIN_REPO_NAME": "k8s.io",
+                    }
+                    # Run the complete script; the gh stub stops at authentication if Python exists.
+                    result = subprocess.run(
+                        [shutil.which("bash"), "--noprofile", "--norc", "-c", harness, "release-test",
+                         str(REPO_ROOT / "hack/releasing" / script), *args],
+                        env=env, cwd=root, input="", capture_output=True, text=True, check=False,
+                    )
+                    want_status = (2 if script == "milestone_pull.sh" else 97) if python_available else missing_status
+                    self.assertEqual(result.returncode, want_status, result.stdout + result.stderr)
+                    self.assertEqual(calls.read_text(), "gh auth status\n" if python_available else "")
+                    if python_available:
+                        self.assertNotIn("Can't find 'python3'", result.stdout + result.stderr)
+                    else:
+                        self.assertIn("Can't find 'python3'", result.stdout + result.stderr)
+
     def test_submission_and_checklist_control_flow(self):
         harness = '''
 set -o errexit

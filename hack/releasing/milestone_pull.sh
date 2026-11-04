@@ -408,6 +408,11 @@ function main() {
     exit 2
   fi
 
+  if ! command -v python3 > /dev/null; then
+    echo "!!! Can't find 'python3' tool in PATH, please install Python 3"
+    exit 2
+  fi
+
   if ! gh auth status; then
     echo "!!! gh is not authenticated. Run 'gh auth login' or export GH_TOKEN."
     exit 2

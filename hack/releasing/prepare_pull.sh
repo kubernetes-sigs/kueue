@@ -81,6 +81,11 @@ if ! command -v gh > /dev/null; then
   exit 1
 fi
 
+if ! command -v python3 > /dev/null; then
+  echo "Can't find 'python3' tool in PATH, please install Python 3"
+  exit 1
+fi
+
 if [[ "$#" -lt 1 ]]; then
   echo "${0} [--target <all|release|main>] <version>"
   echo
