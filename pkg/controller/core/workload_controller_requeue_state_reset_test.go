@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -285,11 +284,9 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 				features.WorkloadLevelWaitForPodsReady: true,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload: readyWl(2*time.Minute).
-				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
-				Obj(),
+			workload:       readyWl(2 * time.Minute).WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 60}).Obj(),
 			wantWorkload: readyWl(2*time.Minute).
-				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 60}).
 				RequeueState(nil, nil).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{

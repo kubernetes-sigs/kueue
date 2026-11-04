@@ -1379,7 +1379,7 @@ func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl 
 		wl.Status.RequeueState = nil
 		return true, nil
 	}); err != nil {
-		return 0, client.IgnoreNotFound(err)
+		return 0, err
 	}
 
 	ctrl.LoggerFrom(ctx).V(2).Info("Cleared the requeueState after a sustained PodsReady period", "previousCount", previousCount, "timeout", timeout)
