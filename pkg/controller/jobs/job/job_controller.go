@@ -160,6 +160,12 @@ func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
 }
 
+// StopPending reports whether a Stop is waiting for the Job's active Pods to
+// terminate before it restores the PodSetsInfo.
+func (j *Job) StopPending() bool {
+	return j.Annotations[StoppingAnnotation] == "true"
+}
+
 func (j *Job) Suspend() {
 	j.Spec.Suspend = new(true)
 }
@@ -201,6 +207,19 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	// job controller's status update to active == 0 triggers the next reconcile,
 	// which restores the PodSets info.
 	if j.Status.Active > 0 {
+		// A Job suspended before this Stop carries no marker yet; set it so
+		// the restore is still pending when the Pods are gone.
+		if j.Annotations[StoppingAnnotation] != "true" {
+			if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
+				if j.Annotations == nil {
+					j.Annotations = map[string]string{}
+				}
+				j.Annotations[StoppingAnnotation] = "true"
+				return true, nil
+			}); err != nil {
+				return stoppedNow, fmt.Errorf("mark stopping: %w", err)
+			}
+		}
 		return stoppedNow, nil
 	}
 

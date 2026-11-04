@@ -127,6 +127,15 @@ type JobWithCustomStop interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
+// JobWithPendingStop is an optional interface for jobs whose Stop can return
+// before it has restored the PodSetsInfo, for example while the job's Pods are
+// still terminating. While StopPending reports true, the reconciler keeps the
+// finalizer of a Workload that is being deleted, so a later Stop can still
+// restore the PodSetsInfo from it.
+type JobWithPendingStop interface {
+	StopPending() bool
+}
+
 // JobWithFinalize is an optional interface that should be implemented by generic jobs
 // when custom finalization logic is needed for a job after it has finished.
 type JobWithFinalize interface {
