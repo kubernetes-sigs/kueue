@@ -9155,9 +9155,131 @@ func TestAssignTopology(t *testing.T) {
 					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 				}
 			},
-			wantMode:          NoFit,
-			wantPlan:          true,
-			wantAttemptReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+			wantMode: NoFit,
+			wantPlan: true,
+		},
+		// Free capacity could host this replacement, but its quota still needs
+		// preemption, and a failed-node replacement must never preempt.
+		"a replacement whose quota needs preemption is NoFit even when a free node could host it": {
+			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+				plan := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 1).Obj()).
+					Obj()
+				wl := utiltestingapi.MakeWorkload("wl", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(1).
+							Assignment(corev1.ResourceCPU, "flavor-1", "2").
+							TopologyAssignment(plan).
+							Obj()).Obj(), time.Now()).
+					AdmittedAt(true, time.Now()).
+					Obj()
+				wl.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "node-1"}}
+				wlInfo := workload.NewInfo(log, wl)
+				ps := PodSetAssignment{
+					Name:     kueue.DefaultPodSetName,
+					Count:    1,
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: &FlavorAssignment{Name: "flavor-1", Mode: Preempt},
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: Preempt}},
+					Status:                   *NewStatus("insufficient unused quota"),
+					// Non-nil so WorkloadsTopologyRequests re-queues this pod set instead
+					// of treating it as already placed.
+					TopologyAssignment: tas.InternalFrom(plan),
+				}
+				return fixture{
+					assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
+						configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
+					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+				}
+			},
+			wantMode: NoFit,
+			wantPlan: true,
+		},
+		// The path a real replacement takes: its quota is still held, so it enters
+		// as Fit, and the search for free capacity is what comes up short. node-1
+		// has 4 cpu, the replacement asks for 5, so no free node can host it.
+		"a replacement for an unhealthy node that no free node can host is NoFit instead of Preempt": {
+			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+				plan := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 1).Obj()).
+					Obj()
+				wl := utiltestingapi.MakeWorkload("wl", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "5").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(1).
+							Assignment(corev1.ResourceCPU, "flavor-1", "5").
+							TopologyAssignment(plan).
+							Obj()).Obj(), time.Now()).
+					AdmittedAt(true, time.Now()).
+					Obj()
+				wl.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "node-1"}}
+				wlInfo := workload.NewInfo(log, wl)
+				ps := PodSetAssignment{
+					Name:     kueue.DefaultPodSetName,
+					Count:    1,
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5")},
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: &FlavorAssignment{Name: "flavor-1", Mode: Fit},
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: Fit}},
+					// Non-nil so WorkloadsTopologyRequests re-queues this pod set instead
+					// of treating it as already placed.
+					TopologyAssignment: tas.InternalFrom(plan),
+				}
+				return fixture{
+					assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
+						configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
+					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+					cq:         cq,
+				}
+			},
+			wantMode: NoFit,
+			wantPlan: true,
+		},
+		// UnhealthyNodes left on a Workload without an admission do not make it a
+		// node replacement, so it may still preempt like any other Workload.
+		"a workload with stale unhealthy nodes but no admission can still preempt": {
+			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+				wl := utiltestingapi.MakeWorkload("wl", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					UnhealthyNodes("node-1").
+					Obj()
+				ps := PodSetAssignment{
+					Name:     kueue.DefaultPodSetName,
+					Count:    1,
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: &FlavorAssignment{Name: "flavor-1", Mode: Preempt},
+					},
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: Preempt}},
+					Status:                   *NewStatus("insufficient unused quota"),
+				}
+				return fixture{
+					assigner: New(workload.NewInfo(log, wl), cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
+						configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
+					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+					cq:         cq,
+				}
+			},
+			wantMode: Preempt,
+			wantPlan: false,
 		},
 		// An elastic slice replaces its predecessor, so the predecessor's usage has to be
 		// simulated away before the replacement is placed. Without that, the old slice's

@@ -520,80 +520,56 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		return
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
-	unhealthyReplacement := workload.HasTopologyAssignmentWithUnhealthyNode(a.wl.Obj)
 	if assignment.RepresentativeMode() == Fit {
 		result := assignment.FindTopologyAssignments(ctx, a.cq, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
-			mode := Preempt
-			if unhealthyReplacement {
-				// Failed-node replacement must use currently available capacity
-				mode = NoFit
-			}
 			assignment.ResolvePodSetFailure(
 				failure.PodSetName,
-				mode,
+				Preempt,
 				NewStatus(failure.Reason),
 			)
-			if mode == NoFit && features.Enabled(features.UnadmittedWorkloadsObservability) {
-				psAssignment := assignment.PodSetAssignmentByName(failure.PodSetName)
-				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-			}
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
 		}
 	}
-	if assignment.RepresentativeMode() != Preempt {
-		return
-	}
-	if unhealthyReplacement {
-		// Workloads replacing a failed node already hold their quota, so they
-		// normally enter AssignTopology as Fit. Reaching Preempt here means
-		// quota alone doesn't fit, and a failed-node replacement must not
-		// preempt others to make room, so leave it pending.
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			for i := range assignment.PodSets {
-				psAssignment := &assignment.PodSets[i]
-				for _, flavor := range psAssignment.Flavors {
-					if flavor.Mode == Preempt {
-						psAssignment.MarkFlavorAttempt(flavor.Name, NoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
-					}
-				}
-			}
-		}
+	if assignment.RepresentativeMode() == Preempt && workload.HasTopologyAssignmentWithUnhealthyNode(a.wl.Obj) {
+		// A failed-node replacement must not preempt other workloads, whether its
+		// quota or its placement does not fit, so leave it pending.
 		assignment.SetRepresentativeMode(NoFit)
-		return
 	}
-	result := assignment.FindTopologyAssignments(
-		ctx,
-		a.cq,
-		tasRequests,
-		schdcache.WithSimulateEmpty(true),
-		schdcache.WithWorkloadInfo(a.wl),
-	)
-	if failure := result.Failure(); failure != nil {
-		// There is at least one PodSet which does not fit even if
-		// all workloads are preempted.
-		psAssignment := assignment.PodSetAssignmentByName(failure.PodSetName)
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-		}
-		// Record the failure on the PodSet Status as well, not only on the flavor
-		// attempt. An empty Status reads as Fit, which would hide this failure both
-		// from ResolveNoFitReason and from the reported message whenever another
-		// PodSet is the one that is short of quota.
-		assignment.ResolvePodSetFailure(
-			failure.PodSetName,
-			NoFit,
-			NewStatus(failure.Reason).
-				WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+	if assignment.RepresentativeMode() == Preempt {
+		result := assignment.FindTopologyAssignments(
+			ctx,
+			a.cq,
+			tasRequests,
+			schdcache.WithSimulateEmpty(true),
+			schdcache.WithWorkloadInfo(a.wl),
 		)
-	} else {
-		// Update TAS-related assignments to Preempt because preemptions might be needed
-		// in resources in which total unused quota is sufficient (Fit), but the
-		// quota is fragmented.
-		assignment.updateModeForTASRequests(tasRequests, Preempt)
+		if failure := result.Failure(); failure != nil {
+			// There is at least one PodSet which does not fit even if
+			// all workloads are preempted.
+			psAssignment := assignment.PodSetAssignmentByName(failure.PodSetName)
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
+				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+			}
+			// Record the failure on the PodSet Status as well, not only on the flavor
+			// attempt. An empty Status reads as Fit, which would hide this failure both
+			// from ResolveNoFitReason and from the reported message whenever another
+			// PodSet is the one that is short of quota.
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				NoFit,
+				NewStatus(failure.Reason).
+					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+			)
+		} else {
+			// Update TAS-related assignments to Preempt because preemptions might be needed
+			// in resources in which total unused quota is sufficient (Fit), but the
+			// quota is fragmented.
+			assignment.updateModeForTASRequests(tasRequests, Preempt)
+		}
 	}
 }
 
