@@ -249,8 +249,8 @@ by `backoffLimitCount`. For a Job, its `backoffLimit` and `podFailurePolicy` sti
 apply; Workloads without such a limit, such as pod groups, keep being re-queued.
 
 When you turn the feature gate on and restart Kueue, every admitted Workload with a
-re-queue count that is already past the window is reset. That writes one status
-update and one event per Workload.
+re-queue count that is already past the window is reset, unless it is being evicted.
+That writes one status update and one event per Workload.
 
 ## Example
 
