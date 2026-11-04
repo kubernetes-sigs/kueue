@@ -203,6 +203,107 @@
       ]
     }
   ],
+  "failure": {
+    "action": "waitFor",
+    "assertion": "Workload pr-evidence/wl-admitted Evicted=True (Preempted)",
+    "checkpoint": "boosted-preempted",
+    "message": "Timed out after <duration>.\nThe function passed to Eventually failed at <driver> with:\ncondition Evicted not present\nExpected\n    <map[string]interface {} | len:0>: nil\nnot to be nil",
+    "observed": {
+      "assertion": "Workload pr-evidence/wl-admitted Evicted=True (Preempted)",
+      "clusterQueues": [
+        {
+          "admittedWorkloads": 1,
+          "flavorsUsage": [
+            {
+              "name": "on-demand",
+              "resources": [
+                {
+                  "borrowed": "0",
+                  "name": "cpu",
+                  "total": "2"
+                }
+              ]
+            }
+          ],
+          "name": "preemption-cq",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "events": [],
+      "index": 2,
+      "localQueues": [
+        {
+          "admittedWorkloads": 1,
+          "clusterQueue": "preemption-cq",
+          "name": "preemption-queue",
+          "namespace": "pr-evidence",
+          "pendingWorkloads": 1,
+          "reservingWorkloads": 1
+        }
+      ],
+      "name": "boosted-preempted",
+      "workloads": [
+        {
+          "admission": {
+            "clusterQueue": "preemption-cq",
+            "podSetAssignments": [
+              {
+                "count": 1,
+                "flavors": {
+                  "cpu": "on-demand"
+                },
+                "name": "main",
+                "resourceUsage": {
+                  "cpu": "2"
+                }
+              }
+            ]
+          },
+          "conditions": [
+            {
+              "message": "The workload is admitted",
+              "reason": "Admitted",
+              "status": "True",
+              "type": "Admitted"
+            },
+            {
+              "message": "Quota reserved in ClusterQueue preemption-cq",
+              "reason": "QuotaReserved",
+              "status": "True",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-admitted",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        },
+        {
+          "admission": null,
+          "conditions": [
+            {
+              "message": "The workload has no reservation",
+              "reason": "NoReservation",
+              "status": "False",
+              "type": "Admitted"
+            },
+            {
+              "message": "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+              "reason": "WaitingForQuota",
+              "status": "False",
+              "type": "QuotaReserved"
+            }
+          ],
+          "name": "wl-pending",
+          "namespace": "pr-evidence",
+          "priority": 0,
+          "queueName": "preemption-queue"
+        }
+      ]
+    },
+    "step": 10
+  },
   "run": {
     "baseSha": "602de8f1b432103478558cd54de9377146603855",
     "featureGates": {

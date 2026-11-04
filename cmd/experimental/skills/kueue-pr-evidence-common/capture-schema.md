@@ -19,6 +19,7 @@ position alone. Keep captures outside the repository, under
 | `schemaVersion` | string | Always `pr-evidence.capture/v1`. Bump on breaking change. |
 | `run` | object | Run metadata (below). |
 | `checkpoints` | array | Ordered by `index` (0..n-1, contiguous). |
+| `failure` | object \| null | Optional. `null` when every assertion passed; otherwise `step`, `action`, `assertion`, `message`, `checkpoint` (the capture it gated) and `observed` (a checkpoint taken at the failure). |
 
 ### `run`
 

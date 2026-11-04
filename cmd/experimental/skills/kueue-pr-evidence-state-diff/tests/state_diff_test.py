@@ -424,6 +424,14 @@ class DiffRenderTest(unittest.TestCase):
     def test_visible_lines_ignores_details_in_code_spans(self):
         self.assertEqual(L.visible_lines("use `<details>` here\na\nb"), 3)
         self.assertEqual(L.visible_lines("``a `<details>` b``\nc"), 2)
+        self.assertEqual(L.visible_lines("a `x\ny <details> z` b\nc\nd"), 4)  # span crosses a line break
+        self.assertEqual(L.visible_lines("\\`<details>\\`\nhidden\n</details>\nc"), 2)  # escaped backticks
+        self.assertEqual(L.visible_lines("`a\n\n<details>\nhidden\n</details>`"), 2)  # no span across a blank line
+
+    def test_verdict_assertion_is_one_line(self):
+        hf = {"step": 2, "action": "waitFor", "assertion": "multi\nline", "message": "m", "checkpoint": None}
+        d = L.diff_captures(self.base, self.head, head_failure=hf)
+        self.assertIn("`multi line`", L.auto_verdict(d, 2))
 
     def test_cell_fences_backticks(self):
         self.assertEqual(L._cell("plain"), "`plain`")
@@ -459,13 +467,40 @@ class CliTest(unittest.TestCase):
             self.assertEqual(meta["checkpoints"], len(head["checkpoints"]))
             self.assertTrue((Path(t) / f"{L.SKILL}.md").read_text().startswith("**Verdict:**"))
 
-    def render_dir(self, t, mutate):
+    def render_dir(self, t, mutate, *args):
         sdir = Path(t) / "state-diff" / "priority-boost-no-wpc"
         shutil.copytree(FIXTURES / "run-priority-boost", sdir)
         mutate(sdir)
-        p = subprocess.run([sys.executable, "-B", str(SCRIPTS / "state-diff"), "render", "--dir", str(sdir)],
+        p = subprocess.run([sys.executable, "-B", str(SCRIPTS / "state-diff"), "render", "--dir", str(sdir), *args],
                            capture_output=True, text=True)
         return sdir, p
+
+    @staticmethod
+    def edit_capture(sdir, side, fn):
+        p = sdir / f"capture.{side}.json"
+        cap = json.loads(p.read_text())
+        fn(cap)
+        p.write_text(json.dumps(cap))
+
+    def test_render_rejects_incomplete_captures(self):
+        for side, field, want in (("base", "side", "run.side"), ("base", "scenario", "run.scenario missing"),
+                                  ("head", "sha", "headSha")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as t:
+                _, p = self.render_dir(t, lambda d: self.edit_capture(d, side, lambda c: c["run"].pop(field)))
+                self.assertEqual(p.returncode, 2, p.stderr)
+                self.assertIn(want, p.stderr)
+
+    def test_rebuilt_run_json_keeps_failures_and_scenario(self):
+        with tempfile.TemporaryDirectory() as t:
+            scenario = Path(t) / "s.yaml"
+            scenario.write_text("name: priority-boost-no-wpc\n")
+            sdir, p = self.render_dir(t, lambda d: (d / "run.json").unlink(), "--scenario", str(scenario))
+            self.assertEqual(p.returncode, 0, p.stderr)
+            meta = json.loads((sdir / "run.json").read_text())
+            self.assertEqual(meta["baseFailure"], json.loads((sdir / "capture.base.json").read_text())["failure"])
+            self.assertIsNotNone(meta["baseFailure"])
+            self.assertEqual(meta["scenarioYaml"], "name: priority-boost-no-wpc\n")
+            self.assertIn("Base fails", (Path(t) / f"{L.SKILL}.md").read_text())
 
     def test_render_rebuilds_stale_run_json(self):
         def bump(sdir):
@@ -490,10 +525,10 @@ class CliTest(unittest.TestCase):
 
     def test_head_failure_block_is_not_publishable(self):
         def fail_head(sdir):
-            meta = json.loads((sdir / "run.json").read_text())
-            meta["headFailure"] = {"step": 3, "action": "waitFor", "assertion": "x", "message": "timed out",
-                                   "checkpoint": None, "observed": None}
-            (sdir / "run.json").write_text(json.dumps(meta))
+            failure = {"step": 3, "action": "waitFor", "assertion": "x", "message": "timed out",
+                       "checkpoint": None, "observed": None}
+            self.edit_capture(sdir, "head", lambda c: c.update(failure=failure))
+            (sdir / "run.json").unlink()  # rebuilt from the captures, failure included
             (Path(t) / f"{L.SKILL}.md").write_text("old block")
         with tempfile.TemporaryDirectory() as t:
             sdir, p = self.render_dir(t, fail_head)

@@ -593,6 +593,10 @@ def diff_captures(base: dict, head: dict, base_failure: dict | None = None, head
 # ---------------------------------------------------------------- render
 
 
+def _one_line(s: Any) -> str:
+    return " ".join(str(s).split())
+
+
 def _cell(s: Any, limit: int | None = 60) -> str:
     s = str(s).replace("\n", " ").replace("|", "\\|")
     if limit and len(s) > limit:
@@ -647,10 +651,10 @@ def _rows_md(diff: dict, limit: int | None, max_rows: int | None) -> tuple[list[
 def auto_verdict(diff: dict, n_checkpoints: int) -> str:
     bf, hf = diff.get("baseFailure"), diff.get("headFailure")
     if hf:
-        return f"Head FAILS `{hf.get('assertion') or hf.get('action')}` (step {hf.get('step')}); evidence incomplete."
+        return f"Head FAILS `{_one_line(hf.get('assertion') or hf.get('action'))}` (step {hf.get('step')}); evidence incomplete."
     changed_cps = [c for c in diff["checkpoints"] if c["rows"] or c["base"] != "ok"]
     if bf:
-        lead = f"Base fails `{bf.get('assertion') or bf.get('action')}`; head passes all {n_checkpoints} checkpoints."
+        lead = f"Base fails `{_one_line(bf.get('assertion') or bf.get('action'))}`; head passes all {n_checkpoints} checkpoints."
         return lead + (f" Changed: {', '.join(diff['changed'])}." if diff["changed"] else "")
     if not changed_cps:
         return f"No observable state change: base and head match at all {n_checkpoints} checkpoints."
@@ -698,7 +702,15 @@ def render_block(diff: dict, meta: dict, verdict: str | None = None) -> str:
 
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
-CODE_SPAN_RE = re.compile(r"(?<!`)(`+).*?(?<!`)\1(?!`)")
+
+# An inline code span: an unescaped backtick run, then the next run of the same
+# length. It may cross line breaks, but not a blank line or a fence line.
+CODE_SPAN_RE = re.compile(r"(?<![`\\])(`+)(?:(?!\n[ \t]*\n|\n {0,3}(?:`{3,}|~{3,}))[\s\S])*?(?<!`)\1(?!`)")
+
+
+def _mask_code_spans(content: str) -> list[str]:
+    """Lines with code-span text replaced, so `<details>` inside a span is not a tag."""
+    return CODE_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", "x", m.group(0)), content).split("\n")
 
 
 def visible_lines(content: str) -> int:
@@ -706,7 +718,8 @@ def visible_lines(content: str) -> int:
     plus every fenced line outside <details>."""
     depth = count = 0
     fence = ""  # open code fence marker; tags inside a fence are literal text
-    for line in content.split("\n"):
+    masked = _mask_code_spans(content)
+    for i, line in enumerate(content.split("\n")):
         m = FENCE_RE.match(line)
         if fence:
             if depth == 0:
@@ -719,7 +732,7 @@ def visible_lines(content: str) -> int:
         if m:
             fence = m.group(1)
             continue
-        tags = CODE_SPAN_RE.sub("", line)  # `<details>` in a code span is text
+        tags = masked[i]
         opens = len(re.findall(r"<details\b", tags, re.IGNORECASE))
         closes = len(re.findall(r"</details\s*>", tags, re.IGNORECASE))
         depth = max(0, depth + opens - closes)

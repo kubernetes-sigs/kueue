@@ -192,6 +192,8 @@ class RewriteBodyTest(unittest.TestCase):
         self.assertEqual(inj.visible_lines(fenced), 34)
         self.assertEqual(inj.visible_lines("<details>\n~~~\n</details>\n~~~\n</details>\nz"), 2)
         self.assertEqual(inj.visible_lines("use `<details>` here\na\nb"), 3)
+        self.assertEqual(inj.visible_lines("a `x\ny <details> z` b\nc\nd"), 4)
+        self.assertEqual(inj.visible_lines("\\`<details>\\`\nhidden\n</details>\nc"), 2)
 
 
 class CliTest(unittest.TestCase):

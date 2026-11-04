@@ -110,8 +110,9 @@ capture paths and the scenario YAML. The CLI exits 3 when the block exceeds the
   (`make kind-image-build` in each tree, then the e2e harness), write captures
   in the [capture format](../kueue-pr-evidence-common/capture-schema.md) to
   `$OUT/state-diff/<scenario>/capture.{base,head}.json`, and use `render`.
-  When `run.json` is missing or disagrees with the captures' `run` fields,
-  `render` rebuilds it from them.
+  Record a failed assertion in the capture's `failure` field. When `run.json`
+  is missing or disagrees with the captures, `render` rebuilds it from them;
+  pass `--scenario <file>` to include the scenario YAML.
 
 ## Tests
 

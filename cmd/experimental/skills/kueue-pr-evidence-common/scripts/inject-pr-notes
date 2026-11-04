@@ -67,7 +67,15 @@ def header_line(skill: str, base: str, head: str) -> str:
     # Plain (non-code) SHAs so GitHub autolinks them to commits.
     return f"**{skill}** base {base[:12]} -> head {head[:12]}"
 
-CODE_SPAN_RE = re.compile(r"(?<!`)(`+).*?(?<!`)\1(?!`)")
+
+# An inline code span: an unescaped backtick run, then the next run of the same
+# length. It may cross line breaks, but not a blank line or a fence line.
+CODE_SPAN_RE = re.compile(r"(?<![`\\])(`+)(?:(?!\n[ \t]*\n|\n {0,3}(?:`{3,}|~{3,}))[\s\S])*?(?<!`)\1(?!`)")
+
+
+def _mask_code_spans(content: str) -> list[str]:
+    """Lines with code-span text replaced, so `<details>` inside a span is not a tag."""
+    return CODE_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", "x", m.group(0)), content).split("\n")
 
 
 def visible_lines(content: str) -> int:
@@ -79,7 +87,8 @@ def visible_lines(content: str) -> int:
     """
     depth = count = 0
     fence = ""  # open code fence marker; tags inside a fence are literal text
-    for line in content.split("\n"):
+    masked = _mask_code_spans(content)
+    for i, line in enumerate(content.split("\n")):
         m = FENCE_RE.match(line)
         if fence:
             if depth == 0:
@@ -92,7 +101,7 @@ def visible_lines(content: str) -> int:
         if m:
             fence = m.group(1)
             continue
-        tags = CODE_SPAN_RE.sub("", line)  # `<details>` in a code span is text
+        tags = masked[i]
         opens = len(re.findall(r"<details\b", tags, re.IGNORECASE))
         closes = len(re.findall(r"</details\s*>", tags, re.IGNORECASE))
         depth = max(0, depth + opens - closes)

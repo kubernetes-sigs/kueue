@@ -419,6 +419,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         if sc.get("test"):
             run["test"] = sc["test"]
         cap, failure = L.normalize(r["raw"], r["compiled"], run)
+        cap["failure"] = failure  # lets `render` rebuild run.json from the captures alone
         caps[side] = cap
         (sdir / f"capture.{side}.json").write_text(L.dumps(cap))
         meta[f"{side}Failure"] = failure
@@ -441,24 +442,30 @@ def load_captures(sdir: Path) -> dict[str, dict]:
         if not p.exists():
             die(f"{p} missing: write both captures (capture-schema.md) before `render`")
         runs[side] = json.loads(p.read_text())
-        if runs[side].get("run", {}).get("side", side) != side:
-            die(f"{p}: run.side is {runs[side]['run']['side']!r}, expected {side!r}")
-    scenarios = {runs[s].get("run", {}).get("scenario") for s in runs} - {None}
-    if len(scenarios) > 1:
-        die(f"captures name different scenarios: {sorted(scenarios)}")
+        run = runs[side].get("run") or {}
+        if run.get("side") != side:
+            die(f"{p}: run.side is {run.get('side')!r}, expected {side!r}")
+        if not run.get("scenario"):
+            die(f"{p}: run.scenario missing")
+    if runs["base"]["run"]["scenario"] != runs["head"]["run"]["scenario"]:
+        die(f"captures name different scenarios: {runs['base']['run']['scenario']!r}, {runs['head']['run']['scenario']!r}")
     return runs
 
 
 def stale_meta(meta: dict, sdir: Path) -> list[str]:
     """Fields of run.json that disagree with the captures' run fields."""
     runs = load_captures(sdir)
-    b, h = runs["base"].get("run", {}), runs["head"].get("run", {})
-    want = {"baseSha": b.get("sha"), "headSha": h.get("sha"), "scenario": h.get("scenario"),
-            "runner": h.get("runner"), "k8sVersion": h.get("k8sVersion"), "featureGates": h.get("featureGates")}
-    return sorted(k for k, v in want.items() if v is not None and meta.get(k) != v)
+    b, h = runs["base"]["run"], runs["head"]["run"]
+    stale = [k for k, v in (("baseSha", b.get("sha")), ("headSha", h.get("sha"))) if not v or meta.get(k) != v]
+    want = {"scenario": h.get("scenario"), "runner": h.get("runner"), "k8sVersion": h.get("k8sVersion"),
+            "featureGates": h.get("featureGates")}
+    stale += [k for k, v in want.items() if v is not None and meta.get(k) != v]
+    # Captures that record `failure` (null when the side passed) must agree with run.json.
+    stale += [f"{s}Failure" for s in ("base", "head") if "failure" in runs[s] and meta.get(f"{s}Failure") != runs[s]["failure"]]
+    return sorted(stale)
 
 
-def meta_from_captures(sdir: Path) -> dict:
+def meta_from_captures(sdir: Path, scenario_file: str | None = None) -> dict:
     """run.json for captures written by hand (kind runner), from their `run` fields."""
     runs = load_captures(sdir)
     b, h = runs["base"]["run"], runs["head"]["run"]
@@ -468,7 +475,8 @@ def meta_from_captures(sdir: Path) -> dict:
                 "gatesUnknownAtBase": sorted(set(h.get("featureGates") or {}) - set(b.get("featureGates") or {})),
                 "k8sVersion": h.get("k8sVersion"), "checkpoints": len(runs["head"]["checkpoints"]),
                 "repro": f"{REPRO_PREFIX} render --dir {shown_path(sdir)}",
-                "baseFailure": None, "headFailure": None}
+                "baseFailure": runs["base"].get("failure"), "headFailure": runs["head"].get("failure"),
+                "scenarioYaml": Path(scenario_file).read_text() if scenario_file else ""}
     except KeyError as e:
         die(f"capture run.{e.args[0]} missing (capture-schema.md)")
 
@@ -481,7 +489,7 @@ def cmd_render(a: argparse.Namespace) -> int:
     if meta is None or stale:
         if stale:
             log(f"{meta_path} does not match the captures ({', '.join(stale)}): rebuilding it")
-        meta = meta_from_captures(sdir)
+        meta = meta_from_captures(sdir, a.scenario)
         meta_path.write_text(L.dumps(meta))
         log(f"wrote {meta_path} from the captures' run fields")
     out_root = sdir.parent.parent
@@ -513,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--parallel", action="store_true", help="run base and head concurrently (default: sequential; the second build reuses the Go cache and needs less disk)")
         else:
             p.add_argument("--dir", required=True, help="<out>/state-diff/<scenario>")
+            p.add_argument("--scenario", help="scenario file for the <details> YAML when run.json is rebuilt")
             p.add_argument("--out-file", help="block path (default: <out>/kueue-pr-evidence-state-diff.md)")
     a = ap.parse_args(argv)
     try:
