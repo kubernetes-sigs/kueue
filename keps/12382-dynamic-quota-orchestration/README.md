@@ -831,14 +831,21 @@ the alpha behavior for external controllers that do not set the field.
 
 The DQO sets `validUntil` to `now + spec.capacityDistribution.effectiveQuotaTTLSeconds`
 for every ClusterQueue and Cohort in its subtree, only when the distribution
-succeeds (`Distributed=True`, reason `QuotasDistributed`). It renews each target
-it writes, so if a status update fails, the targets written before the failure
-keep their new `validUntil` and the DQO retries. In all scenarios listed above
-the DQO stops renewing, so the effective quota expires within the TTL.
+succeeds (`Distributed=True`, reason `QuotasDistributed`). In all scenarios
+listed above the DQO stops renewing, so the effective quota expires within the TTL.
+
+The DQO renews each target it writes. If the status update of a target fails,
+the reconcile returns the error and the DQO retries with backoff. `Distributed`
+keeps its last value. The targets written before the failure keep their new
+`validUntil`, and the target that failed keeps its old one, so it can expire
+first and fall back to `spec.resourceGroups` until a retry succeeds. The error
+is logged by the DQO controller.
 
 The field is a number of seconds, not a `metav1.Duration`, because the Kube API
 linter does not allow duration fields and other durations in the Kueue API are
-`*Seconds` integers.
+`*Seconds` integers. The field is mutable. A new value applies at the next
+reconcile of the DQO. When the `DynamicQuotaOrchestration` feature gate is
+disabled, the DQO controller does not run, so Kueue ignores the field.
 
 To bound the number of writes, the DQO renews `validUntil` only when at most
 half of the TTL remains, or when the effective quota changes. It also rewrites
@@ -901,9 +908,12 @@ Kueue does not add a grace period.
 #### Upgrade and downgrade
 
 On upgrade, existing `status.effectiveQuotas` without `validUntil` do not expire.
-An active DQO adds `validUntil` on its first successful reconcile after the
-upgrade. An effective quota left by a DQO deleted before the upgrade still
-requires administrator intervention.
+An active DQO adds `validUntil` on its first successful distribution after the
+upgrade. Until then the effective quota does not expire, also when the DQO
+cannot distribute after the upgrade. The DQO does not write `validUntil` when
+distribution fails, because it only writes effective quotas it has computed.
+An effective quota left by a DQO deleted before the upgrade, or by a DQO that
+cannot distribute, still requires administrator intervention.
 
 On downgrade, older Kueue versions ignore `validUntil` and the
 `EffectiveQuotaStale` condition, so an expired effective quota becomes
