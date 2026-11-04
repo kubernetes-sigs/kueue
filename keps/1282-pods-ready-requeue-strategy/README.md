@@ -115,6 +115,20 @@ time.
 
 The administrator wants the count to describe consecutive failures, not the age of the Workload.
 
+Enabling the alpha `ResetRequeueStateOnPodsReady` feature gate makes Kueue clear the count
+once the Workload has been ready for the `waitForPodsReady` timeout:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  ResetRequeueStateOnPodsReady: true
+waitForPodsReady:
+  timeout: 30m
+  requeuingStrategy:
+    backoffLimitCount: 5
+```
+
 ### Risks and Mitigations
 
 <!--
