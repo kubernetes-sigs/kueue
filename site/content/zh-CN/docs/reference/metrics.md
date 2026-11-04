@@ -86,7 +86,7 @@ Kueue 暴露了 [prometheus](https://prometheus.io) 指标来监控系统的健�
 <!-- BEGIN GENERATED TABLE: workload -->
 | 指标名称 | 类型 | 描述 | 标签 |
 | --- | --- | --- | --- |
-| `kueue_workload_preemptions_total` | 计数器 | 每个工作负载被抢占的次数。<br>`reason` 标签可取以下值：<br>- "InClusterQueue" 表示工作负载被同一 ClusterQueue 中的工作负载抢占。<br>- "InCohortReclamation" 表示工作负载被同一 cohort 中的工作负载抢占（名义配额回收）。<br>- "InCohortFairSharing" 表示工作负载被同一 cohort 中的工作负载抢占（公平共享）。<br>- "InCohortReclaimWhileBorrowing" 表示工作负载被同一 cohort 中的工作负载抢占（借用时回收名义配额）。<br>当工作负载完成或被删除时，此计数器条目将被删除。 | `namespace`: 被抢占工作负载的命名空间<br> `workload`: 被抢占工作负载的名称<br> `cluster_queue`: 被抢占工作负载所属的 ClusterQueue<br> `reason`: 驱逐或抢占原因<br> `replica_role`: `leader`、`follower` 或 `standalone` 其中之一 |
+| `kueue_workload_preemptions_total` | 计数器 | 每个工作负载被抢占的次数。<br>`reason` 标签可取以下值：<br>- "InClusterQueue" 表示工作负载被同一 ClusterQueue 中的工作负载抢占。<br>- "InCohortReclamation" 表示工作负载被同一 cohort 中的工作负载抢占（名义配额回收）。<br>- "InCohortFairSharing" 表示工作负载被同一 cohort 中的工作负载抢占（公平共享）。<br>- "InCohortReclaimWhileBorrowing" 表示工作负载被同一 cohort 中的工作负载抢占（借用时回收名义配额）。<br>- "ConfigurablePreemption" 表示工作负载被 PreemptionConfig 规则抢占。<br>当工作负载完成或被删除时，此计数器条目将被删除。 | `namespace`: 被抢占工作负载的命名空间<br> `workload`: 被抢占工作负载的名称<br> `cluster_queue`: 被抢占工作负载所属的 ClusterQueue<br> `reason`: 驱逐或抢占原因<br> `replica_role`: `leader`、`follower` 或 `standalone` 其中之一 |
 <!-- END GENERATED TABLE: workload -->
 
 ## Cohort 状态

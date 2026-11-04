@@ -24,7 +24,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -357,46 +356,31 @@ var _ = ginkgo.Describe("WorkloadMetrics", ginkgo.Label("feature:workloadmetrics
 
 			highPriorityClass *schedulingv1.PriorityClass
 
-			lowerJob1          *batchv1.Job
-			lowerJob2          *batchv1.Job
-			blockerJob         *batchv1.Job
-			blockerWorkload    *kueue.Workload
-			blockerWorkloadKey types.NamespacedName
-			higherJob1         *batchv1.Job
-			higherJob2         *batchv1.Job
+			lowerJob1 *batchv1.Job
+			lowerJob2 *batchv1.Job
 		)
 
 		ginkgo.BeforeEach(func() {
 			clusterQueue1 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-1-").
-				Cohort("test-cohort").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
-						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceCPU, "1").
 						Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
-					},
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
 			clusterQueue2 = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-cq-2-").
-				Cohort("test-cohort").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
-						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceCPU, "1").
 						Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
-					},
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
 			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
@@ -429,50 +413,9 @@ var _ = ginkgo.Describe("WorkloadMetrics", ginkgo.Label("feature:workloadmetrics
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, lowerJob2)
-
-			blockerJob = testingjob.MakeJob("blocker", ns.Name).
-				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
-				RequestAndLimit(corev1.ResourceCPU, "3").
-				TerminationGracePeriod(1).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, blockerJob)
-
-			blockerWLName := job.GetWorkloadNameForJob(blockerJob.Name, blockerJob.UID)
-			blockerWorkloadKey = types.NamespacedName{Name: blockerWLName, Namespace: ns.Name}
-			blockerWorkload = &kueue.Workload{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
-
-			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
-				Queue(kueue.LocalQueueName(localQueue1.Name)).
-				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
-				RequestAndLimit(corev1.ResourceCPU, "4").
-				TerminationGracePeriod(1).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, higherJob1)
-
-			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
-				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
-				PriorityClass(highPriorityClass.Name).
-				RequestAndLimit(corev1.ResourceCPU, "4").
-				TerminationGracePeriod(1).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, higherJob2)
 		})
 
 		ginkgo.AfterEach(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob1, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob2, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, blockerJob, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
-			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
@@ -480,51 +423,68 @@ var _ = ginkgo.Describe("WorkloadMetrics", ginkgo.Label("feature:workloadmetrics
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
 		})
 
-		ginkgo.It("should emit kueue_workload_preemptions_total", func() {
-			higherWorkload1 := &kueue.Workload{}
-			higherWorkload2 := &kueue.Workload{}
-
-			ginkgo.By("Wait for higher-priority workloads to be pending (inadmissible)", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-						Name:      job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
-						Namespace: ns.Name,
-					}, higherWorkload1)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-						Name:      job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID),
-						Namespace: ns.Name,
-					}, higherWorkload2)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, higherWorkload1, higherWorkload2)
+		ginkgo.It("should emit and clear kueue_workload_preemptions_total", func() {
+			lowerWorkload1 := utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(lowerJob1.Name, lowerJob1.UID), ns.Name).Obj()
+			lowerWorkload2 := utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(lowerJob2.Name, lowerJob2.UID), ns.Name).Obj()
+			ginkgo.By("waiting for both lower-priority workloads to be admitted", func() {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1, lowerWorkload2)
 			})
 
-			ginkgo.By("Deactivate the blocker workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-					blockerWorkload.Spec.Active = new(false)
-					g.Expect(k8sClient.Update(ctx, blockerWorkload)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			higherJob1 := testingjob.MakeJob("high-job-1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				PriorityClass(highPriorityClass.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			higherJob2 := testingjob.MakeJob("high-job-2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				PriorityClass(highPriorityClass.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			ginkgo.By("creating a higher-priority job in each ClusterQueue", func() {
+				behavioral.MustCreate(ctx, k8sClient, higherJob1)
+				behavioral.MustCreate(ctx, k8sClient, higherJob2)
 			})
 
-			ginkgo.By("Expecting at least one of the high-priority jobs to be admitted", func() {
-				behavioral.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1,
-					utiltestingapi.MakeWorkload(
-						job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
-						higherJob1.Namespace,
-					).Obj(),
-					utiltestingapi.MakeWorkload(
-						job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID),
-						higherJob2.Namespace,
-					).Obj(),
+			ginkgo.By("waiting for both higher-priority workloads to be admitted", func() {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient,
+					utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID), ns.Name).Obj(),
+					utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID), ns.Name).Obj(),
 				)
 			})
 
+			preemptionMetrics := [][]string{
+				{
+					"kueue_workload_preemptions_total{",
+					`cluster_queue="` + clusterQueue1.Name + `"`,
+					`namespace="` + ns.Name + `"`,
+					`reason="InClusterQueue"`,
+					`workload="` + lowerWorkload1.Name + `"`,
+				},
+				{
+					"kueue_workload_preemptions_total{",
+					`cluster_queue="` + clusterQueue2.Name + `"`,
+					`namespace="` + ns.Name + `"`,
+					`reason="InClusterQueue"`,
+					`workload="` + lowerWorkload2.Name + `"`,
+				},
+			}
+
 			ginkgo.By("checking that kueue_workload_preemptions_total is available", func() {
-				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-					{"kueue_workload_preemptions_total", ns.Name},
-				})
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, preemptionMetrics)
+			})
+
+			ginkgo.By("deleting all jobs and waiting for the preempted workloads to be deleted", func() {
+				gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerWorkload1, false)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerWorkload2, false)
+			})
+
+			ginkgo.By("checking that kueue_workload_preemptions_total is not available", func() {
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, preemptionMetrics)
 			})
 		})
 	})
