@@ -312,12 +312,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
-		committedVictims := c.committedVictims(ctx, opts.preemptionExpectations)
+		assumedWorkloads, committedVictims := c.sortWorkloads(ctx, opts.preemptionExpectations)
 		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			c.podTracker,
-			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+			simulator.WithAssumedWorkloads(assumedWorkloads),
 			simulator.WithCommittedVictims(committedVictims),
 		)
 		if err != nil {
@@ -444,33 +444,35 @@ func (c *Cache) assumedWorkloads() []*kueue.Workload {
 	return assumedWorkloads
 }
 
-func (c *Cache) committedVictims(ctx context.Context, preemptionExpectations *expectations.Store) (victims []workload.Reference) {
+func (c *Cache) sortWorkloads(ctx context.Context, preemptionExpectations *expectations.Store) (assumed []*kueue.Workload, victims []workload.Reference) {
 	log := ctrl.LoggerFrom(ctx)
-	for wlRef := range c.podTracker.TrackedWorkloads() {
-		ns, n, err := toolscache.SplitMetaNamespaceKey(string(wlRef))
-		if err != nil {
-			log.V(3).Error(err, "Unable to parse workload key")
-			continue
+	assumedWorkloads := c.assumedWorkloads()
+	trackedWorkloads := c.podTracker.TrackedWorkloads()
+
+	// Process assumed workloads
+	for _, wl := range assumedWorkloads {
+		wlKey := client.ObjectKeyFromObject(wl)
+		trackedWorkloads.Delete(workload.Key(wl))
+		if c.isExpectingPreemption(log, wlKey, preemptionExpectations) || c.isPreempted(wl) {
+			victims = append(victims, workload.Key(wl))
+		} else {
+			assumed = append(assumed, wl)
 		}
-		if c.isPreempted(ctx, log, client.ObjectKey{Namespace: ns, Name: n}, preemptionExpectations) {
+	}
+	// Process remaining tracked workloads that are not currently assumed.
+	for wlRef := range trackedWorkloads {
+		if c.isUnassumedPreempted(ctx, log, wlRef, preemptionExpectations) {
 			victims = append(victims, wlRef)
 		}
 	}
 	return
 }
 
-func (c *Cache) isPreempted(ctx context.Context, log logr.Logger, wlKey client.ObjectKey, preemptionExpectations *expectations.Store) bool {
-	if preemptionExpectations != nil && !preemptionExpectations.Satisfied(log, wlKey) {
-		return true
-	}
+func (c *Cache) isExpectingPreemption(log logr.Logger, wlKey client.ObjectKey, preemptionExpectations *expectations.Store) bool {
+	return preemptionExpectations != nil && !preemptionExpectations.Satisfied(log, wlKey)
+}
 
-	wl := &kueue.Workload{}
-	if err := c.client.Get(ctx, wlKey, wl); apierrors.IsNotFound(err) {
-		return true
-	} else if err != nil {
-		return false
-	}
-
+func (c *Cache) isPreempted(wl *kueue.Workload) bool {
 	condEvicted := &metav1.Condition{
 		Type:   kueue.WorkloadEvicted,
 		Status: metav1.ConditionTrue,
@@ -478,6 +480,39 @@ func (c *Cache) isPreempted(ctx context.Context, log logr.Logger, wlKey client.O
 	}
 	return workload.HasConditionWithTypeAndReason(wl, condEvicted) ||
 		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)
+}
+
+func (c *Cache) isUnassumedPreempted(ctx context.Context, log logr.Logger, wlRef workload.Reference, preemptionExpectations *expectations.Store) bool {
+	ns, n, err := toolscache.SplitMetaNamespaceKey(string(wlRef))
+	if err != nil {
+		log.V(3).Error(err, "Unable to parse workload key")
+		return false
+	}
+	wlKey := client.ObjectKey{Namespace: ns, Name: n}
+	if c.isExpectingPreemption(log, wlKey, preemptionExpectations) {
+		return true
+	}
+	wl, deleted := c.getWorkload(ctx, wlKey)
+	if wl == nil {
+		return deleted
+	}
+	if c.isPreempted(wl) {
+		return true
+	}
+	return false
+}
+
+func (c *Cache) getWorkload(
+	ctx context.Context,
+	wlKey client.ObjectKey,
+) (wl *kueue.Workload, deleted bool) {
+	wl = &kueue.Workload{}
+	if err := c.client.Get(ctx, wlKey, wl); apierrors.IsNotFound(err) {
+		return nil, true
+	} else if err != nil {
+		return nil, false
+	}
+	return wl, false
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(
