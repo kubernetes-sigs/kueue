@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -439,10 +440,18 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		return &retryAfter
 	}
 	for i := range wls.Items {
-		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
-			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
-			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		wl := &wls.Items[i]
+		if ptr.Deref(wl.Status.ClusterName, "") != rc.clusterName &&
+			!slices.Contains(wl.Status.NominatedClusterNames, rc.clusterName) {
+			continue
 		}
+		// A finished workload only needs its remote objects removed. The re-established
+		// watch replays an ADDED event for every remote object that still exists, which
+		// queues the workload, so the resync would only read the worker again for nothing.
+		if wl.DeletionTimestamp.IsZero() && workloadfinish.IsFinished(wl) {
+			continue
+		}
+		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl))
 	}
 	return nil
 }
