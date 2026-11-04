@@ -60,7 +60,10 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 			if committedVictims.Has(wlKey) {
 				continue
 			}
-			// Pods with DeletionTimestamp count as individual committed victims.
+			// Pods with DeletionTimestamp count as individual
+			// committed victims and not actual pods of the workload.
+			// If all pods of the workload are filtered out,
+			// it means it is a podless victim with only residual pods remaining.
 			pods := filterActivePods(s.pods.PodsForWorkload(wlKey))
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
 			if len(pods) == 0 {
