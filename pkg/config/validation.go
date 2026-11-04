@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -101,6 +102,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme) field.ErrorLis
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
+	allErrs = append(allErrs, validateMetrics(c.Metrics)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
@@ -1007,4 +1009,21 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
 	}
 	return allErrs
+}
+
+func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
+	if !features.Enabled(features.DisableMetricsAccessControl) || metrics.BindAddress == "0" {
+		return nil
+	}
+	address, err := netip.ParseAddrPort(metrics.BindAddress)
+	if err != nil || !address.Addr().Unmap().IsLoopback() || address.Port() == 0 {
+		return field.ErrorList{
+			field.Invalid(
+				field.NewPath("metrics", "bindAddress"),
+				metrics.BindAddress,
+				"DisableMetricsAccessControl requires a literal loopback IP and numeric port in the range 1–65535 (for example 127.0.0.1:8443 or [::1]:8443); disable the feature gate for other addresses",
+			),
+		}
+	}
+	return nil
 }
