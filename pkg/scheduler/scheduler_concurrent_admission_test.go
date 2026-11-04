@@ -306,7 +306,7 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"concurrent-cq": {"eng-alpha/candidate-less-favorable"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{

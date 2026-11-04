@@ -1346,8 +1346,9 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log := ctrl.LoggerFrom(ctx)
-	if e.status != notNominated && e.requeueReason == qcache.RequeueReasonGeneric {
-		// Failed after nomination is the only reason why a workload would be requeued downstream.
+	if (e.status == nominated || e.status == assumed) && e.requeueReason == qcache.RequeueReasonGeneric {
+		// Only admission failures should bypass the inadmissible stage. Skipped
+		// workloads must let later workloads advance in BestEffortFIFO queues.
 		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
 	}
 

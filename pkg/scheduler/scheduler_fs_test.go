@@ -419,7 +419,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-beta/light-usage": *utiltestingapi.MakeAdmission("fs-nom-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
 				"eng-alpha/nom-wl":     *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45").Count(45).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"fs-nom-b": {"eng-beta/borrow-wl"},
 			},
 		},
@@ -568,7 +568,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c0":   *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).Obj(),
 				"eng-alpha/wl-a": *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -720,7 +720,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c0":   *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).Obj(),
 				"eng-alpha/wl-a": *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -904,7 +904,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c-admitted":  *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj()).Obj(),
 				"eng-alpha/wl-a1":       *utiltestingapi.MakeAdmission("cq-a1").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "7").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -1387,7 +1387,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"e": {"eng-alpha/e1"},
 				"g": {"eng-alpha/g1"},
 				"f": {"eng-alpha/f1"},
@@ -1531,7 +1531,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"c": {"eng-alpha/c1"},
 			},
 		},
@@ -1689,7 +1689,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -1845,7 +1845,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -2139,7 +2139,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -2258,7 +2258,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -2941,7 +2941,9 @@ func TestScheduleForFairSharing(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
-				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"other-beta": {"eng-beta/pretending-preemptor"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1": *utiltestingapi.MakeAdmission("other-alpha").

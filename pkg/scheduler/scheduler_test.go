@@ -3526,7 +3526,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq2": {"sales/wl2"},
 			},
 		},
@@ -4606,7 +4606,9 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
-				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"other-beta": {"eng-beta/pretending-preemptor"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1": *utiltestingapi.MakeAdmission("other-alpha").
@@ -5600,11 +5602,9 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"ClusterQueueB": {"eng-beta/b1-pending"},
-			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueA": {"eng-alpha/a2-pending"},
+				"ClusterQueueB": {"eng-beta/b1-pending"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
@@ -5711,11 +5711,9 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"ClusterQueueB": {"eng-beta/b1-pending"},
-			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueA": {"eng-alpha/a2-pending"},
+				"ClusterQueueB": {"eng-beta/b1-pending"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
@@ -5845,7 +5843,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"best-effort": {"eng-alpha/best-effort"},
 			},
 		},
@@ -7337,7 +7335,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"default/b1"},
 			},
 		},
@@ -7456,7 +7454,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"default/b1"},
 			},
 		},
@@ -7581,7 +7579,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-a": {"default/grow"},
 			},
 		},
@@ -7720,7 +7718,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"default/b1"},
 			},
 		},
@@ -10855,18 +10853,21 @@ func TestLastSchedulingContext(t *testing.T) {
 }
 
 func TestRequeueAndUpdate(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
 	q1 := utiltestingapi.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
 	w1 := utiltestingapi.MakeWorkload("w1", "ns1").Queue(kueue.LocalQueueName(q1.Name)).Obj()
 
 	cases := []struct {
-		name              string
-		wl                *kueue.Workload
-		e                 entry
-		wantWorkloads     map[kueue.ClusterQueueReference][]workload.Reference
-		wantInadmissible  map[kueue.ClusterQueueReference][]workload.Reference
-		wantStatus        kueue.WorkloadStatus
-		wantStatusUpdates int
+		name               string
+		wl                 *kueue.Workload
+		e                  entry
+		queueingStrategy   kueue.QueueingStrategy
+		flavorScanState    *workload.FlavorScanState
+		checkQueueProgress bool
+		wantWorkloads      map[kueue.ClusterQueueReference][]workload.Reference
+		wantInadmissible   map[kueue.ClusterQueueReference][]workload.Reference
+		wantStatus         kueue.WorkloadStatus
+		wantStatusUpdates  int
 	}{
 		{
 			name: "workload didn't fit",
@@ -10917,7 +10918,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "skipped with summary",
+			name:               "skipped moves to inadmissible and lets later workloads advance",
+			checkQueueProgress: true,
 			e: entry{
 				status:              skipped,
 				inadmissibleMsg:     "cohort used in this cycle",
@@ -10940,10 +10942,58 @@ func TestRequeueAndUpdate(t *testing.T) {
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
 			},
-			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq": {workload.Key(w1)},
 			},
 			wantStatusUpdates: 1,
+		},
+		{
+			name:             "skipped in StrictFIFO",
+			queueingStrategy: kueue.StrictFIFO,
+			e: entry{
+				status:           skipped,
+				skipStatusUpdate: true,
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
+		},
+		{
+			name: "skipped with explicit retry after nomination",
+			e: entry{
+				status:           skipped,
+				requeueReason:    qcache.RequeueReasonFailedAfterNomination,
+				skipStatusUpdate: true,
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
+		},
+		{
+			name: "skipped pending preemption",
+			e: entry{
+				status:           skipped,
+				requeueReason:    qcache.RequeueReasonPendingPreemption,
+				skipStatusUpdate: true,
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
+		},
+		{
+			name: "skipped with pending flavors",
+			e: entry{
+				status:           skipped,
+				skipStatusUpdate: true,
+			},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("default")},
+				},
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
 		},
 		{
 			name: "preemption gated",
@@ -10975,7 +11025,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
 			},
-			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq": {workload.Key(w1)},
 			},
 			wantStatusUpdates: 1,
@@ -11025,7 +11075,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				},
 				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
 			},
-			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq": {workload.Key(w1)},
 			},
 			wantStatusUpdates: 1,
@@ -11036,7 +11086,11 @@ func TestRequeueAndUpdate(t *testing.T) {
 		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/observability_%t", tc.name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
-				ctx, _ := utiltesting.ContextWithLog(t)
+				ctx, log := utiltesting.ContextWithLog(t)
+				cq := cq.DeepCopy()
+				if tc.queueingStrategy != "" {
+					cq.Spec.QueueingStrategy = tc.queueingStrategy
+				}
 
 				updates := 0
 				wl := w1
@@ -11056,8 +11110,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
-				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				expectations := preemptexpectations.New()
+				qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache, qcache.WithPreemptionExpectations(expectations))
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(expectations))
 				if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
 				}
@@ -11076,6 +11131,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 					t.Fatalf("Failed getting heads in cluster queue")
 				}
 				tc.e.Head = wInfos[0]
+				tc.e.FlavorScanState = tc.flavorScanState
 				scheduler.requeueAndUpdate(ctx, tc.e)
 
 				qDump := qManager.Dump()
@@ -11109,6 +11165,30 @@ func TestRequeueAndUpdate(t *testing.T) {
 				scheduler.requeueAndUpdate(ctx, tc.e)
 				if updates != tc.wantStatusUpdates {
 					t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
+				}
+				if tc.checkQueueProgress {
+					later := utiltestingapi.MakeWorkload("w2", "ns1").
+						Queue(kueue.LocalQueueName(q1.Name)).
+						Priority(-1).
+						Obj()
+					if err := cl.Create(ctx, later); err != nil {
+						t.Fatalf("Creating later workload: %v", err)
+					}
+					if err := qManager.AddOrUpdateWorkload(ctx, log, later); err != nil {
+						t.Fatalf("Queuing later workload: %v", err)
+					}
+					heads := qManager.Heads(ctx)
+					if len(heads) != 1 || workload.Key(heads[0].Obj) != workload.Key(later) {
+						t.Fatalf("Expected later workload to become the next head, got %v", heads)
+					}
+					qcache.NotifyRetryInadmissible(qManager, sets.New[kueue.ClusterQueueReference]("cq"))
+					if moved := requeuer.ProcessRequeues(ctx); moved != 1 {
+						t.Fatalf("Expected wake-up to reactivate the skipped workload, moved %d", moved)
+					}
+					heads = qManager.Heads(ctx)
+					if len(heads) != 1 || workload.Key(heads[0].Obj) != workload.Key(w1) {
+						t.Fatalf("Expected skipped workload to return after wake-up, got %v", heads)
+					}
 				}
 			})
 		}

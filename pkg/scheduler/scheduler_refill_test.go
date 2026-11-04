@@ -437,7 +437,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				"default/poor-a": *singleCPUAdmission("refill-poor"),
 				"default/poor-b": *singleCPUAdmission("refill-poor"),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"refill-rich": {"default/rich-pending"},
 			},
 		},

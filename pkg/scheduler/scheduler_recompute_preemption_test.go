@@ -2213,6 +2213,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-x": {"default/x"},
 				"cq-a": {"default/grow"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-l": {"default/l"},
 			},
 			wantPreemptionTargetRecomputations: map[string]map[string]int{

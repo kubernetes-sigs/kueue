@@ -1813,7 +1813,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 				wl1Admitted,
 				wl2NotReserved(kueue.WorkloadQuotaReservedReasonAssignmentError, "failed to schedule workload: injected recompute failure"),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-second": {"default/wl-b"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},

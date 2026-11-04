@@ -10180,7 +10180,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -10477,7 +10477,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -11375,6 +11375,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-c": {"default/c1"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -11728,7 +11730,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -11824,7 +11826,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -11948,7 +11950,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -12116,6 +12118,8 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-a": {"default/a2"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-b": {"default/b1"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
@@ -12264,11 +12268,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"tas-cq-b": {"default/b1"},
-			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-cq-a": {"default/a2"},
+				"tas-cq-b": {"default/b1"},
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
