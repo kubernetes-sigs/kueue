@@ -70,6 +70,11 @@ A `DynamicQuotaOrchestrator` is a cluster-scoped object (short name `dqo`).
   `subtreeRootQuotaRef` points to the ClusterQueue or Cohort at the root of the
   subtree that receives the capacity. Omit `spec.capacityDistribution` to run in
   discovery-only mode.
+- `spec.capacityDistribution.effectiveQuotaTTLSeconds` sets how long the
+  effective quotas written by the orchestrator stay valid without renewal. It
+  is not set by default, and then effective quotas do not expire. When set, it
+  must be between 60 (1 minute) and 604800 (7 days). It is available since
+  Kueue v0.21.
 
 ### Effective quotas
 
@@ -77,6 +82,15 @@ ClusterQueues and Cohorts have a `status.effectiveQuotas` field. It holds the
 quotas to use instead of `spec.resourceGroups`, and an `orchestratorRef` that
 names the component that wrote them. When DQO writes the field,
 `orchestratorRef` names the DynamicQuotaOrchestrator.
+
+While the field is set, Kueue sets the `EffectiveQuotaActive` condition on the
+ClusterQueue or Cohort. The field can also have a `validUntil` time. After that
+time, the condition is `False` with reason `Expired`, and Kueue uses
+`spec.resourceGroups` again. Before that time, or when `validUntil` is not set,
+the condition is `True` with reason `Ready`. Effective quotas without
+`validUntil` do not expire. When `effectiveQuotaTTLSeconds` is set, DQO
+sets `validUntil` to the time it writes the effective quotas plus
+`effectiveQuotaTTLSeconds`, and renews it while distribution keeps succeeding.
 
 ## Discovery
 
@@ -153,13 +167,14 @@ discovery fails. Then no orchestrator updates the subtree.
 ## Which quota Kueue uses
 
 When the `DynamicQuotaOrchestration` feature gate is enabled and
-`status.effectiveQuotas` is set, Kueue uses the effective quotas. Otherwise it
-uses `spec.resourceGroups`. An empty list of effective quotas is still used as
+`status.effectiveQuotas` is set, Kueue uses the effective quotas, unless the
+`EffectiveQuotaActive` condition is `False`. Otherwise it uses
+`spec.resourceGroups`. An empty list of effective quotas is still used as
 is. Kueue does not fall back to the spec in that case.
 
 Turning the feature gate off does not remove `status.effectiveQuotas`. If you
 turn it on again, Kueue uses the old values until an orchestrator rewrites
-them.
+them or their `validUntil` passes.
 
 The scheduler, preemption and the quota metrics all use the same quotas.
 
@@ -201,8 +216,15 @@ DQO is alpha. Keep these points in mind:
   `capacityDistribution`, change `subtreeRootQuotaRef`, or move a ClusterQueue
   or Cohort out of the subtree. It also happens when `Distributed` becomes
   `False` for any reason, such as a discovery failure or a conflict. Kueue
-  keeps admitting workloads against the last values until you clear them. See
+  keeps admitting workloads against the last values until you clear them. If
+  `effectiveQuotaTTLSeconds` is set, they also expire at `validUntil`, at most
+  `effectiveQuotaTTLSeconds` after the orchestrator last wrote them. See
   [Clean up](/docs/tasks/manage/setup_dynamic_quota_orchestration/#clean-up).
+- After effective quotas expire, Kueue uses `spec.resourceGroups`, which can be
+  more than the capacity that the providers last reported. To keep the last
+  values longer during a provider outage, set a longer
+  `effectiveQuotaTTLSeconds`, or leave it unset, before the outage. A change
+  applies only when the orchestrator next writes the effective quotas.
 
 ## What's next?
 
