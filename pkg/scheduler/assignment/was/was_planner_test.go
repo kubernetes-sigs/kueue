@@ -85,7 +85,7 @@ var errSimulator = errors.New("simulator failure")
 
 type scheduleWorkloadCall struct {
 	consumedCandidates []workload.Reference
-	committedVictims   []client.ObjectKey
+	committedVictims   []workload.Reference
 	simulateEmpty      bool
 }
 
@@ -172,6 +172,7 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 
 	f.receivedCalls = append(f.receivedCalls, scheduleWorkloadCall{
 		consumedCandidates: consumedCandidates,
+		committedVictims:   scheduleOpts.CommittedPreemptionVictims,
 		simulateEmpty:      scheduleOpts.SimulateEmpty,
 	})
 	return simulator.SchedulingResult{
@@ -444,7 +445,7 @@ func TestPlan(t *testing.T) {
 		flavorQuotas     []kueue.FlavorQuotas
 		podSets          []testPodSet
 		unhealthyNodes   []string
-		committedVictims []client.ObjectKey
+		committedVictims []workload.Reference
 		// initialMode documents the quota-based mode computed by the flavor assigner.
 		initialMode flavorassigner.FlavorAssignmentMode
 		// When set as Nil, ScheduleWorkload is expected not to be called.
@@ -632,18 +633,18 @@ func TestPlan(t *testing.T) {
 		"initial assignment fits quota, ScheduleWorkload succeeds with committed victims: demotes to DeferredFit and fits": {
 			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
-			committedVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			initialMode:      flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{
 				PodPlacements: simulator.PodPlacements{
 					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				},
-				PreemptionVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.DeferredFit,
 			wantFit:  true,
 			wantCalls: []scheduleWorkloadCall{
-				{committedVictims: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}}},
+				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
@@ -1737,12 +1738,12 @@ func TestPlan_CommittedVictims(t *testing.T) {
 	cases := map[string]struct {
 		cqQuota           string
 		admittedWorkloads []*kueue.Workload
-		committedVictims  []client.ObjectKey
+		committedVictims  []workload.Reference
 		requestedCPU      string
 		initialMode       flavorassigner.FlavorAssignmentMode
 
 		wantMode               flavorassigner.FlavorAssignmentMode
-		wantPreemptionTargets  []client.ObjectKey
+		wantPreemptionTargets  []workload.Reference
 		wantTopologyAssignment *tas.TopologyAssignment
 	}{
 		"committed victim not needed for placement: fits immediately on free capacity": {
@@ -1750,8 +1751,8 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			admittedWorkloads: []*kueue.Workload{
 				committed6Node1.Clone().Obj(),
 			},
-			committedVictims: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "committed-victim"},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
 			},
 			requestedCPU:           "6",
 			initialMode:            flavorassigner.Fit,
@@ -1764,8 +1765,8 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				committed6Node1.Clone().Obj(),
 				candidate6Node2.Clone().Obj(),
 			},
-			committedVictims: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "committed-victim"},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
 			},
 			requestedCPU:           "6",
 			initialMode:            flavorassigner.Fit,
@@ -1780,14 +1781,14 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				committed3Node1.Clone().Name("candidate-2").Priority(20).Obj(),
 				blocker6Node2.Clone().Obj(),
 			},
-			committedVictims: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "committed-victim"},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
 			},
 			requestedCPU: "6",
 			initialMode:  flavorassigner.Fit,
 			wantMode:     flavorassigner.Preempt,
-			wantPreemptionTargets: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "candidate-1"},
+			wantPreemptionTargets: []workload.Reference{
+				workload.NewReference(testNamespace, "candidate-1"),
 			},
 			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
 		},
@@ -1799,14 +1800,14 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				committed3Node1.Clone().Name("candidate-2").Priority(20).Obj(),
 				blocker6Node2.Clone().Obj(),
 			},
-			committedVictims: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "committed-victim"},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
 			},
 			requestedCPU: "6",
 			initialMode:  flavorassigner.Preempt,
 			wantMode:     flavorassigner.Preempt,
-			wantPreemptionTargets: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "candidate-1"},
+			wantPreemptionTargets: []workload.Reference{
+				workload.NewReference(testNamespace, "candidate-1"),
 			},
 			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
 		},
@@ -1817,8 +1818,8 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				committed6Node1.Clone().Name("blocker-1").Obj(),
 				blocker6Node2.Clone().Obj(),
 			},
-			committedVictims: []client.ObjectKey{
-				{Namespace: testNamespace, Name: "committed-victim"},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
 			},
 			requestedCPU:           "7",
 			initialMode:            flavorassigner.Fit,
@@ -1866,7 +1867,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			}
 			var toRemove []*workload.Info
 			for _, cv := range tc.committedVictims {
-				wlInfo := snapshot.ClusterQueue(testCQ).Workloads[workload.NewReference(cv.Namespace, cv.Name)]
+				wlInfo := snapshot.ClusterQueue(testCQ).Workloads[cv]
 				if wlInfo == nil {
 					t.Fatalf("workload %q not found in snapshot", cv)
 				}
@@ -1920,9 +1921,9 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			if gotFit := gotPlan.CanFit(); gotFit != wantFit {
 				t.Errorf("Plan() CanFit() = %v, want %v", gotFit, wantFit)
 			}
-			var gotTargets []client.ObjectKey
+			var gotTargets []workload.Reference
 			for _, target := range gotPlan.PreemptionTargets {
-				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+				gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 			}
 			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
 				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
