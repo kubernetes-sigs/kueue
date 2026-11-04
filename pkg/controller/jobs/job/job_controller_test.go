@@ -4168,7 +4168,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+		"when workload is evicted, suspend and reset startTime, defer restoring node affinity while pods are active": {
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				StartTime(now).
@@ -4186,6 +4186,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4205,7 +4207,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+		"when workload is evicted but suspended, reset startTime, defer restoring node affinity while pods are active": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -4228,6 +4230,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4240,7 +4244,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+		"when workload is evicted, suspended and startTime is reset, defer restoring node affinity while pods are active": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -4262,6 +4266,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4270,6 +4276,61 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when a stopping job's active pods are gone, restore node affinity and clear the stopping annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now.Add(-time.Second)).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
 					}).
 					Obj(),
 			},

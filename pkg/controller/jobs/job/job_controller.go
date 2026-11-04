@@ -169,6 +169,8 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	stoppedNow := false
 
 	if !j.IsSuspended() {
+		// A Job already suspended by an earlier, unfinished Stop was stopped then.
+		wasSuspended := ptr.Deref(j.Spec.Suspend, false)
 		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
@@ -180,7 +182,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = true
+		stoppedNow = !wasSuspended
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
@@ -191,6 +193,15 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
+	}
+
+	// With MutableSchedulingDirectivesForSuspendedJobs (beta, on by default in
+	// Kubernetes 1.36) the API server rejects scheduling directive changes while
+	// the Job still has active Pods. Keep the stopping annotation and wait: the
+	// job controller's status update to active == 0 triggers the next reconcile,
+	// which restores the PodSets info.
+	if j.Status.Active > 0 {
+		return stoppedNow, nil
 	}
 
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
