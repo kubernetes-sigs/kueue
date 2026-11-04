@@ -519,9 +519,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted"); err != nil {
 			return ctrl.Result{}, fmt.Errorf("suspending job with deleted Workload: %w", err)
 		}
-		if jps, ok := job.(JobWithPendingStop); ok && jps.StopPending() {
-			// The PodSetsInfo is not restored yet and is read from this
-			// Workload. The job's next update reconciles it again.
+		if jps, ok := job.(JobWithPendingStop); ok && jps.IsStopPending() {
+			// The job's stop has not restored the PodSetsInfo yet, and it is
+			// read from this Workload. JobWithPendingStop requires the job to
+			// be reconciled again once the stop can complete.
 			log.V(3).Info("Keeping the deleted workload's finalizer until the job's stop completes")
 			return ctrl.Result{}, nil
 		}

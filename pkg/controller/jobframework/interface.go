@@ -129,11 +129,16 @@ type JobWithCustomStop interface {
 
 // JobWithPendingStop is an optional interface for jobs whose Stop can return
 // before it has restored the PodSetsInfo, for example while the job's Pods are
-// still terminating. While StopPending reports true, the reconciler keeps the
-// finalizer of a Workload that is being deleted, so a later Stop can still
-// restore the PodSetsInfo from it.
+// still terminating.
+//
+// IsStopPending only reports whether such a stop is still in progress; it does
+// not stop the job. While it reports true, the reconciler keeps the finalizer
+// of a Workload that is being deleted, so a later Stop can still restore the
+// PodSetsInfo from it. An implementation must make sure the job is reconciled
+// again once the stop can complete, for example through a status update the
+// reconciler watches.
 type JobWithPendingStop interface {
-	StopPending() bool
+	IsStopPending() bool
 }
 
 // JobWithFinalize is an optional interface that should be implemented by generic jobs
