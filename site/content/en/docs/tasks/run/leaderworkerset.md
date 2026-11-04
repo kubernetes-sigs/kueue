@@ -98,6 +98,12 @@ Kueue copies the new tolerations to the Workloads of the LeaderWorkerSet:
 - An admitted Workload keeps its admission, and Topology Aware Scheduling checks node taints
   against the new tolerations, so the restarted Pods can keep running on the assigned nodes.
 
+Kueue copies the new tolerations to the Workloads of all groups right away, while LeaderWorkerSet
+updates their Pods gradually. Wait until the rolling update completes before you add the taints
+that the new tolerations match.
+Kueue rejects adding tolerations while `rolloutStrategy.rollingUpdateConfiguration.partition`
+is greater than 0, because LeaderWorkerSet does not update the groups below the partition.
+
 In MultiKueue, Kueue also copies the new tolerations to the Workloads and the LeaderWorkerSet
 on the worker cluster.
 

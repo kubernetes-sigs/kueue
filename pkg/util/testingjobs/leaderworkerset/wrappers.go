@@ -259,6 +259,15 @@ func (w *LeaderWorkerSetWrapper) WorkloadPriorityClass(wpc string) *LeaderWorker
 	return w.Label(constants.WorkloadPriorityClassLabel, wpc)
 }
 
+// Partition sets the rolling update partition of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) Partition(partition int32) *LeaderWorkerSetWrapper {
+	if w.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		w.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{}
+	}
+	w.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition = &partition
+	return w
+}
+
 // RolloutStrategy sets the rollout strategy of the LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) RolloutStrategy(strategy leaderworkersetv1.RolloutStrategyType) *LeaderWorkerSetWrapper {
 	w.Spec.RolloutStrategy = leaderworkersetv1.RolloutStrategy{

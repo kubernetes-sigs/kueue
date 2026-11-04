@@ -237,14 +237,17 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		return nil, err
 	}
 	if suspend {
+		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			partition,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			partition,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -345,7 +348,7 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, partition int32, fieldPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
@@ -355,7 +358,7 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 			// Admitted Workloads keep their admission, so only additions are allowed:
 			// removing a toleration could stop the new pods from running on the nodes
 			// that Kueue assigned.
-			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, fieldPath.Child("spec", "tolerations"))...)
+			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
 			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
 		}
 		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
@@ -363,9 +366,23 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 	return allErrors
 }
 
-func validateOnlyAddedTolerations(newTolerations, oldTolerations []corev1.Toleration, fieldPath *field.Path) field.ErrorList {
+func validateOnlyAddedTolerations(newTolerations, oldTolerations []corev1.Toleration, partition int32, fieldPath *field.Path) field.ErrorList {
 	if !utiltolerations.ContainsAll(newTolerations, oldTolerations) {
 		return field.ErrorList{field.Forbidden(fieldPath, "existing tolerations cannot be removed or changed while the LeaderWorkerSet is managed by Kueue, only new tolerations can be added")}
 	}
+	// Kueue copies the added tolerations to the Workloads of all groups, but
+	// LeaderWorkerSet keeps the Pods of the groups below the partition on the
+	// previous revision. Topology Aware Scheduling would then treat the node
+	// taints as tolerated by Pods that do not tolerate them.
+	if partition > 0 && !utiltolerations.ContainsAll(oldTolerations, newTolerations) {
+		return field.ErrorList{field.Forbidden(fieldPath, "tolerations cannot be added while rolloutStrategy.rollingUpdateConfiguration.partition is greater than 0")}
+	}
 	return nil
+}
+
+func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
+	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		return 0
+	}
+	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
 }
