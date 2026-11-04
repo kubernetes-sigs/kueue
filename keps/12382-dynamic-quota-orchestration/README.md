@@ -267,7 +267,7 @@ type ClusterQueueStatus struct {
     // ...
 
     // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-    // present.
+    // present, unless the EffectiveQuotaStale condition is True.
     //
     // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
     // feature gate is disabled.
@@ -277,17 +277,6 @@ type ClusterQueueStatus struct {
 }
 
 type CohortStatus struct {
-    // ...
-
-    // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-    // present.
-    //
-    // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
-    // feature gate is disabled.
-    //
-    // +optional
-    EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
-
     // conditions hold the latest available observations of the Cohort
     // current state. Added for the EffectiveQuotaStale condition.
     //
@@ -298,6 +287,17 @@ type CohortStatus struct {
     // +patchMergeKey=type
     // +kubebuilder:validation:MaxItems=16
     Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+    // ...
+
+    // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+    // present, unless the EffectiveQuotaStale condition is True.
+    //
+    // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+    // feature gate is disabled.
+    //
+    // +optional
+    EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
 }
 
 type EffectiveQuotaStatus struct {
@@ -404,15 +404,19 @@ type CapacityDistribution struct {
     // +required
     SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef"`
 
-    // effectiveQuotaTTL is how long the effective quota written by this DQO
-    // stays valid without renewal. DQO sets status.effectiveQuotas.validUntil
-    // to the time of a successful distribution plus this value.
-    // Defaults to 10m. The minimum is 1m and the maximum is 24h.
+    // effectiveQuotaTTLSeconds is how long, in seconds, the effective quota
+    // written by this DQO stays valid without renewal. DQO sets
+    // status.effectiveQuotas.validUntil to the time of a successful distribution
+    // plus this value, and renews it while distribution keeps succeeding.
     //
+    // Must be between 60 (1 minute) and 86400 (24 hours).
+    //
+    // Defaults to 600 (10 minutes).
     // +optional
-    // +kubebuilder:default="10m"
-    // +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('24h')",message="effectiveQuotaTTL must be between 1m and 24h"
-    EffectiveQuotaTTL *metav1.Duration `json:"effectiveQuotaTTL,omitempty"`
+    // +kubebuilder:default=600
+    // +kubebuilder:validation:Minimum=60
+    // +kubebuilder:validation:Maximum=86400
+    EffectiveQuotaTTLSeconds *int32 `json:"effectiveQuotaTTLSeconds,omitempty"`
 }
 
 type SubtreeRootRefKind string
@@ -825,16 +829,23 @@ the alpha behavior for external controllers that do not set the field.
 
 #### Renewal
 
-The DQO sets `validUntil` to `now + spec.capacityDistribution.effectiveQuotaTTL`
+The DQO sets `validUntil` to `now + spec.capacityDistribution.effectiveQuotaTTLSeconds`
 for every ClusterQueue and Cohort in its subtree, only when the distribution
-succeeds (`Distributed=True`, reason `QuotasDistributed`). In all scenarios
-listed above the DQO stops renewing, so the effective quota expires within the TTL.
+succeeds (`Distributed=True`, reason `QuotasDistributed`). It renews each target
+it writes, so if a status update fails, the targets written before the failure
+keep their new `validUntil` and the DQO retries. In all scenarios listed above
+the DQO stops renewing, so the effective quota expires within the TTL.
 
-To bound the number of writes, the DQO renews `validUntil` only when less
-than half of the TTL remains, or when the effective quota changes. Since DQO
-reconciles are event-driven, the DQO also requeues itself for the time when
-half of the TTL remains. This results in about two status writes per TTL for
-each ClusterQueue and Cohort in the subtree.
+The field is a number of seconds, not a `metav1.Duration`, because the Kube API
+linter does not allow duration fields and other durations in the Kueue API are
+`*Seconds` integers.
+
+To bound the number of writes, the DQO renews `validUntil` only when at most
+half of the TTL remains, or when the effective quota changes. It also rewrites
+a `validUntil` further away than the TTL, so a shorter TTL applies at the next
+reconcile. Since DQO reconciles are event-driven, the DQO also requeues itself
+for the time when half of the TTL remains. This results in about two status
+writes per TTL for each ClusterQueue and Cohort in the subtree.
 
 #### Condition `EffectiveQuotaStale`
 
@@ -874,7 +885,7 @@ controller reaction time after the last successful distribution.
 Falling back to `spec.resourceGroups` may increase the quota above the
 capacity which was last reported, for example when the capacity was reduced.
 Administrators who prefer to keep the last distributed quota during an outage
-can set a longer `effectiveQuotaTTL`, up to 24h. The maximum keeps an
+can set a longer `effectiveQuotaTTLSeconds`, up to 86400 (24h). The maximum keeps an
 abandoned effective quota from staying in effect for days.
 
 #### Clock skew
@@ -1032,7 +1043,7 @@ Unit tests will cover:
 - scheduling based on `status.effectiveQuotas`
 - `DynamicQuotaOrchestrator` reconcile (discovery, distribution)
 - renewal of `validUntil`: set on successful distribution, renewed only when
-  less than half of the TTL remains, not renewed when discovery or distribution fails,
+  at most half of the TTL remains, not renewed when discovery or distribution fails,
   and the requeue time (with a fake clock)
 - the ClusterQueue and Cohort controllers setting and clearing `EffectiveQuotaStale`,
   and the requeue for `validUntil` (with a fake clock)
@@ -1053,6 +1064,9 @@ Integration tests will cover:
   `CapacityProvider` stops being ready
 - Expired effective quota becoming effective again after the DQO resumes distribution
 - Effective quota without `validUntil` (external controller) not expiring
+
+Integration tests do not wait for a real TTL, since the minimum is 1m. They move
+`validUntil` a few seconds ahead to stand in for the TTL passing.
 
 ### Graduation Criteria
 

@@ -325,7 +325,6 @@ This has one known problem:
 
 [MultiKueue ClusterQueue Reconciler]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#multikueue-clusterqueue-reconciler
 [Source of Truth for Quotas]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#source-of-truth-for-quotas
-[Automatic expiration of effective quota]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#automatic-expiration-of-effective-quota
 
 ### CapacitySynchronized condition
 
@@ -462,7 +461,7 @@ The KEP-12382 tests cover the DQO distribution.
   - Decide how the provider handles temporarily unavailable workers ([Account for temporarily unavailable workers]), especially a decrease of the manager quota when some worker clusters are disconnected, based on user feedback.
     For example, the provider can keep the last known quota of a disconnected worker until `workerLostTimeout` expires, or DQO can add a cooldown for capacity decreases.
   - e2e tests cover the MultiKueue provider together with another CapacityProvider for the same manager ClusterQueue.
-  - Re-evaluate using `spec.resourceGroups` when a worker ClusterQueue marks its `status.effectiveQuotas` as stale ([Automatic expiration of effective quota] in [KEP-12382]).
+  - Re-evaluate using `spec.resourceGroups` when a worker ClusterQueue marks its `status.effectiveQuotas` as stale ([Stale Effective Quota] in [KEP-12382]).
   - Re-evaluate marking the MultiKueue `CapacityProvider` as not synchronized when the feature gate is disabled, based on user feedback.
   - Re-evaluate dropping the Kueue controller manager's RBAC permission to update `ClusterQueue` objects, if no other feature needs it.
   - User documentation is published on the website, and the release notes say how to opt out.
