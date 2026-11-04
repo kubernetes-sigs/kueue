@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -65,6 +66,7 @@ import (
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
+	errShrinkNodeNotFound    = errors.New("survivor Node not found during elastic shrink")
 )
 
 type topologyUngaterOptions struct {
@@ -209,9 +211,13 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, errPendingUngateOps
 	}
 
+	var shrinkErr error
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl) {
-		if updated, err := r.reconcileElasticShrink(ctx, wl); err != nil || updated {
-			return reconcile.Result{}, err
+		var updated bool
+		updated, shrinkErr = r.reconcileElasticShrink(ctx, wl)
+		// Retry a missing Node without blocking other PodSets from ungating.
+		if updated || (shrinkErr != nil && !errors.Is(shrinkErr, errShrinkNodeNotFound)) {
+			return reconcile.Result{}, shrinkErr
 		}
 	}
 
@@ -273,7 +279,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 
 	if len(allToUngate) == 0 {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, shrinkErr
 	}
 	log.V(2).Info("identified pods to ungate", "count", len(allToUngate))
 	podsToUngateUIDs := utilslices.Map(allToUngate, func(p *podWithUngateInfo) types.UID { return p.pod.UID })
@@ -306,7 +312,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		}
 		return e
 	})
-	return reconcile.Result{}, err
+	return reconcile.Result{}, errors.Join(shrinkErr, err)
 }
 
 // reconcileElasticShrink releases domains only after the remaining Pods account
@@ -363,6 +369,9 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 			}
 			node := &corev1.Node{}
 			if err := r.client.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, node); err != nil {
+				if apierrors.IsNotFound(err) {
+					return false, errors.Join(errShrinkNodeNotFound, err)
+				}
 				return false, err
 			}
 			for _, level := range assignment.Levels {

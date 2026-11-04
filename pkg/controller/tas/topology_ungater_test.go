@@ -4238,6 +4238,12 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		NodeSelector(corev1.LabelHostname, "n2").StatusPhase(corev1.PodRunning)
 	secondSurvivor := survivor.Clone().Name("b").UID("b")
 	extraPod := survivor.Clone().Name("c").UID("c").NodeName("n1").NodeSelector(corev1.LabelHostname, "n1")
+	twoPodSetAdmission := utiltestingapi.MakeAdmission("cq").PodSets(
+		utiltestingapi.MakePodSetAssignment("workers").Count(4).TopologyAssignment(originalAssignment).Obj(),
+		utiltestingapi.MakePodSetAssignment("other").Count(1).
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 1).Obj()).Obj()).Obj(),
+	).Obj()
 
 	testCases := map[string]struct {
 		workloads               []kueue.Workload
@@ -4246,6 +4252,10 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		elasticTAS              bool
 		disableReclaimable      bool
 		wantTopologyAssignments map[string]*kueue.TopologyAssignment
+		wantAdmissions          map[string]*kueue.Admission
+		wantErr                 error
+		nodesOnRetry            []corev1.Node
+		wantAssignmentsOnRetry  map[string]*kueue.TopologyAssignment
 		// requestName is the Workload name the reconcile request is keyed by.
 		// Defaults to the slice chain name.
 		requestName      string
@@ -4351,6 +4361,36 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			nodes:                   shrinkNodes,
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"missing survivor Node defers shrink and ungates another PodSet": {
+			workloads: []kueue.Workload{*shrinking.Clone().Name("origin").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj(), *utiltestingapi.MakePodSet("other", 1).Obj()).
+				ReserveQuotaAt(twoPodSetAdmission, now).AdmittedAt(true, now).Obj()},
+			pods: []corev1.Pod{
+				*survivor.Clone().NodeName("missing").Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Label(constants.PodSetLabel, "other").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*survivor.Clone().NodeName("missing").Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Label(constants.PodSetLabel, "other").NodeSelector(corev1.LabelHostname, "n1").Obj(),
+			},
+			nodes:            shrinkNodes,
+			elasticTAS:       true,
+			wantAdmissions:   map[string]*kueue.Admission{"origin": twoPodSetAdmission},
+			wantErr:          errShrinkNodeNotFound,
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"shrink retries after the survivor Node becomes available": {
+			workloads:              []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                   []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:               []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			elasticTAS:             true,
+			wantAdmissions:         map[string]*kueue.Admission{"replacement": shrinking.Status.Admission},
+			wantErr:                errShrinkNodeNotFound,
+			nodesOnRetry:           []corev1.Node{*testingnode.MakeNode("n2").Label(corev1.LabelHostname, "n2").Obj()},
+			wantAssignmentsOnRetry: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
 		},
 		"shrink retains capacity for a survivor outside the reservation": {
 			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
@@ -4571,8 +4611,9 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			topologyUngater := newTopologyUngater(kClient, nil, nil)
 
 			req := reconcile.Request{Namespace: sliceKey.Namespace, Name: cmp.Or(tc.requestName, sliceKey.Name)}
-			if _, err := topologyUngater.Reconcile(ctx, req); err != nil {
-				t.Fatalf("Reconcile returned error: %v", err)
+			_, err := topologyUngater.Reconcile(ctx, req)
+			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Reconcile error (-want,+got):\n%s", diff)
 			}
 
 			gotTopologyAssignments := make(map[string]*kueue.TopologyAssignment, len(tc.wantTopologyAssignments))
@@ -4594,6 +4635,15 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 					t.Errorf("Topology assignment after reconcile (-want,+got):\n%s", diff)
 				}
 			}
+			for name, want := range tc.wantAdmissions {
+				var got kueue.Workload
+				if err := kClient.Get(ctx, types.NamespacedName{Namespace: sliceKey.Namespace, Name: name}, &got); err != nil {
+					t.Fatalf("Could not get Workload after reconcile: %v", err)
+				}
+				if diff := gocmp.Diff(want, got.Status.Admission, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Admission after reconcile (-want,+got):\n%s", diff)
+				}
+			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
@@ -4604,6 +4654,26 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			}
 			if got, want := topologyUngater.expectationsStore.Satisfied(log, sliceKey), len(tc.wantExpectedUIDs) == 0; got != want {
 				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, want)
+			}
+			if len(tc.nodesOnRetry) > 0 {
+				for i := range tc.nodesOnRetry {
+					if err := kClient.Create(ctx, &tc.nodesOnRetry[i]); err != nil {
+						t.Fatalf("Could not create Node before retry: %v", err)
+					}
+				}
+				// The returned error requests this retry; no Pod or Workload update is needed.
+				if _, err := topologyUngater.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile retry returned error: %v", err)
+				}
+				for name, want := range tc.wantAssignmentsOnRetry {
+					var got kueue.Workload
+					if err := kClient.Get(ctx, types.NamespacedName{Namespace: sliceKey.Namespace, Name: name}, &got); err != nil {
+						t.Fatalf("Could not get Workload after retry: %v", err)
+					}
+					if diff := gocmp.Diff(want, got.Status.Admission.PodSetAssignments[0].TopologyAssignment); diff != "" {
+						t.Errorf("Topology assignment after retry (-want,+got):\n%s", diff)
+					}
+				}
 			}
 		})
 	}
