@@ -56,7 +56,8 @@ else:
                 ["make", "--no-print-directory", "image-presubmit",
                  f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
-                 "RELEASE_BRANCH=main", "IMAGE_BUILD_EXTRA_OPTS=--progress=plain"],
+                 "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
+                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain"],
                 cwd=ROOT, env=env, text=True, capture_output=True,
             )
             return result, [json.loads(line) for line in log.read_text().splitlines()]
@@ -70,11 +71,14 @@ else:
         self.assertEqual(len(builds), 6)
         dockerfiles = ["Dockerfile", "./cmd/importer/Dockerfile", "./cmd/kueueviz/backend/Dockerfile",
                        "./cmd/kueueviz/frontend/Dockerfile", "Dockerfile", "Dockerfile"]
+        images = ["kueue", "importer", "kueueviz-backend", "kueueviz-frontend",
+                  "kueue-populator", "kueue-priority-booster"]
         for index, (command, dockerfile) in enumerate(zip(builds, dockerfiles)):
             with self.subTest(image=index):
                 self.assertEqual(command["builder"], "test-builder")
                 args = command["args"]
                 self.assertEqual(args[:2], ["buildx", "build"])
+                self.assertIn(f"example.test/kueue/{images[index]}:test", args)
                 self.assertIn("--progress=plain", args)
                 expected_platforms = "linux/amd64,linux/arm64,linux/s390x,linux/ppc64le" if index == 0 else "linux/amd64"
                 self.assertIn(f"--platform={expected_platforms}", args)
