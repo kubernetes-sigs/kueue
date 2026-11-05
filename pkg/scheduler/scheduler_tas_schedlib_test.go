@@ -1266,16 +1266,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			},
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
-		// A failed-node replacement whose only candidate node is held by an
-		// in-flight eviction victim. Both Pods request the same host port, so the
-		// victim's Pod is what keeps y1 looking unusable in the simulator: unless
-		// the deferral recompute takes the victim Pods out too, the replacement
-		// does not fit and is fail-fast evicted instead of deferred.
 		"in-flight eviction frees the only candidate node; deferred with the simulator": {
 			// This case only means something with the WAS simulator installed: the
-			// victim Pod holds the host port that keeps y1 unusable. Since #16483
-			// wantSimulatorPreemptions no longer turns SchedulerLibraryIntegration
-			// on, so enable it here explicitly.
+			// victim Pod holds the host port that keeps y1 unusable.
 			featureGates: map[featuregate.Feature]bool{
 				features.TASFailedNodeReplacementFailFast:                           true,
 				features.SchedulerLibraryIntegration:                                true,

@@ -55,7 +55,7 @@ func (p *Plan) CanFit() bool {
 		return false
 	}
 	arm := p.Assignment.RepresentativeMode()
-	return arm == flavorassigner.Fit || (arm == flavorassigner.DeferredFit) || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
+	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
 }
 
 type Options struct {
