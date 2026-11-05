@@ -36,20 +36,17 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", func() {
 	var (
 		ns                   *corev1.Namespace
 		cpuFlavor, gpuFlavor *kueue.ResourceFlavor
 		cq                   *kueue.ClusterQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.AfterEach(func() {
