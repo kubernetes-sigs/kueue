@@ -147,6 +147,40 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
+		"create of a groupIdentity Hash LeaderWorkerSet sets the default LocalQueue": {
+			defaultLqExist: true,
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Queue("default").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		"update of a not ready groupIdentity Hash LeaderWorkerSet does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+		},
 		"update of a ready LeaderWorkerSet without the queue-name label does not set the default LocalQueue": {
 			defaultLqExist: true,
 			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
