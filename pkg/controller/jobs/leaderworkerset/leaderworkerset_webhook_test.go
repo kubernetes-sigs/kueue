@@ -995,7 +995,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeNotSupported,
+					Type:  field.ErrorTypeForbidden,
 					Field: groupIdentityPath.String(),
 				},
 			}.ToAggregate(),
@@ -1021,7 +1021,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeNotSupported,
+					Type:  field.ErrorTypeForbidden,
 					Field: groupIdentityPath.String(),
 				},
 			}.ToAggregate(),
@@ -1348,7 +1348,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeNotSupported,
+					Type:  field.ErrorTypeForbidden,
 					Field: groupIdentityPath.String(),
 				},
 			}.ToAggregate(),
@@ -1397,7 +1397,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeNotSupported,
+					Type:  field.ErrorTypeForbidden,
 					Field: groupIdentityPath.String(),
 				},
 			}.ToAggregate(),

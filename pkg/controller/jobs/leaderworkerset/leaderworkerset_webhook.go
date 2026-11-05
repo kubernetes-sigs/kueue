@@ -338,7 +338,7 @@ func validateGroupIdentity(lws *LeaderWorkerSet) field.ErrorList {
 	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
 		return nil
 	}
-	return field.ErrorList{field.NotSupported(groupIdentityPath, lws.Spec.GroupIdentity, []leaderworkersetv1.GroupIdentityType{leaderworkersetv1.GroupIdentityOrdinal})}
+	return field.ErrorList{field.Forbidden(groupIdentityPath, "groupIdentity Hash is not supported for LeaderWorkerSets managed by Kueue")}
 }
 
 // validateGroupIdentityOnUpdate rejects groupIdentity Hash unless oldLWS is already
