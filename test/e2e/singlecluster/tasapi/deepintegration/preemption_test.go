@@ -497,12 +497,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		})
 
 		ginkgo.It("Should abort preemption (all-or-nothing) when one PodSet cannot fit", func() {
+			highJob, _ := admitJobAndExpectRunning("high-b1", localQueue.Name, highPriorityClass.Name, 2, blockB1)
 			lowJob, lowWlKey := admitJobAndExpectRunning("low-b1", localQueue.Name, lowPriorityClass.Name, 2, blockB1)
 
-			// Workers need 5 GPUs, which cannot fit on a 4-node block
+			// Block b1 is full. The JobSet needs 3 GPUs (1 leader + 2 workers)
+			// Preempting low-b1 only frees 2 GPUs: enough for the leader, but not for
+			// the workers, so the preemption is aborted
 			impossibleJobSet := testingjobset.MakeJobSet("impossible-jobset", ns.Name).
 				Queue(localQueue.Name).
-				WorkloadPriorityClass(highPriorityClass.Name).
+				WorkloadPriorityClass(midPriorityClass.Name).
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name: "leader", Image: e2e.GetAgnHostImage(), Args: e2e.BehaviorExitFast,
@@ -515,7 +518,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 					},
 					testingjobset.ReplicatedJobRequirements{
 						Name: "workers", Image: e2e.GetAgnHostImage(), Args: e2e.BehaviorExitFast,
-						Replicas: 1, Parallelism: 5, Completions: 5,
+						Replicas: 1, Parallelism: 2, Completions: 2,
 						NodeSelector: blockB1,
 						PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
@@ -533,7 +536,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 				Namespace: ns.Name,
 			}
 
-			ginkgo.By("verify high-priority JobSet remains unadmitted", func() {
+			ginkgo.By("verify mid-priority JobSet remains unadmitted", func() {
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, impossibleWlKey, wl)).Should(gomega.Succeed())
@@ -545,7 +548,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("verify low-priority Job was NOT preempted", func() {
+			ginkgo.By("verify low-priority Job was NOT preempted and high-priority Job remains running", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, lowWlKey, wl)).To(gomega.Succeed())
@@ -553,6 +556,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 					g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
 				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": lowJob.Name})
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": highJob.Name})
 			})
 		})
 	})
@@ -663,7 +667,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 			})
 		})
 	})
-	ginkgo.When("Cohort preemption is configured without fair sharing", func() {
+	ginkgo.When("Cohort preemption reclaims nominal quota with default fair-sharing weights", func() {
 		var (
 			cqA, cqB *kueue.ClusterQueue
 			lqA, lqB *kueue.LocalQueue
