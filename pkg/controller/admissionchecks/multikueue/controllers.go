@@ -194,9 +194,19 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	// Both reconcilers would read cqUpdateCh and split its events between them,
+	// so the Alpha1 reconciler only runs when the CapacityProvider is disabled.
+	if features.Enabled(features.MultiKueueManagerQuotaAutomation) && !features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
 		err = cqRec.setupWithManager(mgr)
+		if err != nil {
+			return err
+		}
+	}
+
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
+		cpRec := newCPReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
+		err = cpRec.setupWithManager(mgr)
 		if err != nil {
 			return err
 		}

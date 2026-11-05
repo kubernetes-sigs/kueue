@@ -276,6 +276,12 @@ func newRemoteClient(
 	return rc
 }
 
+// workerQueueWatchesEnabled reports whether the manager caches and watches the worker
+// ClusterQueues and LocalQueues, which the worker quota aggregation needs.
+func workerQueueWatchesEnabled() bool {
+	return features.Enabled(features.MultiKueueManagerQuotaAutomation) || features.Enabled(features.DQOMultiKueueCapacityProvider)
+}
+
 func newClientWithWatch(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 	restConfig, err := config.toRESTConfig()
 	if err != nil {
@@ -287,7 +293,7 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 		return nil, err
 	}
 
-	if !features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	if !workerQueueWatchesEnabled() {
 		return NewNeverCachingClient(directClient), nil
 	}
 
@@ -417,7 +423,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	if workerQueueWatchesEnabled() {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
 			return false, rc.increaseFailedConnAttempt(), err
 		}
@@ -600,7 +606,8 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 		UpdateFunc: func(oldObj, newObj any) {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
-			if ok1 && ok2 && !equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) {
+			if ok1 && ok2 && (!equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) ||
+				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},
