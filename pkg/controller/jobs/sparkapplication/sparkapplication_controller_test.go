@@ -357,9 +357,10 @@ func TestPodSetsExecutorCount(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		sparkApp  *sparkappv1beta2.SparkApplication
-		pods      []corev1.Pod
-		wantCount int32
+		sparkApp     *sparkappv1beta2.SparkApplication
+		pods         []corev1.Pod
+		featureGates map[featuregate.Feature]bool
+		wantCount    int32
 	}{
 		"not elastic: initial executors": {
 			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
@@ -387,6 +388,12 @@ func TestPodSetsExecutorCount(t *testing.T) {
 		"elastic, running without executors: initial executors": {
 			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
 			wantCount: 2,
+		},
+		"elastic, running without the SparkApplication elastic feature: counts pods": {
+			sparkApp:     dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
+			pods:         executorPods(corev1.PodRunning, 1, 2, 3),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: false},
+			wantCount:    3,
 		},
 		"elastic, running: pending and running executors": {
 			sparkApp: dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
@@ -530,6 +537,7 @@ func TestPodSetsExecutorCount(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().WithLists(&corev1.PodList{Items: tc.pods}).Build()
 

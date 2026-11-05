@@ -18,6 +18,7 @@ package sparkapplication
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -130,10 +131,9 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	if err != nil {
 		return nil, err
 	}
-	// The workload-slice path follows ElasticJobsViaWorkloadSlices only, so reject the
-	// annotation, otherwise the job would be sliced while not being elastic. This is checked
-	// on create only, so that updates to a job created while the gate was on are not rejected
-	// for the annotation; they are still rejected if the job uses dynamic allocation.
+	// This is checked on create only: disabling the gate rejects new elastic
+	// SparkApplications, while the existing ones keep running as elastic until they
+	// finish, as the elastic annotation is immutable.
 	if workloadslicing.Enabled(obj) && !features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) {
 		validationErrs = append(validationErrs, field.Forbidden(elasticJobAnnotationPath,
 			"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate"))
@@ -141,9 +141,12 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	return nil, validationErrs.ToAggregate()
 }
 
-// returns whether the SparkApplication is an elastic job or not
+// isAnElasticJob returns whether the SparkApplication is an elastic job. It
+// follows ElasticJobsViaWorkloadSlices only, as the job reconciler does when it
+// picks the workload-slice path, so a job created while
+// ElasticJobsViaWorkloadSlicesForSparkApplication was on stays elastic.
 func isAnElasticJob(sparkApp metav1.Object) bool {
-	return features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) && workloadslicing.Enabled(sparkApp)
+	return workloadslicing.Enabled(sparkApp)
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
@@ -165,7 +168,9 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
 					ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled,
-					"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate is on and the job is an elastic job",
+					fmt.Sprintf("a kueue managed job can use dynamicAllocation only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices and ElasticJobsViaWorkloadSlicesForSparkApplication feature gates and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 				),
 			)
 		}

@@ -60,11 +60,13 @@ func TestValidateCreate(t *testing.T) {
 				InitialExecutors: new(int32(2)),
 				MaxExecutors:     new(int32(3)),
 			}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(
-				dynamicAllocationEnabledPath,
-				true,
-				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate is on and the job is an elastic job",
-			)}.ToAggregate(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					dynamicAllocationEnabledPath,
+					true,
+					`a kueue managed job can use dynamicAllocation only as an elastic job: enable the ElasticJobsViaWorkloadSlices and ElasticJobsViaWorkloadSlicesForSparkApplication feature gates and set the "kueue.x-k8s.io/elastic-job": "true" annotation`,
+				),
+			}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
@@ -130,7 +132,7 @@ func TestValidateCreate(t *testing.T) {
 			},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
-			).Obj(),
+			).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
 			wantErr: field.ErrorList{field.Forbidden(
 				elasticJobAnnotationPath,
 				"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate",
@@ -208,6 +210,27 @@ func TestValidateUpdate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices:                    true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
+		},
+		"elastic job with dynamicAllocation can be suspended without the SparkApplication elastic feature": {
+			oldSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Obj(),
+			newSparkApp: elasticSparkApp.Clone().DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                    true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
+			},
+		},
+		"elastic job must not drop the ElasticJobSchedulingGate without the SparkApplication elastic feature": {
+			oldSparkApp: elasticSparkApp.Clone().Obj(),
+			newSparkApp: elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                    true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
+			},
+			wantErr: field.ErrorList{field.Invalid(
+				executorSpecPath.Child("template").Child("spec").Child("schedulingGates"),
+				[]corev1.PodSchedulingGate(nil),
+				"an elastic job must have the ElasticJobSchedulingGate",
+			)}.ToAggregate(),
 		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
