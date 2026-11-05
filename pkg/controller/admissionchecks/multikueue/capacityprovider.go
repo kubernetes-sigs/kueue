@@ -22,8 +22,11 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -40,9 +43,11 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -64,8 +69,8 @@ func misconfigured(format string, args ...any) error {
 
 // cpReconciler reconciles the CapacityProviders whose controllerName is kueue.x-k8s.io/multikueue.
 // It resolves the manager ClusterQueue through the MultiKueueCapacityProviderConfig referenced in
-// spec.parameters, and sets CapacitySynchronized=False with the Misconfigured reason when the
-// configuration is not supported.
+// spec.parameters, sums the quotas of its related worker ClusterQueues across connected workers,
+// and publishes the result to status.capacity with the CapacitySynchronized condition.
 type cpReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -88,30 +93,73 @@ func newCPReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 
 func (r *cpReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Reconcile CapacityProvider event received (in the MultiKueue controller)")
 
 	cp := &kueuealpha.CapacityProvider{}
 	if err := r.client.Get(ctx, req.NamespacedName, cp); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+	if !cp.DeletionTimestamp.IsZero() {
+		return reconcile.Result{}, nil
+	}
 	// The event filter checks controllerName too, but a CapacityProvider can be deleted
 	// and created again for another controller after it was queued.
 	if !isMultiKueueCapacityProvider(cp) {
-		log.V(3).Info("Not a MultiKueue CapacityProvider, skipping reconcile.")
+		log.V(3).Info("Not a MultiKueue CapacityProvider, skipping reconcile")
 		return reconcile.Result{}, nil
 	}
 
-	log.V(2).Info("Reconciling MultiKueue CapacityProvider")
+	log.V(2).Info("Reconcile MultiKueue CapacityProvider")
 
-	if _, _, err := r.resolveManagerClusterQueue(ctx, cp); err != nil {
+	cq, mkConfig, err := r.resolveManagerClusterQueue(ctx, cp)
+	if err != nil {
 		if misconfiguredErr, ok := errors.AsType[*misconfiguredError](err); ok {
-			return reconcile.Result{}, r.updateCondition(ctx, cp, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, misconfiguredErr.msg)
+			return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, misconfiguredErr.msg)
 		}
 		return reconcile.Result{}, err
 	}
 
-	// The configuration is supported. Summing the worker quotas is added in a follow-up change.
-	return reconcile.Result{}, nil
+	agg, err := r.aggregateWorkerQuotas(ctx, cq, mkConfig)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if agg.connectedWorkers == 0 {
+		msg := "No MultiKueue worker clusters are connected"
+		if len(agg.disconnectedWorkers) > 0 {
+			msg = fmt.Sprintf("No MultiKueue worker clusters are connected; disconnected worker clusters: %v", agg.disconnectedWorkers)
+		}
+		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonSourceUnavailable, msg)
+	}
+
+	covered := sets.New(cq.Spec.ResourceGroups[0].CoveredResources...)
+	remoteResources := sets.KeySet(agg.quotas)
+	missingResources := remoteResources.Difference(covered)
+	if missingResources.Len() > 0 {
+		msg := fmt.Sprintf("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missingResources))
+		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, msg)
+	}
+
+	resources := make(corev1.ResourceList, len(cq.Spec.ResourceGroups[0].CoveredResources))
+	for _, resName := range cq.Spec.ResourceGroups[0].CoveredResources {
+		if qty, ok := agg.quotas[resName]; ok {
+			resources[resName] = qty
+		} else {
+			resources[resName] = *resource.NewQuantity(0, resource.DecimalSI)
+		}
+	}
+	newCapacity := &kueuealpha.CapacityProviderNormalizedCapacity{
+		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{
+			{
+				Name:      cp.Spec.OrchestratedFlavors[0].Name,
+				Resources: resources,
+			},
+		},
+	}
+
+	msg := "Capacity synchronized from MultiKueue worker clusters"
+	if len(agg.disconnectedWorkers) > 0 {
+		msg = fmt.Sprintf("Capacity synchronized from connected MultiKueue worker clusters; disconnected worker clusters: %v", agg.disconnectedWorkers)
+	}
+	return reconcile.Result{}, r.updateStatus(ctx, cp, newCapacity, metav1.ConditionTrue, kueuealpha.CapacityProviderReasonSynchronized, msg)
 }
 
 // resolveManagerClusterQueue follows spec.parameters to the manager ClusterQueue and its MultiKueueConfig,
@@ -195,20 +243,128 @@ func (r *cpReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueu
 	return nil, false, nil
 }
 
-// updateCondition sets the CapacitySynchronized condition for the current generation of the CapacityProvider.
-// It writes the status only when the condition changed, including a change of ObservedGeneration only,
-// because DQO uses the capacity only when ObservedGeneration matches the generation.
-func (r *cpReconciler) updateCondition(ctx context.Context, cp *kueuealpha.CapacityProvider, status metav1.ConditionStatus, reason, message string) error {
+type aggregatedWorkerQuotas struct {
+	quotas              map[corev1.ResourceName]resource.Quantity
+	connectedWorkers    int
+	disconnectedWorkers []string
+}
+
+// aggregateWorkerQuotas sums the nominal quotas of all related worker ClusterQueues
+// across connected clusters in the MultiKueueConfig, using each worker ClusterQueue's
+// status.effectiveQuotas when set and spec.resourceGroups otherwise.
+//
+// Quotas are summed across all worker ResourceFlavors because manager flavor
+// assignment is not propagated to workers.
+func (r *cpReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (aggregatedWorkerQuotas, error) {
+	localLQs := &kueue.LocalQueueList{}
+	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
+		return aggregatedWorkerQuotas{}, fmt.Errorf("listing local LocalQueues: %w", err)
+	}
+
+	lqKeys := sets.New[types.NamespacedName]()
+	for _, llq := range localLQs.Items {
+		lqKeys.Insert(types.NamespacedName{Namespace: llq.Namespace, Name: llq.Name})
+	}
+
+	total := make(map[corev1.ResourceName]resource.Quantity)
+	disconnected := sets.New[string]()
+	connectedWorkers := 0
+
+	for _, workerName := range cfg.Spec.Clusters {
+		var rc *remoteClient
+		var found bool
+		if r.clusters != nil {
+			rc, found = r.clusters.controllerFor(workerName)
+		}
+		if !found {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not found, skipping it in quota aggregation", "workerCluster", workerName)
+			disconnected.Insert(workerName)
+			continue
+		}
+		if !rc.connState.isConnected() {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not connected, skipping it in quota aggregation", "workerCluster", workerName)
+			disconnected.Insert(workerName)
+			continue
+		}
+		remoteCl := rc.getClient()
+		if remoteCl == nil {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client is nil, skipping it in quota aggregation", "workerCluster", workerName)
+			disconnected.Insert(workerName)
+			continue
+		}
+		connectedWorkers++
+
+		remoteLQList := &kueue.LocalQueueList{}
+		// This List is cached (by the selectivelyCachingClient).
+		if err := remoteCl.List(ctx, remoteLQList); err != nil {
+			return aggregatedWorkerQuotas{}, fmt.Errorf("listing LocalQueues on worker %q: %w", workerName, err)
+		}
+		remoteCQKeys := sets.New[types.NamespacedName]()
+		for _, rlq := range remoteLQList.Items {
+			if lqKeys.Has(types.NamespacedName{Namespace: rlq.Namespace, Name: rlq.Name}) {
+				remoteCQKeys.Insert(types.NamespacedName{Name: string(rlq.Spec.ClusterQueue)})
+			}
+		}
+
+		remoteCQList := &kueue.ClusterQueueList{}
+		// This List is cached (by the selectivelyCachingClient).
+		if err := remoteCl.List(ctx, remoteCQList); err != nil {
+			return aggregatedWorkerQuotas{}, fmt.Errorf("listing ClusterQueues on worker %q: %w", workerName, err)
+		}
+
+		for _, rcq := range remoteCQList.Items {
+			key := types.NamespacedName{Name: rcq.Name}
+			if !remoteCQKeys.Has(key) {
+				continue
+			}
+			for _, rg := range resourcegroups.EffectiveResourceGroups(&rcq) {
+				for _, flavor := range rg.Flavors {
+					for _, res := range flavor.Resources {
+						if curr, exists := total[res.Name]; exists {
+							curr.Add(res.NominalQuota)
+							total[res.Name] = curr
+						} else {
+							total[res.Name] = res.NominalQuota.DeepCopy()
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return aggregatedWorkerQuotas{
+		quotas:              total,
+		connectedWorkers:    connectedWorkers,
+		disconnectedWorkers: sets.List(disconnected),
+	}, nil
+}
+
+// updateStatus sets the CapacitySynchronized condition for the current generation of the CapacityProvider,
+// and updates status.capacity when newCapacity is non-nil. It patches the status only when either
+// status.capacity or the condition changed (including a change of ObservedGeneration only, because DQO
+// uses the capacity only when ObservedGeneration matches the generation).
+func (r *cpReconciler) updateStatus(
+	ctx context.Context,
+	cp *kueuealpha.CapacityProvider,
+	newCapacity *kueuealpha.CapacityProviderNormalizedCapacity,
+	status metav1.ConditionStatus,
+	reason, message string,
+) error {
 	err := clientutil.PatchStatus(ctx, r.client, cp, func() (bool, error) {
-		return apimeta.SetStatusCondition(&cp.Status.Conditions, metav1.Condition{
+		changed := apimeta.SetStatusCondition(&cp.Status.Conditions, metav1.Condition{
 			Type:               kueuealpha.CapacityProviderCapacitySynchronized,
 			Status:             status,
 			Reason:             reason,
 			Message:            api.TruncateConditionMessage(message),
 			ObservedGeneration: cp.Generation,
-		}), nil
+		})
+		if newCapacity != nil && !equality.Semantic.DeepEqual(cp.Status.Capacity, newCapacity) {
+			cp.Status.Capacity = newCapacity
+			changed = true
+		}
+		return changed, nil
 	})
-	if err != nil {
+	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("updating CapacityProvider status: %w", err)
 	}
 	return nil
@@ -224,7 +380,7 @@ func isCapacityProviderConfigRef(ref *kueuealpha.CapacityProviderParametersRefer
 
 func (r *cpReconciler) queueEventsForProviderConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	cpList := &kueuealpha.CapacityProviderList{}
-	if err := r.client.List(ctx, cpList, client.MatchingFields{CapacityProviderUsingConfigKey: configName}); err != nil {
+	if err := r.client.List(ctx, cpList, client.MatchingFields{CapacityProviderParametersKey: configName}); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Failed to list CapacityProviders using MultiKueueCapacityProviderConfig", "multiKueueCapacityProviderConfig", configName)
 		return
 	}
@@ -236,7 +392,7 @@ func (r *cpReconciler) queueEventsForProviderConfig(ctx context.Context, configN
 
 func (r *cpReconciler) queueEventsForManagerCQ(ctx context.Context, cqName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	configList := &kueuealpha.MultiKueueCapacityProviderConfigList{}
-	if err := r.client.List(ctx, configList, client.MatchingFields{CapacityProviderConfigManagerClusterQueueKey: cqName}); err != nil {
+	if err := r.client.List(ctx, configList, client.MatchingFields{ProviderConfigManagerSubtreeRootKey: cqName}); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Failed to list MultiKueueCapacityProviderConfigs for ClusterQueue", "clusterQueue", cqName)
 		return
 	}

@@ -150,6 +150,18 @@ func (w *CapacityProviderWrapper) Generation(num int64) *CapacityProviderWrapper
 	return w
 }
 
+// DeletionTimestamp sets a deletion timestamp on the CapacityProvider.
+func (w *CapacityProviderWrapper) DeletionTimestamp(t time.Time) *CapacityProviderWrapper {
+	w.CapacityProvider.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
+// Finalizers sets the finalizers on the CapacityProvider.
+func (w *CapacityProviderWrapper) Finalizers(fin ...string) *CapacityProviderWrapper {
+	w.ObjectMeta.Finalizers = fin
+	return w
+}
+
 // ControllerName sets the controllerName in the CapacityProvider.
 func (w *CapacityProviderWrapper) ControllerName(controllerName kueuealpha.CapacityProviderControllerName) *CapacityProviderWrapper {
 	w.Spec.ControllerName = controllerName
