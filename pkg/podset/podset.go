@@ -54,9 +54,11 @@ type PodSetInfo struct {
 }
 
 // FromAssignment returns a PodSetInfo based on the provided assignment and an error if unable
-// to get any of the referenced flavors.
+// to get any of the referenced flavors. If assigned flavors disagree on a node label key, the
+// value from the first flavor in sorted resource order is kept.
 func FromAssignment(ctx context.Context, client client.Client, assignment *kueue.PodSetAssignment, podSet *kueue.PodSet) (PodSetInfo, error) {
 	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
+	nodeLabelOwners := make(map[string]kueue.ResourceFlavorReference)
 	info := PodSetInfo{
 		Name:         assignment.Name,
 		NodeSelector: make(map[string]string),
@@ -64,6 +66,7 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		Labels:       make(map[string]string),
 		Annotations:  make(map[string]string),
 	}
+	log := logr.FromContextOrDiscard(ctx)
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
 		// For implicit TAS we inject the "unconstrained" topology by default, even if unspecified.
 		if podSet.TopologyRequest == nil || (podSet.TopologyRequest.Preferred == nil &&
@@ -75,7 +78,8 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 			Name: kueue.TopologySchedulingGate,
 		})
 	}
-	for _, flvRef := range assignment.Flavors {
+	for _, resName := range slices.Sorted(maps.Keys(assignment.Flavors)) {
+		flvRef := assignment.Flavors[resName]
 		if processedFlvs.Has(flvRef) {
 			continue
 		}
@@ -84,7 +88,19 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
 		}
-		utilmaps.Copy(&info.NodeSelector, flv.Spec.NodeLabels)
+		for key := range flv.Spec.NodeLabels {
+			if _, found := info.NodeSelector[key]; !found {
+				nodeLabelOwners[key] = flvRef
+			}
+		}
+		utilmaps.MergeKeepExisting(&info.NodeSelector, flv.Spec.NodeLabels, func(key string, kept, ignored string) {
+			log.V(3).Info("Ignoring conflicting flavor node label",
+				"key", key,
+				"keptFlavor", nodeLabelOwners[key],
+				"ignoredFlavor", flvRef,
+				"keptValue", kept,
+				"ignoredValue", ignored)
+		})
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
 
 		processedFlvs.Insert(flvRef)
