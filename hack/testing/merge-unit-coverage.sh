@@ -22,12 +22,13 @@
 #   of each shard. (A batch job type works the same way if Tide ever runs it.)
 # - post-kueue-test-unit-coverage-main (postsubmit on main): for the pushed
 #   squash commit M it picks the shard builds whose tested tree equals M's
-#   tree (the PR's own runs on M^, or the Tide batch that ended at M). Tide
-#   merges only after the shards passed, so nothing waits. Commits that no
-#   build tested exactly (batch members before the last) are skipped.
+#   tree (the PR's own runs on M^, or a Tide batch build). Tide merges only
+#   after the shards passed, so nothing waits. A commit is skipped only when
+#   no build tested its tree, for example a batch member whose prefix no
+#   batch build tested.
 #
 # Outputs, for the Spyglass coverage lens, TestGrid and the Codecov workflow:
-#   $ARTIFACTS/filtered.cov          merged, filtered profile
+#   $ARTIFACTS/filtered.cov          merged profile of the shards' filtered.cov
 #   $ARTIFACTS/filtered.html         per-line view (best effort)
 #   $ARTIFACTS/junit_coverage.xml    gopherage junit, OVERALL % for TestGrid
 #   $ARTIFACTS/coverage-sources.json what was merged, or why nothing was
@@ -37,8 +38,6 @@
 
 set -o errexit -o nounset -o pipefail
 
-: "${JOB_SPEC:?JOB_SPEC is set by Prow}"
-: "${ARTIFACTS:?ARTIFACTS is set by Prow}"
 GOPHERAGE=${GOPHERAGE:-gopherage}
 JQ=${JQ:-jq}
 REPO_DIR=${REPO_DIR:-.}
@@ -57,17 +56,6 @@ MAX_BATCH=${MAX_BATCH:-25}
 BUCKET=kubernetes-ci-logs
 GCS="https://storage.googleapis.com/${BUCKET}"
 GCS_API="https://storage.googleapis.com/storage/v1/b/${BUCKET}/o"
-# shellcheck disable=SC2016 # jq expressions
-ORG_REPO=$("${JQ}" -r '.refs.org + "_" + .refs.repo' <<<"${JOB_SPEC}")
-# shellcheck disable=SC2016 # jq expressions
-REPO_URL=$("${JQ}" -r '.refs.clone_uri // "https://github.com/\(.refs.org)/\(.refs.repo).git"' <<<"${JOB_SPEC}")
-# The shards' filtered.cov exclusions (from hack/make/test.mk), plus test/
-# helpers, which the shards' profiles still contain.
-: "${UNIT_COVERAGE_EXCLUDE:?UNIT_COVERAGE_EXCLUDE is set by make test-unit-coverage-merge}"
-EXCLUDES=(
-  --exclude-path="${UNIT_COVERAGE_EXCLUDE}"
-  --exclude-path='^sigs\.k8s\.io/kueue/test/'
-)
 
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -117,8 +105,9 @@ scan() {
   done
 }
 
-# Downloads, merges and filters the shard builds given as GCS prefixes, then
-# writes all outputs. $1 is the commit the profile describes; $2 the refs JSON.
+# Downloads and merges the shard builds' filtered.cov (filtered by
+# hack/make/test.mk), given as GCS prefixes, then writes all outputs. $1 is
+# the commit the profile describes; $2 the refs JSON.
 merge_builds() {
   local commit=$1 refs=$2 work i p inputs=()
   shift 2
@@ -127,16 +116,12 @@ merge_builds() {
   trap "rm -rf '${work}'" EXIT
   i=0
   for p in "$@"; do
-    # Builds before #17039 only have the raw profile; both go through one filter.
     curl -sSf --retry 3 -o "${work}/s${i}.cov" "${GCS}/${p}/artifacts/filtered.cov" 2>/dev/null \
-      || curl -sSf --retry 3 --max-filesize 536870912 -o "${work}/s${i}.cov" \
-        "${GCS}/${p}/artifacts/cover-shard-${i}.out" \
-      || die "no profile in ${p}"
+      || die "no filtered.cov in ${p}"
     inputs+=("${work}/s${i}.cov")
     i=$((i + 1))
   done
-  "${GOPHERAGE}" merge "${inputs[@]}" -o "${work}/merged.cov"
-  "${GOPHERAGE}" filter "${EXCLUDES[@]}" -o "${ARTIFACTS}/filtered.cov" "${work}/merged.cov"
+  "${GOPHERAGE}" merge "${inputs[@]}" -o "${ARTIFACTS}/filtered.cov"
   "${GOPHERAGE}" junit --threshold 0 "${ARTIFACTS}/filtered.cov" >"${ARTIFACTS}/junit_coverage.xml"
   # Prow cloned the tested tree into REPO_DIR; main-module packages resolve
   # without downloading dependencies.
@@ -264,8 +249,9 @@ merge_picked() {
 # Postsubmit on main: find the shard builds whose tested tree is M's tree.
 # First the pull request's own presubmits on M^ (serial merges, PR number from
 # the "(#N)" squash title), then Tide batches on a base up to MAX_BATCH
-# first-parent steps back (only the last commit of a batch matches). The
-# tree comparison is what decides; refs alone are only a filter.
+# first-parent steps back (a batch member matches only if some batch build
+# tested exactly its prefix). The tree comparison is what decides; refs alone
+# are only a filter.
 merge_postsubmit() {
   local m p1 tree pr i job lines bases picked rc unfetched=0
   m=$("${JQ}" -r .refs.base_sha <<<"${JOB_SPEC}")
@@ -311,13 +297,26 @@ merge_postsubmit() {
   # A commit that could not be fetched may be the match; fail so that a rerun
   # can find it, instead of skipping the commit for good.
   ((rc == 1 && !unfetched)) || die "no match for ${m}, and a candidate's commits could not be fetched"
-  skip "no unit shard build tested the tree of ${m} (batch member before the last, or unit jobs skipped)" "${m}"
+  skip "no unit shard build tested the tree of ${m} (for example a batch member whose prefix no batch build tested, or unit jobs skipped)" "${m}"
 }
 
-mkdir -p "${ARTIFACTS}"
-case "$("${JQ}" -r .type <<<"${JOB_SPEC}")" in
-  presubmit) merge_same_refs presubmit ;;
-  batch) merge_same_refs batch ;;
-  postsubmit) merge_postsubmit ;;
-  *) die "unsupported job type" ;;
-esac
+main() {
+  : "${JOB_SPEC:?JOB_SPEC is set by Prow}"
+  : "${ARTIFACTS:?ARTIFACTS is set by Prow}"
+  # shellcheck disable=SC2016 # jq expressions
+  ORG_REPO=$("${JQ}" -r '.refs.org + "_" + .refs.repo' <<<"${JOB_SPEC}")
+  # shellcheck disable=SC2016 # jq expressions
+  REPO_URL=$("${JQ}" -r '.refs.clone_uri // "https://github.com/\(.refs.org)/\(.refs.repo).git"' <<<"${JOB_SPEC}")
+  mkdir -p "${ARTIFACTS}"
+  case "$("${JQ}" -r .type <<<"${JOB_SPEC}")" in
+    presubmit) merge_same_refs presubmit ;;
+    batch) merge_same_refs batch ;;
+    postsubmit) merge_postsubmit ;;
+    *) die "unsupported job type" ;;
+  esac
+}
+
+# A test can source this file.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

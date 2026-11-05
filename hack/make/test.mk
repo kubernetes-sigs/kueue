@@ -100,9 +100,11 @@ OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
 # Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
 # $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
-# generated, client-go, mock, and kueuectl test helper code so it does not
-# inflate the denominator.
-UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/
+# generated, client-go, mock, kueuectl test helper and test/ helper code so it
+# does not inflate the denominator. This is the only exclusion list: the
+# merged profile (hack/testing/merge-unit-coverage.sh) uses the shards'
+# filtered.cov as is.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing|test)/
 
 ##@ Tests
 
@@ -133,7 +135,7 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 .PHONY: test-unit-coverage-merge
 test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
 	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) UNIT_TOTAL_SHARDS=$(or $(UNIT_TOTAL_SHARDS),2) \
-		UNIT_COVERAGE_EXCLUDE='$(UNIT_COVERAGE_EXCLUDE)' $(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
+		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
