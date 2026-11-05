@@ -1161,7 +1161,11 @@ func TestPlan(t *testing.T) {
 			// When
 			var opts []assignment.PlannerOption
 			if len(tc.committedVictims) > 0 {
-				opts = append(opts, assignment.WithCommittedPreemptionVictims(tc.committedVictims))
+				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
+				for _, cv := range tc.committedVictims {
+					committedMap[cv] = snapshot.ClusterQueue(testCQ).Workloads[cv]
+				}
+				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 			}
 			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
@@ -1175,7 +1179,7 @@ func TestPlan(t *testing.T) {
 				t.Errorf("Plan() called ScheduleWorkload unexpected number of times: want %d, got %d", wantCallCount, len(testSim.receivedCalls))
 			}
 			if tc.wantCalls != nil {
-				if diff := cmp.Diff(tc.wantCalls, testSim.receivedCalls, cmp.AllowUnexported(scheduleWorkloadCall{})); diff != "" {
+				if diff := cmp.Diff(tc.wantCalls, testSim.receivedCalls, cmp.AllowUnexported(scheduleWorkloadCall{}), cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Plan() ScheduleWorkload calls mismatch (-want +got):\n%s", diff)
 				}
 			}
@@ -1759,6 +1763,19 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			wantMode:               flavorassigner.Fit,
 			wantTopologyAssignment: onNodes(domain(testNode2, 1)),
 		},
+		"committed victim not needed for node placement, but needed for quota: deferred fit": {
+			cqQuota: "6",
+			admittedWorkloads: []*kueue.Workload{
+				committed6Node1.Clone().Obj(),
+			},
+			committedVictims: []workload.Reference{
+				workload.NewReference(testNamespace, "committed-victim"),
+			},
+			requestedCPU:           "6",
+			initialMode:            flavorassigner.Fit,
+			wantMode:               flavorassigner.DeferredFit,
+			wantTopologyAssignment: onNodes(domain(testNode1, 1)),
+		},
 		"committed victim needed for placement: deferred fit without preempting candidates": {
 			cqQuota: "12",
 			admittedWorkloads: []*kueue.Workload{
@@ -1866,15 +1883,14 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				t.Fatalf("building snapshot: %v", err)
 			}
 			var toRemove []*workload.Info
+			committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
 			for _, cv := range tc.committedVictims {
 				wlInfo := snapshot.ClusterQueue(testCQ).Workloads[cv]
 				if wlInfo == nil {
 					t.Fatalf("workload %q not found in snapshot", cv)
 				}
 				toRemove = append(toRemove, wlInfo)
-			}
-			if len(toRemove) > 0 {
-				snapshot.SimulateWorkloadRemoval(toRemove)
+				committedMap[cv] = wlInfo
 			}
 
 			wl := workload.NewInfo(log, utiltestingapi.MakeWorkload(incomingName, testNamespace).
@@ -1895,15 +1911,24 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				preemption.NewOracle(preemptor, snapshot), nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 			)
+			// Mirror scheduler.getAssignments: temporarily remove committed victims during
+			// AssignFlavors, then restore them so Plan handles them via PreemptionFilter.
+			var revertRemoval func()
+			if len(toRemove) > 0 {
+				revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
+			}
 			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+			if revertRemoval != nil {
+				revertRemoval()
+			}
 			if gotInitialMode := initialAssignment.RepresentativeMode(); gotInitialMode != tc.initialMode {
 				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
 			}
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			var opts []assignment.PlannerOption
-			if len(tc.committedVictims) > 0 {
-				opts = append(opts, assignment.WithCommittedPreemptionVictims(tc.committedVictims))
+			if len(committedMap) > 0 {
+				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 			}
 			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)

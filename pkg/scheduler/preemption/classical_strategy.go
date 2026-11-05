@@ -19,6 +19,7 @@ package preemption
 import (
 	"context"
 	"iter"
+	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -48,44 +49,50 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		Requests:          preemptionCtx.workloadUsage.Quota.Assigned,
 		WorkloadOrdering:  preemptor.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(
-		hierarchicalReclaimCtx,
-		preemptor.enabledAfs,
-		preemptionCtx.frsNeedPreemption,
-		preemptionCtx.snapshot,
-		preemptor.clock,
-		policy.CandidatesOrdering,
-	)
-	var attemptPossibleOpts []preemptionAttemptOpts
+
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
-	// We have three types of candidates:
-	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
-	//    hierarchical advantage (it is closer to the quota used by the candidate).
-	//    We can preempt such candidates regardless of their priority.
-	// 2. Priority candidates. Candidates over which there is no hiearchical advantage
-	//    but the possibility to preempt is determined based on priorities.
-	//    We respect the BorrowWithinCohort configuration only for these candidates.
-	// 3. Same queue candidates.
-	// We can only preempt a priority candidate with priority > MaxPriorityThreshold
-	// if the target CQ is not borrowing (by the definition of the MaxPriorityThreshold).
-	// We sometimes need to consider both options allowBorrowing = true and false
-	// (because with false we have more candidates but cannot use borrowing).
-	// The order in which the options are considered is arbitrary and the condition
-	// in which we try allowBorrowing=false before true is to keep compatibility with
-	// previous versions.
-	switch {
-	case candidatesGenerator.NoCandidateFromOtherQueues() || (borrowWithinCohortForbidden && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
-		attemptPossibleOpts = []preemptionAttemptOpts{{true}}
-	case borrowWithinCohortForbidden && candidatesGenerator.NoCandidateForHierarchicalReclaim():
-		attemptPossibleOpts = []preemptionAttemptOpts{{false}, {true}}
-	default:
-		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}
-	}
 
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
-		for _, opts := range attemptPossibleOpts {
-			allowBorrowing := opts.borrowing
+		var candidatesGenerator classical.CandidateIterator
+		attemptsIterator := newLazyIterator(func() []preemptionAttemptOpts {
+			candidatesGenerator = classical.NewCandidateIterator(
+				hierarchicalReclaimCtx,
+				preemptor.enabledAfs,
+				preemptionCtx.frsNeedPreemption,
+				preemptionCtx.snapshot,
+				preemptor.clock,
+				policy.CandidatesOrdering,
+			)
+			// We have three types of candidates:
+			// 1. Hierarchy candidates. Candidates over which the incoming workload has a
+			//    hierarchical advantage (it is closer to the quota used by the candidate).
+			//    We can preempt such candidates regardless of their priority.
+			// 2. Priority candidates. Candidates over which there is no hiearchical advantage
+			//    but the possibility to preempt is determined based on priorities.
+			//    We respect the BorrowWithinCohort configuration only for these candidates.
+			// 3. Same queue candidates.
+			// We can only preempt a priority candidate with priority > MaxPriorityThreshold
+			// if the target CQ is not borrowing (by the definition of the MaxPriorityThreshold).
+			// We sometimes need to consider both options allowBorrowing = true and false
+			// (because with false we have more candidates but cannot use borrowing).
+			// The order in which the options are considered is arbitrary and the condition
+			// in which we try allowBorrowing=false before true is to keep compatibility with
+			// previous versions.
+			switch {
+			case candidatesGenerator.NoCandidateFromOtherQueues() || (borrowWithinCohortForbidden && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
+				return []preemptionAttemptOpts{{true}}
+			case borrowWithinCohortForbidden && candidatesGenerator.NoCandidateForHierarchicalReclaim():
+				return []preemptionAttemptOpts{{false}, {true}}
+			default:
+				return []preemptionAttemptOpts{{true}, {false}}
+			}
+		})
+
+		for attemptsIterator.HasNext() {
+			var allowBorrowing bool
+			getOpts := sync.OnceValue(attemptsIterator.Next)
 			candidateIter := func(yieldCandidate func(*Target) bool) {
+				allowBorrowing = getOpts().borrowing
 				cont := iterateOverCandidates(ctx, preemptionCtx, candidatesGenerator, allowBorrowing, yieldCandidate)
 				if cont && features.Enabled(features.ConfigurablePreemptions) {
 					preemptionCtx.configurableEvaluator.FindCandidates(
@@ -96,11 +103,39 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 					)
 				}
 			}
-			if !yieldStrategy(newPreemptionStrategy(candidateIter, allowBorrowing, preemptionCtx)) {
+			if !yieldStrategy(newPreemptionStrategy(candidateIter, &allowBorrowing, preemptionCtx)) {
 				return
 			}
+			// Ensure Next() is called even if the caller never iterates over the yielded strategy.
+			_ = getOpts()
 		}
 	}
+}
+
+type lazyIterator[T any] struct {
+	initialize  func() []T
+	initialized bool
+	items       []T
+}
+
+func newLazyIterator[T any](init func() []T) *lazyIterator[T] {
+	return &lazyIterator[T]{initialize: init}
+}
+
+// HasNext returns true before initialization (assuming initialize returns at
+// least one element) and while unconsumed items remain.
+func (li *lazyIterator[T]) HasNext() bool {
+	return !li.initialized || len(li.items) > 0
+}
+
+func (li *lazyIterator[T]) Next() T {
+	if !li.initialized {
+		li.items = li.initialize()
+		li.initialized = true
+	}
+	item := li.items[0]
+	li.items = li.items[1:]
+	return item
 }
 
 func iterateOverCandidates(

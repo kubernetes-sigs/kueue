@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -52,11 +53,49 @@ func NewPlanner(
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
+var _ simulator.PreemptionFilter = (*committedVictimsPreemptionFilter)(nil)
 
 type wasPlanner struct {
 	wl        *workload.Info
 	snapshot  *schedcache.Snapshot
 	preemptor *preemption.Preemptor
+}
+
+type committedVictimsPreemptionFilter struct {
+	wl               *workload.Info
+	assignment       *flavorassigner.Assignment
+	committedVictims map[workload.Reference]*workload.Info
+	snap             *schedcache.Snapshot
+}
+
+func (f *committedVictimsPreemptionFilter) MayFit() bool {
+	if workload.HasQuotaReservation(f.wl.Obj) {
+		return true
+	}
+	cq := f.snap.ClusterQueue(f.wl.ClusterQueue)
+	return cq.Fits(workload.Usage{Quota: f.assignment.Usage.Quota}) == schedcache.FitsCheckOk
+}
+
+func (f *committedVictimsPreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
+	if wl, ok := f.committedVictims[wlKey]; ok {
+		if _, inSnapshot := f.snap.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; inSnapshot {
+			f.snap.RemoveWorkload(wl)
+		}
+	}
+}
+
+func (f *committedVictimsPreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
+	if wl, ok := f.committedVictims[wlKey]; ok {
+		if _, inSnapshot := f.snap.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; !inSnapshot {
+			f.snap.AddWorkload(wl)
+		}
+	}
+}
+
+func (f *committedVictimsPreemptionFilter) Reset() {
+	for wlKey := range f.committedVictims {
+		f.UnpreemptWorkload(wlKey)
+	}
 }
 
 func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, options ...assignment.PlannerOption) (plan assignment.Plan) {
@@ -126,11 +165,27 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-	committedVictims []workload.Reference,
+	committedVictims map[workload.Reference]*workload.Info,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
+		var opts []simulator.ScheduleOption
+		var preemptionFilter *committedVictimsPreemptionFilter
+		if len(committedVictims) > 0 {
+			preemptionFilter = &committedVictimsPreemptionFilter{
+				wl:               p.wl,
+				assignment:       assignment,
+				committedVictims: committedVictims,
+				snap:             p.snapshot,
+			}
+			opts = append(opts, simulator.WithCommittedPreemptionVictims(sets.KeySet(committedVictims).UnsortedList()))
+			opts = append(opts, simulator.WithPreemptionFilter(preemptionFilter))
+		}
+
 		var preemptionVictims []workload.Reference
-		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, simulator.WithCommittedPreemptionVictims(committedVictims))
+		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
+		if preemptionFilter != nil {
+			preemptionFilter.Reset()
+		}
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -184,22 +239,23 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
-	committedVictims []workload.Reference,
+	committedVictims map[workload.Reference]*workload.Info,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+		strategy.WithCommittedPreemptionVictims(committedVictims)
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
 			simulator.WithPreemptionFilter(&strategy),
-			simulator.WithCommittedPreemptionVictims(committedVictims),
+			simulator.WithCommittedPreemptionVictims(slices.Collect(maps.Keys(committedVictims))),
 		)
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if len(committedVictims) > 0 {
-			cvs := sets.New(committedVictims...)
+			cvs := sets.KeySet(committedVictims)
 			preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl workload.Reference) bool {
 				return cvs.Has(wl)
 			})

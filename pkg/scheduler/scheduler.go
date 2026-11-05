@@ -1673,16 +1673,21 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	plannerOptions := []assignment.PlannerOption{}
+	wrapper := func(fn func() flavorassigner.Assignment) flavorassigner.Assignment {
+		return fn()
+	}
 	if len(inCycleCommittedVictims) > 0 {
-		if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			wrapper = func(fn func() flavorassigner.Assignment) flavorassigner.Assignment {
+				revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
+				defer revertRemoval()
+				return fn()
+			}
+		} else {
 			revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
 			defer revertRemoval()
 		}
-		committedVictims := make([]workload.Reference, 0, len(inCycleCommittedVictims))
-		for _, wl := range inCycleCommittedVictims {
-			committedVictims = append(committedVictims, workload.Key(wl.Obj))
-		}
-		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(committedVictims))
+		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
 	}
 
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
@@ -1698,22 +1703,21 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
 
-	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
+	initialAssignment := wrapper(func() flavorassigner.Assignment { return flvAssigner.AssignFlavors(ctx, log, nil) })
 	assignmentPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...)
 
-	if (!assignmentPlan.CanFit() || assignmentPlan.Assignment.WaitingForResidualTASPods) &&
+	if !assignmentPlan.CanFit() &&
 		assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
-			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			partialPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...)
-			if partialPlan.CanFit() && !partialPlan.Assignment.WaitingForResidualTASPods {
+			initialAssignment := wrapper(func() flavorassigner.Assignment { return flvAssigner.AssignFlavors(ctx, log, nextCounts) })
+			if partialPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...); partialPlan.CanFit() {
 				// A reduced count may fit only by evicting another victim. Keep
 				// waiting for residual Pods unless it fits without preemption.
-				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
-					partialPlan.Assignment.RepresentativeMode() != flavorassigner.Fit {
+				if assignmentPlan.Assignment.RepresentativeMode() == flavorassigner.DeferredFit &&
+					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
 					return false
 				}
 				bestPartialPlan = &partialPlan

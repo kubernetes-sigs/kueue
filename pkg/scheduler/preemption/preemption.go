@@ -77,27 +77,30 @@ type Preemptor struct {
 	preemptionExpectations *expectations.Store
 }
 
+var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
+
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
 // One strategy maps to a single, isolated attempt at finding a possible preemption result.
 type PreemptionStrategy struct {
 	// candidates is a dynamic iterator over preemption candidates
-	// in order of decreasig preemption appeal.
+	// in order of decreasing preemption appeal.
 	candidates iter.Seq[*Target]
-	// allowBorrowing determines wheteher borrowing is enabled in the scope of this strategy.
-	allowBorrowing bool
+	// allowBorrowing determines whether borrowing is enabled in the scope of this strategy.
+	// Stored as a pointer so lazy candidate initialization can resolve it when Candidates()
+	// is iterated after PreemptionStrategy has been yielded by value.
+	allowBorrowing *bool
 	// pCtx represents the active preemption context.
 	// The context is shared across all iterations of this strategy's candidates.
-	// Warning: Eeach time a candidate is yielded, it is preempted from the active context.
+	// Warning: Each time a candidate is yielded, it is preempted from the active context.
 	pCtx *preemptionCtx
 	// verify checks whether the final target set satisfies this strategy's invariants.
 	// If nil, any target set that fits is valid. It returns whether the target set is valid
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
-	targetsByKey map[workload.Reference]*Target
+	targetsByKey               map[workload.Reference]*Target
+	committedPreemptionVictims map[workload.Reference]*workload.Info
 }
-
-var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
 
 type strategyOption func(*PreemptionStrategy)
 
@@ -109,7 +112,7 @@ func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
 
 func newPreemptionStrategy(
 	candidates iter.Seq[*Target],
-	allowBorrowing bool,
+	allowBorrowing *bool,
 	pCtx *preemptionCtx,
 	opts ...strategyOption,
 ) PreemptionStrategy {
@@ -118,11 +121,17 @@ func newPreemptionStrategy(
 		allowBorrowing: allowBorrowing,
 		pCtx:           pCtx,
 		targetsByKey:   make(map[workload.Reference]*Target),
+		committedPreemptionVictims: map[workload.Reference]*workload.Info{},
 	}
 	for _, opt := range opts {
 		opt(&ps)
 	}
 
+	return ps
+}
+
+func (ps *PreemptionStrategy) WithCommittedPreemptionVictims(victims map[workload.Reference]*workload.Info) *PreemptionStrategy {
+	ps.committedPreemptionVictims = victims
 	return ps
 }
 
@@ -140,7 +149,13 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 }
 
 func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
-	if t, ok := ps.targetsByKey[wlKey]; ok {
+	if wl, ok := ps.committedPreemptionVictims[wlKey]; ok {
+		if _, inSnapshot := ps.pCtx.snapshot.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; inSnapshot {
+			// Handle committed victims.
+			ps.pCtx.snapshot.RemoveWorkload(wl)
+		}
+	} else if t, ok := ps.targetsByKey[wlKey]; ok {
+		// Handle preemption candidates.
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; inSnapshot {
 			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
 		}
@@ -148,19 +163,40 @@ func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 }
 
 func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
-	if t, ok := ps.targetsByKey[wlKey]; ok {
+	if wl, ok := ps.committedPreemptionVictims[wlKey]; ok {
+		if _, inSnapshot := ps.pCtx.snapshot.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; !inSnapshot {
+			// Handle committed victims.
+			ps.pCtx.snapshot.AddWorkload(wl)
+		}
+	} else if t, ok := ps.targetsByKey[wlKey]; ok {
+		// Handle preemption candidates.
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 		}
 	}
 }
 
+func (ps *PreemptionStrategy) hasPreemptedTargets() bool {
+	for wlKey, t := range ps.targetsByKey {
+		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
+			return true
+		}
+	}
+	return false
+}
+
 func (ps *PreemptionStrategy) MayFit() bool {
-	return workloadQuotaFits(ps.pCtx, ps.allowBorrowing)
+	if !ps.hasPreemptedTargets() {
+		return false
+	}
+	return workloadQuotaFits(ps.pCtx, *ps.allowBorrowing)
 }
 
 // Reset restores any workloads still preempted in the strategy back to the snapshot.
 func (ps *PreemptionStrategy) Reset() {
+	for wlKey := range ps.committedPreemptionVictims {
+		ps.UnpreemptWorkload(wlKey)
+	}
 	for wlKey := range ps.targetsByKey {
 		ps.UnpreemptWorkload(wlKey)
 	}
@@ -169,14 +205,18 @@ func (ps *PreemptionStrategy) Reset() {
 // GetTargets checks whether the given preemptedWorkloads satisfy quota and strategy
 // verification, and restores the snapshot before returning the corresponding targets.
 func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference) ([]*Target, error) {
-	ps.Reset()
+	defer ps.Reset()
 	if len(preemptedWorkloads) == 0 {
 		ps.pCtx.log.V(5).Info("No workloads preempted during simulation",
 			"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj))
 		return nil, nil
 	}
-	defer ps.Reset()
+
+	ps.Reset()
 	targets := make([]*Target, 0, len(preemptedWorkloads))
+	for wlKey := range ps.committedPreemptionVictims {
+		ps.PreemptWorkload(wlKey)
+	}
 	for _, wlKey := range preemptedWorkloads {
 		t, ok := ps.targetsByKey[wlKey]
 		if !ok {
@@ -482,8 +522,8 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		var targets []*Target
 		for candidate := range strategy.candidates {
 			targets = append(targets, candidate)
-			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
-				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+			if workloadFits(ctx, strategy.pCtx, *strategy.allowBorrowing) {
+				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, *strategy.allowBorrowing)
 				if strategy.verify != nil {
 					if valid, reason := strategy.verify(targets); !valid {
 						if logV := log.V(5); logV.Enabled() {

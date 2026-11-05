@@ -64,24 +64,24 @@ func fairPreemptionStrategy(
 	log := log.FromContext(ctx)
 	allowBorrowing := true
 
-	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	if noCandidates(preemptionCtx, candidateWls) {
-		return func(yieldStrategy func(PreemptionStrategy) bool) {}
-	}
-	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
-	if logV := log.V(5); logV.Enabled() {
-		logV.Info(
-			"Simulating fair preemption",
-			"candidates",
-			workload.References(candidateWls),
-			"resourcesRequiringPreemption",
-			preemptionCtx.frsNeedPreemption.UnsortedList(),
-			"preemptingWorkload",
-			klog.KObj(preemptionCtx.preemptor.Obj),
-		)
-	}
-
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
+		candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
+		if noCandidates(preemptionCtx, candidateWls) {
+			return
+		}
+		slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
+		if logV := log.V(5); logV.Enabled() {
+			logV.Info(
+				"Simulating fair preemption",
+				"candidates",
+				workload.References(candidateWls),
+				"resourcesRequiringPreemption",
+				preemptionCtx.frsNeedPreemption.UnsortedList(),
+				"preemptingWorkload",
+				klog.KObj(preemptionCtx.preemptor.Obj),
+			)
+		}
+
 		var cont bool
 		targetsInPreemptorCQ := false
 
@@ -151,7 +151,7 @@ func fairPreemptionStrategy(
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		yieldStrategy(newPreemptionStrategy(
 			candidatesIter,
-			allowBorrowing,
+			&allowBorrowing,
 			preemptionCtx,
 			withVerify(func(targets []*Target) (bool, string) {
 				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)

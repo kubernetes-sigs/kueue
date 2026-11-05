@@ -62,7 +62,7 @@ type Options struct {
 	// CommittedPreemptionVictims are the References of workloads marked
 	// for preemption by preemptors (workloads) already processed within
 	// the ongoing scheduler cycle.
-	CommittedPreemptionVictims []workload.Reference
+	CommittedPreemptionVictims map[workload.Reference]*workload.Info
 }
 
 type PlannerOption func(*Options)
@@ -77,7 +77,7 @@ func BuildOptions(options ...PlannerOption) *Options {
 	return opts
 }
 
-func WithCommittedPreemptionVictims(preemptionVictims []workload.Reference) PlannerOption {
+func WithCommittedPreemptionVictims(preemptionVictims map[workload.Reference]*workload.Info) PlannerOption {
 	return func(opts *Options) {
 		opts.CommittedPreemptionVictims = preemptionVictims
 	}

@@ -103,8 +103,10 @@ func TestPlan_CanFit(t *testing.T) {
 }
 
 func TestBuildOptions(t *testing.T) {
-	wl1 := workload.NewReference("ns", "wl-1")
-	wl2 := workload.NewReference("ns", "wl-2")
+	wl1Ref := workload.NewReference("ns", "wl-1")
+	wl2Ref := workload.NewReference("ns", "wl-2")
+	wl1Info := &workload.Info{ClusterQueue: "cq-1"}
+	wl2Info := &workload.Info{ClusterQueue: "cq-2"}
 
 	cases := map[string]struct {
 		options []PlannerOption
@@ -116,28 +118,34 @@ func TestBuildOptions(t *testing.T) {
 		"nil option is ignored": {
 			options: []PlannerOption{
 				nil,
-				WithCommittedPreemptionVictims([]workload.Reference{wl1}),
+				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl1Ref: wl1Info}),
 				nil,
 			},
 			want: &Options{
-				CommittedPreemptionVictims: []workload.Reference{wl1},
+				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{wl1Ref: wl1Info},
 			},
 		},
 		"WithCommittedPreemptionVictims sets victims": {
 			options: []PlannerOption{
-				WithCommittedPreemptionVictims([]workload.Reference{wl1, wl2}),
+				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{
+					wl1Ref: wl1Info,
+					wl2Ref: wl2Info,
+				}),
 			},
 			want: &Options{
-				CommittedPreemptionVictims: []workload.Reference{wl1, wl2},
+				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{
+					wl1Ref: wl1Info,
+					wl2Ref: wl2Info,
+				},
 			},
 		},
 		"later option overrides earlier option": {
 			options: []PlannerOption{
-				WithCommittedPreemptionVictims([]workload.Reference{wl1}),
-				WithCommittedPreemptionVictims([]workload.Reference{wl2}),
+				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl1Ref: wl1Info}),
+				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl2Ref: wl2Info}),
 			},
 			want: &Options{
-				CommittedPreemptionVictims: []workload.Reference{wl2},
+				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{wl2Ref: wl2Info},
 			},
 		},
 	}
@@ -145,7 +153,7 @@ func TestBuildOptions(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := BuildOptions(tc.options...)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(workload.Info{})); diff != "" {
 				t.Errorf("BuildOptions() (-want,+got):\n%s", diff)
 			}
 		})
