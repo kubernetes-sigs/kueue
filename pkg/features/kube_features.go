@@ -840,7 +840,7 @@ const (
 	//
 	// Enables the built-in local-capacity CapacityProvider controller, which publishes node capacity
 	// per ResourceFlavor for Dynamic Quota Orchestration. Requires DynamicQuotaOrchestration.
-	LocalCapacityProvider featuregate.Feature = "LocalCapacityProvider"
+	DQOLocalCapacityProvider featuregate.Feature = "DQOLocalCapacityProvider"
 
 	// owner: @alien1403
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/14973
@@ -971,7 +971,7 @@ func init() {
 // replacement.
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
 	TASResidualPodAccounting:                            {TopologyAwareScheduling},
-	LocalCapacityProvider:                               {DynamicQuotaOrchestration},
+	DQOLocalCapacityProvider:                            {DynamicQuotaOrchestration},
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
@@ -1416,7 +1416,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	LocalCapacityProvider: {
+	DQOLocalCapacityProvider: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 

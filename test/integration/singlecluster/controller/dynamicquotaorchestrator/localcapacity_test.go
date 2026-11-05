@@ -27,7 +27,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/localcapacity"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -98,9 +97,6 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 	}
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicQuotaOrchestration, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalCapacityProvider, true)
-
 		flavor = utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "h100").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
 
@@ -326,5 +322,69 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("76"))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+	})
+
+	ginkgo.It("Should admit workloads according to the node-derived quota", func() {
+		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "local-capacity-")
+		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(teamCQ.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, lq)
+		// Not DeferCleanup: the ClusterQueue is deleted in AfterEach, which runs before
+		// DeferCleanup callbacks, and it cannot go away while its LocalQueue and workloads exist.
+		defer func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		}()
+		makeWorkload := func(name string) *kueue.Workload {
+			wl := utiltestingapi.MakeWorkload(name, ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(gpu, "8").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			return wl
+		}
+
+		var wl3 *kueue.Workload
+		ginkgo.By("Keeping a workload pending while there are no nodes", func() {
+			wl := makeWorkload("wl-no-nodes")
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+		})
+
+		ginkgo.By("Admitting as many workloads as the nodes can hold", func() {
+			createNodes("h100-1", "h100-2")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			wl1 := makeWorkload("wl-1")
+			wl2 := makeWorkload("wl-2")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+
+			wl3 = makeWorkload("wl-3")
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+		})
+
+		ginkgo.By("Admitting the pending workload when a node is added", func() {
+			createNodes("h100-3")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
+		})
+	})
+
+	ginkgo.It("Should not treat an unorchestrated flavor with the same nodeLabels as an overlap", func() {
+		createNodes("h100-1", "h100-2")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		sameLabels := utiltestingapi.MakeResourceFlavor("h100-spare").NodeLabel("example.com/gpu-type", "h100").Obj()
+		behavioral.MustCreate(ctx, k8sClient, sameLabels)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sameLabels, true)
+		})
+
+		createNodes("h100-3")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("24"))
+			latest := &kueuealpha.CapacityProvider{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
+			g.Expect(latest.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(
+				kueuealpha.CapacityProviderCapacitySynchronized, kueuealpha.CapacityProviderReasonSynchronized))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

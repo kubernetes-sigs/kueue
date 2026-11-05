@@ -71,6 +71,12 @@ type result struct {
 // providers. Overlaps make the result misconfigured, so that DQO keeps the last
 // good quota instead of distributing double-counted capacity.
 func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
+	// spec.parameters is reserved for a later stage. Rejecting it now keeps objects
+	// created with arbitrary parameters from changing meaning after an upgrade.
+	if provider.Spec.Parameters != nil {
+		return result{misconfigured: fmt.Sprintf("spec.parameters is not supported by %s", ControllerName)}
+	}
+
 	ownFlavors := make([]kueuealpha.ResourceFlavorReference, 0, len(provider.Spec.OrchestratedFlavors))
 	for _, f := range provider.Spec.OrchestratedFlavors {
 		ownFlavors = append(ownFlavors, f.Name)
@@ -110,6 +116,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 	}
 	allFlavors := sets.List(sets.KeySet(claimedBy))
 	ownSet := sets.New(ownFlavors...)
+	ownSorted := sets.List(ownSet)
 
 	totals := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList, len(ownFlavors))
 	counted := make(map[kueuealpha.ResourceFlavorReference]int, len(ownFlavors))
@@ -122,7 +129,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 				matched = append(matched, name)
 			}
 		}
-		if !slices.ContainsFunc(matched, ownSet.Has) {
+		if !ownSet.HasAny(matched...) {
 			continue
 		}
 		// Overlap is checked before eligibility on purpose: overlapping nodeLabels
@@ -141,7 +148,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 	capacity := &kueuealpha.CapacityProviderNormalizedCapacity{
 		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{},
 	}
-	for _, name := range sets.List(ownSet) {
+	for _, name := range ownSorted {
 		resources := totals[name]
 		if resources == nil {
 			resources = corev1.ResourceList{}
@@ -154,7 +161,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 			Resources: resources,
 		})
 	}
-	return result{capacity: capacity, summary: summarize(sets.List(ownSet), counted, excluded)}
+	return result{capacity: capacity, summary: summarize(ownSorted, counted, excluded)}
 }
 
 // nodeMatchesFlavor uses the same rule as TAS: a node of a TAS flavor must also
@@ -179,19 +186,10 @@ func ineligibleReason(node *corev1.Node) string {
 		return "Deleting"
 	case node.Spec.Unschedulable:
 		return "Unschedulable"
-	case !isNodeReady(node):
+	case !utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady):
 		return "NotReady"
 	}
 	return ""
-}
-
-func isNodeReady(node *corev1.Node) bool {
-	for _, c := range node.Status.Conditions {
-		if c.Type == corev1.NodeReady {
-			return c.Status == corev1.ConditionTrue
-		}
-	}
-	return false
 }
 
 func joinFlavors(flavors []kueuealpha.ResourceFlavorReference) string {

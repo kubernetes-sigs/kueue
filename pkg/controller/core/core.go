@@ -150,10 +150,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		if err := dqoRec.SetupWithManager(mgr); err != nil {
 			return "DynamicQuotaOrchestrator", err
 		}
-		if features.Enabled(features.LocalCapacityProvider) {
+		if features.Enabled(features.DQOLocalCapacityProvider) {
 			lcRec := localcapacity.NewReconciler(mgr.GetClient(), localcapacity.WithRoleTracker(opts.RoleTracker))
 			if err := lcRec.SetupWithManager(mgr); err != nil {
-				return "LocalCapacityProvider", err
+				return "DQOLocalCapacityProvider", err
 			}
 		}
 	}

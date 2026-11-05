@@ -38,7 +38,9 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -137,7 +139,7 @@ var nodeCapacityChangedPredicate = predicate.Funcs{
 			oldNode.Spec.Unschedulable != newNode.Spec.Unschedulable ||
 			oldNode.DeletionTimestamp.IsZero() != newNode.DeletionTimestamp.IsZero() ||
 			!equality.Semantic.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable) ||
-			isNodeReady(oldNode) != isNodeReady(newNode)
+			utiltas.IsNodeStatusConditionTrue(oldNode.Status.Conditions, corev1.NodeReady) != utiltas.IsNodeStatusConditionTrue(newNode.Status.Conditions, corev1.NodeReady)
 	},
 }
 
@@ -159,21 +161,15 @@ func (r *Reconciler) mapToAllProviders(ctx context.Context, _ client.Object) []c
 
 func (r *Reconciler) listLocalCapacityProviders(ctx context.Context) ([]kueuealpha.CapacityProvider, error) {
 	var list kueuealpha.CapacityProviderList
-	if err := r.client.List(ctx, &list); err != nil {
+	if err := r.client.List(ctx, &list, client.MatchingFields{indexer.CapacityProviderControllerNameKey: string(ControllerName)}); err != nil {
 		return nil, err
 	}
-	providers := make([]kueuealpha.CapacityProvider, 0, len(list.Items))
-	for _, p := range list.Items {
-		if p.Spec.ControllerName == ControllerName {
-			providers = append(providers, p)
-		}
-	}
-	return providers, nil
+	return list.Items, nil
 }
 
 // Reconcile recomputes the capacity published by a single local-capacity CapacityProvider.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if !features.Enabled(features.LocalCapacityProvider) {
+	if !features.Enabled(features.DQOLocalCapacityProvider) {
 		return ctrl.Result{}, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -182,7 +178,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.client.Get(ctx, req.NamespacedName, &provider); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if !provider.DeletionTimestamp.IsZero() {
+	// The provider can be deleted and recreated for another controller while its
+	// old name is still queued.
+	if !provider.DeletionTimestamp.IsZero() || provider.Spec.ControllerName != ControllerName {
 		return ctrl.Result{}, nil
 	}
 	log.V(3).Info("Reconcile local-capacity CapacityProvider")
@@ -245,7 +243,7 @@ func setSynchronizedCondition(provider *kueuealpha.CapacityProvider, status meta
 		Status:             status,
 		ObservedGeneration: provider.Generation,
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 	})
 }
 

@@ -75,6 +75,13 @@ func manyResourcesNode(name string, count int) *corev1.Node {
 		Obj()
 }
 
+// deletingNode marks the node as being deleted. The finalizer keeps the fake client from removing it.
+func deletingNode(node *corev1.Node) *corev1.Node {
+	node.DeletionTimestamp = new(metav1.Now())
+	node.Finalizers = []string{"example.com/test"}
+	return node
+}
+
 // failNodeList makes listing Nodes fail, to simulate an unavailable capacity source.
 var failNodeList = interceptor.Funcs{
 	List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
@@ -165,6 +172,29 @@ func TestReconcile(t *testing.T) {
 					).
 					Obj(),
 				Conditions: []metav1.Condition{synced("h100: 1 node; excluded: NotReady=2, Unschedulable=1")},
+			},
+		},
+		"excludes nodes that are being deleted": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{h100Flavor},
+			nodes: []*corev1.Node{
+				gpuNode("ready", "h100").Ready().Obj(),
+				deletingNode(gpuNode("deleting", "h100").Ready().Obj()),
+			},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity: utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("h100").
+							Resource(corev1.ResourceCPU, "120").
+							Resource(corev1.ResourceMemory, "900Gi").
+							Resource(gpuResource, "8").
+							Obj(),
+					).
+					Obj(),
+				Conditions: []metav1.Condition{synced("h100: 1 node; excluded: Deleting=1")},
 			},
 		},
 		"counts tainted nodes, because workloads may tolerate the taints": {
@@ -407,6 +437,29 @@ func TestReconcile(t *testing.T) {
 				Conditions: []metav1.Condition{misconfigured(`ResourceFlavor "h100" has 65 resources, more than the maximum of 64`)},
 			},
 		},
+		"spec.parameters is not supported and keeps the last capacity": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Parameters("example.com", "LocalCapacity", "params").
+				Capacity(previousCapacity).
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{h100Flavor},
+			nodes:   []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity:   previousCapacity,
+				Conditions: []metav1.Condition{misconfigured("spec.parameters is not supported by kueue.x-k8s.io/local-capacity")},
+			},
+		},
+		"does nothing for a provider served by another controller": {
+			provider: utiltestingalpha.MakeCapacityProvider("external").
+				ControllerName("example.com/external").
+				OrchestratedFlavors("h100").
+				Obj(),
+			flavors:    []*kueue.ResourceFlavor{h100Flavor},
+			nodes:      []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
+			wantStatus: kueuealpha.CapacityProviderStatus{},
+		},
 		"does nothing when the feature gate is disabled": {
 			disableFeatureGate: true,
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
@@ -421,7 +474,7 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
-			features.SetFeatureGateDuringTest(t, features.LocalCapacityProvider, !tc.disableFeatureGate)
+			features.SetFeatureGateDuringTest(t, features.DQOLocalCapacityProvider, !tc.disableFeatureGate)
 
 			objs := []client.Object{tc.provider}
 			statusObjs := []client.Object{tc.provider}
@@ -466,7 +519,7 @@ func TestReconcile(t *testing.T) {
 
 func TestReconcileSkipsUnchangedStatus(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
-	features.SetFeatureGateDuringTest(t, features.LocalCapacityProvider, true)
+	features.SetFeatureGateDuringTest(t, features.DQOLocalCapacityProvider, true)
 
 	provider := utiltestingalpha.MakeCapacityProvider("nodes").
 		ControllerName(ControllerName).
