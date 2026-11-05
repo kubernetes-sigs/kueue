@@ -457,7 +457,12 @@ With dynamic allocation, the Spark driver creates and deletes executor Pods itse
   `spec.executor.instances`, `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.initialExecutors`,
   the same number of executors the driver starts with.
   The driver creates its initial executors in batches, so a lower Pod count during that time is not a scale-down.
+  Spark numbers the executors of a submission from 1 and never reuses an ID, so the highest executor ID shows
+  how many executors the driver has created. The initial count is kept until that ID reaches it, or until an
+  executor stops, as the driver stops executors only after lowering its target.
 - After that, the executor count is the number of `Pending` and `Running` executor Pods of the current submission.
+  The Kueue `SparkApplication` controller watches the executor Pods and recounts them when their phase changes,
+  as the `SparkApplication` spec does not change when the driver scales.
   The Spark driver keeps its executors between `spec.dynamicAllocation.minExecutors` and `spec.dynamicAllocation.maxExecutors`.
   The Kueue `SparkApplication` controller also clamps the count to that range, so the Workload does not resize
   while the Pod count is briefly outside it.
@@ -477,8 +482,14 @@ With dynamic allocation, the Spark driver creates and deletes executor Pods itse
   when the `SparkApplication` is not elastic, as the Kueue `RayCluster` webhook rejects `spec.enableInTreeAutoscaling: true`
   (for an elastic `SparkApplication`, `spark.dynamicAllocation.enabled: "true"` in `spec.sparkConf` is rejected
   when `spec.dynamicAllocation.enabled` is `false`).
-  A `SparkApplication` is elastic when it has the `kueue.x-k8s.io/elastic-job: "true"` annotation and both the
-  `ElasticJobsViaWorkloadSlices` and `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gates are enabled.
+  A `SparkApplication` is elastic when it has the `kueue.x-k8s.io/elastic-job: "true"` annotation and the
+  `ElasticJobsViaWorkloadSlices` feature gate is enabled, as for other integrations.
+  The `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate is checked only when a `SparkApplication` is created:
+  when it is disabled, new elastic `SparkApplications` are rejected, while existing ones stay elastic until they finish,
+  as the annotation cannot be changed. Kueue then does not watch the executor Pods, so the executor count of
+  existing ones is updated only when the `SparkApplication` changes.
+  Disable `ElasticJobsViaWorkloadSlices` only after elastic `SparkApplications` finish, as existing ones then fall back
+  to the non-elastic path.
 
 Known limitations in Alpha (see the [graduation criteria](#elasticjobsviaworkloadslicesforsparkapplication-graduation-criteria)):
 
