@@ -41,6 +41,18 @@ func MakeDynamicQuotaOrchestrator(name string) *DynamicQuotaOrchestratorWrapper 
 	}
 }
 
+// MakeDynamicQuotaOrchestratorWithGenerateName creates a DynamicQuotaOrchestrator wrapper with a generateName prefix.
+func MakeDynamicQuotaOrchestratorWithGenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	return MakeDynamicQuotaOrchestrator("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) GenerateName(prefix string) *DynamicQuotaOrchestratorWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
 // Obj returns the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) Obj() *kueuealpha.DynamicQuotaOrchestrator {
 	return &w.DynamicQuotaOrchestrator
@@ -484,6 +496,18 @@ func MakeMultiKueueCapacityProviderConfig(name string) *MultiKueueCapacityProvid
 		Kind:       "MultiKueueCapacityProviderConfig",
 		Name:       name,
 	}
+}
+
+// MakeMultiKueueCapacityProviderConfigWithGenerateName creates a MultiKueueCapacityProviderConfig wrapper with a generateName prefix.
+func MakeMultiKueueCapacityProviderConfigWithGenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	return MakeMultiKueueCapacityProviderConfig("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the MultiKueueCapacityProviderConfig.
+func (w *MultiKueueCapacityProviderConfigWrapper) GenerateName(prefix string) *MultiKueueCapacityProviderConfigWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
 }
 
 // Obj returns the inner MultiKueueCapacityProviderConfig.

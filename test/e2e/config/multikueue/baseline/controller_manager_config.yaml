@@ -23,6 +23,9 @@ integrations:
   - "pod"
   - "deployment"
   - "statefulset"
+featureGates:
+  DynamicQuotaOrchestration: true
+  DQOMultiKueueCapacityProvider: true
 tls:
   minVersion: "VersionTLS12"
   cipherSuites:
