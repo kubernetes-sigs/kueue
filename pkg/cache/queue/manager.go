@@ -364,6 +364,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	notifyRetryInadmissibleWithoutLock(m, sets.New(cqImpl.name))
 	reportPendingWorkloads(m, cqImpl.name)
+	// The loop above skips statuses that did not change while the ClusterQueue was absent,
+	// so re-report the counts retained for it.
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		m.resyncUnadmittedWorkloadsMetricsLocked(cqImpl.name)
+	}
 
 	if addedWorkloads {
 		m.Broadcast()
