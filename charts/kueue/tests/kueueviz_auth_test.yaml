@@ -61,3 +61,31 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "(?s)kueueViz.*backend.*auth.*(mode is required|missing property 'mode')"
+
+  - it: should ignore a misspelled authentication mode when KueueViz is disabled
+    set:
+      enableKueueViz: false
+      kueueViz.backend.auth.mode: TokenReveiw
+    asserts: &disabledViz
+      - hasDocuments:
+          count: 0
+
+  - it: should ignore a non-string authentication mode when KueueViz is disabled
+    set:
+      enableKueueViz: false
+      kueueViz.backend.auth.mode: true
+    asserts: *disabledViz
+
+  - it: should ignore a null authentication mode when KueueViz is disabled
+    set:
+      enableKueueViz: false
+      kueueViz.backend.auth.mode: null
+    asserts: *disabledViz
+
+  - it: should reject a non-boolean KueueViz enable flag
+    set:
+      enableKueueViz: "true"
+      kueueViz.backend.auth.mode: TokenReveiw
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)enableKueueViz.*boolean"
