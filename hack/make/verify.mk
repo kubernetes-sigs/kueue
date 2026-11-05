@@ -95,6 +95,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
+	@trap 'python3 "$(PROJECT_DIR)/hack/tools-installer/install.py" --collect-logs' EXIT; \
 	$(PROJECT_DIR)/hack/make-failure-summary.sh $(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
@@ -128,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -346,6 +347,10 @@ verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
+
+.PHONY: verify-ci-tools
+verify-ci-tools: ## Validate tool installation without network or containers.
+	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
