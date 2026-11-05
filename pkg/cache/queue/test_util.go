@@ -39,14 +39,22 @@ type testInadmissibleWorkloadRequeuer struct {
 	cohortDelays map[kueue.CohortReference]time.Duration
 }
 
-func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference, delay time.Duration) {
+func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReference) {
+	r.cqs.Insert(cqName)
+}
+
+func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
 	r.cqs.Insert(cqName)
 	if d, found := r.cqDelays[cqName]; delay > 0 && (!found || delay < d) {
 		r.cqDelays[cqName] = delay
 	}
 }
 
-func (r *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference, delay time.Duration) {
+func (r *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	r.cohorts.Insert(cohortName)
+}
+
+func (r *testInadmissibleWorkloadRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration) {
 	r.cohorts.Insert(cohortName)
 	if d, found := r.cohortDelays[cohortName]; delay > 0 && (!found || delay < d) {
 		r.cohortDelays[cohortName] = delay

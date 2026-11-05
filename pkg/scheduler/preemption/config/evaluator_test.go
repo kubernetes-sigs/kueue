@@ -1290,6 +1290,67 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				},
 			}},
 		},
+		"candidate failing static WorkloadFilter does not update RetryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLFilters: []filters.WorkloadFilter{
+						filters.NewWithinLocalQueueFilter("", "other-lq"),
+					},
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+					},
+				},
+			}},
+		},
+		"candidate failing WorkloadTimeFilter with nil retryAt cancels earlier WorkloadTimeFilter retryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil}},
+					},
+				},
+			}},
+		},
+		"candidate failing multiple WorkloadTimeFilters uses latest retryAt (early then late)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
+					},
+				},
+			}},
+			wantRetryAt: &tLate,
+		},
+		"candidate failing multiple WorkloadTimeFilters uses latest retryAt (late then early)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+					},
+				},
+			}},
+			wantRetryAt: &tLate,
+		},
 		"candidate not using needed flavor quota or TAS nodes does not update RetryAt": {
 			config: emptyConfig,
 			admitted: []kueue.Workload{

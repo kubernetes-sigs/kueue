@@ -319,19 +319,16 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	selectorIndex int,
 ) {
 	for _, targetCq := range snapshot.ClusterQueues() {
-		if !filter.MatchesClusterQueue(targetCq) {
+		if !matchesClusterQueue(filter, targetCq) {
 			continue
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			retryAt, matches := filter.MatchesWorkload(wlInfo)
-			if !matches && retryAt == nil {
-				continue
-			}
 			if !classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) &&
 				!snapshot.UsesTASNodesOf(wlInfo, neededFlavors) {
 				continue
 			}
+			retryAt, matches := matchesWorkload(filter, wlInfo)
 			if !matches {
 				p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
 				continue
@@ -362,6 +359,41 @@ func (p *PreemptionEvaluator) ensureCandidate(
 
 	*candidates = append(*candidates, candidate)
 	return candidate
+}
+
+func matchesClusterQueue(filter *filters.CandidateFilters, cq *schdcache.ClusterQueueSnapshot) bool {
+	for _, cqFilter := range filter.CQFilters {
+		if !cqFilter.Matches(cq) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesWorkload reports whether wl matches all workload filters.
+//
+// When unmatched, retryAt is the earliest time all failing time filters may match,
+// or nil if waiting alone cannot make wl match.
+func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) (retryAt *time.Time, matches bool) {
+	for _, wlFilter := range filter.WLFilters {
+		if !wlFilter.Matches(wl) {
+			return nil, false
+		}
+	}
+	var candidateRetryAt *time.Time
+	for _, timeFilter := range filter.WLTimeFilters {
+		filterRetryAt, filterMatches := timeFilter.Matches(wl)
+		if filterMatches {
+			continue
+		}
+		if filterRetryAt == nil {
+			return nil, false
+		}
+		if candidateRetryAt == nil || filterRetryAt.After(*candidateRetryAt) {
+			candidateRetryAt = filterRetryAt
+		}
+	}
+	return candidateRetryAt, candidateRetryAt == nil
 }
 
 func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {

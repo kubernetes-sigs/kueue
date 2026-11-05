@@ -17,19 +17,17 @@ limitations under the License.
 package queue
 
 import (
-	"context"
 	"maps"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
-	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -424,38 +422,6 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 	}
 }
 
-type trackedDelayingQueue struct {
-	workqueue.TypedDelayingInterface[requeueRequest]
-	doneCh chan requeueRequest
-}
-
-func (q *trackedDelayingQueue) Done(item requeueRequest) {
-	q.TypedDelayingInterface.Done(item)
-	q.doneCh <- item
-}
-
-func waitSignal[T any](t *testing.T, ch <-chan T, desc string) T {
-	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(wait.ForeverTestTimeout):
-		t.Fatalf("Timed out waiting for %s", desc)
-		var zero T
-		return zero
-	}
-}
-
-func waitForTimer(t *testing.T, fakeClock *testingclock.FakeClock) {
-	t.Helper()
-	// DelayingQueue keeps 1 permanent heartbeat ticker on fakeClock, plus 1 timer when an item is waiting.
-	if err := wait.PollUntilContextTimeout(t.Context(), time.Millisecond, wait.ForeverTestTimeout, true, func(context.Context) (bool, error) {
-		return fakeClock.Waiters() == 2, nil
-	}); err != nil {
-		t.Fatalf("Timed out waiting for delaying queue timer: %v", err)
-	}
-}
-
 func TestWorkqueueRequeuerStart(t *testing.T) {
 	const (
 		batchPeriod = time.Second
@@ -473,78 +439,66 @@ func TestWorkqueueRequeuerStart(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			workerCtx, cancelWorker := context.WithCancel(ctx)
-			fakeClock := testingclock.NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-			dq := &trackedDelayingQueue{
-				TypedDelayingInterface: workqueue.NewTypedDelayingQueueWithConfig(workqueue.TypedDelayingQueueConfig[requeueRequest]{
-					Clock: fakeClock,
-				}),
-				doneCh: make(chan requeueRequest, 16),
-			}
-			requeuer := &workqueueRequeuer{
-				queue:       dq,
-				batchPeriod: batchPeriod,
-			}
+			synctest.Test(t, func(t *testing.T) {
+				ctx, log := utiltesting.ContextWithLog(t)
+				requeuer := NewRequeuer(WithBatchPeriod(batchPeriod))
 
-			wl := utiltestingapi.MakeWorkload("wl-1", "ns").Queue("lq-1").Request(corev1.ResourceCPU, "1").Obj()
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
-			m := NewManager(cl, nil, requeuer, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+				wl := utiltestingapi.MakeWorkload("wl-1", "ns").Queue("lq-1").Request(corev1.ResourceCPU, "1").Obj()
+				cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+				m := NewManager(cl, nil, requeuer, WithPreemptionExpectations(preemptexpectations.New()))
 
-			workerDone := make(chan struct{})
-			go func() {
-				defer close(workerDone)
-				_ = requeuer.Start(workerCtx)
-			}()
-			t.Cleanup(func() {
-				cancelWorker()
-				waitSignal(t, workerDone, "requeuer worker shutdown")
+				go func() {
+					_ = requeuer.Start(ctx)
+				}()
+
+				if tc.cohortName != "" {
+					m.AddOrUpdateCohort(ctx, utiltestingapi.MakeCohort(tc.cohortName).Obj())
+				}
+				if err := m.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-1").Cohort(tc.cohortName).Obj()); err != nil {
+					t.Fatalf("Adding cq-1: %v", err)
+				}
+				if err := m.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq-1", "ns").ClusterQueue("cq-1").Obj()); err != nil {
+					t.Fatalf("Adding lq-1: %v", err)
+				}
+				time.Sleep(batchPeriod)
+				synctest.Wait()
+
+				if err := m.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+					t.Fatalf("Adding workload: %v", err)
+				}
+				popped := m.Heads(ctx)
+				if len(popped) != 1 {
+					t.Fatalf("Heads() popped %d workloads, want 1", len(popped))
+				}
+				if !m.RequeueWorkload(ctx, &popped[0].Info, RequeueReasonPreemptionNoCandidates, "") {
+					t.Fatal("Expected workload to be requeued as inadmissible")
+				}
+
+				wantWorkloads := map[kueue.ClusterQueueReference][]workload.Reference{
+					"cq-1": {"ns/wl-1"},
+				}
+				if diff := cmp.Diff(wantWorkloads, m.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+					t.Fatalf("Initial inadmissible workloads (-want,+got):\n%s", diff)
+				}
+
+				NotifyRetryInadmissibleAfter(m, sets.New[kueue.ClusterQueueReference]("cq-1"), delay)
+
+				time.Sleep(delay - time.Nanosecond)
+				synctest.Wait()
+				if diff := cmp.Diff(wantWorkloads, m.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+					t.Fatalf("Before delay elapses, unexpected inadmissible workloads (-want,+got):\n%s", diff)
+				}
+
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), m.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("At delay, unexpected inadmissible workloads (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(wantWorkloads, m.Dump(), cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("At delay, unexpected active workloads (-want,+got):\n%s", diff)
+				}
 			})
-
-			if err := m.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-1").Cohort(tc.cohortName).Obj()); err != nil {
-				t.Fatalf("Adding cq-1: %v", err)
-			}
-			waitForTimer(t, fakeClock)
-			if err := m.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq-1", "ns").ClusterQueue("cq-1").Obj()); err != nil {
-				t.Fatalf("Adding lq-1: %v", err)
-			}
-			fakeClock.Step(batchPeriod)
-			waitSignal(t, dq.doneCh, "initial cq-1 requeue")
-
-			if err := m.AddOrUpdateWorkload(ctx, log, wl); err != nil {
-				t.Fatalf("Adding workload: %v", err)
-			}
-			popped := m.Heads(ctx)
-			if len(popped) != 1 {
-				t.Fatalf("Heads() popped %d workloads, want 1", len(popped))
-			}
-			if !m.RequeueWorkload(ctx, &popped[0].Info, RequeueReasonPreemptionNoCandidates, "") {
-				t.Fatal("Expected workload to be requeued as inadmissible")
-			}
-
-			wantWorkloads := map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-1": {"ns/wl-1"},
-			}
-			NotifyRetryInadmissibleAfter(m, sets.New[kueue.ClusterQueueReference]("cq-1"), delay)
-			waitForTimer(t, fakeClock)
-
-			fakeClock.Step(delay - time.Nanosecond)
-			if got := fakeClock.Waiters(); got != 2 {
-				t.Fatalf("Before delay elapses, clock waiters = %d, want 2 (timer fired early)", got)
-			}
-			if diff := cmp.Diff(wantWorkloads, m.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
-				t.Fatalf("Before delay elapses, unexpected inadmissible workloads (-want,+got):\n%s", diff)
-			}
-
-			fakeClock.Step(time.Nanosecond)
-			waitSignal(t, dq.doneCh, "delayed requeue")
-			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), m.DumpInadmissible(), cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("At delay, unexpected inadmissible workloads (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(wantWorkloads, m.Dump(), cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("At delay, unexpected active workloads (-want,+got):\n%s", diff)
-			}
 		})
 	}
 }
