@@ -20,13 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,7 +62,7 @@ type wasPlanner struct {
 type committedVictimsPreemptionFilter struct {
 	wl               *workload.Info
 	assignment       *flavorassigner.Assignment
-	committedVictims map[workload.Reference]*workload.Info
+	committedVictims preemption.PreemptedWorkloads
 	snap             *schedcache.Snapshot
 }
 
@@ -165,7 +163,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
-	committedVictims map[workload.Reference]*workload.Info,
+	committedVictims preemption.PreemptedWorkloads,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
 		var opts []simulator.ScheduleOption
@@ -177,7 +175,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 				committedVictims: committedVictims,
 				snap:             p.snapshot,
 			}
-			opts = append(opts, simulator.WithCommittedPreemptionVictims(sets.KeySet(committedVictims).UnsortedList()))
+			opts = append(opts, simulator.WithCommittedPreemptionVictims(committedVictims.References()))
 			opts = append(opts, simulator.WithPreemptionFilter(preemptionFilter))
 		}
 
@@ -239,7 +237,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
-	committedVictims map[workload.Reference]*workload.Info,
+	committedVictims preemption.PreemptedWorkloads,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
 		strategy.WithCommittedPreemptionVictims(committedVictims)
@@ -248,16 +246,15 @@ func (p *wasPlanner) scheduleWithPreemption(
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
 			simulator.WithPreemptionFilter(&strategy),
-			simulator.WithCommittedPreemptionVictims(slices.Collect(maps.Keys(committedVictims))),
+			simulator.WithCommittedPreemptionVictims(committedVictims.References()),
 		)
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if len(committedVictims) > 0 {
-			cvs := sets.KeySet(committedVictims)
 			preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl workload.Reference) bool {
-				return cvs.Has(wl)
+				return committedVictims.Has(wl)
 			})
 		}
 		if len(failures) == 0 {

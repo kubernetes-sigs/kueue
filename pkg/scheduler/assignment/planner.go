@@ -21,7 +21,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Planner interface {
@@ -62,7 +61,7 @@ type Options struct {
 	// CommittedPreemptionVictims are the References of workloads marked
 	// for preemption by preemptors (workloads) already processed within
 	// the ongoing scheduler cycle.
-	CommittedPreemptionVictims map[workload.Reference]*workload.Info
+	CommittedPreemptionVictims preemption.PreemptedWorkloads
 }
 
 type PlannerOption func(*Options)
@@ -77,7 +76,7 @@ func BuildOptions(options ...PlannerOption) *Options {
 	return opts
 }
 
-func WithCommittedPreemptionVictims(preemptionVictims map[workload.Reference]*workload.Info) PlannerOption {
+func WithCommittedPreemptionVictims(preemptionVictims preemption.PreemptedWorkloads) PlannerOption {
 	return func(opts *Options) {
 		opts.CommittedPreemptionVictims = preemptionVictims
 	}

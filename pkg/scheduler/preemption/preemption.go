@@ -99,7 +99,7 @@ type PreemptionStrategy struct {
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
 	targetsByKey               map[workload.Reference]*Target
-	committedPreemptionVictims map[workload.Reference]*workload.Info
+	committedPreemptionVictims PreemptedWorkloads
 }
 
 type strategyOption func(*PreemptionStrategy)
@@ -121,7 +121,7 @@ func newPreemptionStrategy(
 		allowBorrowing:             allowBorrowing,
 		pCtx:                       pCtx,
 		targetsByKey:               make(map[workload.Reference]*Target),
-		committedPreemptionVictims: make(map[workload.Reference]*workload.Info),
+		committedPreemptionVictims: make(PreemptedWorkloads),
 	}
 	for _, opt := range opts {
 		opt(&ps)
@@ -130,7 +130,7 @@ func newPreemptionStrategy(
 	return ps
 }
 
-func (ps *PreemptionStrategy) WithCommittedPreemptionVictims(victims map[workload.Reference]*workload.Info) *PreemptionStrategy {
+func (ps *PreemptionStrategy) WithCommittedPreemptionVictims(victims PreemptedWorkloads) *PreemptionStrategy {
 	ps.committedPreemptionVictims = victims
 	return ps
 }

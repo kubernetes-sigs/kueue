@@ -118,22 +118,22 @@ func TestBuildOptions(t *testing.T) {
 		"nil option is ignored": {
 			options: []PlannerOption{
 				nil,
-				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl1Ref: wl1Info}),
+				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
 				nil,
 			},
 			want: &Options{
-				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{wl1Ref: wl1Info},
+				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl1Ref: wl1Info},
 			},
 		},
 		"WithCommittedPreemptionVictims sets victims": {
 			options: []PlannerOption{
-				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{
+				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{
 					wl1Ref: wl1Info,
 					wl2Ref: wl2Info,
 				}),
 			},
 			want: &Options{
-				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{
+				CommittedPreemptionVictims: preemption.PreemptedWorkloads{
 					wl1Ref: wl1Info,
 					wl2Ref: wl2Info,
 				},
@@ -141,11 +141,11 @@ func TestBuildOptions(t *testing.T) {
 		},
 		"later option overrides earlier option": {
 			options: []PlannerOption{
-				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl1Ref: wl1Info}),
-				WithCommittedPreemptionVictims(map[workload.Reference]*workload.Info{wl2Ref: wl2Info}),
+				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
+				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl2Ref: wl2Info}),
 			},
 			want: &Options{
-				CommittedPreemptionVictims: map[workload.Reference]*workload.Info{wl2Ref: wl2Info},
+				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl2Ref: wl2Info},
 			},
 		},
 	}
