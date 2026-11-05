@@ -58,7 +58,7 @@ func (p *Plan) CanFit() bool {
 }
 
 type Options struct {
-	// CommittedPreemptionVictims are the References of workloads marked
+	// CommittedPreemptionVictims are the workloads marked
 	// for preemption by preemptors (workloads) already processed within
 	// the ongoing scheduler cycle.
 	CommittedPreemptionVictims preemption.PreemptedWorkloads
