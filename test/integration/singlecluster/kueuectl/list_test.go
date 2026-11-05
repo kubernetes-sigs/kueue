@@ -295,7 +295,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for a specific ClusterQueue")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue=cq2", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
+				"status.admission.clusterQueue=cq2", "--namespace", ns.Name})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2b"))
@@ -305,7 +305,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for any ClusterQueue (all reserved workloads)")
 			output, errOutput = executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue!=", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
+				"status.admission.clusterQueue!=", "--namespace", ns.Name})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq1"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-cq2a"))
@@ -315,7 +315,7 @@ wl2                                             very-long-local-queue-name      
 
 			ginkgo.By("filtering for workloads without quota reserved")
 			output, errOutput = executeKueuectl(cfg, []string{"list", "workload", "--field-selector",
-				"status.admission.clusterQueue=", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
+				"status.admission.clusterQueue=", "--namespace", ns.Name})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-pending"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
@@ -330,7 +330,7 @@ wl2                                             very-long-local-queue-name      
 			wlNoQueue := utiltestingapi.MakeWorkload("wl-no-queue", ns.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlNoQueue)
 
-			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(time.Now())))
+			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name})
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-no-queue"))
 			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))

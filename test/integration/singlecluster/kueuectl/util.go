@@ -56,9 +56,13 @@ func withErrorMatcher(matcher types.GomegaMatcher) kueuectlRunOption {
 	}
 }
 
+// executeKueuectl runs kueuectl in-process against cfg and returns its stdout and stderr.
 func executeKueuectl(cfg *rest.Config, args []string, options ...kueuectlRunOption) (*bytes.Buffer, *bytes.Buffer) {
 	ginkgo.GinkgoHelper()
-	opts := kueuectlRunOptions{errorMatcher: gomega.Not(gomega.HaveOccurred())}
+	opts := kueuectlRunOptions{
+		clock:        clock.RealClock{},
+		errorMatcher: gomega.Not(gomega.HaveOccurred()),
+	}
 	for _, opt := range options {
 		opt(&opts)
 	}
