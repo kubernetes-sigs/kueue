@@ -37,7 +37,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1138,7 +1137,7 @@ func TestLazyCandidateGenerationWithCommittedVictims(t *testing.T) {
 
 		committedKey := workload.Reference("/a-committed")
 		committedWl := fixture.snapshot.ClusterQueue("a").Workloads[committedKey]
-		committedVictims := preemption.PreemptedWorkloads{committedKey: committedWl}
+		committedVictims := PreemptedWorkloads{committedKey: committedWl}
 
 		// Obtain strategy iterator while /a-committed is still in the snapshot.
 		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)
@@ -1221,7 +1220,7 @@ func TestLazyCandidateGenerationWithCommittedVictims(t *testing.T) {
 
 		committedKey := workload.Reference("/a-committed")
 		committedWl := fixture.snapshot.ClusterQueue("a").Workloads[committedKey]
-		committedVictims := preemption.PreemptedWorkloads{committedKey: committedWl}
+		committedVictims := PreemptedWorkloads{committedKey: committedWl}
 
 		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)
 		var gotTargetKeys []workload.Reference
@@ -1288,7 +1287,7 @@ func TestLazyCandidateGenerationWithCommittedVictims(t *testing.T) {
 
 		committedKey := workload.Reference("/b-committed")
 		committedWl := fixture.snapshot.ClusterQueue("b").Workloads[committedKey]
-		committedVictims := preemption.PreemptedWorkloads{committedKey: committedWl}
+		committedVictims := PreemptedWorkloads{committedKey: committedWl}
 
 		// Obtain strategy iterator while /b-committed is still in the snapshot.
 		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)

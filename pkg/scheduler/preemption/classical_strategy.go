@@ -54,7 +54,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		var candidatesGenerator classical.CandidateIterator
-		attemptsIterator := newLazyIterator(func() []preemptionAttemptOpts {
+		attemptsIterator := newLazyInitIterator(func() []preemptionAttemptOpts {
 			candidatesGenerator = classical.NewCandidateIterator(
 				hierarchicalReclaimCtx,
 				preemptor.enabledAfs,
@@ -88,9 +88,9 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 			}
 		})
 
-		for attemptsIterator.HasNext() {
+		for attemptsIterator.hasNext() {
 			var allowBorrowing bool
-			getOpts := sync.OnceValue(attemptsIterator.Next)
+			getOpts := sync.OnceValue(attemptsIterator.next)
 			candidateIter := func(yieldCandidate func(*Target) bool) {
 				allowBorrowing = getOpts().borrowing
 				cont := iterateOverCandidates(ctx, preemptionCtx, candidatesGenerator, allowBorrowing, yieldCandidate)
@@ -106,29 +106,29 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 			if !yieldStrategy(newPreemptionStrategy(candidateIter, &allowBorrowing, preemptionCtx)) {
 				return
 			}
-			// Ensure Next() is called even if the caller never iterates over the yielded strategy.
+			// Ensure next() is called even if the caller never iterates over the yielded strategy.
 			_ = getOpts()
 		}
 	}
 }
 
-type lazyIterator[T any] struct {
+type lazyInitIterator[T any] struct {
 	initialize  func() []T
 	initialized bool
 	items       []T
 }
 
-func newLazyIterator[T any](init func() []T) *lazyIterator[T] {
-	return &lazyIterator[T]{initialize: init}
+func newLazyInitIterator[T any](init func() []T) *lazyInitIterator[T] {
+	return &lazyInitIterator[T]{initialize: init}
 }
 
-// HasNext returns true before initialization (assuming initialize returns at
+// hasNext returns true before initialization (assuming initialize returns at
 // least one element) and while unconsumed items remain.
-func (li *lazyIterator[T]) HasNext() bool {
+func (li *lazyInitIterator[T]) hasNext() bool {
 	return !li.initialized || len(li.items) > 0
 }
 
-func (li *lazyIterator[T]) Next() T {
+func (li *lazyInitIterator[T]) next() T {
 	if !li.initialized {
 		li.items = li.initialize()
 		li.initialized = true
