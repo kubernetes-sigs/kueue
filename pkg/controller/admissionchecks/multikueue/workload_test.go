@@ -3091,7 +3091,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
+			err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}
