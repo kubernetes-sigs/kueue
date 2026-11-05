@@ -57,6 +57,8 @@ aliases:
     - mbobrovskyi
   infra-approvers:
     - mbobrovskyi
+  infra-reviewers:
+    - vladikkuzn
   release-team:
     - mbobrovskyi
     - Singularity23x0
