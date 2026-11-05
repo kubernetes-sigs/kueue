@@ -20,10 +20,6 @@ on:
         description: "A pull request head or a main commit with a finished merge-job status."
         type: string
         required: true
-      force:
-        description: "Upload even if Codecov already has a processed unit upload for the commit. Codecov unions it with the earlier uploads; it does not replace them."
-        type: boolean
-        default: false
 
 permissions: {}
 
@@ -43,11 +39,11 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    # The fetch step alone can take about 23 minutes when every curl call in it
-    # hits its --max-time once (Codecov polling included). Retries can take it
-    # past this limit only while GCS or Codecov keep timing out, when the
-    # upload would fail as well; rerun with workflow_dispatch.
-    timeout-minutes: 30
+    # The fetch step alone can take about 8 minutes when each of its four GCS
+    # reads hits its --max-time once. Retries can take it past this limit only
+    # while GCS keeps timing out, when the upload would fail as well; rerun
+    # with workflow_dispatch.
+    timeout-minutes: 15
     permissions:
       contents: read
       statuses: read
@@ -55,7 +51,8 @@ jobs:
       id-token: write # Codecov OIDC upload
     concurrency:
       # Runs for one commit run one at a time; cancelling could stop a run in
-      # the middle of its upload.
+      # the middle of its upload. A rerun on the same SHA uploads again;
+      # Codecov unions a commit's uploads.
       group: codecov-prow-${{ github.event.sha || github.event.inputs.sha }}
       cancel-in-progress: false
     steps:
@@ -72,7 +69,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.sha || github.event.inputs.sha }}
-          CODECOV_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' }}
         run: |
           out="${RUNNER_TEMP}/prow-coverage"
           hack/testing/fetch-prow-merged-coverage.sh "${SHA}" "${out}" >> "${GITHUB_OUTPUT}"

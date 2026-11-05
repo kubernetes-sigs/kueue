@@ -14,10 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Self-test for fetch-prow-merged-coverage.sh, without network access:
-# codecov_has_upload with a stub curl that replays canned Codecov API
-# responses, then main with gh and curl replaced by functions that serve
-# GitHub, GCS and Codecov responses from a fixture tree.
+# Self-test for fetch-prow-merged-coverage.sh, without network access: main
+# with gh and curl replaced by functions that serve GitHub and GCS responses
+# from a fixture tree.
 # Usage: fetch-prow-merged-coverage_test.sh
 
 set -o errexit
@@ -32,90 +31,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fetch-prow-merged-coverage
 failures=0
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
 
-# codecov_has_upload (first upload wins).
-SHA=0123456789abcdef0123456789abcdef01234567
-CODECOV_POLL_TRIES=3
-CODECOV_POLL_SECS=0
-
-# The stub replays ${tmp}/responses, one "HTTP_CODE BODY" line per call, and
-# repeats the last line once the others are used up. With -f it exits 22 on
-# HTTP errors, still printing the status code like real curl.
-curl() {
-  local n line
-  n=$(( $(cat "${tmp}/calls") + 1 ))
-  echo "${n}" > "${tmp}/calls"
-  line=$(sed -n "${n}p" "${tmp}/responses")
-  [[ -n "${line}" ]] || line=$(tail -n 1 "${tmp}/responses")
-  [[ "${line}" != "fail" ]] || return 7
-  printf '%s\n%s' "${line#* }" "${line%% *}"
-  [[ " $* " != *" -sSf "* ]] || ((${line%% *} < 400)) || return 22
-}
-
-# uploads "KIND..." [FLAGS] prints an uploads page in the shape of
-# /api/v2/github/OWNER/repos/REPO/commits/SHA/uploads/. KIND is a coverage
-# upload state, or test_results for a processed test-results upload.
-uploads() {
-  local kind flags=${2:-'["unit"]'} out="" s totals='{"files":1,"lines":10,"hits":8}'
-  for kind in $1; do
-    case "${kind}" in
-      merged) s='"state":"merged","state_id":6,"state_name":"MERGED","totals":'"${totals}" ;;
-      processed) s='"state":"processed","state_id":2,"state_name":"PROCESSED","totals":'"${totals}" ;;
-      started | uploaded) s='"state":"'"${kind}"'","state_id":1,"state_name":"UPLOADED","totals":null' ;;
-      error) s='"state":"error","state_id":3,"state_name":"ERROR","totals":null' ;;
-      fully_overwritten) s='"state":"fully_overwritten","state_id":4,"state_name":"FULLY_OVERWRITTEN","totals":'"${totals}" ;;
-      partially_overwritten) s='"state":"partially_overwritten","state_id":5,"state_name":"PARTIALLY_OVERWRITTEN","totals":'"${totals}" ;;
-      test_results) s='"state":"processed","state_id":1,"state_name":"UPLOADED","totals":null' ;;
-      *) echo "unknown upload kind ${kind}" >&2; exit 1 ;;
-    esac
-    out="${out:+${out},}{${s},\"flags\":${flags}}"
-  done
-  echo "{\"count\":$(wc -w <<<"$1"),\"results\":[${out}]}"
-}
-
-# expect NAME WANT(exists|missing) CALLS RESPONSE...
-expect() {
-  local name=$1 want=$2 calls=$3 got; shift 3
-  printf '%s\n' "$@" > "${tmp}/responses"
-  echo 0 > "${tmp}/calls"
-  if codecov_has_upload "${SHA}" 2> "${tmp}/err"; then got=exists; else got=missing; fi
-  if [[ "${got}" != "${want}" ]]; then
-    fail "${name}: got ${got}, want ${want}: $(cat "${tmp}/err")"
-  elif [[ "$(cat "${tmp}/calls")" != "${calls}" ]]; then
-    fail "${name}: ${got} after $(cat "${tmp}/calls") calls, want ${calls}"
-  else
-    echo "ok: ${name} (${got} after ${calls} calls: $(tail -n 1 "${tmp}/err"))"
-  fi
-}
-
-expect "merged" exists 1 "200 $(uploads merged)"
-expect "processed" exists 1 "200 $(uploads processed)"
-expect "error only" missing 1 "200 $(uploads error)"
-expect "error and merged" exists 1 "200 $(uploads 'error merged')"
-expect "other flag" missing 1 "200 $(uploads merged '["e2e"]')"
-expect "no flags" missing 1 "200 $(uploads merged null)"
-expect "no uploads" missing 1 '200 {"count":0,"results":[]}'
-expect "started then merged" exists 2 "200 $(uploads started)" "200 $(uploads merged)"
-expect "uploaded then error" missing 2 "200 $(uploads uploaded)" "200 $(uploads error)"
-expect "started stays" missing 3 "200 $(uploads started)"
-expect "test results only" missing 1 "200 $(uploads test_results)"
-expect "test results and started" missing 3 "200 $(uploads 'test_results started')"
-expect "fully overwritten" missing 1 "200 $(uploads fully_overwritten)"
-expect "partially overwritten" missing 1 "200 $(uploads partially_overwritten)"
-expect "merged without totals" missing 1 '200 {"count":1,"results":[{"state":"merged","state_id":6,"state_name":"MERGED","totals":null,"flags":["unit"]}]}'
-expect "state_id only" exists 1 '200 {"count":1,"results":[{"state":"merged","state_id":6,"totals":{"lines":1},"flags":["unit"]}]}'
-expect "carryforward without flags" missing 1 '200 {"count":1,"results":[{"state":"processed","state_id":2,"state_name":"PROCESSED","totals":null,"flags":[],"upload_type":"carriedforward"}]}'
-expect "404" missing 1 '404 {"detail":"Not found."}'
-expect "503" missing 1 '503 <html>unavailable</html>'
-expect "invalid JSON" missing 1 '200 {"results":['
-expect "no results" missing 1 '200 {"detail":"x"}'
-expect "curl error" missing 1 fail
-
-CODECOV_FORCE=true
-expect "force" missing 0 "200 $(uploads merged)"
-CODECOV_FORCE=false
-
-# main, end to end. The fixture tree ${tmp}/fx holds gh/<API path> for the gh
-# CLI and web/<host>/<path> for curl.
+# The fixture tree ${tmp}/fx holds gh/<API path> for the gh CLI and
+# web/<host>/<path> for curl.
 HEAD_SHA=1111111111111111111111111111111111111111
 BASE_SHA=2222222222222222222222222222222222222222
 MAIN_SHA=3333333333333333333333333333333333333333
@@ -126,7 +43,6 @@ PROFILE=$'mode: atomic\nsigs.k8s.io/kueue/pkg/a.go:1.1,2.2 1 1'
 R=gh/repos/kubernetes-sigs/kueue
 GCS_FX=web/storage.googleapis.com/kubernetes-ci-logs
 VIEW=https://prow.k8s.io/view/gs/kubernetes-ci-logs
-UPLOADS=web/api.codecov.io/api/v2/github/kubernetes-sigs/repos/kueue/commits
 
 # put FILE CONTENT writes a fixture file under ${tmp}/fx.
 put() { mkdir -p "$(dirname "${tmp}/fx/$1")"; printf '%s\n' "$2" > "${tmp}/fx/$1"; }
@@ -173,29 +89,9 @@ status() { # CONTEXT STATE URL
   printf '{"context":"%s","state":"%s","target_url":"%s"}' "$1" "$2" "$3"
 }
 
-# tree_fx ENTRY... prints a Git trees API response; ENTRY is "PATH MODE SHA".
-tree_fx() {
-  local e p m s out=""
-  for e in "$@"; do
-    read -r p m s <<<"${e}"
-    out+="${out:+,}{\"path\":\"${p}\",\"mode\":\"${m}\",\"type\":\"$([[ "${m}" == 040000 ]] && echo tree || echo blob)\",\"sha\":\"${s}\"}"
-  done
-  echo "{\"tree\":[${out}],\"truncated\":false}"
-}
-
-YML_MAIN=4444444444444444444444444444444444444444
-GO_MOD="go.mod 100644 0000000000000000000000000000000000000f00"
-
-# base_fixtures: codecov.yml on the default branch; the PR head (from a fork)
-# and its merge base have no Codecov YAML; the main commit has only
-# codecov.yml; both merge builds succeeded; Codecov has no upload yet.
+# base_fixtures: the PR head is from a fork; both merge builds succeeded.
 base_fixtures() {
   rm -rf "${tmp}/fx"
-  put "${R}/contents/codecov.yml" '{"type":"file"}'
-  put "${R}/git/trees/${HEAD_SHA}" "$(tree_fx "${GO_MOD}")"
-  put "${R}/git/trees/${BASE_SHA}" "$(tree_fx "${GO_MOD}")"
-  put "${R}/compare/${BASE_SHA}...${HEAD_SHA}" "{\"merge_base_commit\":{\"sha\":\"${BASE_SHA}\"}}"
-  put "${R}/git/trees/${MAIN_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 ${YML_MAIN}")"
   put "${R}/pulls/${PR}" '{"head":{"ref":"feature","label":"someone:feature","repo":{"full_name":"someone/kueue"}}}'
   put "${R}/commits/${HEAD_SHA}/statuses" \
     "[$(status "${PULL_JOB}" success "${VIEW}/${PULL_PATH}"),$(status pull-kueue-verify-main success "${VIEW}/x/1")]"
@@ -255,8 +151,8 @@ has "branch in the repository" "branch=feature"
 
 base_fixtures
 put "${GCS_FX}/${POST_PATH}/artifacts/coverage-sources.json" \
-  "{\"commit\":\"${MAIN_SHA}\",\"skipped\":\"batch member before the last\"}"
-run "main commit skipped by Prow" 0 "Prow skipped .*batch member" "${MAIN_SHA}"
+  "{\"commit\":\"${MAIN_SHA}\",\"skipped\":\"no unit shard build tested the tree of ${MAIN_SHA}\"}"
+run "main commit skipped by Prow" 0 "Prow skipped .*no unit shard build" "${MAIN_SHA}"
 
 base_fixtures
 put "${GCS_FX}/${POST_PATH}/artifacts/coverage-sources.json" "{\"commit\":\"${HEAD_SHA}\",\"shards\":[\"a\"]}"
@@ -315,49 +211,6 @@ run "statuses API fails" 1 "cannot read the statuses of ${HEAD_SHA}" "${HEAD_SHA
 base_fixtures
 put "${R}/commits/${HEAD_SHA}/statuses" "<html>bad gateway</html>"
 run "statuses not JSON" 1 "cannot read the statuses of ${HEAD_SHA}" "${HEAD_SHA}"
-
-base_fixtures
-rm "${tmp}/fx/${R}/contents/codecov.yml"
-run "default branch without codecov.yml" 0 "rollout not done" "${MAIN_SHA}"
-
-base_fixtures
-put "${UPLOADS}/${MAIN_SHA}/uploads" \
-  '{"count":1,"results":[{"state":"processed","state_id":2,"state_name":"PROCESSED","totals":{"lines":1},"flags":["unit"]}]}'
-run "Codecov already has an upload" 0 "keeping the first one" "${MAIN_SHA}"
-has "Codecov already has an upload" "skip=true"
-[[ ! -e "${tmp}/out/unit-coverage.out" ]] || fail "Codecov already has an upload: profile downloaded"
-
-# The Codecov YAML guard.
-base_fixtures
-put "${R}/git/trees/${HEAD_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 ${YML_MAIN}")"
-put "${R}/git/trees/${BASE_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 ${YML_MAIN}")"
-run "PR keeps the codecov.yml of its merge base" 0 "^skip=false$" "${HEAD_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${HEAD_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 6666666666666666666666666666666666666666")"
-put "${R}/git/trees/${BASE_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 ${YML_MAIN}")"
-run "PR edits codecov.yml" 0 "PR adds or edits Codecov config" "${HEAD_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${HEAD_SHA}" "$(tree_fx "${GO_MOD}" ".github 040000 7777777777777777777777777777777777777777")"
-put "${R}/git/trees/7777777777777777777777777777777777777777" "$(tree_fx "codecov.yaml 100644 ${YML_MAIN}")"
-run "PR adds .github/codecov.yaml" 0 "PR adds or edits Codecov config" "${HEAD_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${MAIN_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100644 ${YML_MAIN}" ".codecov.yml 100644 ${YML_MAIN}")"
-run "main commit with a second Codecov YAML" 0 "has another Codecov YAML path" "${MAIN_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${MAIN_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 100755 ${YML_MAIN}")"
-run "main commit with an executable codecov.yml" 0 "^skip=false$" "${MAIN_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${MAIN_SHA}" "$(tree_fx "${GO_MOD}" "codecov.yml 120000 ${YML_MAIN}")"
-run "main commit with a codecov.yml symlink" 0 "has another Codecov YAML path" "${MAIN_SHA}"
-
-base_fixtures
-put "${R}/git/trees/${MAIN_SHA}" '{"tree":[],"truncated":true}'
-run "truncated tree" 1 "cannot parse the tree" "${MAIN_SHA}"
 
 if ((failures > 0)); then
   echo "${failures} failure(s)" >&2

@@ -1,11 +1,10 @@
 # Unit coverage is uploaded by .github/workflows/codecov-prow.yaml. Prow merges
-# the unit-test shards (hack/testing/merge-unit-coverage.sh), so there is one
-# upload per commit and Codecov can report after the first upload.
+# the unit-test shards (hack/testing/merge-unit-coverage.sh) and the workflow
+# uploads that one profile, so Codecov can report after the first upload. A
+# rerun on the same commit uploads again; Codecov unions a commit's uploads.
+# hack/make/test.mk (UNIT_COVERAGE_EXCLUDE) decides which files the profile
+# covers.
 codecov:
-  # Only main may change the YAML that Codecov saves for the repository.
-  # Codecov still applies the YAML of the uploaded commit when it has one, so
-  # the workflow skips pull requests that have a Codecov YAML path differing
-  # from their merge base with main; this is defense in depth.
   strict_yaml_branch: main
   require_ci_to_pass: false
   notify:
@@ -22,10 +21,7 @@ coverage:
       default:
         informational: true
 
-comment:
-  layout: "condensed_header, condensed_files, condensed_footer"
-  require_changes: true
-  after_n_builds: 1
+comment: false
 
 # Profiles name files by Go import path.
 fixes:
@@ -34,12 +30,3 @@ fixes:
 flags:
   unit:
     carryforward: false
-
-# Keep in sync with the exclusions in hack/testing/merge-unit-coverage.sh
-# (UNIT_COVERAGE_EXCLUDE in hack/make/test.mk, plus test/).
-ignore:
-  - "**/zz_generated.*.go"
-  - "client-go/**"
-  - "internal/mocks/**"
-  - "cmd/kueuectl/app/testing/**"
-  - "test/**"
