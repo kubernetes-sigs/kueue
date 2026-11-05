@@ -22,12 +22,20 @@ aliases:
     - henry3260
   deployment-integration-approvers:
     - mbobrovskyi
+  deployment-integration-reviewers:
+    - vladikkuzn
   leaderworkerset-integration-approvers:
     - mbobrovskyi
+  leaderworkerset-integration-reviewers:
+    - vladikkuzn
   pod-integration-approvers:
     - mbobrovskyi
+  pod-integration-reviewers:
+    - vladikkuzn
   statefulset-integration-approvers:
     - mbobrovskyi
+  statefulset-integration-reviewers:
+    - vladikkuzn
   jobframework-implementation-approvers:
     - mbobrovskyi
   dependency-approvers:
