@@ -1467,6 +1467,8 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 					Obj(), now).AdmittedAt(true, now).Obj(),
 			},
 			change: func(t *testing.T, log logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "alpha"), 1)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "beta"), 1)
 				if err := cache.DeleteWorkload(log, workload.NewReference("ns", "cq2-wl")); err != nil {
 					t.Fatal(err)
 				}
@@ -1647,7 +1649,9 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 						Obj()).
 					Obj(), now).AdmittedAt(true, now).Obj(),
 			},
-			change: func(_ *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "alpha"), 1)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "beta"), 1)
 				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
 			},
 			wantValues: []struct {
@@ -1683,7 +1687,8 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 						Obj()).
 					Obj(), now).AdmittedAt(true, now).Obj(),
 			},
-			change: func(_ *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "alpha"), 2)
 				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
 			},
 			wantValues: []struct {
