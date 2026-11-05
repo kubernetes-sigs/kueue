@@ -97,6 +97,16 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	}
 }
 
+func (s *Snapshot) HasWorkload(wl *workload.Info) bool {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	wlKey := workload.Key(wl.Obj)
+	_, inSnapshot := cq.Workloads[wlKey]
+	return inSnapshot
+}
+
 // ReleaseWorkloadUsage removes a workload's usage while keeping the workload in
 // its ClusterQueue, for a workload the rest of the cycle must still find, such
 // as a replaced workload slice.

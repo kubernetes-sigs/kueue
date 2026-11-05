@@ -117,10 +117,10 @@ func newPreemptionStrategy(
 	opts ...strategyOption,
 ) PreemptionStrategy {
 	ps := PreemptionStrategy{
-		candidates:     candidates,
-		allowBorrowing: allowBorrowing,
-		pCtx:           pCtx,
-		targetsByKey:   make(map[workload.Reference]*Target),
+		candidates:                 candidates,
+		allowBorrowing:             allowBorrowing,
+		pCtx:                       pCtx,
+		targetsByKey:               make(map[workload.Reference]*Target),
 		committedPreemptionVictims: map[workload.Reference]*workload.Info{},
 	}
 	for _, opt := range opts {
@@ -150,7 +150,7 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 
 func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 	if wl, ok := ps.committedPreemptionVictims[wlKey]; ok {
-		if _, inSnapshot := ps.pCtx.snapshot.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; inSnapshot {
+		if ps.pCtx.snapshot.HasWorkload(wl) {
 			// Handle committed victims.
 			ps.pCtx.snapshot.RemoveWorkload(wl)
 		}
@@ -164,7 +164,7 @@ func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 
 func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
 	if wl, ok := ps.committedPreemptionVictims[wlKey]; ok {
-		if _, inSnapshot := ps.pCtx.snapshot.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; !inSnapshot {
+		if !ps.pCtx.snapshot.HasWorkload(wl) {
 			// Handle committed victims.
 			ps.pCtx.snapshot.AddWorkload(wl)
 		}

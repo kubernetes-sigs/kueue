@@ -78,7 +78,7 @@ func (f *committedVictimsPreemptionFilter) MayFit() bool {
 
 func (f *committedVictimsPreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
 	if wl, ok := f.committedVictims[wlKey]; ok {
-		if _, inSnapshot := f.snap.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; inSnapshot {
+		if f.snap.HasWorkload(wl) {
 			f.snap.RemoveWorkload(wl)
 		}
 	}
@@ -86,7 +86,7 @@ func (f *committedVictimsPreemptionFilter) PreemptWorkload(wlKey workload.Refere
 
 func (f *committedVictimsPreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
 	if wl, ok := f.committedVictims[wlKey]; ok {
-		if _, inSnapshot := f.snap.ClusterQueue(wl.ClusterQueue).Workloads[wlKey]; !inSnapshot {
+		if !f.snap.HasWorkload(wl) {
 			f.snap.AddWorkload(wl)
 		}
 	}
