@@ -38,6 +38,8 @@ aliases:
     - vladikkuzn
   jobframework-implementation-approvers:
     - mbobrovskyi
+  kueue-priority-booster-reviewers:
+    - vladikkuzn
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
@@ -50,6 +52,7 @@ aliases:
     - kannon92
     - pbundyra
   agent-reviewers:
+    - vladikkuzn
     - amy
     - kannon92
     - pbundyra
