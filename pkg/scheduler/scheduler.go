@@ -1672,29 +1672,27 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
-	plannerOptions := []assignment.PlannerOption{}
-	wrapper := func(fn func() flavorassigner.Assignment) flavorassigner.Assignment {
-		return fn()
-	}
-	if len(inCycleCommittedVictims) > 0 {
-		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-			wrapper = func(fn func() flavorassigner.Assignment) flavorassigner.Assignment {
-				revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
-				defer revertRemoval()
-				return fn()
-			}
-		} else {
-			revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
-			defer revertRemoval()
-		}
-		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
-	}
-
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
+
+	plannerOptions := []assignment.PlannerOption{}
+	assignFlavorsFn := flvAssigner.AssignFlavors
+	if len(inCycleCommittedVictims) > 0 {
+		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			assignFlavorsFn = func(ctx context.Context, log logr.Logger, counts workload.PodSetsCounts) flavorassigner.Assignment {
+				revert := snap.SimulateWorkloadRemoval(slices.Collect(maps.Values(inCycleCommittedVictims)))
+				defer revert()
+				return flvAssigner.AssignFlavors(ctx, log, counts)
+			}
+		} else {
+			revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
+			defer revertRemoval()
+		}
+	}
 
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
@@ -1703,21 +1701,20 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
 
-	initialAssignment := wrapper(func() flavorassigner.Assignment { return flvAssigner.AssignFlavors(ctx, log, nil) })
+	initialAssignment := assignFlavorsFn(ctx, log, nil)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...)
 
-	if !assignmentPlan.CanFit() &&
-		assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
+		fullPlanMode := assignmentPlan.Assignment.RepresentativeMode()
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
-			initialAssignment := wrapper(func() flavorassigner.Assignment { return flvAssigner.AssignFlavors(ctx, log, nextCounts) })
+			initialAssignment := assignFlavorsFn(ctx, log, nextCounts)
 			if partialPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...); partialPlan.CanFit() {
 				// A reduced count may fit only by evicting another victim. Keep
-				// waiting for residual Pods unless it fits without preemption.
-				if assignmentPlan.Assignment.RepresentativeMode() == flavorassigner.DeferredFit &&
-					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+				// waiting for victim Pods unless it fits without preemption.
+				if fullPlanMode == flavorassigner.DeferredFit && partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
 					return false
 				}
 				bestPartialPlan = &partialPlan
