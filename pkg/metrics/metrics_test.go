@@ -581,8 +581,62 @@ func TestGitVersionMetric(t *testing.T) {
 }
 
 func TestRecordWorkloadCreationLatency(t *testing.T) {
-	RecordWorkloadCreationLatency("Job", 5*time.Second, nil, nil)
+	RecordWorkloadCreationLatency("Job", 5*time.Second, nil)
 	expectFilteredMetricsCount(t, WorkloadCreationLatency, 1, "job_kind", "Job")
+}
+
+func TestRecordLocalQueueWorkloadCreationLatency(t *testing.T) {
+	cases := map[string]struct {
+		gate       bool
+		stored     map[string]string
+		wantCustom []string
+	}{
+		"custom metric labels disabled": {},
+		"LocalQueue with a stored value": {
+			gate:       true,
+			stored:     map[string]string{"team": "red"},
+			wantCustom: []string{"custom_team", "red"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.gate)
+			cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+				{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)},
+			})
+			InitMetricVectors(cl)
+			registry := prometheus.NewRegistry()
+			originalRegistry := ctrlmetrics.Registry
+			ctrlmetrics.Registry = registry
+			t.Cleanup(func() {
+				ctrlmetrics.Registry = originalRegistry
+				InitMetricVectors(nil)
+			})
+			RegisterLQMetrics()
+			if tc.stored != nil {
+				cl.LQStore("ns/lq", tc.stored, nil)
+			}
+			lq := LocalQueueReference{Name: "lq", Namespace: "ns"}
+
+			// Panics if the global histogram still carries the LocalQueue custom label.
+			RecordWorkloadCreationLatency("Job", time.Second, nil)
+			RecordLocalQueueWorkloadCreationLatency(lq, "Job", time.Second, cl.LQGet("ns/lq"), nil)
+			expectFilteredMetricsCount(t, LocalQueueWorkloadCreationLatency, 1,
+				append([]string{
+					"name", "lq",
+					"namespace", "ns",
+					"job_kind", "Job",
+				}, tc.wantCustom...)...,
+			)
+			if count, err := testutil.GatherAndCount(registry, "kueue_local_queue_workload_creation_latency_seconds"); err != nil || count != 1 {
+				t.Errorf("Registered series = %d, err %v, want 1", count, err)
+			}
+
+			ClearLocalQueueMetrics(lq)
+			expectFilteredMetricsCount(t, LocalQueueWorkloadCreationLatency, 0, "name", "lq", "namespace", "ns")
+			expectFilteredMetricsCount(t, WorkloadCreationLatency, 1, "job_kind", "Job")
+		})
+	}
 }
 
 func TestReportLocalQueueAdmissionChecksWaitTimeHasPriorityLabel(t *testing.T) {
@@ -790,6 +844,25 @@ func TestClearLocalQueueResourceMetricsOnlyClearsResourceScopedGauges(t *testing
 
 	ClearLocalQueueCacheMetrics(lq)
 	ClearLocalQueueMetrics(lq)
+}
+
+func TestClearLocalQueueGaugeMetricsOnlyClearsGauges(t *testing.T) {
+	lq := LocalQueueReference{Name: "lq-gauge-scope", Namespace: "ns-gauge-scope"}
+
+	ReportLocalQueuePendingWorkloads(lq, 3, 1, nil, nil)
+	ReportLocalQueueEvictedWorkloads(lq, "LocalQueueStopped", "", "", nil, nil)
+
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 2, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", string(lq.Name), "namespace", lq.Namespace)
+
+	ClearLocalQueueGaugeMetrics(lq)
+
+	expectFilteredMetricsCount(t, LocalQueuePendingWorkloads, 0, "name", string(lq.Name), "namespace", lq.Namespace)
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 1, "name", string(lq.Name), "namespace", lq.Namespace)
+
+	ClearLocalQueueMetrics(lq)
+
+	expectFilteredMetricsCount(t, LocalQueueEvictedWorkloadsTotal, 0, "name", string(lq.Name), "namespace", lq.Namespace)
 }
 
 func TestCohortMetrics(t *testing.T) {

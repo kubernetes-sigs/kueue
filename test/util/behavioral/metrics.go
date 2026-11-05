@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
 func ExpectPendingAdmissionAttempts(want int, operation string) {
@@ -323,6 +324,22 @@ func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string,
 	ginkgo.GinkgoHelper()
 	lvs := append([]string{lq.Name, lq.Namespace, priorityClass, roletracker.RoleStandalone}, customLabels...)
 	expectHistogramMetric(metrics.LocalQueueAdmissionWaitTime, gomega.Equal(count), lvs...)
+}
+
+func ExpectLQWorkloadCreationLatencyMetric(lq *kueue.LocalQueue, jobKind string, count int, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{lq.Name, lq.Namespace, jobKind, roletracker.RoleStandalone}, customLabels...)
+	expectHistogramMetric(metrics.LocalQueueWorkloadCreationLatency, gomega.Equal(count), lvs...)
+}
+
+// ExpectNoLQWorkloadCreationLatencyMetric collects the series instead of calling
+// WithLabelValues, which would create the series it checks for.
+func ExpectNoLQWorkloadCreationLatencyMetric(lq *kueue.LocalQueue) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueWorkloadCreationLatency,
+			map[string]string{"name": lq.Name, "namespace": lq.Namespace})).To(gomega.BeEmpty())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus, customLabelValues ...string) {

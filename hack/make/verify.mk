@@ -28,6 +28,8 @@ VERIFY_NPROCS ?= 8
 # Bound each Go process as well as the number of concurrent build/lint processes.
 # These limits apply to verify; standalone artifact builds retain their defaults.
 VERIFY_GOMAXPROCS ?= 2
+# Root-module lint is the last check to finish, so it gets more CPU than the rest of verify.
+VERIFY_CI_LINT_GOMAXPROCS ?= 3
 VERIFY_CLI_BUILD_NPROCS ?= 2
 # Keep CLI coverage by default; set to 0 only when a required standalone job handles it.
 VERIFY_CLI_ARTIFACTS ?= 1
@@ -72,6 +74,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ## Notes:
 ## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
 ## - `VERIFY_GOMAXPROCS` sets Go runtime concurrency and Go's default build -p.
+## - `VERIFY_CI_LINT_GOMAXPROCS` replaces it for module lint only.
 ## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
 ## - These per-process limits reduce contention; they are not a global CPU semaphore.
 ## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
@@ -122,10 +125,11 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 # Propagate the budget to generators, tools, builds, and linter subprocesses.
 # The unit/race jobs and standalone build targets keep their existing settings.
 verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
+verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -159,9 +163,10 @@ _ls_repo_files = $(1)=$$(git -c core.quotePath=false ls-files --cached --others 
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
 # Label module totals and command timings so parallel workers remain distinguishable.
+# Export CI_LINT_GOMAXPROCS here: a target-specific export would also reach lint's generation prerequisites.
 define _ci_lint_recipe
-@echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
-@$(call _ls_repo_files,modules,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/'); \
+@$(if $(CI_LINT_GOMAXPROCS),export GOMAXPROCS=$(CI_LINT_GOMAXPROCS); )echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"; \
+	$(call _ls_repo_files,modules,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/'); \
 	printf '%s\n' "$$modules" \
 	| xargs -n 1 dirname \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
@@ -332,6 +337,10 @@ verify-unit-test-selection: ## Validate unit-test selection and sharding without
 .PHONY: verify-make-failure-summary
 verify-make-failure-summary: ## Validate the verify failure summary.
 	bash $(PROJECT_DIR)/hack/testing/make-failure-summary_test.sh
+
+.PHONY: verify-kind-k8s-main-image-build
+verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-image-build without network.
+	bash $(PROJECT_DIR)/hack/testing/kind-k8s-main-image-build_test.sh
 
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.

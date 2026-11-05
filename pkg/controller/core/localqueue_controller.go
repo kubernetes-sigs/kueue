@@ -260,9 +260,6 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 }
 
 func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
-	if r.lqMetrics.IsEnabled() {
-		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
-	}
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQDelete(utilqueue.Key(e.Object))
 	}
@@ -271,6 +268,10 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	log.V(2).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	r.cache.DeleteLocalQueue(e.Object)
+	if r.lqMetrics.IsEnabled() {
+		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
+		metrics.ClearLocalQueueMetrics(localQueueReferenceFromLocalQueue(e.Object))
+	}
 	if afs.Enabled(r.admissionFSConfig) {
 		// Last, after the caches: a concurrent settlement that already passed
 		// its cache lookup could otherwise recreate the entry we just deleted.

@@ -49,6 +49,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -81,6 +82,7 @@ type workloadToCreate struct {
 
 type Reconciler struct {
 	integrationManager           *jobframework.IntegrationManager
+	queues                       *qcache.Manager
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
@@ -99,6 +101,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		client:                       client,
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
@@ -357,7 +360,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
-	jobframework.RecordWorkloadCreationLatency(ctx, lws, lws.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+	jobframework.RecordWorkloadCreationLatency(ctx, lws, lws.GroupVersionKind().Kind, createdWorkload, r.queues, r.customLabels, r.roleTracker)
 
 	return nil
 }

@@ -1017,6 +1017,17 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("toCopyAnnotation"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
 	})
+
+	ginkgo.It("Should record the LocalQueue workload creation latency", func() {
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "StatefulSet", 1)
+	})
 })
 
 func successfulStatefulSetReconciles() float64 {

@@ -100,6 +100,7 @@ type WorkloadRetentionPolicy struct {
 type JobReconciler struct {
 	workloadSlices               *workloadslicing.Manager
 	integrationManager           *IntegrationManager
+	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -346,6 +347,7 @@ func NewReconciler(
 			RoleTracker:  options.RoleTracker,
 		},
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -2299,7 +2301,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 
-	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.customLabels, r.RoleTracker())
+	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.queues, r.customLabels, r.RoleTracker())
 
 	return nil
 }

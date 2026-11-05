@@ -285,6 +285,18 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		})
 	})
 
+	ginkgo.It("Should record the LocalQueue workload creation latency", func() {
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "LeaderWorkerSet", 1)
+	})
+
 	ginkgo.It("Should reject changing the queue-name while the Workload holds a quota reservation", func() {
 		lq2 := utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lq2)
