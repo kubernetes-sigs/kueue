@@ -1324,16 +1324,18 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(
 	if reason != "" {
 		return "", nil
 	}
-	if len(remainingAssignment.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
+	if len(remainingAssignment.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
 		// that needs repair, preserving intermediate grouping invariants.
 		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
 		for _, v := range slices.Backward(constraints) {
-			if tr.Count%v.Size != 0 {
-				if tr.PodSet.TopologyRequest.PodIndexLabel != nil {
-					return s.indexedSliceReplacementDomain(originalAssignment, unhealthyNode, v.Size, v.Topology)
+			if tr.PodSet.TopologyRequest.PodIndexLabel != nil {
+				domain, err := s.indexedSliceReplacementDomain(originalAssignment, unhealthyNode, v.Size, v.Topology)
+				if err != nil || domain != "" {
+					return domain, err
 				}
+			} else if tr.Count%sliceSize != 0 && tr.Count%v.Size != 0 {
 				return s.findIncompleteSliceDomain(remainingAssignment, tr.Count, v.Size, v.Topology), nil
 			}
 		}
@@ -1367,6 +1369,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(
 // indexedSliceReplacementDomain uses the original rank intervals rather than
 // aggregate counts: more than one slice may have lost a node. Missing nodes
 // retain their ranks, so a surviving member of the same cohort can pin the domain.
+// Losing only whole slices leaves their replacement domain unconstrained.
 func (s *TASFlavorSnapshot) indexedSliceReplacementDomain(
 	ta *utiltas.TopologyAssignment,
 	unhealthyNode string,
@@ -1380,20 +1383,29 @@ func (s *TASFlavorSnapshot) indexedSliceReplacementDomain(
 	type rankInterval struct {
 		start, end int64
 	}
-	var cohorts []rankInterval
+	var failedIntervals []rankInterval
 	var rank int64
 	size := int64(sliceSize)
 	for _, assignment := range ta.Domains {
 		end := rank + int64(assignment.Count)
 		if assignment.Values[len(assignment.Values)-1] == unhealthyNode {
-			interval := rankInterval{start: rank / size * size, end: (end + size - 1) / size * size}
-			if len(cohorts) > 0 && interval.start <= cohorts[len(cohorts)-1].end {
-				cohorts[len(cohorts)-1].end = interval.end
+			if len(failedIntervals) > 0 && failedIntervals[len(failedIntervals)-1].end == rank {
+				failedIntervals[len(failedIntervals)-1].end = end
 			} else {
-				cohorts = append(cohorts, interval)
+				failedIntervals = append(failedIntervals, rankInterval{start: rank, end: end})
 			}
 		}
 		rank = end
+	}
+	var cohorts []rankInterval
+	for _, interval := range failedIntervals {
+		if interval.start%size == 0 && interval.end%size == 0 {
+			continue
+		}
+		cohorts = append(cohorts, rankInterval{start: interval.start / size * size, end: (interval.end + size - 1) / size * size})
+	}
+	if len(cohorts) == 0 {
+		return "", nil
 	}
 
 	var requiredDomain utiltas.TopologyDomainID

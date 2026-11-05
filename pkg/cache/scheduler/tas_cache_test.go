@@ -11276,6 +11276,82 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"indexed slice replacement: preferred topology keeps straddling ranks in their rack": {
+			nodes: append(slices.Clone(indexedSliceNodes),
+				*testingnode.MakeNode("x7").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj()),
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").Count(4).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x4"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"missing-node"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x6"}}).Obj()).
+						Obj()).Obj()).
+				UnhealthyNodes("missing-node").Obj(),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("survivor-1", "test-ns").NodeName("x4").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("survivor-2", "test-ns").NodeName("x6").Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new(tasBlockLabel),
+					PodIndexLabel:               new("batch.kubernetes.io/job-completion-index"),
+					PodSetSliceRequiredTopology: new(tasRackLabel),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    4,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 1, Values: []string{"x6"}},
+						{Count: 2, Values: []string{"x7"}},
+					},
+				},
+			}},
+		},
+		"indexed slice replacement: preferred topology can relocate a whole slice": {
+			nodes:  indexedSliceNodes,
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").Count(4).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"missing-node"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x4"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x6"}}).Obj()).
+						Obj()).Obj()).
+				UnhealthyNodes("missing-node").Obj(),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("survivor-1", "test-ns").NodeName("x4").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("survivor-2", "test-ns").NodeName("x6").Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new(tasBlockLabel),
+					PodIndexLabel:               new("batch.kubernetes.io/job-completion-index"),
+					PodSetSliceRequiredTopology: new(tasRackLabel),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    4,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x5"}},
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 1, Values: []string{"x6"}},
+					},
+				},
+			}},
+		},
 		"indexed slice replacement: required topology rejects an unknown tail cohort": {
 			nodes:  indexedSliceNodes[:1],
 			levels: defaultThreeLevels,

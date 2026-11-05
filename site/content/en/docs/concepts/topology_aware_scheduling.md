@@ -280,8 +280,13 @@ For indexed PodSets, a replacement that repairs part of a topology slice must st
 within that slice's original domain, even when the PodSet's overall topology
 request is preferred. If the failed node is absent from the topology snapshot,
 Kueue uses surviving ranks in the same fixed-size slice to identify the domain.
+The original rank boundaries determine whether slices are partially lost; a failed
+node can span parts of multiple slices even when its pod count is a multiple of
+the slice size.
 If the domain cannot be determined, Kueue rejects the replacement attempt rather
 than choosing another incomplete slice's domain.
+Whole-slice replacements remain subject to the overall topology request without
+being pinned to the original slice domain.
 If a workload is big enough to cover the whole topology domain (e.g. block or rack) it's inevitable that there will be no replacement within the same domain.
 Hence, we recommend using FailFast mode described below or [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
 and configuring `waitForPodsReady.recoveryTimeout`, to prevent the workloads from

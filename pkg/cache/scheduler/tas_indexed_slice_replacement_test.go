@@ -45,18 +45,78 @@ func TestRequiredReplacementDomainIndexedSlices(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		failedNode    string
-		domains       []tas.TopologyDomainAssignment
-		includeFailed bool
-		nonIndexed    bool
-		multiLayer    bool
-		grouped       bool
-		wantDomain    tas.TopologyDomainID
-		wantError     string
+		failedNode            string
+		domains               []tas.TopologyDomainAssignment
+		includeFailed         bool
+		nonIndexed            bool
+		multiLayer            bool
+		grouped               bool
+		wantDomain            tas.TopologyDomainID
+		wantUnpinnedPreferred bool
+		wantError             string
 	}{
 		"first of two missing nodes follows its own cohort": {
 			failedNode: "a-failed",
 			wantDomain: "b1,r1",
+		},
+		"two failed ranks straddle two partially surviving cohorts": {
+			failedNode: "a-failed",
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"a-peer"}, Count: 1},
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"a-spare"}, Count: 1},
+			},
+			wantDomain: "b1,r1",
+		},
+		"multi-layer straddling ranks pin the innermost partial cohort": {
+			failedNode: "a-failed",
+			multiLayer: true,
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"a-peer"}, Count: 1},
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"a-spare"}, Count: 1},
+			},
+			wantDomain: "b1,r1",
+		},
+		"repeated failed node intervals each straddle cohorts": {
+			failedNode: "a-failed",
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"a-peer"}, Count: 1},
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"a-spare"}, Count: 2},
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"a-peer"}, Count: 1},
+			},
+			wantDomain: "b1,r1",
+		},
+		"whole slice loss retains only the overall required domain": {
+			failedNode: "a-failed",
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"b-peer"}, Count: 2},
+			},
+			wantDomain:            "b1",
+			wantUnpinnedPreferred: true,
+		},
+		"adjacent failed entries together form a whole slice": {
+			failedNode: "a-failed",
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"a-failed"}, Count: 1},
+				{Values: []string{"a-failed"}, Count: 1},
+				{Values: []string{"b-peer"}, Count: 2},
+			},
+			wantDomain:            "b1",
+			wantUnpinnedPreferred: true,
+		},
+		"straddling missing cohorts fail closed": {
+			failedNode: "a-failed",
+			domains: []tas.TopologyDomainAssignment{
+				{Values: []string{"also-missing"}, Count: 1},
+				{Values: []string{"a-failed"}, Count: 2},
+				{Values: []string{"also-missing"}, Count: 1},
+				{Values: []string{"b-peer"}, Count: 2},
+			},
+			wantError: `cannot determine original slice topology domain for unhealthy node "a-failed"`,
 		},
 		"second of two missing nodes follows its own cohort": {
 			failedNode: "b-failed",
@@ -173,7 +233,11 @@ func TestRequiredReplacementDomainIndexedSlices(t *testing.T) {
 				if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 					t.Errorf("unexpected error (-want,+got):\n%s", diff)
 				}
-				if diff := cmp.Diff(tc.wantDomain, got); diff != "" {
+				wantDomain := tc.wantDomain
+				if tc.wantUnpinnedPreferred && !required {
+					wantDomain = ""
+				}
+				if diff := cmp.Diff(wantDomain, got); diff != "" {
 					t.Errorf("unexpected domain (-want,+got):\n%s", diff)
 				}
 				if diff := cmp.Diff(assignment.Domains, original.Domains); tc.domains == nil && diff != "" {
