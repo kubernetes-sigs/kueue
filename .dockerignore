@@ -42,6 +42,9 @@ build_logs
 # Local Netlify folder
 .netlify
 
+# Tool installation logs
+.cache
+
 # Directory with CRDs for dependencies
 dep-crds
 
