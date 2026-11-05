@@ -286,7 +286,7 @@ func TestScheduleForTAS(t *testing.T) {
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-three-level").
 		Obj()
-	tasMemoryFlavor := *utiltestingapi.MakeResourceFlavor("tas-memory").
+	defaultFlavorWithTAS := *utiltestingapi.MakeResourceFlavor("default").
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-single-level").
 		Obj()
@@ -295,18 +295,16 @@ func TestScheduleForTAS(t *testing.T) {
 			Resource(corev1.ResourceCPU, "50").
 			Resource(corev1.ResourceMemory, "50Gi").Obj()).
 		Obj()
-	makeSplitResourceGroupCQ := func(memoryFlavor string) kueue.ClusterQueue {
-		return *utiltestingapi.MakeClusterQueue("tas-main").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("tas-default").
-					Resource(corev1.ResourceCPU, "50").Obj(),
-			).
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas(memoryFlavor).
-					Resource(corev1.ResourceMemory, "50Gi").Obj(),
-			).
-			Obj()
-	}
+	splitResourceGroupClusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("tas-default").
+				Resource(corev1.ResourceCPU, "50").Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceMemory, "50Gi").Obj(),
+		).
+		Obj()
 	defaultProvCheck := *utiltestingapi.MakeAdmissionCheck("prov-check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Condition(metav1.Condition{
@@ -3162,7 +3160,7 @@ func TestScheduleForTAS(t *testing.T) {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
-			clusterQueues:   []kueue.ClusterQueue{makeSplitResourceGroupCQ("default")},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
@@ -3183,8 +3181,8 @@ func TestScheduleForTAS(t *testing.T) {
 		"unannotated workload gets implicit TAS when all flavors across resource groups use TAS": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, tasMemoryFlavor},
-			clusterQueues:   []kueue.ClusterQueue{makeSplitResourceGroupCQ("tas-memory")},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavorWithTAS},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
@@ -4878,7 +4876,7 @@ func TestScheduleForTAS(t *testing.T) {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
-			clusterQueues:   []kueue.ClusterQueue{makeSplitResourceGroupCQ("default")},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
@@ -4902,7 +4900,7 @@ func TestScheduleForTAS(t *testing.T) {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
-			clusterQueues:   []kueue.ClusterQueue{makeSplitResourceGroupCQ("default")},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
 					Queue("tas-main").
