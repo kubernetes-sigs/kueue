@@ -82,6 +82,10 @@ GA/Stable:
 
 KEP: 2025-02-26
 
+Beta: 0.17, `RemoveFinalizersWithStrictPatch` feature gate enabled by default
+
+GA: 0.21, `RemoveFinalizersWithStrictPatch` feature gate locked to enabled
+
 ## Drawbacks
 
 

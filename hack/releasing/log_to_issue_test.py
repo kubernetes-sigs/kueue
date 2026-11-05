@@ -32,7 +32,9 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release-utils.yml"
 
 
 def template_markers() -> list[str]:
-    return re.findall(r"<!-- step:([a-z-]+) -->", TEMPLATE_PATH.read_text())
+    # The same marker can be on several lines (e.g. a parent step shares the marker
+    # of its last ChatOps sub-step), so return each command only once.
+    return list(dict.fromkeys(re.findall(r"<!-- step:([a-z-]+) -->", TEMPLATE_PATH.read_text())))
 
 
 def checked_lines(body: str) -> list[str]:
@@ -48,14 +50,26 @@ class MarkStepDoneTest(unittest.TestCase):
         # would silently never be checked.
         self.assertLessEqual(set(markers), commands)
 
-    def test_checks_only_the_item_of_the_command(self) -> None:
+    def test_checks_only_the_items_of_the_command(self) -> None:
         template = TEMPLATE_PATH.read_text()
         for command in template_markers():
             with self.subTest(command):
-                lines = checked_lines(log_to_issue.mark_step_done(template, command))
-                self.assertEqual(len(lines), 1)
-                self.assertIn(f"`/{command}`", lines[0])
+                marker = f"<!-- step:{command} -->"
+                want = [line.replace("- [ ]", "- [x]", 1) for line in template.splitlines() if marker in line]
+                got = checked_lines(log_to_issue.mark_step_done(template, command))
+                # Exactly the lines tagged with this command's marker are checked, nothing else.
+                self.assertEqual(got, want)
+                # One of them is the item that describes running the command.
+                self.assertTrue(any(f"`/{command}`" in line for line in got))
 
+    def test_wait_for_prod_images_also_checks_promote_step(self) -> None:
+        # "/wait-for-prod-images" is the last sub-step of "Promote images and Helm
+        # Charts to production", so its success also completes the parent step.
+        lines = checked_lines(log_to_issue.mark_step_done(TEMPLATE_PATH.read_text(), "wait-for-prod-images"))
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Promote images and Helm Charts to production:", lines[0])
+        self.assertIn("`/wait-for-prod-images`", lines[1])
+        
     def test_release_log_is_not_changed(self) -> None:
         template = TEMPLATE_PATH.read_text()
         log = (

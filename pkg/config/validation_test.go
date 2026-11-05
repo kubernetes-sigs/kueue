@@ -3513,6 +3513,14 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	}
 }
 
+func TestAllAlphaFeatureGates(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, nil)
+	errs := LoadAndValidateFeatureGates("AllAlpha=true,AllBeta=true,DisableWaitForPodsReady=false", nil)
+	if len(errs) != 0 {
+		t.Errorf("Expected success for AllAlpha=true,AllBeta=true,DisableWaitForPodsReady=false, got %v", errs)
+	}
+}
+
 func TestValidateDeviceClassMappings(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationConsumableCapacity, true)
 

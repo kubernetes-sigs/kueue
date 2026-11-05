@@ -5,3 +5,5 @@ emeritus_approvers:
 
 approvers:
 - test-approvers
+reviewers:
+- test-reviewers
