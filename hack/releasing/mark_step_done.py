@@ -21,6 +21,7 @@ import re
 import sys
 
 LOG_MARKER_START = "<!-- release-log-start -->"
+LOG_MARKER_END = "<!-- release-log-end -->"
 STEP_MARKER = "<!-- step:{} -->"
 
 

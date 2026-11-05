@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mark_step_done import LOG_MARKER_START, mark_step_done
+from mark_step_done import LOG_MARKER_END, LOG_MARKER_START, mark_step_done
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "NEW_RELEASE.md"
@@ -42,7 +42,7 @@ class MarkStepDoneTest(unittest.TestCase):
     def test_template_markers_match_workflow_or_manual_commands(self) -> None:
         commands = set(re.findall(r'COMMAND="([a-z-]+)"', WORKFLOW_PATH.read_text()))
         for script in (REPO_ROOT / "hack/releasing").glob("*.sh"):
-            commands.update(re.findall(r'(?:mark_step_done\.py|\$\{RELEASE_CHECKLIST_SCRIPT\})" ([a-z-]+)',
+            commands.update(re.findall(r'(?:mark_step_done\.py|\$\{MARK_STEP_DONE_PY\})" ([a-z-]+)',
                                        script.read_text()))
         markers = template_markers()
         self.assertTrue(markers)
@@ -73,7 +73,7 @@ class MarkStepDoneTest(unittest.TestCase):
         log = (
             f"{LOG_MARKER_START}\n"
             "- [ ] copied text <!-- step:tag-release -->\n"
-            "<!-- release-log-end -->"
+            f"{LOG_MARKER_END}"
         )
         marked = mark_step_done(f"{template}\n{log}", "tag-release")
         self.assertTrue(marked.endswith(log))
@@ -87,7 +87,7 @@ class MarkStepDoneTest(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     def test_standalone_helper_marks_step_without_adding_a_log(self) -> None:
         template = TEMPLATE_PATH.read_text()
-        log = f"{LOG_MARKER_START}\nexisting log\n<!-- release-log-end -->\n"
+        log = f"{LOG_MARKER_START}\nexisting log\n{LOG_MARKER_END}\n"
         cases = {
             "new release issue": (template, "prepare-pull-release"),
             "existing release log": (template + log, "prepare-pull-main"),

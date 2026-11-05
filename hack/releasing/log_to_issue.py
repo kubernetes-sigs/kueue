@@ -19,9 +19,8 @@ import re
 import os
 from datetime import datetime, timezone
 
-from mark_step_done import LOG_MARKER_START, mark_step_done
+from mark_step_done import LOG_MARKER_END, LOG_MARKER_START, mark_step_done
 
-LOG_MARKER_END = "<!-- release-log-end -->"
 LOG_HEADER = "## Release log"
 HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
 

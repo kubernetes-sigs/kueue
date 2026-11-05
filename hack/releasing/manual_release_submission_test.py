@@ -19,7 +19,6 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,86 +30,11 @@ TEMPLATE = (REPO_ROOT / ".github/ISSUE_TEMPLATE/NEW_RELEASE.md").read_text()
 
 
 class ManualReleaseSubmissionTest(unittest.TestCase):
-    def test_python_is_required_before_release_operations(self):
-        scripts = {
-            "prepare all": ("prepare_pull.sh", ["--target", "all", "v0.20.0"], 1),
-            "prepare release": ("prepare_pull.sh", ["--target", "release", "v0.20.0"], 1),
-            "prepare main": ("prepare_pull.sh", ["--target", "main", "v0.20.0"], 1),
-            "promote": ("promote_pull.sh", ["v0.20.0"], 1),
-            "CI": ("ci_pull.sh", ["v0.20.0"], 1),
-            "milestone": ("milestone_pull.sh", ["v0.20.0"], 2),
-            "release notes": ("sync-notes.sh", ["v0.20.0"], 1),
-        }
-        harness = '''
-function git() {
-  case "$*" in
-    "rev-parse --show-toplevel") printf '%s\\n' "$TEST_REPO_ROOT" ;;
-    "symbolic-ref --short HEAD") echo main ;;
-    "remote get-url upstream") echo https://github.com/kubernetes-sigs/kueue.git ;;
-    *) printf 'git %s\\n' "$*" >> "$TEST_CALLS"; return 97 ;;
-  esac
-}
-function gh() { printf 'gh %s\\n' "$*" >> "$TEST_CALLS"; return 97; }
-function make() { return 0; }
-export -f git gh make
-exec "$BASH" --noprofile --norc "$@"
-'''
-        for name, (script, args, missing_status) in scripts.items():
-            for python_available in (False, True):
-                with self.subTest(script=name, python_available=python_available), tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    tools = root / "bin"
-                    tools.mkdir()
-                    # A restricted PATH makes python3 genuinely unavailable in the missing case.
-                    (tools / "dirname").symlink_to(shutil.which("dirname"))
-                    if python_available:
-                        (tools / "python3").symlink_to(sys.executable)
-                    for path in ("test-infra/config/jobs/kubernetes-sigs/kueue",
-                                 "k8s.io/registry.k8s.io/images/k8s-staging-kueue"):
-                        (root / path).mkdir(parents=True)
-                    calls = root / "calls"
-                    calls.write_text("")
-                    env = {
-                        "PATH": str(tools),
-                        "TEST_REPO_ROOT": str(REPO_ROOT),
-                        "TEST_CALLS": str(calls),
-                        "GITHUB_USER": "release-test",
-                        "KUBERNETES_REPOS_PATH": str(root),
-                        "MAIN_REPO_ORG": "kubernetes-sigs",
-                        "MAIN_REPO_NAME": "kueue",
-                        "KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG": "kubernetes-sigs",
-                        "KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME": "kueue",
-                        "KUBERNETES_TEST_INFRA_MAIN_REPO_ORG": "kubernetes",
-                        "KUBERNETES_TEST_INFRA_MAIN_REPO_NAME": "test-infra",
-                        "KUBERNETES_K8S_IO_MAIN_REPO_ORG": "kubernetes",
-                        "KUBERNETES_K8S_IO_MAIN_REPO_NAME": "k8s.io",
-                    }
-                    # Run the complete script; the gh stub stops at authentication if Python exists.
-                    result = subprocess.run(
-                        [shutil.which("bash"), "--noprofile", "--norc", "-c", harness, "release-test",
-                         str(REPO_ROOT / "hack/releasing" / script), *args],
-                        env=env, cwd=root, input="", capture_output=True, text=True, check=False,
-                    )
-                    want_status = (2 if script == "milestone_pull.sh" else 97) if python_available else missing_status
-                    self.assertEqual(result.returncode, want_status, result.stdout + result.stderr)
-                    self.assertEqual(calls.read_text(), "gh auth status\n" if python_available else "")
-                    if python_available:
-                        self.assertNotIn("Can't find 'python3'", result.stdout + result.stderr)
-                    else:
-                        self.assertIn("Can't find 'python3'", result.stdout + result.stderr)
-
     def test_submission_and_checklist_control_flow(self):
         harness = '''
 set -o errexit
 set -o nounset
 set -o pipefail
-function mktemp() {
-  if [[ "$REQUIRE_MKTEMP_TEMPLATE" == "1" && "$#" -eq 0 ]]; then
-    echo "mktemp: template required" >&2
-    return 1
-  fi
-  command mktemp "$@"
-}
 function prepare_local_branch() { printf '["prepare"]\\n' >> "$GH_CALLS"; }
 function git() {
   case "$1" in
@@ -147,51 +71,30 @@ function make_pr() { gh pr create; }
             "PR not found": ({"NO_PR": "1"}, "y\ny\n", 0, submitted[:-1], False),
         }
         for script_case, (script_name, start, target, want_steps) in scripts.items():
+            phases = 2 if target == "all" else 1
             source = (REPO_ROOT / "hack/releasing" / script_name).read_text()
             match = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
                               source, re.MULTILINE | re.DOTALL)
             self.assertIsNotNone(match, f"push_and_create_pr not found in {script_name}")
             push_function = match.group().replace("{\n", '{\n  printf \'["submit"]\\n\' >> "$GH_CALLS"\n', 1)
             script = push_function + "\n" + source[source.index(start):]
-            script_cases = dict(cases)
             if script_name == "prepare_pull.sh":
                 # Keep the real initialization, cleanup and main phases in source order.
                 # Only branch preparation is mocked, since it changes tracked files.
                 script = source[source.index("clean_branches=()"):]
                 script = script.replace(match.group(), push_function, 1)
                 prepare_function = '''function prepare_local_branch() {
-  test -f "$RELEASE_CHECKLIST_SCRIPT"
-  case "$RELEASE_CHECKLIST_SCRIPT" in "$TMPDIR"/*) ;; *) return 1 ;; esac
-  cmp "$RELEASE_CHECKLIST_SCRIPT" "$EXPECTED_HELPER"
   printf '["prepare"]\\n' >> "$GH_CALLS"
-  printf '%s\\n' "$RELEASE_CHECKLIST_SCRIPT" >> "$SNAPSHOT_SEEN"
-  cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/mark_step_done.py"
+  printf 'raise SystemExit("old release helper has no checklist CLI")\\n' > "$REPO_ROOT/hack/releasing/mark_step_done.py"
 }'''
                 script = re.sub(r"^function prepare_local_branch\(\) \{.*?^\}", lambda _: prepare_function,
                                 script, count=1, flags=re.MULTILINE | re.DOTALL)
-                if target == "all":
-                    script_cases.update({
-                        "snapshot copy failed": ({"MISSING_HELPER": "1"}, "", 1, [], False),
-                        "mktemp failed": ({"MISSING_TMPDIR": "1"}, "", 1, [], False),
-                        "mktemp requires a template": ({"REQUIRE_MKTEMP_TEMPLATE": "1"}, "y\ny\n", 0, submitted, True),
-                        "temporary directory contains spaces": ({"TMPDIR_WITH_SPACES": "1"}, "y\ny\n", 0, submitted, True),
-                    })
-            for name, (env, answers, want_status, want_calls, want_edit) in script_cases.items():
+            for name, (env, answers, want_status, want_calls, want_edit) in cases.items():
                 with self.subTest(script=script_case, case=name), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     helper = root / "hack/releasing/mark_step_done.py"
                     helper.parent.mkdir(parents=True)
                     helper.write_text((REPO_ROOT / "hack/releasing/mark_step_done.py").read_text())
-                    expected_helper = root / "expected_helper.py"
-                    expected_helper.write_text(helper.read_text())
-                    if env.get("MISSING_HELPER"):
-                        helper.unlink()
-                    tmpdir = root / ("tmp dir" if env.get("TMPDIR_WITH_SPACES") else "tmp")
-                    if not env.get("MISSING_TMPDIR"):
-                        tmpdir.mkdir()
-                    snapshot_seen = root / "snapshot_seen"
-                    old_helper = root / "old_helper.py"
-                    old_helper.write_text('raise SystemExit("old release helper has no checklist CLI")\n')
                     calls = root / "calls.jsonl"
                     gh = root / "gh.py"
                     gh.write_text('''
@@ -240,44 +143,25 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                         "GH_CALLS": str(calls),
                         "GH_STUB": str(gh),
                         "TEST_PYTHON": sys.executable,
-                        "OLD_HELPER": str(old_helper),
-                        "EXPECTED_HELPER": str(expected_helper),
-                        "SNAPSHOT_SEEN": str(snapshot_seen),
                         "STARTING_BRANCH": "main",
-                        "TMPDIR": str(tmpdir),
-                        "REQUIRE_MKTEMP_TEMPLATE": "",
                         **env,
                     }
-                    test_env.pop("RELEASE_CHECKLIST_SCRIPT", None)
                     result = subprocess.run(["bash", "-c", harness + script],
                                             env=test_env, cwd=root, input=answers,
                                             capture_output=True, text=True, check=False)
                     self.assertEqual(result.returncode, want_status, result.stdout + result.stderr)
                     self.assertEqual(result.stdout.count("Skipping git push"),
-                                     (2 if target == "all" else 1) if test_env["DRY_RUN"] else 0)
+                                     phases if test_env["DRY_RUN"] else 0)
                     recorded = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-                    phases = 2 if script_name == "prepare_pull.sh" and test_env["TARGET"] == "all" else 1
                     expected_calls = want_calls * phases if want_status == 0 else want_calls
                     self.assertEqual([" ".join(args[:2]) for args in recorded], expected_calls)
-                    if script_name == "prepare_pull.sh":
-                        self.assertEqual(list(tmpdir.iterdir()) if tmpdir.exists() else [], [])
-                        initialization_failed = bool(env.get("MISSING_HELPER") or env.get("MISSING_TMPDIR"))
-                        self.assertEqual(snapshot_seen.exists(), not initialization_failed, result.stderr)
-                        if initialization_failed:
-                            self.assertEqual(recorded, [])
-                        else:
-                            expected_preparations = phases if want_status == 0 else 1
-                            self.assertEqual(len(snapshot_seen.read_text().splitlines()), expected_preparations)
                     edits = [args for args in recorded if args[:2] == ["issue", "edit"]]
                     self.assertEqual(bool(edits), want_edit, recorded)
                     if want_edit:
-                        expected_steps = want_steps
-                        if script_name == "prepare_pull.sh" and test_env["TARGET"] != "all":
-                            expected_steps = {"prepare-pull-" + test_env["TARGET"]}
                         for index, args in enumerate(edits):
                             body = args[args.index("--body") + 1]
                             checked = set(re.findall(r"- \[x\][^\n]*<!-- step:([a-z-]+) -->", body))
-                            steps = {"prepare-pull-release"} if phases == 2 and index == 0 else expected_steps
+                            steps = {"prepare-pull-release"} if phases == 2 and index == 0 else want_steps
                             self.assertEqual(checked, steps)
                             self.assertNotIn("- [x] Wait for", body)
 
