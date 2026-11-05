@@ -50,11 +50,11 @@ func TestPlan_CanFit(t *testing.T) {
 			},
 			want: true,
 		},
-		"DeferredFit mode: fits": {
+		"DeferredFit mode: no fit": {
 			plan: Plan{
 				Assignment: assignmentWithMode(flavorassigner.DeferredFit),
 			},
-			want: true,
+			want: false,
 		},
 		"Preempt mode with preemption targets: fits": {
 			plan: Plan{

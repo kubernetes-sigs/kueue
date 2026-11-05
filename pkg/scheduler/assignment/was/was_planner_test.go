@@ -642,7 +642,7 @@ func TestPlan(t *testing.T) {
 				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.DeferredFit,
-			wantFit:  true,
+			wantFit:  false,
 			wantCalls: []scheduleWorkloadCall{
 				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
@@ -1917,7 +1917,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			if gotFlavorMode := gotPlan.Assignment.PodSets[0].Flavors[corev1.ResourceCPU].Mode; gotFlavorMode != tc.wantMode {
 				t.Errorf("Plan() PodSets[0].Flavors[cpu].Mode = %v, want %v", gotFlavorMode, tc.wantMode)
 			}
-			wantFit := tc.wantMode == flavorassigner.Fit || tc.wantMode == flavorassigner.DeferredFit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
+			wantFit := tc.wantMode == flavorassigner.Fit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
 			if gotFit := gotPlan.CanFit(); gotFit != wantFit {
 				t.Errorf("Plan() CanFit() = %v, want %v", gotFit, wantFit)
 			}
