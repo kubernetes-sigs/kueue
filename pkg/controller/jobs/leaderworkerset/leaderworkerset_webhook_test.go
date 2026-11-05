@@ -1074,6 +1074,7 @@ func TestValidateUpdate(t *testing.T) {
 		newObj                     *leaderworkersetv1.LeaderWorkerSet
 		featureGates               map[featuregate.Feature]bool
 		wantErr                    error
+		wantWarns                  admission.Warnings
 	}{
 		"no changes": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1335,6 +1336,7 @@ func TestValidateUpdate(t *testing.T) {
 				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
 				Replicas(2).
 				Obj(),
+			wantWarns: admission.Warnings{groupIdentityHashWarning},
 		},
 		"groupIdentity Hash when queue name is added": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1375,6 +1377,7 @@ func TestValidateUpdate(t *testing.T) {
 				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
 				Replicas(2).
 				Obj(),
+			wantWarns: admission.Warnings{groupIdentityHashWarning},
 		},
 		"groupIdentity Hash when managed owner is removed": {
 			integrations: []string{FrameworkName},
@@ -1431,6 +1434,7 @@ func TestValidateUpdate(t *testing.T) {
 				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
 				DeletionTimestamp(time.Now()).
 				Obj(),
+			wantWarns: admission.Warnings{groupIdentityHashWarning},
 		},
 		"change queue name when replicas ready": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -2075,7 +2079,7 @@ func TestValidateUpdate(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+			if diff := cmp.Diff(tc.wantWarns, warns); diff != "" {
 				t.Errorf("Unexpected warnings (-want,+got):\n%s", diff)
 			}
 		})
