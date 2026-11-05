@@ -163,11 +163,13 @@ _ls_repo_files = $(1)=$$(git -c core.quotePath=false ls-files --cached --others 
 # issues, not the analysis work, so they must be excluded before the linter runs.
 # Label module totals and command timings so parallel workers remain distinguishable.
 # Export CI_LINT_GOMAXPROCS here: a target-specific export would also reach lint's generation prerequisites.
+# Sort so the root module, the slowest to lint, starts first instead of waiting for a free worker.
 define _ci_lint_recipe
 @$(if $(CI_LINT_GOMAXPROCS),export GOMAXPROCS=$(CI_LINT_GOMAXPROCS); )echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"; \
 	$(call _ls_repo_files,modules,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/'); \
 	printf '%s\n' "$$modules" \
 	| xargs -n 1 dirname \
+	| LC_ALL=C sort \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
 		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
 			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
