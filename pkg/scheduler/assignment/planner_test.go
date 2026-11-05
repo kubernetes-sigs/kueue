@@ -20,10 +20,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestPlan_CanFit(t *testing.T) {
@@ -95,6 +97,56 @@ func TestPlan_CanFit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := tc.plan.CanFit(); got != tc.want {
 				t.Errorf("Plan.CanFit() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildOptions(t *testing.T) {
+	wl1 := workload.NewReference("ns", "wl-1")
+	wl2 := workload.NewReference("ns", "wl-2")
+
+	cases := map[string]struct {
+		options []PlannerOption
+		want    *Options
+	}{
+		"no options": {
+			want: &Options{},
+		},
+		"nil option is ignored": {
+			options: []PlannerOption{
+				nil,
+				WithCommittedPreemptionVictims([]workload.Reference{wl1}),
+				nil,
+			},
+			want: &Options{
+				CommittedPreemptionVictims: []workload.Reference{wl1},
+			},
+		},
+		"WithCommittedPreemptionVictims sets victims": {
+			options: []PlannerOption{
+				WithCommittedPreemptionVictims([]workload.Reference{wl1, wl2}),
+			},
+			want: &Options{
+				CommittedPreemptionVictims: []workload.Reference{wl1, wl2},
+			},
+		},
+		"later option overrides earlier option": {
+			options: []PlannerOption{
+				WithCommittedPreemptionVictims([]workload.Reference{wl1}),
+				WithCommittedPreemptionVictims([]workload.Reference{wl2}),
+			},
+			want: &Options{
+				CommittedPreemptionVictims: []workload.Reference{wl2},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := BuildOptions(tc.options...)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("BuildOptions() (-want,+got):\n%s", diff)
 			}
 		})
 	}
