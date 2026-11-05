@@ -27,7 +27,9 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -705,5 +707,127 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 		gomega.Eventually(func(g gomega.Gomega) {
 			behavioral.ExpectLQPendingWorkloadsMetric(queueDeleteMetrics, 0, 0)
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("LocalQueue counters across a stop", ginkgo.Label("controller:localqueue", "area:core"), func() {
+	var (
+		ns     *corev1.Namespace
+		flavor *kueue.ResourceFlavor
+		cq     *kueue.ClusterQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-stopped-")
+		flavor = utiltestingapi.MakeResourceFlavor("lq-stopped").Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavor)
+		cq = utiltestingapi.MakeClusterQueue("lq-stopped").ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("removes the LocalQueue counters on delete when stopped under HoldAndDrain and resumed before delete", func() {
+		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
+		behavioral.ExpectLQEvictedWorkloadsTotalMetric(lq, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.None)
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+
+		lbls := map[string]string{"name": lq.Name, "namespace": lq.Namespace}
+		gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+			return append(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, lbls),
+				testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueFinishedWorkloadsTotal, lbls)...)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+	})
+
+	ginkgo.It("removes the LocalQueue counters on delete when stopped under HoldAndDrain", func() {
+		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
+		behavioral.ExpectLQEvictedWorkloadsTotalMetric(lq, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+
+		lbls := map[string]string{"name": lq.Name, "namespace": lq.Namespace}
+		gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+			return append(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, lbls),
+				testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueFinishedWorkloadsTotal, lbls)...)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+	})
+
+	ginkgo.It("removes the LocalQueue counters on delete when stopped under Hold and workload finishes while stopped", func() {
+		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.Hold)
+
+		integration.FinishWorkloads(ctx, k8sClient, wl)
+		behavioral.ExpectLQFinishedWorkloadsTotalMetric(lq, "", 1)
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+
+		lbls := map[string]string{"name": lq.Name, "namespace": lq.Namespace}
+		gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+			return append(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, lbls),
+				testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueFinishedWorkloadsTotal, lbls)...)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+	})
+
+	ginkgo.It("keeps the LocalQueue counters while the LocalQueue is on Hold", func() {
+		lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+		first := utiltestingapi.MakeWorkload("first", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, first)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+		behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1)
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.Hold)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueue.LocalQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.LocalQueueActive))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.None)
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+
+		second := utiltestingapi.MakeWorkload("second", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, second)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, second)
+		behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 2)
 	})
 })
