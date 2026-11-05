@@ -2,6 +2,8 @@ title: Partial Preemption of Elastic Workloads
 kep-number: 975
 authors:
   - "@zhengchenyu"
+  - "@sweinberg-netflix"
+  - "@Pradeep39"
 status: provisional
 creation-date: 2026-08-18
 reviewers:
@@ -10,11 +12,9 @@ reviewers:
   - "@kannon92"
   - "@khoover"
   - "@mrajashree"
-  - "@Pradeep39"
   - "@yaroslava-serdiuk"
   - "@vladikkuzn"
   - "@reruno"
-  - "@sweinberg-netflix"
   - "@dkaluza"
   - "@j-skiba"
   - "@tenzen-y"
