@@ -36,9 +36,16 @@ this: "While the primary focus is on Workloads, the API section can be
 extended to include other Kueue-authored objects in the future." This KEP is
 that extension.
 
+"Job-like owner" here means any object Kueue manages through a `GenericJob`
+integration — `batch/Job`, `JobSet`, RayJob, the Kubeflow types, AppWrapper,
+SparkApplication, and any custom integration registered with the integration
+manager. The policy is integration-agnostic: it applies to whatever owner the
+Workload's controller reference points at.
+
 Today, Kueue's Workload retention policy can clean up the Workload object
-itself, but the Job (or other owner) that the Workload represents is left
-entirely to the user, or to whatever external tooling they run, to clean up.
+itself, and `afterDeactivatedByKueue` deletes the owner when Kueue deactivates
+it. After normal completion, though, the Job (or other owner) is left entirely
+to the user, or to whatever external tooling they run, to clean up.
 For users running large numbers of short-lived batch Jobs, this means
 Job objects accumulate indefinitely unless they build their own external
 cleanup process — exactly the etcd-storage and memory-footprint problem
@@ -268,22 +275,25 @@ for this — it indicates a hand-edited annotation rather than a Kueue failure.
 
 Requirements differ per integration, and some will need new grants.
 
-`batch/jobs` is declared
-`verbs=get;list;watch;update;patch;delete`
+`batch/jobs` is declared `verbs=get;list;watch;update;patch;delete`
 (`pkg/controller/jobs/job/job_controller.go`), covering both the annotation
 patch and the deletion — unsurprising, since
 `handleWorkloadAfterDeactivatedPolicy` already deletes owners on the
 deactivation path.
 
+`workload.codeflare.dev/appwrappers` and
+`sparkoperator.k8s.io/sparkapplications` — the two types named in Story 2 —
+are declared the same way, so they need nothing new.
+
 `apps/statefulsets` is declared `verbs=get;list;watch`
 (`pkg/controller/jobs/statefulset/statefulset_reconciler.go`) and would need
 `patch` and `delete` added. That is consistent with StatefulSet not being
-suspendable: Kueue gates its pods rather than mutating the StatefulSet, so
-it has never needed write access to the owner.
+suspendable: Kueue gates its pods rather than mutating the StatefulSet, so it
+has never needed write access to the owner.
 
-Each integration's markers therefore need auditing during implementation,
-and the ones that gain `delete` are a meaningful permission increase given
-the blast radius noted under Risks.
+Each integration's markers therefore need auditing during implementation, and
+the ones that gain `delete` are a meaningful permission increase given the
+blast radius noted under Risks.
 
 ### Behavior
 
