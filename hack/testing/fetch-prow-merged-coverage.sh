@@ -27,12 +27,8 @@
 #
 # Usage: fetch-prow-merged-coverage.sh SHA OUTDIR
 #   Uses the newest status of either context on SHA. Prints skip=true when it
-#   is not success, when the build skipped the commit, while the default
-#   branch has no codecov.yml, when the Codecov YAML that would apply to SHA
-#   may differ from main's (main_config_ok, pr_config_unchanged), and when
-#   Codecov already has a finished CODECOV_FLAG upload for SHA
-#   (codecov_has_upload) unless CODECOV_FORCE is true. Fails when the status
-#   or the Prow metadata does not describe a build of SHA.
+#   is not success or when the build skipped the commit. Fails when the
+#   status or the Prow metadata does not describe a build of SHA.
 #
 # Prints key=value lines (skip, sha, pr, branch, build_id, build_url) for
 # $GITHUB_OUTPUT, each checked by check_outputs, and writes
@@ -41,10 +37,6 @@
 # Environment:
 #   GH_TOKEN            used by the gh CLI for GitHub API calls
 #   GITHUB_REPOSITORY   defaults to kubernetes-sigs/kueue
-#   CODECOV_FLAG        upload flag of the workflow, defaults to unit
-#   CODECOV_FORCE       the string true to upload even when Codecov has an upload
-#   CODECOV_POLL_TRIES  Codecov queries while an upload is unfinished, defaults to 10
-#   CODECOV_POLL_SECS   seconds between those queries, defaults to 30
 
 set -o errexit
 set -o nounset
@@ -58,13 +50,8 @@ GCS="https://storage.googleapis.com/${BUCKET}"
 PROW_VIEW="https://prow.k8s.io/view/gs/${BUCKET}"
 GCS_ORG_REPO="${REPO/\//_}"
 MAX_PROFILE_BYTES=$((512 * 1024 * 1024))
-CODECOV_FLAG="${CODECOV_FLAG:-unit}"
-CODECOV_FORCE="${CODECOV_FORCE:-false}"
-CODECOV_POLL_TRIES="${CODECOV_POLL_TRIES:-10}"
-CODECOV_POLL_SECS="${CODECOV_POLL_SECS:-30}"
-CODECOV_API="https://api.codecov.io/api/v2/github/${REPO%%/*}/repos/${REPO#*/}"
 
-# --- GCS reads, the Codecov YAML guard, first upload wins.
+# --- GCS reads and output checks.
 
 die() { echo "Error: $*" >&2; exit 1; }
 log() { echo "$*" >&2; }
@@ -85,10 +72,6 @@ gcs_get() {
   esac
 }
 
-gcs_exists() {
-  curl -sfI --retry 3 --connect-timeout 20 --max-time 60 -o /dev/null "${GCS}/$1"
-}
-
 # gcs_download OBJECT FILE
 gcs_download() {
   curl -sSfL --retry 3 --connect-timeout 20 --max-time 120 --max-filesize "${MAX_PROFILE_BYTES}" \
@@ -97,159 +80,6 @@ gcs_download() {
 
 require_sha() {
   [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "'$1' is not a 40-character commit SHA."
-}
-
-# Codecov reads the YAML of a commit from the first of these names in the
-# repository root, else from the dev/ or .github/ folder:
-# determine_commit_yaml_location in codecov/umbrella
-# libs/shared/shared/yaml/fetcher.py (also listed in
-# https://docs.codecov.com/docs/codecov-yaml). get_final_yaml in
-# libs/shared/shared/yaml/user_yaml.py applies that commit YAML when the
-# commit has one, else the repository YAML saved from main
-# (strict_yaml_branch).
-CODECOV_YAML_NAMES='["codecov.yml", ".codecov.yml", "codecov.yaml", ".codecov.yaml"]'
-CODECOV_YAML_DIRS=(dev .github)
-
-# main_has_codecov_yml returns 1 while the default branch has no codecov.yml
-# file (the rollout is not done).
-main_has_codecov_yml() {
-  local out
-  if ! out=$(gh api "repos/${REPO}/contents/codecov.yml" 2>&1); then
-    [[ "${out}" == *"HTTP 404"* ]] || die "cannot read codecov.yml on the default branch: ${out}"
-    return 1
-  fi
-  out=$(jq -r 'type == "object" and .type == "file"' <<<"${out}" 2>/dev/null) \
-    || die "cannot parse codecov.yml on the default branch."
-  [[ "${out}" == "true" ]]
-}
-
-# tree_config PREFIX TREE_JSON prints "PREFIX<path> <mode> <sha>" for each
-# entry of a Git trees API response whose name Codecov reads as its YAML.
-tree_config() {
-  jq -r --arg p "$1" --argjson names "${CODECOV_YAML_NAMES}" '
-      if (.tree | type) == "array" and (.truncated | not) then .tree[] else error("unexpected tree") end
-      | select(.path | IN($names[])) | "\($p)\(.path) \(.mode) \(.sha)"' <<<"$2"
-}
-
-# codecov_config REF prints "PATH MODE SHA" for every Codecov YAML path at
-# the commit REF, sorted, or nothing. Reads the root tree and the dev/ and
-# .github/ trees through the Git trees API, which also serves fork heads. The
-# compare API would need only one call, but it diffs against the merge base
-# and lists at most 300 files.
-codecov_config() {
-  local ref=$1 root sub dir out
-  root=$(gh api "repos/${REPO}/git/trees/${ref}") || die "cannot read the tree of ${ref}."
-  out=$(tree_config "" "${root}") || die "cannot parse the tree of ${ref}."
-  for dir in "${CODECOV_YAML_DIRS[@]}"; do
-    sub=$(jq -r --arg d "${dir}" '.tree[] | select(.path == $d and .type == "tree") | .sha' <<<"${root}") \
-      || die "cannot parse the tree of ${ref}."
-    [[ -n "${sub}" ]] || continue
-    [[ "${sub}" =~ ^[0-9a-f]{40}$ ]] || die "unexpected tree SHA of ${dir}/ at ${ref}: ${sub}"
-    sub=$(gh api "repos/${REPO}/git/trees/${sub}") || die "cannot read ${dir}/ at ${ref}."
-    sub=$(tree_config "${dir}/" "${sub}") || die "cannot parse ${dir}/ at ${ref}."
-    out+=${sub:+$'\n'${sub}}
-  done
-  grep . <<<"${out}" | sort || true
-}
-
-# main_config_ok SHA: Codecov saves the YAML of a main commit as the
-# repository YAML that pull request uploads fall back to. Returns 1 unless SHA
-# has codecov.yml as a regular file (mode 100644 or 100755) and no other
-# Codecov YAML path.
-main_config_ok() {
-  local sha=$1 cfg
-  cfg=$(codecov_config "${sha}") || exit 1
-  [[ "${cfg}" =~ ^codecov\.yml\ 100(644|755)\ [0-9a-f]{40}$ ]] && return 0
-  log "Codecov YAML at ${sha}: ${cfg:-none}."
-  return 1
-}
-
-# pr_config_unchanged BASE HEAD: a pull request head may carry its own Codecov
-# YAML, which Codecov would apply to its codecov/* statuses (for example
-# without informational) and so could block Tide. A HEAD without any Codecov
-# YAML path gets the repository YAML saved from main, so it passes. Otherwise
-# returns 1 unless every Codecov YAML path has the same blob (or is missing)
-# at HEAD and at its merge base with BASE, the main commit Prow tested HEAD
-# on: HEAD then carries main's YAML from where it branched, possibly older
-# than BASE's, and adds or edits none. Prow tests on the current main, so
-# comparing HEAD with BASE itself would skip every pull request branched
-# before the latest change of the YAML on main. The compare API also serves
-# fork heads.
-pr_config_unchanged() {
-  local base=$1 head=$2 h mb m
-  h=$(codecov_config "${head}") || exit 1
-  [[ -n "${h}" ]] || return 0
-  mb=$(gh api "repos/${REPO}/compare/${base}...${head}?per_page=1" | jq -r '.merge_base_commit.sha // ""') \
-    || die "cannot compare ${base}...${head}."
-  require_sha "${mb}"
-  m=$(codecov_config "${mb}") || exit 1
-  [[ "${m}" == "${h}" ]] && return 0
-  log "Codecov YAML at merge base ${mb}: ${m:-none}; at ${head}: ${h}."
-  return 1
-}
-
-# Codecov unions all uploads of a commit. Another passing pair of shard builds
-# for the same commit (a retest on a newer base, or a Tide retest of a pull
-# request head) would add a second tree to the report, so the first upload
-# wins. Only finished coverage uploads count: a CODECOV_FLAG upload whose
-# state_name is MERGED (state_id 6) or, for older uploads, PROCESSED (2), and
-# whose totals are set. Test-results uploads show state "processed" but
-# state_name UPLOADED (1) and no totals, so they do not count. While a
-# CODECOV_FLAG upload is "started" or "uploaded" without totals, poll for up
-# to CODECOV_POLL_TRIES * CODECOV_POLL_SECS seconds. Any other state (error,
-# fully_overwritten, partially_overwritten) neither counts nor waits.
-# Errors and uploads that stay unfinished fail open: an occasional union is
-# less harmful than missing coverage. CODECOV_FORCE=true skips the check, to
-# replace a bad or orphaned upload.
-codecov_has_upload() {
-  local sha=$1 try resp code body counts processed pending
-  if [[ "${CODECOV_FORCE}" == "true" ]]; then
-    log "CODECOV_FORCE is set; uploading without checking Codecov for ${sha}."
-    return 1
-  fi
-  for ((try = 1; ; try++)); do
-    # -f as in gcs_get.
-    resp=$(curl -sSf --retry 3 --connect-timeout 20 --max-time 60 -w '\n%{http_code}' \
-        "${CODECOV_API}/commits/${sha}/uploads/?page_size=100" 2>/dev/null) || [[ $? == 22 ]] || {
-      log "Warning: cannot query Codecov for ${sha}; uploading anyway."
-      return 1
-    }
-    code=${resp##*$'\n'}
-    body=${resp%$'\n'*}
-    case "${code}" in
-      404) log "Codecov has no record of ${sha}."; return 1 ;;
-      200) ;;
-      *) log "Warning: Codecov returned HTTP ${code} for ${sha}; uploading anyway."; return 1 ;;
-    esac
-    # "<finished> <unfinished>" coverage uploads with the flag.
-    if ! counts=$(jq -r --arg f "${CODECOV_FLAG}" '
-        [.results[] | select((.flags // []) | index($f))] as $u
-        | ($u | map(select(
-              ((.state_name // "") as $n | $n == "MERGED" or $n == "PROCESSED"
-                or .state_id == 6 or .state_id == 2)
-              and .totals != null)) | length | tostring)
-          + " " + ($u | map(select(
-              (.state == "started" or .state == "uploaded") and .totals == null))
-            | length | tostring)
-        ' <<<"${body}" 2>/dev/null) || [[ ! "${counts}" =~ ^[0-9]+\ [0-9]+$ ]]; then
-      log "Warning: cannot parse the Codecov uploads of ${sha}; uploading anyway."
-      return 1
-    fi
-    read -r processed pending <<<"${counts}"
-    if [[ "${processed}" -gt 0 ]]; then
-      log "Codecov already has a finished ${CODECOV_FLAG} upload for ${sha}; keeping the first one."
-      return 0
-    fi
-    if [[ "${pending}" -eq 0 ]]; then
-      return 1
-    fi
-    if [[ "${try}" -ge "${CODECOV_POLL_TRIES}" ]]; then
-      log "Warning: ${pending} ${CODECOV_FLAG} upload(s) for ${sha} still unfinished after ${try} checks; uploading anyway."
-      return 1
-    fi
-    log "Codecov is still processing ${pending} ${CODECOV_FLAG} upload(s) for ${sha}; checking again in ${CODECOV_POLL_SECS}s."
-    sleep "${CODECOV_POLL_SECS}"
-  done
 }
 
 skip() { log "$*"; echo "skip=true"; exit 0; }
@@ -320,7 +150,6 @@ main() {
   [[ "$#" -eq 2 ]] || die "usage: $0 SHA OUTDIR"
   require_sha "${sha}"
   mkdir -p "${outdir}"
-  main_has_codecov_yml || skip "The default branch has no codecov.yml (rollout not done); skipping."
 
   local status context state url path id pr="" base branch=main build_url
   status=$(newest_status "${sha}") || die "cannot read the statuses of ${sha}."
@@ -349,21 +178,13 @@ main() {
   build_url="${PROW_VIEW}/${path}"
 
   if [[ -n "${pr}" ]]; then
-    pr_config_unchanged "${base}" "${sha}" || skip "PR adds or edits Codecov config; skipping."
     # Codecov names fork branches owner:branch.
     branch=$(gh api "repos/${REPO}/pulls/${pr}" | jq -r --arg r "${REPO}" \
       'if .head.repo.full_name == $r then .head.ref else .head.label end') \
       || die "cannot read pull request ${pr}."
     branch=$(safe_branch "${branch}" "${pr}")
-  else
-    main_config_ok "${sha}" || skip "${sha} lacks codecov.yml or has another Codecov YAML path; skipping."
   fi
   log "${context} build ${id} merged the unit coverage of ${sha}."
-
-  if codecov_has_upload "${sha}"; then
-    echo "skip=true"
-    return 0
-  fi
 
   check_outputs "${sha}" "${pr}" "${branch}" "${id}" "${build_url}"
   local file="${outdir}/unit-coverage.out"
