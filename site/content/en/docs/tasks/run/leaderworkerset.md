@@ -99,10 +99,15 @@ Kueue copies the new tolerations to the Workloads of the LeaderWorkerSet:
   against the new tolerations, so the restarted Pods can keep running on the assigned nodes.
 
 Kueue copies the new tolerations to the Workloads of all groups right away, while LeaderWorkerSet
-updates their Pods gradually. Wait until the rolling update completes before you add the taints
-that the new tolerations match.
-Kueue rejects adding tolerations while `rolloutStrategy.rollingUpdateConfiguration.partition`
-is greater than 0, because LeaderWorkerSet does not update the groups below the partition.
+updates their Pods gradually. Until this rolling update completes:
+
+- Do not add the taints that the new tolerations match.
+- Do not raise `rolloutStrategy.rollingUpdateConfiguration.partition`. LeaderWorkerSet would keep
+  the groups below the partition, and the groups that a scale-up creates there, on the Pods
+  without the new tolerations.
+
+Kueue rejects adding tolerations while the partition is greater than 0, because LeaderWorkerSet
+does not update the groups below the partition.
 
 In MultiKueue, Kueue also copies the new tolerations to the Workloads and the LeaderWorkerSet
 on the worker cluster.
