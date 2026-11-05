@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,6 +33,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAddLocalQueueReportsPendingMetrics(t *testing.T) {
@@ -296,5 +298,115 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreate(t *testing.T) {
 	}}
 	if diff := gocmp.Diff(want, got); diff != "" {
 		t.Errorf("Unexpected unadmitted workloads series (-want,+got):\n%s", diff)
+	}
+}
+
+func TestUnadmittedWorkloadMetricsAfterClusterQueueDeleteWithRemainingWorkloads(t *testing.T) {
+	retargetLocalQueue := func(cqName kueue.ClusterQueueReference) func(*testing.T, *Manager, client.Client, *kueue.LocalQueue, *kueue.Workload) {
+		return func(t *testing.T, manager *Manager, cl client.Client, lq *kueue.LocalQueue, wl *kueue.Workload) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq.Spec.ClusterQueue = cqName
+			if err := cl.Update(ctx, lq); err != nil {
+				t.Fatalf("Updating LocalQueue: %v", err)
+			}
+			if err := manager.UpdateLocalQueue(log, lq); err != nil {
+				t.Fatalf("Updating LocalQueue in manager: %v", err)
+			}
+			manager.UpdateUnadmittedWorkload(log, wl)
+		}
+	}
+	cases := map[string]struct {
+		moveFirstWorkload func(t *testing.T, manager *Manager, cl client.Client, lq *kueue.LocalQueue, wl *kueue.Workload)
+	}{
+		"delete workload": {
+			moveFirstWorkload: func(t *testing.T, manager *Manager, _ client.Client, _ *kueue.LocalQueue, wl *kueue.Workload) {
+				_, log := utiltesting.ContextWithLog(t)
+				manager.DeleteAndForgetWorkload(log, workload.Key(wl))
+			},
+		},
+		"reconcile workload not found": {
+			moveFirstWorkload: func(t *testing.T, manager *Manager, _ client.Client, _ *kueue.LocalQueue, wl *kueue.Workload) {
+				_, log := utiltesting.ContextWithLog(t)
+				manager.DeleteWorkload(log, workload.Key(wl))
+				manager.RemoveUnadmittedWorkload(log, workload.Key(wl))
+			},
+		},
+		"retarget LocalQueue": {
+			moveFirstWorkload: retargetLocalQueue("other-cq"),
+		},
+		"retarget LocalQueue to a missing ClusterQueue": {
+			moveFirstWorkload: retargetLocalQueue("missing-cq"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+			cLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			metrics.InitMetricVectors(cLabels)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+
+			cq := utiltestingapi.MakeClusterQueue("cq").Label("team", "alpha").Obj()
+			otherCQ := utiltestingapi.MakeClusterQueue("other-cq").Label("team", "beta").Obj()
+			lq1 := utiltestingapi.MakeLocalQueue("lq1", "ns").ClusterQueue(cq.Name).Obj()
+			lq2 := utiltestingapi.MakeLocalQueue("lq2", "ns").ClusterQueue(cq.Name).Obj()
+			wl1 := utiltestingapi.MakeWorkload("wl1", "ns").Queue(kueue.LocalQueueName(lq1.Name)).Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl2", "ns").Queue(kueue.LocalQueueName(lq2.Name)).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), lq1, lq2, wl1, wl2).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			manager := NewManagerForUnitTests(cl, nil, WithCustomLabels(cLabels))
+
+			addClusterQueue := func(cq *kueue.ClusterQueue) {
+				t.Helper()
+				cLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+				manager.ResyncClusterQueueGaugeMetrics(kueue.ClusterQueueReference(cq.Name))
+			}
+			cqSeries := func() []testingmetrics.MetricDataPoint {
+				return testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": cq.Name})
+			}
+
+			addClusterQueue(cq)
+			addClusterQueue(otherCQ)
+			for _, lq := range []*kueue.LocalQueue{lq1, lq2} {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Adding LocalQueue: %v", err)
+				}
+			}
+			manager.UpdateUnadmittedWorkload(log, wl1)
+			manager.UpdateUnadmittedWorkload(log, wl2)
+
+			// Mirrors the order of the ClusterQueue delete event handler.
+			manager.DeleteClusterQueue(log, cq)
+			cLabels.CQDelete(kueue.ClusterQueueReference(cq.Name))
+
+			tc.moveFirstWorkload(t, manager, cl, lq1, wl1)
+
+			if got := cqSeries(); len(got) != 0 {
+				t.Errorf("Unexpected unadmitted workloads series for the deleted ClusterQueue: %v", got)
+			}
+
+			addClusterQueue(cq)
+
+			want := []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{
+					"cluster_queue":    cq.Name,
+					"reason":           kueue.WorkloadAdmittedReasonNoReservation,
+					"underlying_cause": kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					"replica_role":     "standalone",
+					"custom_team_cq":   "alpha",
+				},
+				Value: 1,
+			}}
+			if diff := gocmp.Diff(want, cqSeries()); diff != "" {
+				t.Errorf("Unexpected unadmitted workloads series after ClusterQueue recreation (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
