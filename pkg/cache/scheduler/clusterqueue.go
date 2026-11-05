@@ -37,6 +37,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -63,6 +64,10 @@ type clusterQueue struct {
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
+	// replacedSlices holds the workload slices whose replacement is in Workloads. They are
+	// not charged, since the replacement's usage covers their Pods, unless the replacement
+	// leaves the cache before them.
+	replacedSlices    map[workload.Reference]*workload.Info
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
@@ -522,6 +527,10 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
+	if _, replaced := c.replacedSlices[k]; replaced {
+		c.replacedSlices[k] = wi
+		return
+	}
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
@@ -534,6 +543,20 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
+	// TAS slices keep today's accounting: a replacement may be placed on other nodes than the
+	// Pods of the slice it replaces, which hold their nodes until they stop.
+	if old, ok := c.Workloads[replacedSliceKey(w)]; ok && !old.IsUsingTAS() && !wi.IsUsingTAS() {
+		c.deleteWorkload(log, workload.Key(old.Obj))
+		c.replacedSlices[workload.Key(old.Obj)] = old
+	}
+}
+
+// replacedSliceKey is the key of the workload slice that w replaces, or "" when it replaces none.
+func replacedSliceKey(w *kueue.Workload) workload.Reference {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return ""
+	}
+	return workload.Reference(w.Annotations[constants.WorkloadSliceReplacementForAnnotation])
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -541,10 +564,19 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
+	delete(c.replacedSlices, wlKey)
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
 	}
+	// A replacement leaving before the slice it replaces, e.g. on a failed admission, hands
+	// the usage back to that slice.
+	defer func() {
+		if old, ok := c.replacedSlices[replacedSliceKey(wi.Obj)]; ok {
+			delete(c.replacedSlices, workload.Key(old.Obj))
+			c.addOrUpdateWorkload(log, old)
+		}
+	}()
 	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking {
 		c.WorkloadsNotReady.Delete(wlKey)
