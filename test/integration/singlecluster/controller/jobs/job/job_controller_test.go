@@ -1937,7 +1937,8 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 	)
 })
 
-var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+// Start this long ordered group early to avoid a straggler at the end of a parallel run.
+var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.SpecPriority(1), func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -5527,7 +5528,8 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 	ginkgo.Entry("with TAS", true),
 )
 
-var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+// Start this long ordered group early to avoid a straggler at the end of a parallel run.
+var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.SpecPriority(1), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -7354,7 +7356,7 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 	})
 })
 
-var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout", func() {
 	const shortUnscheduledTimeout = 8 * time.Second
 
 	var (
