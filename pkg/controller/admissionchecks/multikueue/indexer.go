@@ -127,15 +127,13 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
-	if workerQueueWatchesEnabled() {
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc); err != nil {
 			return fmt.Errorf("setting index on admission checks controllerName: %w", err)
 		}
 		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc); err != nil {
 			return fmt.Errorf("setting index on cluster queues admissionChecks: %w", err)
 		}
-	}
-	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		if err := indexer.IndexField(ctx, &kueuealpha.CapacityProvider{}, CapacityProviderUsingConfigKey, capacityProviderConfigIndexerFunc); err != nil {
 			return fmt.Errorf("setting index on capacity providers config: %w", err)
 		}

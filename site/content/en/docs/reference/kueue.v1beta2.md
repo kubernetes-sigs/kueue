@@ -2123,11 +2123,11 @@ conditions are limited to 16 elements.</p>
 - [MultiKueueConfigSpec](#kueue-x-k8s-io-v1beta2-MultiKueueConfigSpec)
 
 
-<p>MultiKueueConfigQuotaManagementMode specifies the automation mode.
+<p>MultiKueueConfigQuotaManagementMode is deprecated and ignored since v0.21.
 Supported modes:</p>
 <ul>
-<li><code>Manual</code>: Quota automation is manual.</li>
-<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).</li>
+<li><code>Manual</code></li>
+<li><code>Automated</code></li>
 </ul>
 
 
@@ -2162,14 +2162,11 @@ following this order, so the most preferred clusters should be listed first.</p>
 <a href="#kueue-x-k8s-io-v1beta2-MultiKueueConfigQuotaManagementMode"><code>MultiKueueConfigQuotaManagementMode</code></a>
 </td>
 <td>
-   <p>quotaManagement specifies the management of ClusterQueue quotas
-in the manager cluster.
-Supported modes:</p>
-<ul>
-<li><code>Manual</code>: Quota automation is manual.</li>
-<li><code>Automated</code>: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-If unspecified, defaults to <code>Manual</code>.</li>
-</ul>
+   <p>quotaManagement is deprecated and ignored since v0.21.
+To sum the quotas of the worker ClusterQueues into the manager ClusterQueue,
+use a CapacityProvider with a MultiKueueCapacityProviderConfig.
+The field is removed in the next API version.</p>
+<p>Deprecated: Kueue ignores this field.</p>
 </td>
 </tr>
 </tbody>

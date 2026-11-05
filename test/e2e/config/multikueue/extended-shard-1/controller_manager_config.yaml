@@ -37,7 +37,6 @@ featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
   ConcurrentAdmission: true
-  MultiKueueManagerQuotaAutomation: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.26

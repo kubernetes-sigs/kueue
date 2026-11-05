@@ -70,7 +70,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -276,12 +275,6 @@ func newRemoteClient(
 	return rc
 }
 
-// workerQueueWatchesEnabled reports whether the manager caches and watches the worker
-// ClusterQueues and LocalQueues, which the worker quota aggregation needs.
-func workerQueueWatchesEnabled() bool {
-	return features.Enabled(features.MultiKueueManagerQuotaAutomation) || features.Enabled(features.DQOMultiKueueCapacityProvider)
-}
-
 func newClientWithWatch(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
 	restConfig, err := config.toRESTConfig()
 	if err != nil {
@@ -293,7 +286,7 @@ func newClientWithWatch(ctx context.Context, config *clientConfig, options clien
 		return nil, err
 	}
 
-	if !workerQueueWatchesEnabled() {
+	if !features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		return NewNeverCachingClient(directClient), nil
 	}
 
@@ -423,7 +416,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
-	if workerQueueWatchesEnabled() {
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
 			return false, rc.increaseFailedConnAttempt(), err
 		}
@@ -917,7 +910,6 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 		rc.StopWatchers()
 		delete(c.remoteClients, clusterName)
 	}
-	metrics.ClearMultiKueueClusterMetrics(clusterName)
 }
 
 // disconnectCluster marks the remoteClient for clusterName as disconnected

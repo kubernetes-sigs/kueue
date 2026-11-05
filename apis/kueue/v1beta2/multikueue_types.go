@@ -159,27 +159,23 @@ type MultiKueueConfigSpec struct {
 	// +required
 	Clusters []string `json:"clusters,omitempty,omitzero"`
 
-	// quotaManagement specifies the management of ClusterQueue quotas
-	// in the manager cluster.
-	// Supported modes:
-	// - `Manual`: Quota automation is manual.
-	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-	// If unspecified, defaults to `Manual`.
+	// quotaManagement is deprecated and ignored since v0.21.
+	// To sum the quotas of the worker ClusterQueues into the manager ClusterQueue,
+	// use a CapacityProvider with a MultiKueueCapacityProviderConfig.
+	// The field is removed in the next API version.
+	//
+	// Deprecated: Kueue ignores this field.
+	//
 	// +optional
 	QuotaManagement *MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
 
-// MultiKueueConfigQuotaManagementMode specifies the automation mode.
+// MultiKueueConfigQuotaManagementMode is deprecated and ignored since v0.21.
 // Supported modes:
-// - `Manual`: Quota automation is manual.
-// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+// - `Manual`
+// - `Automated`
 // +kubebuilder:validation:Enum=Manual;Automated
 type MultiKueueConfigQuotaManagementMode string
-
-const (
-	QuotaManagementManual    MultiKueueConfigQuotaManagementMode = "Manual"
-	QuotaManagementAutomated MultiKueueConfigQuotaManagementMode = "Automated"
-)
 
 // +genclient
 // +genclient:nonNamespaced

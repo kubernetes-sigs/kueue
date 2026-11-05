@@ -23,8 +23,6 @@ integrations:
   - "pod"
   - "deployment"
   - "statefulset"
-featureGates:
-  MultiKueueManagerQuotaAutomation: true
 tls:
   minVersion: "VersionTLS12"
   cipherSuites:

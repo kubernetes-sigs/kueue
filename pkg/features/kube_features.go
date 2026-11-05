@@ -511,12 +511,6 @@ const (
 	// The preferred affinity will take precedence over the placement policy (eg. BestFit , LeastFreeCapacity).
 	TASRespectNodeAffinityPreferred featuregate.Feature = "TASRespectNodeAffinityPreferred"
 
-	// owner: @olekzabl
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation
-	//
-	// Enables MultiKueue manager quota automation support.
-	MultiKueueManagerQuotaAutomation featuregate.Feature = "MultiKueueManagerQuotaAutomation"
-
 	// owner: @ivnovakov
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/10032
 	//
@@ -1271,9 +1265,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 	TASRespectNodeAffinityPreferred: {
-		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
-	},
-	MultiKueueManagerQuotaAutomation: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	WorkloadIdentifierAnnotations: {

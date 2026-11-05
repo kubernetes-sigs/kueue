@@ -45,6 +45,14 @@ const (
 	testOtherController    = "example.com/other"
 )
 
+func asObjs[T client.Object](objs []T) []client.Object {
+	res := make([]client.Object, len(objs))
+	for i, obj := range objs {
+		res[i] = obj
+	}
+	return res
+}
+
 func TestCPReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, true)
 
