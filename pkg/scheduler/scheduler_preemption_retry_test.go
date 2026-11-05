@@ -66,9 +66,11 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 		"PreemptionNoCandidates without retryAt arms no delay": {
 			requeueReason: qcache.RequeueReasonPreemptionNoCandidates,
 		},
-		"NoFit with retryAt arms no delay": {
-			requeueReason: qcache.RequeueReasonNoFit,
-			retryAt:       new(now.Add(10 * time.Second)),
+		"NoFit with retryAt arms ClusterQueue delay": {
+			requeueReason:          qcache.RequeueReasonNoFit,
+			retryAt:                new(now.Add(10 * time.Second)),
+			wantMoved:              1,
+			wantClusterQueueDelays: map[kueue.ClusterQueueReference]time.Duration{"cq": 10 * time.Second},
 		},
 		"PendingPreemption with retryAt arms no delay": {
 			requeueReason: qcache.RequeueReasonPendingPreemption,

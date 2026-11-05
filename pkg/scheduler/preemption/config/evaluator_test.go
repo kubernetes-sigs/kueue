@@ -1398,7 +1398,14 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				{
 					filter: filters.CandidateFilters{
 						WLTimeFilters: []filters.WorkloadTimeFilter{
-							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil, "a2": &tLate}},
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate, "a2": &tLate}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil, "a2": nil}},
 						},
 					},
 				},
@@ -1427,6 +1434,50 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				},
 			},
 			wantRetryAt: &tEarly,
+		},
+		"candidate matching earlier selector ignores later selector time miss": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						},
+					},
+				},
+			},
+			wantCandidates: []string{"a1"},
+		},
+		"candidate matching later selector clears earlier selector time miss": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Queue("lq1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").Queue("lq2").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly, "a2": &tLate}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLFilters: []filters.WorkloadFilter{
+							filters.NewWithinLocalQueueFilter("", "lq1"),
+						},
+					},
+				},
+			},
+			wantCandidates: []string{"a1"},
+			wantRetryAt:    &tLate,
 		},
 		"skipped candidates across ClusterQueues do not abort yielding matching candidates": {
 			config: emptyConfig,
@@ -1518,11 +1569,13 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				evaluator = NewPreemptionEvaluator(ctx, log, *tc.config, preemptor, candidatesByName)
 			}
 
+			// TODO(#17600): Test through FindCandidates once NewCandidateFilters wires WorkloadTimeFilter.
 			if len(tc.calls) == 0 {
 				evaluator.FindCandidates(snapshot, sets.New(frCPU), func() bool { return false }, func(*policy.Target) bool { return true })
 			}
 
 			seen := map[types.UID]int{}
+			retryAtByUID := map[types.UID]*time.Time{}
 			var candidates []*configurableCandidate
 			for i, call := range tc.calls {
 				flavorsNeedPreemption := call.flavorsNeedPreemption
@@ -1533,8 +1586,9 @@ func TestPreemptionEvaluatorRetryAt(t *testing.T) {
 				for fr := range flavorsNeedPreemption {
 					neededFlavors.Insert(fr.Flavor)
 				}
-				evaluator.addMatchingCandidates(&call.filter, snapshot, flavorsNeedPreemption, neededFlavors, "rule", seen, &candidates, i)
+				evaluator.addMatchingCandidates(&call.filter, snapshot, flavorsNeedPreemption, neededFlavors, "rule", seen, retryAtByUID, &candidates, i)
 			}
+			evaluator.recordRetryAt(seen, retryAtByUID)
 
 			gotCandidates := utilslices.Map(candidates, func(c **configurableCandidate) string {
 				return (*c).WlInfo.Obj.Name

@@ -274,6 +274,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
 	// for effective look up to add another selector's index in case of another match.
 	seen := map[types.UID]int{}
+	retryAtByUID := map[types.UID]*time.Time{}
 	for _, rule := range p.config.Spec.Rules {
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
@@ -297,7 +298,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 			}
 
 			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
-			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, &candidates, selectorIndex)
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, retryAtByUID, &candidates, selectorIndex)
 		}
 	}
 
@@ -305,6 +306,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		return nil, errors.Join(errs...)
 	}
 
+	p.recordRetryAt(seen, retryAtByUID)
 	return candidates, nil
 }
 
@@ -315,6 +317,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	neededFlavors sets.Set[kueue.ResourceFlavorReference],
 	ruleReference policy.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
+	retryAtByUID map[types.UID]*time.Time,
 	candidates *[]*configurableCandidate,
 	selectorIndex int,
 ) {
@@ -330,13 +333,23 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 			}
 			retryAt, matches := matchesWorkload(filter, wlInfo)
 			if !matches {
-				p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
+				if retryAt != nil {
+					retryAtByUID[wlInfo.Obj.UID] = cmputil.EarliestTime(retryAtByUID[wlInfo.Obj.UID], retryAt)
+				}
 				continue
 			}
 			candidate := p.ensureCandidate(seen, candidates, wlInfo)
 
 			indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
 			candidate.RuleNameToSelectorIndexes[ruleReference] = append(indexes, selectorIndex)
+		}
+	}
+}
+
+func (p *PreemptionEvaluator) recordRetryAt(seen map[types.UID]int, retryAtByUID map[types.UID]*time.Time) {
+	for uid, retryAt := range retryAtByUID {
+		if _, matched := seen[uid]; !matched {
+			p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
 		}
 	}
 }
