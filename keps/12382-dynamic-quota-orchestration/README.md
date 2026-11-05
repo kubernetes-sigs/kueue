@@ -17,6 +17,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
     - [User confusion about effective quota](#user-confusion-about-effective-quota)
     - [Overcommitted quota after a capacity reduction](#overcommitted-quota-after-a-capacity-reduction)
+    - [Quota above capacity after expiry](#quota-above-capacity-after-expiry)
 - [Design Details](#design-details)
   - [Overview](#overview)
   - [Phase 1: Capacity Discovery](#phase-1-capacity-discovery)
@@ -244,6 +245,18 @@ This risk arguably exists even before DQO, for example when:
 
 - observability: the use of metrics to report the committed quota, and the
   `status.effectiveQuotas` will allow admins to detect the anomalies when the workloads are overcommitted.
+
+#### Quota above capacity after expiry
+
+When a provider stays unavailable until the effective quota expires, Kueue goes
+back to `spec.resourceGroups`. If the spec quota is higher than the capacity the
+provider last reported, Kueue can admit new workloads above that capacity.
+
+**Mitigation tactics**:
+
+- set a longer `effectiveQuotaTTLSeconds`, up to 24h, to keep the last distributed
+  quota longer during an outage.
+- set `spec.resourceGroups` to a quota that is safe to use without the orchestrator.
 
 ## Design Details
 
