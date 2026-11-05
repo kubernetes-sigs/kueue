@@ -253,6 +253,9 @@ assignment determine each Pod's rank-to-domain mapping. Node replacement fills t
 failed node's positions without reordering unaffected ranks. For example, an
 assignment of ranks `0, 1, 2` to nodes `A, B, C` becomes `A, Z, C` when `Z` replaces
 `B`, not `A, C, Z`. Nonindexed PodSets retain the sorted domain merge.
+For indexed PodSets with slice constraints, replacement must preserve slice
+boundaries at every requested topology level. A repair that would split a required
+slice is rejected rather than changing healthy ranks to make it fit.
 
 #### Replace Node on Pod termination 
 

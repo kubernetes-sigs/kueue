@@ -1114,9 +1114,10 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 	return leader, workers
 }
 
-// findReplacementAssignment finds the topology assignment for the replacement node
-// it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
-// reason if finding fails.
+// findReplacementAssignment repairs the first unhealthy node while retaining
+// healthy indexed ranks and rejecting repairs that split required slices.
+// It returns the repaired assignment, the replacement-only assignment used for
+// resource accounting, and a failure reason when no valid repair is found.
 // It is only reachable for workloads with hostname-level assignments, as
 // UnhealthyNodes is populated behind an IsLowestLevelHostname gate; the
 // assignment values here and in its helpers are therefore node-scoped even

@@ -3354,6 +3354,20 @@ func TestAssignmentSliceAligned(t *testing.T) {
 			sliceSize: 2,
 			want:      false,
 		},
+		"indexed consecutive nodes share a rack slice": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
 		"a slice of a single pod is always aligned": {
 			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).

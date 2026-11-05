@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -38,9 +39,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// Unlike fresh placement, repairs consume an existing ordered assignment, which
-// is persisted and decoded again between consecutive node failures.
+// TestFindTopologyAssignmentsIndexedReplacement checks repairs of persisted
+// rank intervals, including consecutive failures and slice-alignment rejection.
 func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
+	const (
+		zoneLabel = "example.com/zone"
+		rackLabel = "example.com/rack"
+	)
 	cases := map[string]struct {
 		original     []tas.TopologyDomainAssignment
 		capacity     map[string]int32
@@ -52,6 +57,9 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 		grouped      bool
 		leaderNode   string
 		wantLeader   string
+		nodeRacks    map[string]string
+		constraints  []kueue.PodsetSliceRequiredTopologyConstraint
+		wantFailure  string
 	}{
 		"middle node is replaced without shifting the last rank": {
 			original: []tas.TopologyDomainAssignment{
@@ -202,6 +210,75 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 				{Values: []string{"node-b"}, Count: 1},
 			}},
 		},
+		"replacement rejects a split rack slice": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+			},
+			capacity:  map[string]int32{"node-f": 2, "node-a": 1, "node-b": 1, "node-c": 2},
+			nodeRacks: map[string]string{"node-f": "r1", "node-a": "r1", "node-b": "r1", "node-c": "r2"},
+			failures:  [][]string{{"node-f"}},
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: rackLabel, Size: 2},
+			},
+			wantFailure: "cannot replace the node node-f without splitting a PodSet slice",
+		},
+		"outer zone alignment cannot hide a split inner rack slice": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+			},
+			capacity:  map[string]int32{"node-f": 2, "node-a": 1, "node-b": 1, "node-c": 2},
+			nodeRacks: map[string]string{"node-f": "r1", "node-a": "r1", "node-b": "r1", "node-c": "r2"},
+			failures:  [][]string{{"node-f"}},
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: zoneLabel, Size: 4},
+				{Topology: rackLabel, Size: 2},
+			},
+			wantFailure: "cannot replace the node node-f without splitting a PodSet slice",
+		},
+		"multilayer replacement keeps complete rack slices in the zone": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 2},
+				{Values: []string{"node-a"}, Count: 2},
+			},
+			capacity:  map[string]int32{"node-f": 2, "node-a": 2, "node-c": 2},
+			nodeRacks: map[string]string{"node-f": "r1", "node-a": "r1", "node-c": "r2"},
+			failures:  [][]string{{"node-f"}},
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: zoneLabel, Size: 4},
+				{Topology: rackLabel, Size: 2},
+			},
+			want: [][]tas.TopologyDomainAssignment{{
+				{Values: []string{"node-c"}, Count: 2},
+				{Values: []string{"node-a"}, Count: 2},
+			}},
+		},
+		"multilayer replacement can use consecutive nodes in the same rack": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-f"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+			},
+			capacity:  map[string]int32{"node-f": 2, "node-a": 1, "node-b": 1, "node-c": 2},
+			nodeRacks: map[string]string{"node-f": "r1", "node-a": "r1", "node-b": "r1", "node-c": "r1"},
+			failures:  [][]string{{"node-f"}},
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: zoneLabel, Size: 4},
+				{Topology: rackLabel, Size: 2},
+			},
+			want: [][]tas.TopologyDomainAssignment{{
+				{Values: []string{"node-c"}, Count: 1},
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-c"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+			}},
+		},
 		"grouped repair keeps the sibling assignment and surviving worker ranks": {
 			original: []tas.TopologyDomainAssignment{
 				{Values: []string{"node-a"}, Count: 1},
@@ -238,6 +315,7 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.TASAssignmentsEncodingByHostnamePrefix, prefixEncoding)
 				features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, !tc.singleFailed)
 				features.SetFeatureGateDuringTest(t, features.TASPartialSlices, true)
+				features.SetFeatureGateDuringTest(t, features.TASMultiLayerTopology, true)
 				assignment := &tas.TopologyAssignment{Levels: []string{corev1.LabelHostname}, Domains: tc.original}
 				count := tas.CountPodsInAssignment(assignment)
 				ps := utiltestingapi.MakePodSet("workers", int(count)).UnconstrainedTopologyRequest()
@@ -246,6 +324,9 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 				}
 				if tc.sliceSize > 0 {
 					ps.SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(tc.sliceSize)
+				}
+				if len(tc.constraints) > 0 {
+					ps.SliceRequiredTopologyConstraints(tc.constraints...)
 				}
 				leader := utiltestingapi.MakePodSet("leader", 1).
 					UnconstrainedTopologyRequest().PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation))
@@ -276,6 +357,9 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 								corev1.ResourceCPU:  resource.MustParse(fmt.Sprint(cpu)),
 								corev1.ResourcePods: resource.MustParse("100"),
 							})
+						if tc.nodeRacks != nil {
+							node.Label(zoneLabel, "z1").Label(rackLabel, tc.nodeRacks[name])
+						}
 						if failed[name] {
 							node.NotReady()
 						} else {
@@ -306,7 +390,11 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 							}
 						}
 					}
-					fc := cache.NewTASFlavorCache(topologyInformation{Levels: assignment.Levels}, flavorInformation{TopologyName: "default"})
+					levels := assignment.Levels
+					if tc.nodeRacks != nil {
+						levels = []string{zoneLabel, rackLabel, corev1.LabelHostname}
+					}
+					fc := cache.NewTASFlavorCache(topologyInformation{Levels: levels}, flavorInformation{TopologyName: "default"})
 					snapshot, err := fc.snapshot(ctx, log, newDefaultSimulator(), nil)
 					if err != nil {
 						t.Fatal(err)
@@ -341,6 +429,18 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 					wl.Admission(admission.Obj())
 					original := wl.Obj().DeepCopy()
 					got := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(workload.NewInfo(log, wl.Obj())))
+					if tc.wantFailure != "" {
+						if got["workers"].FailureReason != tc.wantFailure {
+							t.Fatalf("step %d: got failure %q, want %q", step, got["workers"].FailureReason, tc.wantFailure)
+						}
+						if got["workers"].TopologyAssignment != nil {
+							t.Errorf("step %d: rejected replacement returned assignment: %v", step, got["workers"].TopologyAssignment)
+						}
+						if diff := cmp.Diff(original, wl.Obj()); diff != "" {
+							t.Errorf("rejected replacement mutated the admitted workload (-want,+got):\n%s", diff)
+						}
+						continue
+					}
 					if got["workers"].FailureReason != "" {
 						t.Fatalf("step %d: %s", step, got["workers"].FailureReason)
 					}
@@ -376,6 +476,8 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 	}
 }
 
+// TestReplaceDomainInOrderRejectsInvalidCounts checks that malformed replacement
+// counts cannot produce an assignment with missing or extra rank intervals.
 func TestReplaceDomainInOrderRejectsInvalidCounts(t *testing.T) {
 	cases := map[string]struct {
 		count int32

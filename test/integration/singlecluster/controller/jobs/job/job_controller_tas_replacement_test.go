@@ -186,6 +186,21 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+		ginkgo.By("keeping the repaired admission and rank order stable", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalUID))
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
+				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				assignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+				g.Expect(slices.Collect(tas.LowestLevelValues(assignment))).
+					To(gomega.Equal([]string{"node1", "node4", "node3"}))
+				g.Expect(slices.Collect(tas.PodCounts(assignment))).To(gomega.Equal([]int32{1, 1, 1}))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.It("evicts on a failed replacement when both features are enabled", framework.SlowSpec, func() {

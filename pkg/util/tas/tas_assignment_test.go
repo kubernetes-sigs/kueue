@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
+// TestComputeUsagePerDomain checks that repeated rank runs retain all resource
+// and Pod-slot reservations without mutating per-Pod requests.
 func TestComputeUsagePerDomain(t *testing.T) {
 	cases := map[string]struct {
 		domains []TopologyDomainAssignment
