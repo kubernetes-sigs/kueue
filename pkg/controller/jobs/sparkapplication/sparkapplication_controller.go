@@ -56,6 +56,9 @@ const (
 	// maxExecutorIDAnnotation records the highest executor ID of the current
 	// submission, which feeds the elastic workload-slice name.
 	maxExecutorIDAnnotation = "kueue.x-k8s.io/spark-max-executor-id"
+	// maxExecutorIDSubmissionAnnotation records the submission that
+	// maxExecutorIDAnnotation belongs to.
+	maxExecutorIDSubmissionAnnotation = "kueue.x-k8s.io/spark-max-executor-id-submission"
 )
 
 // The driver and executor PodSets are always present, in this order.
@@ -409,17 +412,19 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	if c == nil || !j.driverStarted() {
 		return initialExecutors, nil
 	}
-	count, err := j.numActiveExecutors(ctx, c)
+	count, maxID, err := j.countExecutorPods(ctx, c)
 	if err != nil {
 		return 0, err
 	}
 	// The driver creates its initial executors in batches, so fewer executors before
-	// it has created them all are not a scale-down. The driver can lower its target
+	// it has created them all are not a scale-down. Spark numbers the executors of a
+	// submission from 1 and never reuses an ID, so the highest executor ID is the
+	// number of executors the driver has created. The driver can lower its target
 	// before it creates them all, and it stops an executor only after lowering its
-	// target, so once one has stopped the driver is no longer ramping up. The Spark
-	// Operator keeps every executor of the current submission in status.executorState
-	// after it stops.
-	created := len(j.Status.ExecutorState)
+	// target, so once one has stopped the driver is no longer ramping up. The pods
+	// of stopped executors can be deleted, so the highest ID also comes from
+	// maxExecutorIDAnnotation.
+	created := max(j.recordedMaxExecutorID(), maxID)
 	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
 	if !createdAll && created <= int(count) {
 		return initialExecutors, nil
@@ -434,22 +439,38 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	return count, nil
 }
 
-// numActiveExecutors returns the number of executor pods of the current
-// submission that the driver keeps, pending or running. It counts pods rather
-// than status.executorState, because the Spark Operator stops adding executors
+// countExecutorPods returns the number of executor pods of the current
+// submission that the driver keeps, pending or running, and the highest
+// executor ID among all of them. It reads pods rather than
+// status.executorState, because the Spark Operator stops adding executors
 // there once their ID exceeds its tracking limit.
-func (j *SparkApplication) numActiveExecutors(ctx context.Context, c client.Client) (int32, error) {
+func (j *SparkApplication) countExecutorPods(ctx context.Context, c client.Client) (int32, int, error) {
 	pods, err := j.listExecutorPods(ctx, c)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	var count int32
+	var active int32
+	var maxID int
 	for _, pod := range pods.Items {
 		if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
-			count++
+			active++
+		}
+		if id, err := strconv.Atoi(pod.Labels[sparkcommon.LabelSparkExecutorID]); err == nil {
+			maxID = max(maxID, id)
 		}
 	}
-	return count, nil
+	return active, maxID, nil
+}
+
+// recordedMaxExecutorID returns the highest executor ID recorded in
+// maxExecutorIDAnnotation for the current submission, or 0 if the record
+// belongs to a previous one.
+func (j *SparkApplication) recordedMaxExecutorID() int {
+	if j.Annotations[maxExecutorIDSubmissionAnnotation] != j.Status.SubmissionID {
+		return 0
+	}
+	id, _ := strconv.Atoi(j.Annotations[maxExecutorIDAnnotation])
+	return id
 }
 
 // listExecutorPods lists the executor pods of the current submission.
@@ -482,23 +503,21 @@ func (j *SparkApplication) driverStarted() bool {
 }
 
 // GetCustomAnnotations records the highest executor ID of the current
-// submission of an elastic job in maxExecutorIDAnnotation, for
-// GetWorkloadNameExtraPart.
+// submission of an elastic job in maxExecutorIDAnnotation, for numExecutors and
+// GetWorkloadNameExtraPart. The recorded ID never decreases within a
+// submission, so it survives the deletion of executor pods.
 func (j *SparkApplication) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
 	if !isAnElasticJob(j) || j.Status.SubmissionID == "" {
 		return nil, nil
 	}
-	pods, err := j.listExecutorPods(ctx, c)
+	_, maxID, err := j.countExecutorPods(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	var maxID int
-	for _, pod := range pods.Items {
-		if id, err := strconv.Atoi(pod.Labels[sparkcommon.LabelSparkExecutorID]); err == nil {
-			maxID = max(maxID, id)
-		}
-	}
-	return map[string]string{maxExecutorIDAnnotation: strconv.Itoa(maxID)}, nil
+	return map[string]string{
+		maxExecutorIDAnnotation:           strconv.Itoa(max(j.recordedMaxExecutorID(), maxID)),
+		maxExecutorIDSubmissionAnnotation: j.Status.SubmissionID,
+	}, nil
 }
 
 // GetWorkloadNameExtraPart folds the submission attempt and the highest

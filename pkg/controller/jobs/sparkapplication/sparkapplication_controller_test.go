@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -333,12 +334,26 @@ func TestPodSetsExecutorCount(t *testing.T) {
 	rampingUpSparkApp := elasticSparkApp.Clone().
 		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4))}).
 		AppState(sparkappv1beta2.ApplicationStateRunning)
-	executorPods := func(phase corev1.PodPhase, names ...string) []corev1.Pod {
-		pods := make([]corev1.Pod, 0, len(names))
-		for _, name := range names {
-			pods = append(pods, *executorPod.Clone().Name(name).StatusPhase(phase).Obj())
+	// executorPods returns executor pods of the current submission with the
+	// given IDs.
+	executorPods := func(phase corev1.PodPhase, ids ...int) []corev1.Pod {
+		pods := make([]corev1.Pod, 0, len(ids))
+		for _, id := range ids {
+			pods = append(pods, *executorPod.Clone().
+				Name(fmt.Sprintf("exec-%d", id)).
+				Label(sparkcommon.LabelSparkExecutorID, strconv.Itoa(id)).
+				StatusPhase(phase).
+				Obj())
 		}
 		return pods
+	}
+	// executorIDs returns the IDs from first to last.
+	executorIDs := func(first, last int) []int {
+		ids := make([]int, 0, last-first+1)
+		for id := first; id <= last; id++ {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 
 	testCases := map[string]struct {
@@ -350,121 +365,96 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
 				ExecutorInstances(2).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
 				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
 		},
 		"elastic without dynamic allocation: initial executors": {
-			sparkApp: elasticSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
+			sparkApp:  elasticSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
 		},
 		"elastic, driver not started: initial executors": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateSubmitted).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
+			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateSubmitted).Obj(),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
 		},
 		"elastic, suspended with stale executors: initial executors": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateSuspended).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
+			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateSuspended).Obj(),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
 		},
-		"elastic, running without reported executors: initial executors": {
+		"elastic, running without executors: initial executors": {
 			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
 			wantCount: 2,
 		},
 		"elastic, running: pending and running executors": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-3", sparkappv1beta2.ExecutorStatePending).
-				ExecutorState("exec-4", sparkappv1beta2.ExecutorStateCompleted).
-				ExecutorState("exec-5", sparkappv1beta2.ExecutorStateFailed).
-				Obj(),
+			sparkApp: dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
 			pods: slices.Concat(
-				executorPods(corev1.PodRunning, "exec-1", "exec-2"),
-				executorPods(corev1.PodPending, "exec-3"),
-				executorPods(corev1.PodSucceeded, "exec-4"),
-				executorPods(corev1.PodFailed, "exec-5"),
+				executorPods(corev1.PodRunning, 1, 2),
+				executorPods(corev1.PodPending, 3),
+				executorPods(corev1.PodSucceeded, 4),
+				executorPods(corev1.PodFailed, 5),
 			),
 			wantCount: 3,
 		},
 		"elastic, unknown: counts pods": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateUnknown).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-3", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1", "exec-2", "exec-3"),
+			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateUnknown).Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3),
 			wantCount: 3,
 		},
-		"elastic, unknown without reported executors: initial executors": {
+		"elastic, unknown without executors: initial executors": {
 			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateUnknown).Obj(),
 			wantCount: 2,
 		},
 		"elastic, running before the initial executors are created: initial executors": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1"),
+			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
 		},
 		"elastic, running with maxExecutors below the initial executors: counts pods": {
 			sparkApp: elasticSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(1))}).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
 				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1"),
+			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 1,
 		},
 		"elastic, running with executors untracked by the operator: counts pods": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateCompleted).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateCompleted).
-				Obj(),
+			sparkApp: dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
 			pods: slices.Concat(
-				executorPods(corev1.PodSucceeded, "exec-1"),
-				executorPods(corev1.PodRunning, "exec-1001", "exec-1002"),
-				executorPods(corev1.PodPending, "exec-1003"),
+				executorPods(corev1.PodSucceeded, 1),
+				executorPods(corev1.PodRunning, 1001, 1002),
+				executorPods(corev1.PodPending, 1003),
 			),
 			wantCount: 3,
 		},
-		"elastic, running: executors of a previous submission are not counted": {
-			sparkApp: dynamicSparkApp.Clone().
+		"elastic, more initial executors than the operator tracks: scale-up counts pods": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(1002)), MaxExecutors: new(int32(2000))}).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateCompleted).
 				Obj(),
-			pods: []corev1.Pod{
-				*executorPod.Clone().Name("old-exec-1").Label(sparkcommon.LabelSubmissionID, "sub-0").StatusPhase(corev1.PodRunning).Obj(),
-				*executorPod.Clone().Name("old-exec-2").Label(sparkcommon.LabelSubmissionID, "sub-0").StatusPhase(corev1.PodRunning).Obj(),
-				*executorPod.Clone().Name("exec-1").StatusPhase(corev1.PodRunning).Obj(),
-			},
-			wantCount: 1,
+			pods:      executorPods(corev1.PodRunning, executorIDs(1, 1003)...),
+			wantCount: 1003,
+		},
+		"elastic, running: executors of a previous submission are not counted": {
+			sparkApp: dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
+			pods: slices.Concat(
+				[]corev1.Pod{
+					*executorPod.Clone().Name("old-exec-1").Label(sparkcommon.LabelSubmissionID, "sub-0").
+						Label(sparkcommon.LabelSparkExecutorID, "1").StatusPhase(corev1.PodRunning).Obj(),
+					*executorPod.Clone().Name("old-exec-2").Label(sparkcommon.LabelSubmissionID, "sub-0").
+						Label(sparkcommon.LabelSparkExecutorID, "2").StatusPhase(corev1.PodRunning).Obj(),
+				},
+				executorPods(corev1.PodRunning, 1, 2, 3),
+			),
+			wantCount: 3,
 		},
 		"elastic, running above maxExecutors: capped": {
-			sparkApp: dynamicSparkApp.Clone().
-				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-3", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-4", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-5", sparkappv1beta2.ExecutorStatePending).
-				Obj(),
+			sparkApp: dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
 			pods: slices.Concat(
-				executorPods(corev1.PodRunning, "exec-1", "exec-2", "exec-3", "exec-4"),
-				executorPods(corev1.PodPending, "exec-5"),
+				executorPods(corev1.PodRunning, 1, 2, 3, 4),
+				executorPods(corev1.PodPending, 5),
 			),
 			wantCount: 4,
 		},
@@ -472,16 +462,15 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			sparkApp: elasticSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))}).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateFailed).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateFailed).
 				Obj(),
+			pods:      executorPods(corev1.PodFailed, 1, 2),
 			wantCount: 1,
 		},
 		"elastic, completed: does not fall back to initial executors": {
 			sparkApp: dynamicSparkApp.Clone().
 				AppState(sparkappv1beta2.ApplicationStateCompleted).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateCompleted).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateCompleted).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
 				Obj(),
 			wantCount: 0,
 		},
@@ -501,47 +490,40 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			sparkApp: elasticSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(3))}).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
 				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1", "exec-2"),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
 			wantCount: 3,
 		},
-		"elastic, ramping up with an executor not reported yet: initial executors": {
-			sparkApp: rampingUpSparkApp.Clone().
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1", "exec-2"),
-			wantCount: 4,
-		},
 		"elastic, executor stopped before the initial executors are created: counts pods": {
-			sparkApp: rampingUpSparkApp.Clone().
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-3", sparkappv1beta2.ExecutorStateCompleted).
-				Obj(),
+			sparkApp: rampingUpSparkApp.Clone().Obj(),
 			pods: slices.Concat(
-				executorPods(corev1.PodRunning, "exec-1", "exec-2"),
-				executorPods(corev1.PodSucceeded, "exec-3"),
+				executorPods(corev1.PodRunning, 1, 2),
+				executorPods(corev1.PodSucceeded, 3),
 			),
 			wantCount: 2,
 		},
 		"elastic, executor pod deleted before the initial executors are created: counts pods": {
 			sparkApp: rampingUpSparkApp.Clone().
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
-				ExecutorState("exec-3", sparkappv1beta2.ExecutorStatePending).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
 				Obj(),
-			pods:      executorPods(corev1.PodRunning, "exec-1", "exec-2"),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
 			wantCount: 2,
+		},
+		"elastic, executor ID recorded for a previous submission: initial executors": {
+			sparkApp: rampingUpSparkApp.Clone().
+				Annotation(maxExecutorIDAnnotation, "10").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-0").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
+			wantCount: 4,
 		},
 		"elastic, completed: count stays at minExecutors": {
 			sparkApp: elasticSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))}).
 				AppState(sparkappv1beta2.ApplicationStateCompleted).
-				ExecutorState("exec-1", sparkappv1beta2.ExecutorStateCompleted).
-				ExecutorState("exec-2", sparkappv1beta2.ExecutorStateCompleted).
 				Obj(),
+			pods:      executorPods(corev1.PodSucceeded, 1, 2),
 			wantCount: 1,
 		},
 	}
@@ -633,7 +615,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 		},
 		"submitted, no executors yet": {
 			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").Obj(),
-			want:     map[string]string{maxExecutorIDAnnotation: "0"},
+			want:     map[string]string{maxExecutorIDAnnotation: "0", maxExecutorIDSubmissionAnnotation: "sub-1"},
 		},
 		"executors untracked by the operator": {
 			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").Obj(),
@@ -642,7 +624,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 				*executorPod.Clone().Name("exec-1003").Label(sparkcommon.LabelSparkExecutorID, "1003").Obj(),
 				*executorPod.Clone().Name("exec-1002").Label(sparkcommon.LabelSparkExecutorID, "1002").Obj(),
 			},
-			want: map[string]string{maxExecutorIDAnnotation: "1003"},
+			want: map[string]string{maxExecutorIDAnnotation: "1003", maxExecutorIDSubmissionAnnotation: "sub-1"},
 		},
 		"executors of a previous submission are ignored": {
 			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").Obj(),
@@ -650,7 +632,27 @@ func TestGetCustomAnnotations(t *testing.T) {
 				*executorPod.Clone().Name("old-exec-5").Label(sparkcommon.LabelSubmissionID, "sub-0").Label(sparkcommon.LabelSparkExecutorID, "5").Obj(),
 				*executorPod.Clone().Name("exec-1").Label(sparkcommon.LabelSparkExecutorID, "1").Obj(),
 			},
-			want: map[string]string{maxExecutorIDAnnotation: "1"},
+			want: map[string]string{maxExecutorIDAnnotation: "1", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"executor pods deleted: keeps the recorded ID": {
+			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").
+				Annotation(maxExecutorIDAnnotation, "5").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods: []corev1.Pod{
+				*executorPod.Clone().Name("exec-1").Label(sparkcommon.LabelSparkExecutorID, "1").Obj(),
+			},
+			want: map[string]string{maxExecutorIDAnnotation: "5", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"new submission: resets the recorded ID": {
+			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").
+				Annotation(maxExecutorIDAnnotation, "5").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-0").
+				Obj(),
+			pods: []corev1.Pod{
+				*executorPod.Clone().Name("exec-1").Label(sparkcommon.LabelSparkExecutorID, "1").Obj(),
+			},
+			want: map[string]string{maxExecutorIDAnnotation: "1", maxExecutorIDSubmissionAnnotation: "sub-1"},
 		},
 	}
 	for name, tc := range testCases {

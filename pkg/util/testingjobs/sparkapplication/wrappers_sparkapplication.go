@@ -257,15 +257,6 @@ func (w *SparkApplicationWrapper) SubmissionID(id string) *SparkApplicationWrapp
 	return w
 }
 
-// ExecutorState sets the state of an executor in the status.
-func (w *SparkApplicationWrapper) ExecutorState(name string, state sparkappv1beta2.ExecutorState) *SparkApplicationWrapper {
-	if w.Status.ExecutorState == nil {
-		w.Status.ExecutorState = make(map[string]sparkappv1beta2.ExecutorState)
-	}
-	w.Status.ExecutorState[name] = state
-	return w
-}
-
 // Queue sets the local queue name in the annotations.
 func (w *SparkApplicationWrapper) Queue(lq string) *SparkApplicationWrapper {
 	return w.Label(controllerconstants.QueueLabel, lq)
