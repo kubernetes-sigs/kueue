@@ -196,7 +196,9 @@ By default, the node is assumed to have failed if it is missing (removed from th
 cluster), or if its `conditions.Status.Ready` is not `True` and the workload's Pods
 scheduled on that node are either terminated or terminating. A node is not
 considered failed when all of the workload's Pods assigned to it have succeeded,
-because none of them needs to run again. A node with
+because none of them needs to run again. This doesn't apply to a PodSet with
+multiple Pods and no Pod index label, because Kueue can't tell which Pods have
+completed, so the node can still be considered failed. A node with
 still-running Pods is not considered failed, no matter how long its
 `conditions.Status.Ready` has not been `True`: nodes can recover after an arbitrary
 amount of time, and reassigning while the Pods are alive makes the stored assignment
