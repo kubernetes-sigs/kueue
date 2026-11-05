@@ -54,7 +54,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		var candidatesGenerator classical.CandidateIterator
-		attemptsIterator := newLazyInitIterator(func() []preemptionAttemptOpts {
+		attemptsIterator := newLazyInitOpts(func() []preemptionAttemptOpts {
 			candidatesGenerator = classical.NewCandidateIterator(
 				hierarchicalReclaimCtx,
 				preemptor.enabledAfs,
@@ -112,23 +112,23 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	}
 }
 
-type lazyInitIterator[T any] struct {
-	initialize  func() []T
+type lazyInitOpts struct {
+	initialize  func() []preemptionAttemptOpts
 	initialized bool
-	items       []T
+	items       []preemptionAttemptOpts
 }
 
-func newLazyInitIterator[T any](init func() []T) *lazyInitIterator[T] {
-	return &lazyInitIterator[T]{initialize: init}
+func newLazyInitOpts(init func() []preemptionAttemptOpts) *lazyInitOpts {
+	return &lazyInitOpts{initialize: init}
 }
 
 // hasNext returns true before initialization (assuming initialize returns at
 // least one element) and while unconsumed items remain.
-func (li *lazyInitIterator[T]) hasNext() bool {
+func (li *lazyInitOpts) hasNext() bool {
 	return !li.initialized || len(li.items) > 0
 }
 
-func (li *lazyInitIterator[T]) next() T {
+func (li *lazyInitOpts) next() preemptionAttemptOpts {
 	if !li.initialized {
 		li.items = li.initialize()
 		li.initialized = true
