@@ -20,8 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,11 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-)
 
-const (
-	defaultListRequestLimit         = 100
-	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 )
 
 var (
@@ -42,8 +37,8 @@ var (
 		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
 			"It does not limit the output: all matching objects are listed. "+
 			"The default is %d; 0 fetches all objects in a single request.",
-		KueuectlListRequestLimitEnvName,
-		defaultListRequestLimit,
+		kueuectlutil.KueuectlListRequestLimitEnvName,
+		kueuectlutil.DefaultListRequestLimit,
 	)
 
 	errMultipleActiveFlags = errors.New("only one active flag can be provided")
@@ -51,21 +46,6 @@ var (
 
 func listLongDesc(s string) string {
 	return templates.LongDesc(s) + "\n\n" + listRequestLimitDescription
-}
-
-func listRequestLimit() (int64, error) {
-	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
-
-	if len(listRequestLimitEnv) == 0 {
-		return defaultListRequestLimit, nil
-	}
-
-	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil || limit < 0 {
-		return 0, fmt.Errorf("invalid list request limit: %s=%q must be a non-negative integer", KueuectlListRequestLimitEnvName, listRequestLimitEnv)
-	}
-
-	return limit, nil
 }
 
 func addFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
