@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -240,9 +241,17 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	})
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+		// One call resolves the class once, so every component moving to it gets
+		// the same value. It goes first: a refused update stays on the in-memory
+		// Workload, and a later call would resend it, fail, and skip the rest.
+		priorityErr := jobframework.UpdateWorkloadPriorities(ctx, r.client, r.record, lws, nil, toUpdate...)
+		if priorityErr != nil {
+			log.Error(priorityErr, "Failed to update workload priority")
+		}
+		updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
 			return r.updateWorkload(ctx, lws, toUpdate[i])
 		})
+		return errors.Join(priorityErr, updateErr)
 	})
 
 	eg.Go(func() error {
@@ -472,12 +481,6 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
-	}
-
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
-	if err != nil {
-		log.Error(err, "Failed to update workload priority")
-		return err
 	}
 
 	return nil
