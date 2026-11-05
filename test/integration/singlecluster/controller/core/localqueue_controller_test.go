@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, queue)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		for _, rf := range resourceFlavors {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
