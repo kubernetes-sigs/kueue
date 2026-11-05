@@ -438,6 +438,15 @@ func (r *cpReconciler) queueEventsForMKCluster(ctx context.Context, clusterName 
 	}
 }
 
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacityproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacityproviders/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueuecapacityproviderconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
+
 func (r *cpReconciler) setupWithManager(mgr ctrl.Manager) error {
 	cpEventFilter := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		cp, ok := obj.(*kueuealpha.CapacityProvider)
