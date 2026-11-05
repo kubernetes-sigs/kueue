@@ -110,7 +110,8 @@ Kueue rejects adding tolerations while the partition is greater than 0, because 
 does not update the groups below the partition.
 
 In MultiKueue, Kueue also copies the new tolerations to the Workloads and the LeaderWorkerSet
-on the worker cluster.
+on the worker cluster. Together with the tolerations, Kueue copies the
+`rolloutStrategy.rollingUpdateConfiguration.partition`, so that the worker cluster updates all groups too.
 
 To turn this off, disable the `AllowAddingPodTemplateTolerations`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).

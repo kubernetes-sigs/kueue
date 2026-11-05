@@ -81,7 +81,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 			// Added tolerations must reach the pods that the remote LWS creates. They
 			// are patched separately, so that a rejection does not block the scale down.
 			err = clientutil.Patch(ctx, remoteClient, &remoteLWS, func() (bool, error) {
-				return utiltolerations.CopyAddedByName(podTemplates(&remoteLWS), podTemplates(&localLWS)), nil
+				return copyAddedTolerations(&remoteLWS, &localLWS), nil
 			})
 			if apierrors.IsForbidden(err) {
 				// A Forbidden error is permanent: the worker rejects the tolerations,
@@ -115,6 +115,21 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// Use IgnoreAlreadyExists because LWS has multiple workloads (one per replica),
 	// and they may all try to create the same LWS concurrently.
 	return false, client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
+}
+
+// copyAddedTolerations copies the tolerations added to the local LeaderWorkerSet
+// to the remote one, and reports whether the local one added any.
+func copyAddedTolerations(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
+	if !utiltolerations.CopyAddedByName(podTemplates(remote), podTemplates(local)) {
+		return false
+	}
+	// The remote LWS keeps the partition it was created with. The manager admits added
+	// tolerations only with its partition at 0, so the partition is copied with them to
+	// let the worker admit the tolerations and update all groups as well.
+	if cfg := remote.Spec.RolloutStrategy.RollingUpdateConfiguration; cfg != nil {
+		cfg.Partition = new(rollingUpdatePartition((*LeaderWorkerSet)(local)))
+	}
+	return true
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
