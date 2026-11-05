@@ -36,6 +36,19 @@
     (e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
     primary workload ordering when dispatching component workloads to worker clusters atomically.
 
+- key: kueue.x-k8s.io/concurrent-admission-parent
+  type: Label
+  example: '`kueue.x-k8s.io/concurrent-admission-parent: "true"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The label marks a Workload as the parent of the variant Workloads created for
+    [ConcurrentAdmission](/docs/concepts/concurrent_admission/). The value is `"true"`.
+    Variant Workloads do not carry the label. The ConcurrentAdmission controller uses it
+    to list parent Workloads and to clean up the variants they own.
+
+    This label is alpha-level for the `ConcurrentAdmission` feature gate.
+
 - key: kueue.x-k8s.io/elastic-job
   type: Annotation
   example: '`kueue.x-k8s.io/elastic-job: "true"`'
@@ -49,6 +62,23 @@
     to delay their scheduling until the associated workload slice has been admitted.
 
     This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: kueue.x-k8s.io/elastic-job-scale-up-strategy
+  type: Annotation
+  example: '`kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"`'
+  used_on: |
+    [batch/Job](/docs/tasks/run/jobs/).
+  description: |
+    The annotation selects how an elastic Job is admitted when it scales up.
+    `"atomic"` (the default when the annotation is unset) waits until every replica fits
+    before starting any of them. `"partial"` admits the replicas that fit and starts them
+    while the rest wait for quota.
+
+    The admission webhook validates the annotation only when
+    `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` is enabled. When the gate is on,
+    the Job must also set `kueue.x-k8s.io/elastic-job: "true"`, `ElasticJobsViaWorkloadSlices`
+    must be enabled, and the value must be exactly `"atomic"` or `"partial"`.
+    When the gate is off, the annotation is allowed and ignored.
 
 - key: kueue.x-k8s.io/is-group-workload
   type: Annotation
@@ -153,6 +183,18 @@
     The annotation stores the UID of the original object from the management cluster on remote objects
     in worker clusters. Used by job types (e.g., LeaderWorkerSet) that generate workload names based on
     their UID, ensuring workload names match between management and worker clusters.
+
+- key: kueue.x-k8s.io/multikueue-worker-workload-pod
+  type: Label
+  example: '`kueue.x-k8s.io/multikueue-worker-workload-pod: "true"`'
+  used_on: |
+    Pods on a MultiKueue worker cluster.
+  description: |
+    The label marks a Pod that runs on a MultiKueue worker cluster and belongs to a
+    Workload dispatched from the management cluster. The value is `"true"`. Kueue adds it
+    when it creates the Pods for a Workload that carries the
+    `kueue.x-k8s.io/multikueue-origin` label, so the pod can be traced back to a remote
+    MultiKueue workload.
 
 - key: kueue.x-k8s.io/pod-group-fast-admission
   type: Annotation
