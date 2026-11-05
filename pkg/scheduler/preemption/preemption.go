@@ -121,7 +121,7 @@ func newPreemptionStrategy(
 		allowBorrowing:             allowBorrowing,
 		pCtx:                       pCtx,
 		targetsByKey:               make(map[workload.Reference]*Target),
-		committedPreemptionVictims: map[workload.Reference]*workload.Info{},
+		committedPreemptionVictims: make(map[workload.Reference]*workload.Info),
 	}
 	for _, opt := range opts {
 		opt(&ps)
