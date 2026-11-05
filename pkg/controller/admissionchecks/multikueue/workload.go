@@ -1081,6 +1081,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				return err
 			}
 		}
+		if len(nominatedWorkers) == 0 && len(group.unavailableClusters) > 0 {
+			return fmt.Errorf("no connected cluster to nominate, unavailable clusters: %v", group.unavailableClusters)
+		}
 	} else {
 		// Incremental dispatcher and External dispatcher path
 		nominatedWorkers = group.local.Status.NominatedClusterNames
