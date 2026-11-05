@@ -70,7 +70,7 @@ case "$*" in
     attempts=$(cat "${state_file}")
     attempts=$((attempts + 1))
     printf '%s' "${attempts}" >"${state_file}"
-    if [[ "${attempts}" -lt 2 ]]; then
+    if [[ "${attempts}" -lt "${KUBECTL_FAKE_READY_AFTER:-2}" ]]; then
       printf 'pod-1\n'
       printf 'pod-1\n'
     else
@@ -209,6 +209,27 @@ fi
 status_dump_count=$(grep -c -- "-o wide" "${KUBECTL_FAKE_LOG}" || true)
 if [[ "${status_dump_count}" != "1" ]]; then
   echo "expected EndpointSlice status to be dumped after an unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+  exit 1
+fi
+
+# Polling keeps a constant delay: doubling it over 150 attempts would never time out.
+SLEEP_FAKE_DIR="${test_dir}/sleep-fake"
+SLEEP_FAKE_LOG="${test_dir}/sleep.log"
+export SLEEP_FAKE_LOG
+mkdir "${SLEEP_FAKE_DIR}"
+cat >"${SLEEP_FAKE_DIR}/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s ' "$1" >>"${SLEEP_FAKE_LOG}"
+EOF
+chmod +x "${SLEEP_FAKE_DIR}/sleep"
+printf '0' >"${KUBECTL_FAKE_STATE}"
+
+KUBECTL_FAKE_READY_AFTER=4 PATH="${SLEEP_FAKE_DIR}:${PATH}" e2e_wait_for_deployment_webhook_endpoints \
+  "test.kubeconfig" "kubeflow-system" "kubeflow-trainer-controller-manager" "kubeflow-trainer-controller-manager"
+
+polling_delays=$(cat "${SLEEP_FAKE_LOG}")
+if [[ "${polling_delays}" != "2 2 2 " ]]; then
+  echo "expected EndpointSlice polling to keep a constant delay; got '${polling_delays}'" >&2
   exit 1
 fi
 
