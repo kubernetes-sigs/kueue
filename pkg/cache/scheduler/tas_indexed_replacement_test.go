@@ -60,6 +60,7 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 		nodeRacks    map[string]string
 		constraints  []kueue.PodsetSliceRequiredTopologyConstraint
 		wantFailure  string
+		deleteFailed bool
 	}{
 		"middle node is replaced without shifting the last rank": {
 			original: []tas.TopologyDomainAssignment{
@@ -179,6 +180,94 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 					{Values: []string{"node-z"}, Count: 1},
 				},
 			},
+		},
+		"queued deleted nodes retain complete hostname slices between repairs": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 2},
+				{Values: []string{"node-b"}, Count: 2},
+				{Values: []string{"node-c"}, Count: 2},
+				{Values: []string{"node-d"}, Count: 2},
+			},
+			capacity:     map[string]int32{"node-a": 2, "node-b": 2, "node-c": 2, "node-d": 2, "node-y": 2, "node-z": 2},
+			failures:     [][]string{{"node-b", "node-d"}, {"node-d"}},
+			sliceSize:    2,
+			deleteFailed: true,
+			want: [][]tas.TopologyDomainAssignment{
+				{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-y"}, Count: 2},
+					{Values: []string{"node-c"}, Count: 2},
+					{Values: []string{"node-d"}, Count: 2},
+				},
+				{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-y"}, Count: 2},
+					{Values: []string{"node-c"}, Count: 2},
+					{Values: []string{"node-z"}, Count: 2},
+				},
+			},
+		},
+		"queued deleted node holds complete slices at every layer": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 4},
+				{Values: []string{"node-a"}, Count: 4},
+				{Values: []string{"node-b"}, Count: 4},
+			},
+			capacity:     map[string]int32{"node-f": 4, "node-a": 4, "node-b": 4, "node-c": 4, "node-d": 4},
+			nodeRacks:    map[string]string{"node-f": "r1", "node-a": "r1", "node-b": "r1", "node-c": "r2", "node-d": "r2"},
+			failures:     [][]string{{"node-f", "node-b"}, {"node-b"}},
+			deleteFailed: true,
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: zoneLabel, Size: 4},
+				{Topology: rackLabel, Size: 2},
+			},
+			want: [][]tas.TopologyDomainAssignment{
+				{
+					{Values: []string{"node-c"}, Count: 4},
+					{Values: []string{"node-a"}, Count: 4},
+					{Values: []string{"node-b"}, Count: 4},
+				},
+				{
+					{Values: []string{"node-c"}, Count: 4},
+					{Values: []string{"node-a"}, Count: 4},
+					{Values: []string{"node-d"}, Count: 4},
+				},
+			},
+		},
+		"queued deleted node retains its trailing partial hostname slice": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 2},
+				{Values: []string{"node-b"}, Count: 2},
+				{Values: []string{"node-c"}, Count: 2},
+				{Values: []string{"node-d"}, Count: 1},
+			},
+			capacity:     map[string]int32{"node-a": 2, "node-b": 2, "node-c": 2, "node-d": 1, "node-y": 2, "node-z": 1},
+			failures:     [][]string{{"node-b", "node-d"}},
+			sliceSize:    2,
+			deleteFailed: true,
+			want: [][]tas.TopologyDomainAssignment{
+				{
+					{Values: []string{"node-a"}, Count: 2},
+					{Values: []string{"node-y"}, Count: 2},
+					{Values: []string{"node-c"}, Count: 2},
+					{Values: []string{"node-d"}, Count: 1},
+				},
+			},
+		},
+		"queued deleted node cannot hide unknown rack ancestry within a slice": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-f"}, Count: 2},
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+			},
+			capacity:     map[string]int32{"node-f": 2, "node-a": 1, "node-b": 1, "node-c": 2},
+			nodeRacks:    map[string]string{"node-f": "r1", "node-a": "r1", "node-b": "r1", "node-c": "r2"},
+			failures:     [][]string{{"node-f", "node-b"}},
+			deleteFailed: true,
+			constraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+				{Topology: rackLabel, Size: 2},
+			},
+			wantFailure: "cannot replace the node node-f without splitting a PodSet slice",
 		},
 		"reusing a surviving node does not move its existing rank": {
 			original: []tas.TopologyDomainAssignment{
@@ -352,6 +441,9 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 					var nodes []*corev1.Node
 					var objects []client.Object
 					for name, cpu := range tc.capacity {
+						if tc.deleteFailed && failed[name] {
+							continue
+						}
 						node := testingnode.MakeNode(name).Label(corev1.LabelHostname, name).
 							StatusAllocatable(corev1.ResourceList{
 								corev1.ResourceCPU:  resource.MustParse(fmt.Sprint(cpu)),

@@ -1190,7 +1190,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		// Indexed repairs must instead retain the original rank positions.
 		s.normalizeTailLast(newAssignment, tr.PodSet.TopologyRequest, sliceSize)
 	}
-	if !s.assignmentSliceAligned(newAssignment, tr.PodSet.TopologyRequest, sliceSize) {
+	if !s.assignmentSliceAligned(newAssignment, tr.PodSet.TopologyRequest, sliceSize, ignoreNodes) {
 		// The repair could not keep the slices whole, which the rank-based
 		// ungating relies on. Reject it and let the workload be rescheduled
 		// from scratch instead of publishing a misaligned assignment.
@@ -1779,7 +1779,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		// The partial slice may have landed in any of the domains, while the
 		// ungater expects it last in the published order.
 		s.normalizeTailLast(workerAssignment, topologyRequest, state.sliceSize)
-		if utiltas.CountPodsInAssignment(workerAssignment) != state.count || !s.assignmentSliceAligned(workerAssignment, topologyRequest, state.sliceSize) {
+		if utiltas.CountPodsInAssignment(workerAssignment) != state.count || !s.assignmentSliceAligned(workerAssignment, topologyRequest, state.sliceSize, nil) {
 			// Defensive: the domains were selected knowing where the partial
 			// slice would go, so this means the descent disagreed with that
 			// choice. Reject the placement rather than publish an assignment

@@ -256,6 +256,9 @@ assignment of ranks `0, 1, 2` to nodes `A, B, C` becomes `A, Z, C` when `Z` repl
 For indexed PodSets with slice constraints, replacement must preserve slice
 boundaries at every requested topology level. A repair that would split a required
 slice is rejected rather than changing healthy ranks to make it fit.
+Other failed nodes awaiting replacement retain their rank positions. If such a
+node is absent from the topology snapshot, a repair is allowed only when its runs
+do not require inferring a shared rack or zone with another node.
 
 #### Replace Node on Pod termination 
 
