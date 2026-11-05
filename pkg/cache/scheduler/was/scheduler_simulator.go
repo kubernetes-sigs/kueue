@@ -54,8 +54,9 @@ type wasSimulator struct {
 	// pods is this cycle's tracker, including unmanaged and virtual Pods.
 	// PreemptWorkload only releases Pods indexed by Workload.
 	pods *podtracker.Tracker
-	// parentWorkloads maps each ConcurrentAdmission Variant to its Parent, whose
-	// name the job's Pods carry. The Variant is preempted together with them.
+	// parentWorkloads maps a ConcurrentAdmission Variant to its Parent, whose
+	// name the job's Pods carry. Only a Parent's sole assumed Variant is recorded,
+	// so the Parent's Pods are neither dropped nor preempted twice.
 	parentWorkloads map[workload.Reference]workload.Reference
 	// emptyCluster holds the same nodes with no Pods, for callers asking what would
 	// fit if nothing were running.

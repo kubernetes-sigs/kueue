@@ -186,16 +186,11 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
-	parentWorkloads := make(map[workload.Reference]workload.Reference)
+	assumedWorkloads := simulator.AssumedWorkloads(options...)
+	parentWorkloads := variantParents(assumedWorkloads)
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
+	for _, wl := range assumedWorkloads {
 		wlKey := workload.Key(wl)
-		// A ConcurrentAdmission Variant holds the reservation, but the job's Pods
-		// are annotated with its Parent.
-		if parent := concurrentadmission.GetParentWorkloadName(wl); parent != "" {
-			parentWorkloads[wlKey] = workload.NewReference(wl.Namespace, parent)
-		}
-
 		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
@@ -228,6 +223,33 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	}
 
 	return snapshot, nil
+}
+
+// variantParents maps each assumed ConcurrentAdmission Variant to its Parent,
+// whose name the job's real Pods are annotated with. A Variant is only mapped
+// when it is the sole assumed Variant of its Parent. While a more preferred
+// Variant is being admitted, two admitted Variants of the same Parent can
+// briefly be assumed; mapping both would make each of them drop and preempt the
+// same Parent Pods, and the second preemption of an already removed Pod fails.
+// Such Variants stay unmapped and the Parent's Pods stay tracked exactly once.
+func variantParents(assumedWorkloads []*kueue.Workload) map[workload.Reference]workload.Reference {
+	parents := make(map[workload.Reference]workload.Reference)
+	variantsPerParent := make(map[workload.Reference]int)
+	for _, wl := range assumedWorkloads {
+		parent := concurrentadmission.GetParentWorkloadName(wl)
+		if parent == "" {
+			continue
+		}
+		parentKey := workload.NewReference(wl.Namespace, parent)
+		parents[workload.Key(wl)] = parentKey
+		variantsPerParent[parentKey]++
+	}
+	for variantKey, parentKey := range parents {
+		if variantsPerParent[parentKey] != 1 {
+			delete(parents, variantKey)
+		}
+	}
+	return parents
 }
 
 // podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption

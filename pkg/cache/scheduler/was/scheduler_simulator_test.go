@@ -1065,12 +1065,14 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 // the Parent Workload's name.
 func TestConcurrentAdmissionVariant(t *testing.T) {
 	const (
-		ns          = "default"
-		parentName  = "job-low"
-		variantName = "job-low-abcde"
+		ns           = "default"
+		parentName   = "job-low"
+		variantName  = "job-low-abcde"
+		variantBName = "job-low-fghij"
 	)
 	parentKey := workload.NewReference(ns, parentName)
 	variantKey := workload.NewReference(ns, variantName)
+	variantBKey := workload.NewReference(ns, variantBName)
 
 	node1 := testingnode.MakeNode("node1").
 		Label(corev1.LabelHostname, "node1").
@@ -1092,17 +1094,17 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj()
 
-	// makeVariant returns the admitted Variant of job-low; hostname places its
-	// PodSet on node1 with a hostname-leaf topology assignment.
-	makeVariant := func(hostname bool) *kueue.Workload {
+	// makeVariant returns the admitted Variant of job-low with the given name;
+	// hostname places its PodSet on node1 with a hostname-leaf topology assignment.
+	makeVariant := func(name string, hostname bool) *kueue.Workload {
 		psa := kueue.PodSetAssignment{Name: "main", Count: ptr.To[int32](1)}
 		if hostname {
 			psa.TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 				Obj()
 		}
-		return utiltestingapi.MakeWorkload(variantName, ns).
-			UID("job-low-abcde-uid").
+		return utiltestingapi.MakeWorkload(name, ns).
+			UID(types.UID(name+"-uid")).
 			OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentName, "job-low-uid").
 			PodSets(kueue.PodSet{
 				Name:     "main",
@@ -1126,7 +1128,7 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 		return len(results) > 0
 	}
 
-	newSimulator := func(t *testing.T, variant *kueue.Workload) simulator.SchedulerSimulator {
+	newSimulator := func(t *testing.T, variants ...*kueue.Workload) simulator.SchedulerSimulator {
 		t.Helper()
 		ctx := klog.NewContext(t.Context(), logr.Discard())
 		simulatorFactory, err := NewWASSimulatorFactory(ctx, nil)
@@ -1135,7 +1137,7 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 		}
 		podTracker := &podtracker.Tracker{}
 		podTracker.Track(parentPod)
-		s, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{variant}))
+		s, err := simulatorFactory.NewSimulator(ctx, nodes, podTracker, simulator.WithAssumedWorkloads(variants))
 		if err != nil {
 			t.Fatalf("NewSimulator failed: %v", err)
 		}
@@ -1143,7 +1145,7 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 	}
 
 	t.Run("hostname Variant's virtual Pods replace the Parent's real Pods", func(t *testing.T) {
-		s := newSimulator(t, makeVariant(true)).(*wasSimulator)
+		s := newSimulator(t, makeVariant(variantName, true)).(*wasSimulator)
 		if pods := s.pods.PodsForWorkload(parentKey); len(pods) != 0 {
 			t.Errorf("Parent's real Pods are still tracked next to the Variant's virtual Pods: %v", klog.KObjSlice(pods))
 		}
@@ -1153,7 +1155,7 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 	})
 
 	t.Run("PreemptWorkload on a Variant releases the Parent's real Pods", func(t *testing.T) {
-		s := newSimulator(t, makeVariant(false))
+		s := newSimulator(t, makeVariant(variantName, false))
 		if feasible(t, s) {
 			t.Fatalf("expected node1 to be infeasible before preemption")
 		}
@@ -1205,7 +1207,7 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 	t.Run("hostname Variant's Pods are not counted twice on the node", func(t *testing.T) {
 		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
 		features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
-		s := newSimulator(t, makeVariant(true))
+		s := newSimulator(t, makeVariant(variantName, true))
 		// node1 has 4 CPUs and job-low uses 2 of them, so 2 more fit.
 		got := schedule(t, s, "2", false)
 		if diff := cmp.Diff(wantPlacements, got.PodPlacements, cmpErrorMessage); diff != "" {
@@ -1231,13 +1233,64 @@ func TestConcurrentAdmissionVariant(t *testing.T) {
 		t.Run("ScheduleWorkload frees the Parent's real Pods for a Variant "+name, func(t *testing.T) {
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
 			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
-			s := newSimulator(t, makeVariant(false))
+			s := newSimulator(t, makeVariant(variantName, false))
 			got := schedule(t, s, "1", true, tc.scheduleOpts...)
 			if diff := cmp.Diff(wantPlacements, got.PodPlacements, cmpErrorMessage); diff != "" {
 				t.Errorf("unexpected placements (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff([]workload.Reference{variantKey}, got.PreemptionVictims); diff != "" {
 				t.Errorf("unexpected preemption victims (-want,+got):\n%s", diff)
+			}
+		})
+	}
+
+	// Two assumed Variants of the same Parent make the Parent's real Pods
+	// ambiguous: dropping them for one Variant also drops them for the other, and
+	// preempting both Variants would remove them from the snapshot twice.
+	for _, hostname := range []bool{false, true} {
+		name := "without hostname topology assignments"
+		if hostname {
+			name = "with hostname topology assignments"
+		}
+		t.Run("two assumed Variants of the same Parent "+name+" keep its Pods", func(t *testing.T) {
+			s := newSimulator(t, makeVariant(variantName, hostname), makeVariant(variantBName, hostname)).(*wasSimulator)
+			if _, ok := s.parentWorkloads[variantKey]; ok {
+				t.Errorf("Variant %s is aliased to the Parent while another Variant of the same Parent is assumed", variantKey)
+			}
+			if _, ok := s.parentWorkloads[variantBKey]; ok {
+				t.Errorf("Variant %s is aliased to the Parent while another Variant of the same Parent is assumed", variantBKey)
+			}
+			if pods := s.pods.PodsForWorkload(parentKey); len(pods) != 1 {
+				t.Errorf("Parent's real Pods = %v, want the single running Pod to stay tracked", klog.KObjSlice(pods))
+			}
+			if feasible(t, s) {
+				t.Fatalf("expected node1 to be infeasible before preemption")
+			}
+
+			revertA, err := s.PreemptWorkload(t.Context(), variantKey)
+			if err != nil {
+				t.Fatalf("preempting the first Variant failed: %v", err)
+			}
+			revertB, err := s.PreemptWorkload(t.Context(), variantBKey)
+			if err != nil {
+				t.Fatalf("preempting the second Variant claimed the Parent's Pods again: %v", err)
+			}
+			// Preempting both Variants must not free the Parent's real Pods, which
+			// belong to neither Variant unambiguously: node1 still holds them.
+			placement, err := s.wasSnapshot.MakePlacement([]string{node1.Name})
+			if err != nil {
+				t.Fatalf("MakePlacement failed: %v", err)
+			}
+			if got, want := placement.Nodes[0].GetRequested().GetMilliCPU(), int64(2000); got != want {
+				t.Errorf("node1 requested CPU = %dm, want %dm for the Parent's real Pod", got, want)
+			}
+			if pods := s.pods.PodsForWorkload(parentKey); len(pods) != 1 {
+				t.Errorf("Parent's real Pods = %v after preempting both Variants, want the single running Pod", klog.KObjSlice(pods))
+			}
+			for i, revert := range []func() error{revertB, revertA} {
+				if err := revert(); err != nil {
+					t.Errorf("revert %d failed: %v", i, err)
+				}
 			}
 		})
 	}
