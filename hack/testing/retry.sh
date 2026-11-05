@@ -129,7 +129,8 @@ for i in $(seq 1 "$attempts"); do
 
         sleep "$delay"
         if [ "$exponential" = "true" ]; then
-            delay=$((delay * 2))
+            # awk because bash arithmetic rejects fractional delays such as 0.5.
+            delay=$(awk -v delay="$delay" 'BEGIN { print delay * 2 }')
         fi
     else
         echo "retry [$i/$attempts] failed" 1>&2

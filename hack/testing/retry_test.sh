@@ -63,5 +63,6 @@ expect_retries "defaults" "$never" 1 "" 7 "2 4 8 16 32 64 "
 expect_retries "success stops retrying" 3 0 "ok" 3 "2 4 "
 expect_retries "attempts and delay overrides keep the backoff" "$never" 1 "" 3 "5 10 " --attempts 3 --delay 5
 expect_retries "no-exponential keeps the delay constant" "$never" 1 "" 4 "3 3 3 " --attempts 4 --delay 3 --no-exponential
+expect_retries "fractional delay keeps the backoff" "$never" 1 "" 4 "0.5 1 2 " --attempts 4 --delay 0.5
 
 echo "retry.sh tests passed"
