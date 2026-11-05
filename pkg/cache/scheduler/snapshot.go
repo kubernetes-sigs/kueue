@@ -536,9 +536,7 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
 	// nothing to take out of it and nothing cached to drop.
-	// TODO(#18163): Once updated to new interface, remove features.Enabled(features.SchedulerLibraryDeepIntegration).
-	// For now scheduler-library removes committed victims on its own. In the future we will be handling that here.
-	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) || features.Enabled(features.SchedulerLibraryDeepIntegration) {
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))
