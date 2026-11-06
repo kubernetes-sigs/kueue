@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -42,6 +43,7 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		Obj()
 	slice := func(name, cpu string) *utiltestingapi.WorkloadWrapper {
 		return utiltestingapi.MakeWorkload(name, "ns").
+			Label(controllerconstants.JobUIDLabel, "job").
 			Request(corev1.ResourceCPU, cpu).
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -56,7 +58,10 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 	newSlice := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Obj()
 	newSliceFinished := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Finished().Obj()
 	newestSlice := slice("newest", "4").UID("newest").Annotations(replaces("ns/new")).Obj()
-	otherAtOldKey := slice("old", "1").UID("other").Obj()
+	otherAtOldKey := slice("old", "1").UID("other").Label(controllerconstants.JobUIDLabel, "other-job").Obj()
+	otherNamespace := slice("old", "1").UID("other-ns").Obj()
+	otherNamespace.Namespace = "other-ns"
+	replacesOtherNamespace := slice("new", "3").UID("new").Annotations(replaces("other-ns/old")).Obj()
 	selfReplacing := slice("self", "1").UID("self").Annotations(replaces("ns/self")).Obj()
 
 	type step struct {
@@ -100,6 +105,13 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{add: otherAtOldKey, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
+				{add: newSlice, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
+			},
+		},
+		"a Workload of another namespace is charged": {
+			steps: []step{
+				{add: otherNamespace, wantCPU: "1", wantWorkloads: []workload.Reference{"other-ns/old"}},
+				{add: replacesOtherNamespace, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/new", "other-ns/old"}},
 			},
 		},
 		"a Workload naming itself is charged": {
