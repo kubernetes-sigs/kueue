@@ -75,6 +75,22 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 	replacesOtherNamespace := replacement.Clone().Annotation(constants.WorkloadSliceReplacementForAnnotation, "other-ns/old").Obj()
 	selfReplacing := small.Clone().Name("self").UID("self").Creation(now).
 		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/self").Obj()
+	// TAS slices keep charging every slice: a newer slice may be placed on other nodes than the
+	// running Pods of an older one.
+	tasOld := old.Clone().PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+		Request(corev1.ResourceCPU, "2").UnconstrainedTopologyRequest().Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "2").
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj()).Obj()).Obj(), now).
+		Obj()
+	tasNew := replacement.Clone().PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+		Request(corev1.ResourceCPU, "3").UnconstrainedTopologyRequest().Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "3").
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj()).Obj()).Obj(), now).
+		Obj()
 	unownedOld := oldSlice.DeepCopy()
 	unownedOld.OwnerReferences = nil
 	unownedNew := newSlice.DeepCopy()
@@ -158,6 +174,12 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		"a Workload naming itself is charged": {
 			steps: []step{
 				{add: selfReplacing, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/self"}},
+			},
+		},
+		"TAS slices are both charged": {
+			steps: []step{
+				{add: tasOld, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: tasNew, wantCPU: "5", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
 			},
 		},
 		"gate off charges both": {
