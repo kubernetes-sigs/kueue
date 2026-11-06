@@ -61,6 +61,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+	})
+
+	ginkgo.JustBeforeEach(func() {
 		behavioral.MustCreate(ctx, k8sClient, fl)
 
 		cq = utiltestingapi.MakeClusterQueue("cq").
@@ -297,45 +300,43 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		behavioral.ExpectLQWorkloadCreationLatencyMetric(lq, "LeaderWorkerSet", 1)
 	})
 
-	ginkgo.It("Should admit the Workload after a toleration for the flavor taint is added", func() {
-		ginkgo.By("adding a taint to the flavor", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(fl), fl)).To(gomega.Succeed())
-				fl.Spec.NodeTaints = []corev1.Taint{{Key: "example.com/new", Effect: corev1.TaintEffectNoSchedule}}
-				g.Expect(k8sClient.Update(ctx, fl)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	ginkgo.When("the ResourceFlavor has a taint", func() {
+		ginkgo.BeforeEach(func() {
+			fl.Spec.NodeTaints = []corev1.Taint{{Key: "example.com/new", Effect: corev1.TaintEffectNoSchedule}}
 		})
 
-		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
-			Queue(lq.Name).
-			Request(corev1.ResourceCPU, "100m").
-			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
-			Obj()
-		behavioral.MustCreate(ctx, k8sClient, lws)
+		ginkgo.It("Should admit the Workload after a toleration for the flavor taint is added", func() {
+			lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "100m").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
 
-		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
-		ginkgo.By("checking the Workload is pending because of the flavor taint", func() {
-			wl := &kueue.Workload{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
+			wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+			ginkgo.By("checking the Workload is pending because of the flavor taint", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
-		toleration := corev1.Toleration{Key: "example.com/new", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+			toleration := corev1.Toleration{Key: "example.com/new", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
 
-		ginkgo.By("adding the toleration to the LeaderWorkerSet", func() {
-			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
-				createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{toleration}
-				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
+			ginkgo.By("adding the toleration to the LeaderWorkerSet", func() {
+				createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+					createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{toleration}
+					g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 
-		ginkgo.By("checking the Workload gets the toleration and a quota reservation", func() {
-			behavioral.ExpectWorkloadPodSetTolerations(ctx, k8sClient, wlKey, kueue.DefaultPodSetName, toleration)
-			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+			ginkgo.By("checking the Workload gets the toleration and a quota reservation", func() {
+				behavioral.ExpectWorkloadPodSetTolerations(ctx, k8sClient, wlKey, kueue.DefaultPodSetName, toleration)
+				behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+			})
 		})
 	})
 
