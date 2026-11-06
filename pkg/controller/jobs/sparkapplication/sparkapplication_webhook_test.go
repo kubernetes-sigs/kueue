@@ -52,6 +52,25 @@ func TestValidateCreate(t *testing.T) {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 			wantErr:  nil,
 		},
+		"sparkConf dynamic allocation with absent structured configuration is rejected": {
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				SparkConf(map[string]string{"spark.dynamicAllocation.enabled": "true"}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation with disabled structured configuration is rejected": {
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
+				SparkConf(map[string]string{"spark.dynamicAllocation.enabled": "true"}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+			)}.ToAggregate(),
+		},
 		"dynamicAllocation without elastic job feature": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
 				Enabled:          true,
@@ -132,6 +151,27 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"sparkConf dynamic allocation with absent structured configuration is rejected": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				SparkConf(map[string]string{"spark.dynamicAllocation.enabled": "true"}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation with disabled structured configuration is rejected": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
+				SparkConf(map[string]string{"spark.dynamicAllocation.enabled": "true"}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+			)}.ToAggregate(),
+		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 			newSparkApp: testSparkApp.Clone().Queue("local-queue").Label("test-label", "test-value").Obj(),

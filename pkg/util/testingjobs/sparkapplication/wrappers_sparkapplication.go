@@ -236,3 +236,9 @@ func (w *SparkApplicationWrapper) Queue(lq string) *SparkApplicationWrapper {
 func (w *SparkApplicationWrapper) Obj() *sparkappv1beta2.SparkApplication {
 	return &w.SparkApplication
 }
+
+// SparkConf sets the Spark configuration.
+func (w *SparkApplicationWrapper) SparkConf(conf map[string]string) *SparkApplicationWrapper {
+	w.Spec.SparkConf = conf
+	return w
+}
