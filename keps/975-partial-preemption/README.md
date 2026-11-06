@@ -113,9 +113,10 @@ terminated, Kueue lowers the PodSet's admitted count to the target, which releas
 the preemptor. The job grows back through the existing elastic scale-up path when quota is available
 again.
 
-The classical preemption path is extended so that an eligible elastic victim is simulated at the
-selected reduced count in the scheduling snapshot instead of being removed, and every eligible
-victim is shrunk before any candidate is evicted whole.
+The preemption decision path (both the classical and the Fair Sharing algorithms) is extended so
+that an eligible elastic victim is simulated at the selected reduced count in the scheduling
+snapshot instead of being removed, and every eligible victim is shrunk before any candidate is
+evicted whole.
 
 ### User Stories
 
@@ -438,6 +439,12 @@ segments and priorities, before the evict pass evicts anything. Re-evaluating th
 Beta criterion (see [Cost model and candidate
 ordering](FUTURE_WORK.md#cost-model-and-candidate-ordering)).
 
+Fair Sharing shrinks a candidate to its floor the first time it comes up, and judges it by its
+ClusterQueue's share after the shrink rather than after a full removal. The candidate then goes back
+into its ClusterQueue and is evicted whole if it comes up again. In Alpha, a shrunk victim can
+therefore be evicted whole once the rest of its ClusterQueue's candidates are used, before shrinks
+in other ClusterQueues are tried.
+
 #### Target selection
 
 In both passes, the target of a shrunk victim is its floor, `preemptionMinCount`. Fill-back then
@@ -466,13 +473,16 @@ lets the preemptor fit, so a victim gives up only what the preemptor needs and i
 when shrinking is not enough. With partial preemption enabled, `fillBackWorkloads` starts from the
 last target rather than the second-to-last: whole-eviction preemption skips the last target because
 it is always required, but a partial last victim can still be restored to a count above its floor.
-Every whole restore happens before any partial one: fill-back first restores each evicted eligible
-victim to its floor, then each victim to its count before the simulation (at most its in-flight
-target), and only then binary-searches the largest count for each remaining victim. This follows the
-Alpha cost model, where keeping a victim running beats giving Pods back to a higher-priority one.
-With the strict-priority mode re-evaluated for Beta (see [Strict
-priority](FUTURE_WORK.md#strict-priority)), fill-back would instead give Pods back to
-higher-priority victims first.
+In Alpha, fill-back adds each victim back whole if the preemptor still fits. Otherwise, for a victim
+that was shrunk but not evicted, it binary-searches the largest count up to the victim's count
+before the simulation (at most its in-flight target) that still fits. An evicted victim is restored
+whole or not at all.
+
+**Alpha gap:** an evicted victim is never restored to its floor, and whole and partial restores are
+interleaved per victim instead of every whole restore happening first. Both are addressed in future
+work (see [Fill-back order](FUTURE_WORK.md#fill-back-order)), re-evaluated for Beta together with
+the strict-priority mode (see [Strict priority](FUTURE_WORK.md#strict-priority)).
+
 If even evicting every candidate whole does not free enough quota, the tentative
 partial and whole-eviction targets are discarded, no preemption is issued, and the preemptor remains
 `Pending` for a later scheduling cycle.
@@ -502,7 +512,7 @@ order is `L1`, `L2`, `M`, `H`: by priority, and `L1` was admitted after `L2`.
 | 5 | shrink | `H` to its floor 2 | **3** | 2 |
 | 6 | evict | `L1` whole: its remaining 2 | **2** | 0, the preemptor fits |
 
-Fill-back gives nothing back: restoring `L1` to its floor, or any victim to its previous count,
+Fill-back gives nothing back: adding `L1` back whole, or any victim back to its previous count,
 would leave the preemptor short. So `L1` is evicted, and `L2`, `M` and `H` keep running at 3, 1 and
 2. `H` loses Pods while `L1`, at a lower priority, is evicted.
 
@@ -598,7 +608,7 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
 | `WaitForPodsReady` | A shrink keeps the Alpha integrations' Workloads ready; see [Integrations](#integrations). |
 | `PrioritizePreemptorWorkloads` | Recommended, so the waiting preemptor is considered before the victim's scale-up slice. |
 | `ConfigurablePreemptions` | In Alpha, victims selected by a `PreemptionConfig` rule are evicted whole. Shrinking them is a Beta criterion. |
-| Fair Sharing | In Alpha, Fair Sharing victims are evicted whole: Fair Sharing pops a candidate and removes it whole, re-ranks the ClusterQueues, and checks its share rules against that full removal, so a partial target does not feed its loop. Shrinking Fair Sharing victims is a Beta criterion. |
+| Fair Sharing | A candidate is shrunk to its floor the first time it comes up and is judged by its ClusterQueue's share after the shrink; it is evicted whole if it comes up again (see [Shrink and evict passes](#shrink-and-evict-passes)). Waiting until every shrink across ClusterQueues has been tried is re-evaluated for Beta. |
 | `AdmissionFairSharing` | No change: partial preemption keeps the existing candidate order, including the LocalQueue-usage key. |
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
@@ -667,8 +677,10 @@ make this code solid enough prior to committing the changes necessary to impleme
 #### Unit tests
 
 - The shrink pass before the evict pass, and the fallback to today's whole-eviction pass.
-- Fill-back: restores to the floor, then to the previous count, then the binary search, including
-  the last victim; an in-flight target is never raised.
+- Fill-back: whole restores, and the binary search for shrunk victims, including the last victim;
+  an in-flight target is never raised.
+- Fair Sharing: a shrunk candidate is judged by its share after the shrink, and is evicted whole if
+  it comes up again.
 - Eligibility, including the PodsReady rule with and without `waitForPodsReady`.
 - Which Pods are evicted: deletion cost, unscheduled, newest; gated and terminating Pods are
   skipped.
@@ -714,11 +726,10 @@ make this code solid enough prior to committing the changes necessary to impleme
 - A preemption floor separate from the job's own minimum.
 - Support PodSets with a topology assignment, and MultiKueue.
 - Shrink victims selected by `PreemptionConfig` rules.
-- Shrink Fair Sharing victims instead of evicting them whole.
 - Cover JobSet and the other elastic integrations.
 - Review the opt-in annotation as an API field.
-- Re-evaluate the cost model and the candidate ordering, a strict-priority mode, spreading reductions
-  across victims, and a timeout for shrinks that do not converge (see
+- Re-evaluate the cost model and the candidate ordering, a strict-priority mode, the fill-back order,
+  spreading reductions across victims, and a timeout for shrinks that do not converge (see
   [FUTURE_WORK.md](FUTURE_WORK.md)).
 - Decide on proactive downscaling, with user feedback.
 

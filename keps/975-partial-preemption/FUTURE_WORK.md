@@ -5,6 +5,7 @@
   - [Strict priority](#strict-priority)
   - [Partial-preemption-aware ordering](#partial-preemption-aware-ordering)
   - [A cost function](#a-cost-function)
+- [Fill-back order](#fill-back-order)
 - [Spreading reductions across victims](#spreading-reductions-across-victims)
 - [Timeout](#timeout)
 - [Proactive downscaling](#proactive-downscaling)
@@ -55,6 +56,18 @@ Priority is not workload importance, and under Fair Sharing and Admission Fair S
 order is not by priority at all. A cost function, for example the number of preempted Pods weighted
 by workload importance, could choose between shrinking a higher-priority victim and evicting a
 lower-priority one. Users may also want to decide this themselves.
+
+## Fill-back order
+
+In Alpha, fill-back walks the victims backwards and, for each one, tries a whole restore and then,
+for a victim that was shrunk but not evicted, a binary-searched partial restore. A refined order
+could keep more victims running:
+
+- Restore an evicted victim to its floor, instead of only whole or not at all.
+- Do every whole restore before any partial one, so that a partial restore does not take the room
+  another victim needs to come back whole.
+- With Fair Sharing, consider a shrunk victim for whole eviction only after every shrink across
+  ClusterQueues has been tried, as the classical passes do.
 
 ## Spreading reductions across victims
 
