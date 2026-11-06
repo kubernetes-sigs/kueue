@@ -105,7 +105,7 @@ type PreemptionFilter struct {
 	preemptor *workload.Info
 
 	// Mutable
-	manager *schdcache.MutableManager
+	manager *schdcache.BareManagerSnapshot
 
 	initialized    bool
 	usage          workload.Usage
@@ -190,11 +190,11 @@ func BuildFilter(
 	snapshot *schdcache.Snapshot,
 	wl *workload.Info,
 ) *PreemptionFilter {
-	snapCopy := snapshot.MutableCopy()
+	managerSnap := snapshot.CopyManager()
 	pf := &PreemptionFilter{
 		log:       log,
 		preemptor: wl,
-		manager:   snapCopy,
+		manager:   managerSnap,
 		workloads: make(map[workload.Reference]*workload.Info),
 		preempted: make(map[workload.Reference]*workload.Info),
 	}

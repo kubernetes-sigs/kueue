@@ -2684,7 +2684,7 @@ func TestMutableCopy(t *testing.T) {
 	snap.ReleaseWorkloadUsage(releasedWl)
 
 	cpu := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	copyMgr := snap.MutableCopy()
+	copyMgr := snap.CopyManager()
 
 	// Verify initial hierarchy, usage, and available quota match Snapshot.
 	if got, want := copyMgr.ClusterQueue("cq-a").ResourceNode.Usage[cpu], snap.ClusterQueue("cq-a").ResourceNode.Usage[cpu]; got.Cmp(want) != 0 {

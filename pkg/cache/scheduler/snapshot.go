@@ -70,8 +70,8 @@ type Snapshot struct {
 	residualTASPods []tasPodUsageValue
 }
 
-func (s *Snapshot) MutableCopy() *MutableManager {
-	dst := &MutableManager{
+func (s *Snapshot) CopyManager() *BareManagerSnapshot {
+	dst := &BareManagerSnapshot{
 		Manager: hierarchy.NewManager(newCohortSnapshot),
 	}
 	for _, cohort := range s.Cohorts() {
@@ -103,11 +103,11 @@ func (s *Snapshot) MutableCopy() *MutableManager {
 	return dst
 }
 
-type MutableManager struct {
+type BareManagerSnapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 }
 
-func (s *MutableManager) RemoveWorkload(wl *workload.Info) {
+func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	if !cq.released.Has(workload.Key(wl.Obj)) {
@@ -115,7 +115,7 @@ func (s *MutableManager) RemoveWorkload(wl *workload.Info) {
 	}
 }
 
-func (s *MutableManager) AddWorkload(wl *workload.Info) {
+func (s *BareManagerSnapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	if !cq.released.Has(workload.Key(wl.Obj)) {
