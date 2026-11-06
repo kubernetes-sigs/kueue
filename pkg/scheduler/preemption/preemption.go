@@ -162,7 +162,7 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 	}
 }
 
-func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
+func (ps *PreemptionStrategy) preemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; inSnapshot {
 			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
@@ -170,7 +170,7 @@ func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 	}
 }
 
-func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
+func (ps *PreemptionStrategy) unpreemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
@@ -181,7 +181,7 @@ func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
 // Reset restores any workloads still preempted in the strategy back to the snapshot.
 func (ps *PreemptionStrategy) Reset() {
 	for wlKey := range ps.targetsByKey {
-		ps.UnpreemptWorkload(wlKey)
+		ps.unpreemptWorkload(wlKey)
 	}
 }
 
@@ -314,7 +314,7 @@ func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference
 		if !ok {
 			return nil, fmt.Errorf("preempted workload %q is not a candidate in this preemption strategy", wlKey)
 		}
-		ps.PreemptWorkload(wlKey)
+		ps.preemptWorkload(wlKey)
 		targets = append(targets, t)
 	}
 	if !workloadQuotaFits(ps.pCtx, ps.allowBorrowing) {

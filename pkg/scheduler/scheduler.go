@@ -1672,6 +1672,18 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
+	plannerOptions := []assignment.PlannerOption{}
+	if len(inCycleCommittedVictims) > 0 {
+		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
+		var revertRemoval func()
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
+		} else {
+			revertRemoval = simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
+		}
+		defer revertRemoval()
+	}
+
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
@@ -1687,18 +1699,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		planner = wasplanner.NewPlanner(wl, snap, s.preemptor, preemption.BuildFilter(log, snap, wl))
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
-	}
-
-	plannerOptions := []assignment.PlannerOption{}
-	if len(inCycleCommittedVictims) > 0 {
-		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
-		var revertRemoval func()
-		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
-		} else {
-			revertRemoval = simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
-		}
-		defer revertRemoval()
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
