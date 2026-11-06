@@ -209,6 +209,132 @@ combined budget.
 Use credits to approximate the cost of cloud resources and enforce spending limits
 per team.
 
+## Use case: share software license quotas across compute flavors
+
+A common requirement in scientific computing, engineering (EDA/CAE), and rendering workloads is limiting software license usage independently of compute infrastructure. For example, workloads might run on either `on-demand` or `spot` nodes depending on cost and availability, but must share a single global pool of licenses (such as 10 render licenses).
+
+Unlike proportional compute credits, software licenses are typically fixed per workload or pod (independent of CPU/memory requests) and are not tied to specific physical nodes.
+
+With Kueue's built-in workload integrations (such as batch/Job), quota requirements are derived directly from the container resource requests in the pod template. You can configure this setup using dedicated [ResourceGroups](/docs/concepts/cluster_queue#resource-groups) without needing custom integrations or `AdmissionCheck` controllers. Note that declaring license requests only on a standalone Workload CR is not supported with standard Job integration, because the Job controller reconciles and verifies that the Workload matches the Job's pod template.
+
+### 1. Define the ResourceFlavors
+
+Define compute flavors with appropriate `nodeLabels` and a headless flavor for the license (without `nodeLabels` or `tolerations`):
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "on-demand"
+spec:
+  nodeLabels:
+    instance-type: on-demand
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "spot"
+spec:
+  nodeLabels:
+    instance-type: spot
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: "license-flavor"
+spec: {}
+```
+
+### 2. Configure the queuing infrastructure
+
+Create a ClusterQueue with two ResourceGroups:
+1. One for compute resources (`cpu`, `memory`) covering `on-demand` and `spot` flavors.
+2. One for the license resource covering the `license-flavor`.
+
+Also create a LocalQueue pointing to the ClusterQueue:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "license-cluster-queue"
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "on-demand"
+      resources:
+      - name: "cpu"
+        nominalQuota: 20
+      - name: "memory"
+        nominalQuota: 80Gi
+    - name: "spot"
+      resources:
+      - name: "cpu"
+        nominalQuota: 40
+      - name: "memory"
+        nominalQuota: 160Gi
+  - coveredResources: ["example.com/license"]
+    flavors:
+    - name: "license-flavor"
+      resources:
+      - name: "example.com/license"
+        nominalQuota: 10
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: license-queue
+spec:
+  clusterQueue: license-cluster-queue
+```
+
+With this configuration:
+- Workloads can consume CPU and memory from either `on-demand` or `spot` nodes.
+- At most 10 licenses of `example.com/license` can be admitted at any time, shared across both compute flavors.
+- Workloads that do not require licenses can still be admitted against available compute quota even if the license pool is exhausted.
+
+### 3. Example workload
+
+Here is an example Job requesting 4 CPUs and 1 license:
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-licensed-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: license-queue
+spec:
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
+        args: ["30s"]
+        resources:
+          requests:
+            cpu: 4
+            memory: 8Gi
+            example.com/license: 1
+      restartPolicy: Never
+```
+
+When Kueue evaluates this Job:
+- It assigns either `on-demand` or `spot` for `cpu` and `memory`.
+- It assigns `license-flavor` for `example.com/license`.
+- Once admitted, Kueue unsuspends the Job. The license quota remains reserved until the Job completes, at which point Kueue frees the license for the next queued workload.
+
+{{% alert title="Note on Pod Schedulability" color="primary" %}}
+Because Kueue's built-in Job integration derives quota from container `requests`, extended resources like `example.com/license` must be present on the Job's containers. In Kubernetes, `kube-scheduler` verifies all container resource requests against each node's `allocatable` capacity.
+
+Since floating software licenses represent cluster-wide limits rather than physical node resources, worker nodes do not have this capacity by default. To allow `kube-scheduler` to schedule admitted pods, cluster administrators typically run a lightweight node daemon or dummy device plugin that advertises the license resource on worker nodes.
+{{% /alert %}}
+
 For more examples of resource transformations, see:
 
 - [Transform resources for quota management](/docs/tasks/manage/administer_cluster_quotas/#transform-resources-for-quota-management)

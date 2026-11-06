@@ -140,6 +140,10 @@ belongs to another.
 
 A resource flavor must belong to at most one resource group.
 
+{{% alert title="Note" color="primary" %}}
+When using a dedicated ResourceGroup for software licenses or non-node resources, the corresponding ResourceFlavor can be defined without `nodeLabels` or `tolerations`. For an end-to-end setup and example, see [Share software license quotas across compute flavors](/docs/tasks/manage/share_quotas_across_flavors/#use-case-share-software-license-quotas-across-compute-flavors).
+{{% /alert %}}
+
 ## Namespace selector
 
 You can limit which namespaces can have workloads admitted in the ClusterQueue
