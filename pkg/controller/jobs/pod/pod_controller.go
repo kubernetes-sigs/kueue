@@ -1010,9 +1010,10 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	if !slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return isGated(&pod) }) {
 		return nil, nil
 	}
-	in, errs := workload.ResolveAdjustmentInputs(ctx, c, wl)
-	for _, err := range errs {
+	in, err := workload.ResolveAdjustmentInputs(ctx, c, wl)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
+		return nil, err
 	}
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))

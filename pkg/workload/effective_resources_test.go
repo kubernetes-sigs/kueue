@@ -18,10 +18,12 @@ package workload
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -385,3 +387,42 @@ func TestInfoCarriesEffectiveSnapshotAcrossDefaultChanges(t *testing.T) {
 		t.Errorf("fresh CPU = %s, want 2000", got)
 	}
 }
+
+func TestValidateAdmissibilityAdjustmentError(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(&corev1.Namespace{Name: "ns"}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+
+	wl := utiltestingapi.MakeWorkload("wl-unadmitted", "ns").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).
+		Obj()
+
+	info := NewInfoFromClient(ctx, cl, wl)
+	if info.AdjustmentErr == nil {
+		t.Fatal("expected NewInfoFromClient to record AdjustmentErr for missing RuntimeClass")
+	}
+
+	admErr := ValidateAdmissibility(ctx, cl, info, nil)
+	if admErr == nil {
+		t.Fatal("expected ValidateAdmissibility to return error when AdjustmentErr is set")
+	}
+	if !apierrors.IsNotFound(admErr) {
+		t.Errorf("expected ValidateAdmissibility error to preserve NotFound, got: %v", admErr)
+	}
+
+	// Quota-reserved workloads (e.g. in second-pass scheduling) bypass AdjustmentErr.
+	reservedWl := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		Obj()
+	reservedInfo := NewInfoFromClient(ctx, cl, reservedWl)
+	if reservedInfo.AdjustmentErr == nil {
+		t.Fatal("expected NewInfoFromClient to record AdjustmentErr for missing RuntimeClass")
+	}
+	if reservedAdmErr := ValidateAdmissibility(ctx, cl, reservedInfo, nil); reservedAdmErr != nil {
+		t.Errorf("expected quota-reserved workload to pass ValidateAdmissibility despite AdjustmentErr, got: %v", reservedAdmErr)
+	}
+}
+
