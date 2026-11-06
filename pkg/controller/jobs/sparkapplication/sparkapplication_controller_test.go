@@ -481,6 +481,30 @@ func TestPodSetsExecutorCount(t *testing.T) {
 				Obj(),
 			wantCount: 0,
 		},
+		"elastic, succeeding: does not fall back to initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				AppState(sparkappv1beta2.ApplicationStateSucceeding).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failing: does not fall back to initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				AppState(sparkappv1beta2.ApplicationStateFailing).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failed: does not fall back to initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				AppState(sparkappv1beta2.ApplicationStateFailed).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			wantCount: 0,
+		},
 		"elastic, minExecutors above instances: count raised to minExecutors": {
 			sparkApp: elasticSparkApp.Clone().
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(3))}).
