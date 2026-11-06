@@ -1762,6 +1762,23 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"a workload with legacy negative limits can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Limit(legacyNegativeGPU, "-3").
+					PodLevelLimit(legacyNegativeGPU, "-3").
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Limit(legacyNegativeGPU, "-3").
+					PodLevelLimit(legacyNegativeGPU, "-3").
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
 		"changing a legacy negative request to another negative value is refused": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
 			before:       legacyNegativeRequestWorkload(),
