@@ -225,6 +225,74 @@ group-pod-2   1/1     Running   0          <unknown>
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation with a label selector",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Label("app", "trainer").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "--selector", "app=trainer"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=trainer",
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side. The supplied selectors narrow the list.
+`,
+		}, {
+			name: "list pods of an annotation-based pod group in all namespaces with a label selector",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Label("app", "trainer").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-A", "--selector", "app=trainer"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=trainer",
+				"fieldSelector": "",
+			},
+			wantOut: `NAMESPACE   NAME          READY   STATUS    RESTARTS   AGE
+default     group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in all namespaces and filtering them client-side. Use --namespace to narrow the list further.
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation with a field selector",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "--field-selector", "status.phase=Running"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "status.phase=Running",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching field selector "status.phase=Running" in namespace "default" and filtering them client-side. The supplied selectors narrow the list.
+`,
 		}, {
 			name: "list pods of a pod group identified by annotation with json output",
 			job: &corev1.Pod{
@@ -245,6 +313,30 @@ group-pod-2   1/1     Running   0          <unknown>
 			},
 			wantPodListNames: []string{"group-pod-1"},
 			podListFormat:    "json",
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
+`,
+		}, {
+			name: "list pods of an annotation-based pod group in all namespaces",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-A"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantOut: `NAMESPACE   NAME          READY   STATUS    RESTARTS   AGE
+default     group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in all namespaces and filtering them client-side. Use --namespace or --selector to narrow the list.
+`,
 		}, {
 			name: "no pods of a pod group identified by annotation",
 			job: &corev1.Pod{
@@ -263,7 +355,8 @@ group-pod-2   1/1     Running   0          <unknown>
 				"fieldSelector": "",
 			},
 			wantOut: "",
-			wantOutErr: `No resources found in default namespace.
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
+No resources found in default namespace.
 `,
 		}, {
 			name: "list a standalone pod by name",

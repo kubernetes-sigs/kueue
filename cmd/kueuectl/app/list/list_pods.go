@@ -330,6 +330,8 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
 	tabWriter := printers.GetNewTabWriter(trackingWriter)
 
+	o.warnAnnotationBasedPodGroupScan()
+
 	infos, err := o.getPodsInfos(clientGetter)
 	if err != nil {
 		return err
@@ -365,6 +367,40 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	return nil
+}
+
+// warnAnnotationBasedPodGroupScan tells the user when listing a Pod group requires
+// fetching every Pod in its scope because the API server cannot select annotations.
+func (o *PodOptions) warnAnnotationBasedPodGroupScan() {
+	if o.PodAnnotationSelector == nil {
+		return
+	}
+
+	scanScope := fmt.Sprintf("namespace %q", o.Namespace)
+	narrowingAdvice := "Use --selector to narrow the list when the group Pods share a label."
+	if o.AllNamespaces {
+		scanScope = "all namespaces"
+		narrowingAdvice = "Use --namespace or --selector to narrow the list."
+	}
+
+	selectors := make([]string, 0, 2)
+	if o.LabelSelector != "" {
+		selectors = append(selectors, fmt.Sprintf("label selector %q", o.LabelSelector))
+	}
+	if o.FieldSelector != "" {
+		selectors = append(selectors, fmt.Sprintf("field selector %q", o.FieldSelector))
+	}
+
+	scope := fmt.Sprintf("all Pods in %s", scanScope)
+	if len(selectors) > 0 {
+		scope = fmt.Sprintf("Pods matching %s in %s", strings.Join(selectors, " and "), scanScope)
+		narrowingAdvice = "The supplied selectors narrow the list."
+		if o.AllNamespaces {
+			narrowingAdvice = "Use --namespace to narrow the list further."
+		}
+	}
+
+	fmt.Fprintf(o.ErrOut, "Warning: Pod group %q is identified by an annotation, so listing %s and filtering them client-side. %s\n", o.PodAnnotationSelector.value, scope, narrowingAdvice)
 }
 
 func (o *PodOptions) shouldPrintPodList() bool {
