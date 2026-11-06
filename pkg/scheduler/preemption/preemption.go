@@ -24,7 +24,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/go-logr/logr"
@@ -100,7 +99,6 @@ type PreemptionStrategy struct {
 }
 
 type PreemptionFilter struct {
-	m         sync.RWMutex
 	log       logr.Logger
 	preemptor *workload.Info
 
@@ -204,9 +202,6 @@ func BuildFilter(
 }
 
 func (pf *PreemptionFilter) MayFit() bool {
-	pf.m.RLock()
-	defer pf.m.RUnlock()
-
 	if !pf.initialized {
 		panic("PreemptionFilter not initialized")
 	}
@@ -231,9 +226,6 @@ func (pf *PreemptionFilter) MayFit() bool {
 }
 
 func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
-	pf.m.Lock()
-	defer pf.m.Unlock()
-
 	if !pf.initialized {
 		panic("PreemptionFilter not initialized")
 	}
@@ -246,13 +238,6 @@ func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
 }
 
 func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
-	pf.m.Lock()
-	defer pf.m.Unlock()
-
-	pf.unpreemptWorkload(wlKey)
-}
-
-func (pf *PreemptionFilter) unpreemptWorkload(wlKey workload.Reference) {
 	if !pf.initialized {
 		panic("PreemptionFilter not initialized")
 	}
@@ -265,23 +250,17 @@ func (pf *PreemptionFilter) unpreemptWorkload(wlKey workload.Reference) {
 }
 
 // reset restores any workloads still preempted in the filter back to the manager snapshot.
-func (pf *PreemptionFilter) reset() {
-	pf.m.Lock()
-	defer pf.m.Unlock()
-
-	for wlKey := range pf.preempted {
-		pf.unpreemptWorkload(wlKey)
+func (pf *PreemptionFilter) Reset() {
+	if pf.initialized {
+		pf.restore()
+		pf.initialized = false
 	}
-	pf.initialized = false
 }
 
 // Initialize sets up the usage and borrowing for the fit check.
-func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, allowBorrowing bool) (reset func()) {
-	pf.m.Lock()
-	defer pf.m.Unlock()
-
+func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, allowBorrowing bool) {
 	if pf.initialized {
-		panic("PreemptionFilter already initialized")
+		pf.restore()
 	}
 
 	pf.initialized = true
@@ -292,8 +271,12 @@ func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, al
 		TAS: pf.preemptor.TASUsage(),
 	}
 	pf.allowBorrowing = allowBorrowing
+}
 
-	return sync.OnceFunc(pf.reset)
+func (pf *PreemptionFilter) restore() {
+	for wlKey := range pf.preempted {
+		pf.UnpreemptWorkload(wlKey)
+	}
 }
 
 // GetTargets checks whether the given preemptedWorkloads satisfy quota and strategy

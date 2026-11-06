@@ -5639,7 +5639,7 @@ func TestPreemptionFilter(t *testing.T) {
 			cpuRes := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 			snapUsageBefore := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]
 
-			reset := filter.Initialize(&assignment, tc.allowBorrowing)
+			filter.Initialize(&assignment, tc.allowBorrowing)
 			for _, wlKey := range tc.preempt {
 				filter.PreemptWorkload(wlKey)
 			}
@@ -5650,7 +5650,7 @@ func TestPreemptionFilter(t *testing.T) {
 				filter.PreemptWorkload(wlKey)
 			}
 			if tc.resetAndReinit {
-				reset()
+				filter.Reset()
 				filter.Initialize(&assignment, tc.allowBorrowing)
 			}
 
@@ -5712,20 +5712,22 @@ func TestPreemptionFilter_LifecycleAndConcurrency(t *testing.T) {
 
 	t.Run("uninitialized and post-Reset guards", func(t *testing.T) {
 		filter := BuildFilter(log, snapshot, wlInfo)
+		// Safe no-op
+		filter.Reset()
 
 		expectPanic(t, "MayFit before Initialize", func() { _ = filter.MayFit() })
 		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey) })
 		expectPanic(t, "UnpreemptWorkload before Initialize", func() { filter.UnpreemptWorkload(vLowKey) })
 
-		reset := filter.Initialize(&assignment, true)
+		filter.Initialize(&assignment, true)
 		filter.PreemptWorkload(vLowKey)
 		if !filter.MayFit() {
 			t.Fatal("expected MayFit() = true after preempting v-low")
 		}
 
 		// Reset restores preempted state and marks filter uninitialized; repeated Reset is a no-op.
-		reset()
-		reset()
+		filter.Reset()
+		filter.Reset()
 
 		expectPanic(t, "MayFit after Reset", func() { _ = filter.MayFit() })
 		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey) })
@@ -5734,7 +5736,7 @@ func TestPreemptionFilter_LifecycleAndConcurrency(t *testing.T) {
 
 	t.Run("concurrent MayFit and mutation calls are race-free", func(t *testing.T) {
 		filter := BuildFilter(log, snapshot, wlInfo)
-		reset := filter.Initialize(&assignment, true)
+		filter.Initialize(&assignment, true)
 
 		var wg sync.WaitGroup
 		for range 4 {
@@ -5754,7 +5756,7 @@ func TestPreemptionFilter_LifecycleAndConcurrency(t *testing.T) {
 		})
 		wg.Wait()
 
-		reset()
+		filter.Reset()
 		filter.Initialize(&assignment, true)
 		if filter.MayFit() {
 			t.Fatal("expected MayFit() = false after restoring all workloads")
