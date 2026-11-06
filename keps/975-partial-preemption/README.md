@@ -415,8 +415,8 @@ segments:
 The Kueue scheduler simulates the preemption over the candidate order and stops as soon as the
 preemptor fits:
 
-1. **Work already in progress (segments 1-3).** Already-evicted candidates count as removed, and a Workload with an
-   in-flight target counts at that target.
+1. **Work already in progress (segments 1-3).** Already-evicted candidates count as removed, and a
+   Workload with an in-flight target counts at that target.
 2. **Shrink pass.** Walk the order and simulate each eligible candidate at its floor, skipping
    candidates that can only be evicted whole. Stop once the preemptor fits.
 3. **Evict pass.** If the preemptor still does not fit, walk the order again and remove candidates
