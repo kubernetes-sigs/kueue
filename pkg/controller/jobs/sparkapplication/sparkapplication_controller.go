@@ -491,7 +491,7 @@ func (j *SparkApplication) listExecutorPods(ctx context.Context, c client.Client
 // RUNNING: falling back to the initial executors there would look like a scale-up,
 // and the job reconciler would then not find the active workload slice to finish it.
 // It also includes UNKNOWN, which the Spark Operator sets while the driver pod phase
-// is unknown (for example, an unreachable node) and which is usually temporary.
+// is unknown and which is usually temporary.
 func (j *SparkApplication) driverStarted() bool {
 	switch j.Status.AppState.State {
 	case sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ApplicationStateUnknown,
