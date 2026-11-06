@@ -532,7 +532,7 @@ func TestCQReconcile(t *testing.T) {
 					WithObjects(asObjs(wState.cqs)...).
 					WithObjects(asObjs(wState.lqs)...).
 					Build())
-				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters)
+				rc := newRemoteClient(c, nil, nil, nil, nil, defaultOrigin, worker, adapters)
 				rc.client = workerClient
 				// newRemoteClient starts disconnected; mark the active workers connected.
 				if !wState.inactive {
