@@ -145,6 +145,11 @@ func (j *JobWrapper) ShutdownAfterJobFinishes(value bool) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) TTLSecondsAfterFinished(seconds int32) *JobWrapper {
+	j.Spec.TTLSecondsAfterFinished = seconds
+	return j
+}
+
 func (j *JobWrapper) ClusterSelector(value map[string]string) *JobWrapper {
 	j.Spec.ClusterSelector = value
 	return j

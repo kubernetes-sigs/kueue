@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -1328,5 +1329,62 @@ func TestGetCustomAnnotations(t *testing.T) {
 				t.Errorf("GetCustomAnnotations mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func Test_RayJobCleanupPending(t *testing.T) {
+	const clusterName = "rayjob-raycluster"
+	testCases := map[string]struct {
+		rayJob        *rayv1.RayJob
+		clusterExists bool
+		want          bool
+	}{
+		"the RayCluster still exists": {
+			rayJob:        testingrayutil.MakeJob("rayjob", "ns").Obj(),
+			clusterExists: true,
+			want:          true,
+		},
+		"the RayCluster has been deleted": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").Obj(),
+			want:   false,
+		},
+		"the RayJob uses an existing cluster through clusterSelector": {
+			rayJob:        testingrayutil.MakeJob("rayjob", "ns").ClusterSelector(map[string]string{"ray.io/cluster": clusterName}).Obj(),
+			clusterExists: true,
+			want:          false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			tc.rayJob.Status.RayClusterName = clusterName
+			objects := []client.Object{tc.rayJob}
+			if tc.clusterExists {
+				objects = append(objects, testingraycluster.MakeCluster(clusterName, "ns").Obj())
+			}
+			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(objects...).Build()
+
+			got, err := (*RayJob)(tc.rayJob).CleanupPending(ctx, fakeClient)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("CleanupPending() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func Test_RayJobCleanupPendingWithoutCluster(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	rayJob := testingrayutil.MakeJob("rayjob", "ns").Obj()
+	fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(rayJob).Build()
+
+	got, err := (*RayJob)(rayJob).CleanupPending(ctx, fakeClient)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
+		t.Error("CleanupPending() = true for a RayJob that never created a RayCluster, want false")
 	}
 }
