@@ -178,11 +178,18 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{add: selfReplacing, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/self"}},
 			},
 		},
-		"a replacement that shrinks does not uncharge the slice it replaces": {
+		"a replacement that shrinks is covered by the slice it replaces": {
 			steps: []step{
 				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
-				{add: shrinkingNew, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
+				{add: shrinkingNew, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 				{finish: oldSliceFinished, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/new"}},
+			},
+		},
+		"a replacement that shrinks and leaves first charges nothing more": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: shrinkingNew, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{del: shrinkingNew, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 			},
 		},
 		"TAS slices are both charged": {

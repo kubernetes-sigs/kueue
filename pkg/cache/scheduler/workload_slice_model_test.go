@@ -44,13 +44,13 @@ import (
 //   - every Workload holding a reservation is tracked exactly once, as charged or as replaced,
 //     and nothing else is tracked;
 //   - the ClusterQueue's usage is the sum of the charged Workloads;
-//   - a replaced slice has a later slice of its chain that is charged;
+//   - a replaced slice has a charged slice of its chain that charges at least as much;
 //   - Workloads of other jobs are charged;
 //   - in event orders the controllers produce, at most one slice of the chain is charged.
 //
 // In a quarter of the sequences all slices are created in the same second, so their order is
-// unknown to the cache, and in half of them the chain shrinks, so a newer slice does not cover an
-// older one. The cache may then charge more than one slice, but never too little.
+// unknown to the cache and it may charge more than one slice, but never too little. In half of
+// them the chain shrinks, so an older slice covers the newer ones.
 func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 	const (
 		steps    = 40
@@ -222,19 +222,18 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 					charged++
 					continue
 				}
-				// A replaced slice is covered by a later slice of its chain that is charged, and charges
-				// at least as much.
+				// A replaced slice is covered by a charged slice of its chain that charges at least as much.
 				covered := false
-				for k := j + 1; k < chainLen; k++ {
-					if _, ok := c.Workloads[workload.Reference(entities[k].key)]; ok && present[k] && cpuOf[k][shrinks] >= cpuOf[j][shrinks] {
+				for k := range chainLen {
+					if _, ok := c.Workloads[workload.Reference(entities[k].key)]; ok && present[k] && k != j && cpuOf[k][shrinks] >= cpuOf[j][shrinks] {
 						covered = true
 					}
 				}
 				if !covered {
-					fail("%s is replaced, but no later slice is charged", e.uid)
+					fail("%s is replaced, but no charged slice of its chain covers it", e.uid)
 				}
 			}
-			if realistic && sameSecond == 0 && shrinks == 0 && charged > 1 {
+			if realistic && sameSecond == 0 && charged > 1 {
 				fail("%d slices of the chain are charged", charged)
 			}
 		}
