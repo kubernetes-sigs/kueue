@@ -20,16 +20,15 @@ package was
 
 import (
 	"context"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/gangscheduling"
@@ -41,10 +40,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/topologyaware"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
-	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
-	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
@@ -55,51 +51,47 @@ import (
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
+// offlineHost is the API server address used when no rest config is given, e.g. in
+// unit tests. The ".invalid" TLD never resolves, and the read-only client rejects
+// mutating requests before they leave the process, so nothing reaches a cluster.
+const offlineHost = "https://no-apiserver.invalid"
+
 type wasSimulatorFactory struct {
-	newSnapshot snapshotFactory
+	sim *schedLibSimulator.SchedulingSimulator
+	// mu serializes snapshot creation: SchedulingSimulator.NewClusterSnapshot is not
+	// safe for concurrent use, while Cache.Snapshot may run concurrently (e.g. the
+	// scheduler and the debugger), and the empty cluster is built lazily mid-cycle.
+	mu sync.Mutex
 }
 
-type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
-
-func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
-	cfg := newWASSchedulerConfig()
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
-
-	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
-	_ = informerFactory.Core().V1().Nodes().Informer()
-	_ = informerFactory.Core().V1().Pods().Informer()
-
-	comps, err := upstreamsync.NewFrameworkComponents(
-		ctx,
-		client,
-		informerFactory,
-		upstreamsync.WithProfiles(cfg.Profiles...),
-	)
+func newWASSimulatorFactory(
+	ctx context.Context,
+	cfg *schedulerconfig.KubeSchedulerConfiguration,
+	roClient schedLibSimulator.ReadonlyClient,
+	opts ...schedLibSimulator.SimulatorOption,
+) (*wasSimulatorFactory, error) {
+	// The enabled plugins read the cluster from the snapshot rather than from the
+	// informers, so back the factory with a fake client to keep the scheduler-library
+	// from watching the cluster on its own.
+	// TODO(#13534): when DRA plugins are enabled, give them the real cluster state,
+	// e.g. through a real-client informer factory or schedLibSimulator.WithSharedDRAManager.
+	informerFactory := informers.NewSharedInformerFactory(fake.NewClientset(), 0)
+	sim, err := schedLibSimulator.NewSchedulingSimulator(ctx, cfg, roClient, informerFactory, opts...)
 	if err != nil {
 		return nil, err
 	}
+	return &wasSimulatorFactory{sim: sim}, nil
+}
 
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
-		return nil, err
-	}
-	if err := comps.WaitForHandlersSync(ctx); err != nil {
-		return nil, err
-	}
-
-	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error) {
-		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
-		if err != nil {
-			return nil, err
-		}
-		framework.ApplySimulationNeutralizers(profiles)
-		return schedlib.New(snap, profiles), nil
-	}
-
-	return &wasSimulatorFactory{
-		newSnapshot: snapshotFn,
-	}, nil
+func (s *wasSimulatorFactory) newSnapshot(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	nodes []*corev1.Node,
+	podGroups []*schedulingv1beta1.PodGroup,
+) (schedLibSimulator.Simulator, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sim.NewClusterSnapshot(ctx, pods, nodes, podGroups, nil)
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
@@ -172,15 +164,17 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
+// NewWASSimulatorFactory creates the scheduler-library backed simulator factory.
+// A nil restConfig means there is no API server to talk to, e.g. in unit tests.
 func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasSimulatorFactory, error) {
-	if restConfig != nil {
-		// TODO(#13534): when DRA plugins are added, use a real client here
-		// instead of the fake so the informer factory is populated.
-		if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
-			return nil, err
-		}
+	if restConfig == nil {
+		restConfig = &rest.Config{Host: offlineHost}
 	}
-	return newWASSimulatorFactory(ctx, fake.NewSimpleClientset())
+	roClient, err := schedLibSimulator.NewReadonlyClient(restConfig)
+	if err != nil {
+		return nil, err
+	}
+	return newWASSimulatorFactory(ctx, newWASSchedulerConfig(), roClient)
 }
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
@@ -201,7 +195,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	}
 
 	allPods := tracker.Pods()
-	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
+	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -211,8 +205,8 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
 		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
 	}
-	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
-		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)
+	snapshot.emptyCluster.build = func(ctx context.Context) (schedLibSimulator.Simulator, error) {
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes, nil)
 	}
 
 	return snapshot, nil
