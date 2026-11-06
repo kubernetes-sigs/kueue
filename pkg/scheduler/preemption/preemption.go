@@ -266,13 +266,10 @@ func (pf *PreemptionFilter) unpreemptWorkload(wlKey workload.Reference) {
 }
 
 // Reset restores any workloads still preempted in the strategy back to the snapshot.
-func (pf *PreemptionFilter) Reset() {
+func (pf *PreemptionFilter) reset() {
 	pf.m.Lock()
 	defer pf.m.Unlock()
 
-	if !pf.initialized {
-		return
-	}
 	for wlKey := range pf.preempted {
 		pf.unpreemptWorkload(wlKey)
 	}
@@ -280,7 +277,7 @@ func (pf *PreemptionFilter) Reset() {
 }
 
 // Initialize sets up the usage and borrowing for the fit check.
-func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, allowBorrowing bool) {
+func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, allowBorrowing bool) (reset func()) {
 	pf.m.Lock()
 	defer pf.m.Unlock()
 
@@ -296,6 +293,8 @@ func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, al
 		TAS: pf.preemptor.TASUsage(),
 	}
 	pf.allowBorrowing = allowBorrowing
+
+	return sync.OnceFunc(pf.reset)
 }
 
 // GetTargets checks whether the given preemptedWorkloads satisfy quota and strategy

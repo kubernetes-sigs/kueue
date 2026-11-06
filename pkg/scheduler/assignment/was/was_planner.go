@@ -131,17 +131,20 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
 		var opts []simulator.ScheduleOption
+		var resetFilter func()
 		if len(committedVictims) > 0 {
 			// The borrowing param holds no meaning here
 			// as the workload will not be preempting anything on this call.
-			p.filter.Initialize(assignment, true)
+			resetFilter = p.filter.Initialize(assignment, true)
 			opts = append(opts, simulator.WithCommittedPreemptionVictims(committedVictims.References()))
 			opts = append(opts, simulator.WithPreemptionFilter(p.filter))
 		}
 
 		var preemptionVictims []workload.Reference
 		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
-		p.filter.Reset()
+		if resetFilter != nil {
+			resetFilter()
+		}
 
 		if err != nil {
 			return nil, nil, nil, err
@@ -199,7 +202,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 	committedVictims preemption.PreemptedWorkloads,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
-		p.filter.Initialize(&assignment, strategy.AllowBorrowing())
+		resetFilter := p.filter.Initialize(&assignment, strategy.AllowBorrowing())
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
@@ -207,7 +210,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			simulator.WithPreemptionFilter(p.filter),
 			simulator.WithCommittedPreemptionVictims(committedVictims.References()),
 		)
-		p.filter.Reset()
+		resetFilter()
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
