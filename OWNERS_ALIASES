@@ -6,7 +6,6 @@ aliases:
   kueue-reviewers:
     - mbobrovskyi
     - mimowo
-    - pbundyra
     - tenzen-y
     - kannon92
     - pajakd
@@ -21,7 +20,6 @@ aliases:
   kueuectl-reviewers:
     - henry3260
   kueueviz-reviewers:
-    - akram
     - danylott
     - mykysha
   concurrent-admission-reviewers:
@@ -38,12 +36,10 @@ aliases:
     - mbobrovskyi
   dependency-approvers:
     - mbobrovskyi
-    - pbundyra
     - kannon92
   test-approvers:
     - mbobrovskyi
     - olekzabl
-    - pbundyra
   test-reviewers:
     - ivnovakov
     - mykysha
@@ -52,11 +48,9 @@ aliases:
   agent-approvers:
     - amy
     - kannon92
-    - pbundyra
   agent-reviewers:
     - amy
     - kannon92
-    - pbundyra
   hugo-approvers:
     - mbobrovskyi
   infra-approvers:
