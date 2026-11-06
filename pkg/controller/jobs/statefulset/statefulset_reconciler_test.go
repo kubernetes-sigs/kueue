@@ -145,10 +145,32 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads              []kueue.Workload
 		wantEvents                 []utiltesting.EventRecord
 		wantErr                    error
+		interceptors               interceptor.Funcs
 	}{
 		"statefulset not found": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+		},
+		"statefulset managed by another framework does not look up its Workload": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				DeepCopy(),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+						return errors.New("unexpected Workload lookup")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, "test-framework").
+				DeepCopy(),
 		},
 		"statefulset does not remove finalizers from finished pods": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -1478,7 +1500,9 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{})
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(tc.interceptors)
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			err := SetupIndexes(ctx, indexer)
 			if err != nil {
