@@ -3,10 +3,11 @@
 <!-- toc -->
 - [Cost model and candidate ordering](#cost-model-and-candidate-ordering)
   - [Strict priority](#strict-priority)
-  - [Shrink larger candidates first](#shrink-larger-candidates-first)
+  - [Partial-preemption-aware ordering](#partial-preemption-aware-ordering)
   - [A cost function](#a-cost-function)
 - [Spreading reductions across victims](#spreading-reductions-across-victims)
 - [Timeout](#timeout)
+- [Proactive downscaling](#proactive-downscaling)
 <!-- /toc -->
 
 Everything in this file is subject to change based on user feedback. Field, flag and annotation
@@ -27,13 +28,26 @@ moving to the next group. Lower priority then yields first, as it does for whole
 the cost of evicting a lower-priority Workload whole that a cross-priority shrink would have kept
 running. It could be exposed as a `partialPreemption.disableStrictPriorityPreemption` flag.
 
-### Shrink larger candidates first
+### Partial-preemption-aware ordering
 
-Among candidates of equal priority, put the one that can shed more Pods first: the key is how far
-its effective used count exceeds its `preemptionMinCount`, capped by any in-flight
-`preemptionTargetCount`. Because the key is recomputed each scheduling cycle, a victim that was
-already shrunk falls behind its peers, so later cycles spread the reduction instead of repeatedly
-hitting the same Workload.
+Three criteria could be added to the existing candidate comparator:
+
+1. **Resume an in-flight reduction first.** A candidate whose current count is still above an
+   in-flight `preemptionTargetCount` sorts just after already-evicting candidates, so a reduction
+   already in progress is resumed before a fresh victim is picked. This is what keeps the scheduler
+   from spreading reductions across new victims while an earlier target is still converging.
+2. **Prefer shrinking over evicting.** Once priority ties, an eligible partial-preemptible candidate
+   is preferred over a whole-eviction-only one, because shrinking a PodSet is cheaper than evicting a
+   whole Workload.
+3. **Among partial peers, prefer the one that can give back more.** The tie-break key is how far the
+   candidate's effective used count exceeds its `preemptionMinCount` (capped by any in-flight
+   `preemptionTargetCount`) — the number of replicas it can still shed — not the raw used count.
+   Because this key is recomputed each scheduling cycle, a victim that was already shrunk falls
+   behind its peers, so repeated rounds rotate across candidates and spread the reduction instead of
+   repeatedly hitting the same Workload.
+
+In Alpha, the shrink pass already favors shrinking over evicting, and an in-flight target counts at
+that target before the passes start.
 
 ### A cost function
 
@@ -64,3 +78,26 @@ A `partialPreemption.timeout` in the Configuration API, defaulting to 5m, could 
 - When it expires with Pods still above the target, Kueue sets `PartiallyPreempted` to `False` with
   reason `Timeout`. The victim is no longer counted at its target, and it becomes a whole-eviction
   candidate that is not shrunk again.
+
+## Proactive downscaling
+
+In proactive downscaling, the job's runtime shrinks itself to `preemptionTargetCount`: for example,
+a Kueue-aware Spark driver lowers its executor target, or the batch/Job integration lowers
+`parallelism`. The runtime chooses which Pods leave, and quota is released through the existing
+elastic scale-down path when the Workload's spec count drops. A framework would opt in per
+integration; the Kueue scheduler side of this KEP does not change.
+
+We hold off on it because:
+
+- It needs code in each runtime. Upstream Spark has no Kueue-aware executor allocator, a driver
+  plugin needs Spark internals, and a new Spark release cannot reach the Spark 3 versions in use.
+- Ray has no clean way in (see [Kueue mutates the job's replica count
+  directly](README.md#kueue-mutates-the-jobs-replica-count-directly)).
+- It adds little for Spark: an evicted executor already decommissions on SIGTERM, the same path that
+  a driver-initiated scale-down uses.
+- With an autoscaler, a runtime that lowers its own size races with the autoscaler raising it again.
+- A second release path doubles the API and test surface before reactive downscaling has user
+  feedback.
+
+Its main benefit is choosing which Pods leave. Under reactive downscaling,
+`controller.kubernetes.io/pod-deletion-cost` already lets a framework steer that.

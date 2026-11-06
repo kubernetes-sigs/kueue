@@ -51,7 +51,6 @@
   - [Delete Pods instead of evicting them](#delete-pods-instead-of-evicting-them)
   - [Drain each victim to its floor](#drain-each-victim-to-its-floor)
 - [Future Work Ideas](#future-work-ideas)
-  - [Proactive downscaling](#proactive-downscaling)
 <!-- /toc -->
 
 ## Summary
@@ -64,8 +63,8 @@ application whose executor count can shrink), whole eviction is unnecessarily di
 PodSet to a target count, instead of evicting the whole Workload.
 Kueue evicts the Pods above the target without changing the job's spec, and keeps the Pods that the
 job recreates gated until quota is available again.
-The scheduler selects the largest target count that lets the preemptor fit, so it reclaims only the
-replicas needed. The victim keeps running at a smaller size. Kueue evicts it whole only when
+The Kueue scheduler selects the largest target count that lets the preemptor fit, so it reclaims
+only the replicas needed. The victim keeps running at a smaller size. Kueue evicts it whole only when
 shrinking cannot free enough quota.
 
 ## Motivation
@@ -91,7 +90,6 @@ the quota accounting correct throughout.
 - Work without requiring upstream changes to the Ray and Spark controllers.
 - Let a shrunk Workload grow back with partial scale-up (KEP-12100) when quota is available again,
   without introducing a new scale-up mechanism.
-- Be fully gated so that, with the gate disabled, there is zero behavioral change.
 
 ### Non-Goals
 
@@ -103,7 +101,7 @@ the quota accounting correct throughout.
 - Multi-host Ray worker groups (`numOfHosts > 1`) are not supported, as in partial scale-up
   (KEP-12100): Ray can only reach targets that are multiples of `numOfHosts`.
 - Proactive downscaling, where the job's runtime shrinks itself, is not part of this KEP (see
-  [Proactive downscaling](#proactive-downscaling)).
+  [Proactive downscaling](FUTURE_WORK.md#proactive-downscaling)).
 
 ## Proposal
 
@@ -265,7 +263,8 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 - **Reactive downscaling** — the default. Kueue evicts the Pods and lowers the PodSet's admitted
   count itself; the job's runtime does not shrink itself.
 - **Proactive downscaling** — the job's runtime lowers its own spec count to shrink, which the job
-  framework must adapt to; it is not the default (see [Proactive downscaling](#proactive-downscaling)).
+  framework must adapt to; it is not the default (see [Proactive
+  downscaling](FUTURE_WORK.md#proactive-downscaling)).
 
 ### Two-phase model: request != release
 
@@ -340,8 +339,8 @@ type PodSetAssignment struct {
 
 A job opts in with the annotation `kueue.x-k8s.io/partial-preemption: "true"`, next to
 `kueue.x-k8s.io/elastic-job: "true"`, which partial preemption requires. kueue-controller-manager
-copies it to the Workload, so the scheduler only needs to look at the Workload. Reviewing it as an
-API field is a Beta criterion.
+copies it to the Workload, so the Kueue scheduler only needs to look at the Workload. Reviewing it
+as an API field is a Beta criterion.
 
 ### PreemptionMinCount
 
@@ -386,8 +385,10 @@ Workload carries the opt-in annotation with value `"true"` and is elastic, and e
 has an effective used count above its `preemptionMinCount`. That PodSet must not have a topology
 assignment. Otherwise the candidate falls back to whole eviction; shrinking several PodSets is a
 Beta criterion. The used count comes from the Workload's usage; an existing lower
-`preemptionTargetCount` is used as the effective count for simulation. A Workload that has not yet
-reached PodsReady is evicted whole rather than shrunk.
+`preemptionTargetCount` is used as the effective count for simulation. With `waitForPodsReady`
+enabled, a Workload that has not yet reached PodsReady is evicted whole rather than shrunk. In
+Alpha, a Workload with the `kueue.x-k8s.io/multikueue-origin` label, which MultiKueue dispatched to
+a worker cluster, is evicted whole.
 
 #### Candidate ordering
 
@@ -397,12 +398,12 @@ whole evictions: every eligible candidate is shrunk before any candidate is evic
 
 In a future version, we will re-evaluate the ordering and put a candidate that can shed more Pods
 (`used - preemptionMinCount`, capped by any in-flight target) ahead of one that can shed fewer (see
-[Shrink larger candidates first](FUTURE_WORK.md#shrink-larger-candidates-first)).
+[Partial-preemption-aware ordering](FUTURE_WORK.md#partial-preemption-aware-ordering)).
 
 #### Shrink and evict passes
 
-The scheduler simulates the preemption over the candidate order and stops as soon as the preemptor
-fits:
+The Kueue scheduler simulates the preemption over the candidate order and stops as soon as the
+preemptor fits:
 
 1. **Work already in progress.** Already-evicted candidates count as removed, and a Workload with an
    in-flight target counts at that target.
@@ -418,7 +419,7 @@ shows up again in step 3.
 
 A shrink can change which candidates are still valid: a candidate in another ClusterQueue stops
 qualifying once its ClusterQueue is back within nominal quota. So if the evict pass does not make
-the preemptor fit, the scheduler discards the shrinks from step 2 and runs today's whole-eviction
+the preemptor fit, the Kueue scheduler discards the shrinks from step 2 and runs today's whole-eviction
 pass, followed by fill-back. Partial preemption therefore never leaves a preemptor `Pending` that
 whole eviction would admit.
 
@@ -448,8 +449,8 @@ Quota is not released here (that is the release phase of the two-phase model).
 
 #### No-fit behavior
 
-Partial targets are issued only when the resulting target set makes the preemptor fit. The scheduler
-reuses the existing over-preemption trimming: once it has a target set that frees enough quota,
+Partial targets are issued only when the resulting target set makes the preemptor fit. The Kueue
+scheduler reuses the existing over-preemption trimming: once it has a target set that frees enough quota,
 `fillBackWorkloads` walks the targets and restores each candidate to the largest count that still
 lets the preemptor fit, so a victim gives up only what the preemptor needs and is evicted whole only
 when shrinking is not enough. With partial preemption enabled, `fillBackWorkloads` starts from the
@@ -535,11 +536,11 @@ post-release admitted count as its baseline. The job then grows back through
 `ElasticJobsViaWorkloadSlices`: with the `partial` scale-up strategy as quota frees, otherwise once
 its whole size fits.
 
-- While Pods above a target are still running, the scheduler does not admit a scale-up slice for
-  that job.
+- While Pods above a target are still running, the Kueue scheduler does not admit a scale-up slice
+  for that job.
 - The scale-up slice competes for quota like a requeued whole-eviction victim today. It cannot
   preempt the preemptor, which had priority or hierarchical advantage over the victim, and with
-  `PrioritizePreemptorWorkloads` the scheduler considers the waiting preemptor first.
+  `PrioritizePreemptorWorkloads` the Kueue scheduler considers the waiting preemptor first.
 - A later partial preemption may lower the target of the admitted Workload again.
 
 ### Validation
@@ -592,7 +593,7 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
 | Topology-Aware Scheduling | In Alpha, a PodSet with a topology assignment is not eligible, so partial preemption never applies in a ClusterQueue that uses TAS. |
-| MultiKueue | Not supported in Alpha: a Workload dispatched by MultiKueue is evicted whole. |
+| MultiKueue | Not supported in Alpha: a worker cluster evicts a Workload with the `kueue.x-k8s.io/multikueue-origin` label whole (see [Eligibility](#eligibility)). Supporting it, including how the manager learns about a release on the worker, is a Beta criterion. |
 | `ElasticJobsViaWorkloadSlicesForProvisioningRequests` | No change for the shrink. The scale-up slice requests only the increment, as for any scale-up. |
 
 ### Integrations
@@ -658,7 +659,7 @@ make this code solid enough prior to committing the changes necessary to impleme
 - The shrink pass before the evict pass, and the fallback to today's whole-eviction pass.
 - Fill-back: restores to the floor, then to the previous count, then the binary search, including
   the last victim; an in-flight target is never raised.
-- Eligibility.
+- Eligibility, including the PodsReady rule with and without `waitForPodsReady`.
 - Which Pods are evicted: deletion cost, unscheduled, newest; gated and terminating Pods are
   skipped.
 - The ungater cap at the target, and the release condition.
@@ -749,9 +750,9 @@ Kueue could keep `status.admission` immutable and release quota by reporting the
 `status.reclaimablePods` (as #17484 does); usage is then `min(admitted, spec count - reclaimable)`.
 The release is then expressed relative to the spec count, so when a runtime's autoscaler lowers the
 spec count independently (the Ray autoscaler lowering `replicas`), the spec drop and the reclaim
-entry subtract twice until the next reconcile, briefly under-counting usage and letting the scheduler
-hand out quota that is still in use. Lowering the admitted count keeps the grant equal to the real
-size everywhere, at the cost of the narrow, gated webhook exception described in
+entry subtract twice until the next reconcile, briefly under-counting usage and letting the Kueue
+scheduler hand out quota that is still in use. Lowering the admitted count keeps the grant equal to
+the real size everywhere, at the cost of the narrow, gated webhook exception described in
 [Validation](#validation).
 
 ### Store the target in an annotation
@@ -773,27 +774,5 @@ added if users ask for it.
 ## Future Work Ideas
 
 Ideas deferred from Alpha are in [FUTURE_WORK.md](FUTURE_WORK.md): the cost model and candidate
-ordering, spreading reductions across victims, and a timeout for shrinks that do not converge.
-
-### Proactive downscaling
-
-In proactive downscaling, the job's runtime shrinks itself to `preemptionTargetCount`: for example,
-a Kueue-aware Spark driver lowers its executor target, or the batch/Job integration lowers
-`parallelism`. The runtime chooses which Pods leave, and quota is released through the existing
-elastic scale-down path when the Workload's spec count drops. A framework would opt in per
-integration; the scheduler side of this KEP does not change.
-
-We hold off on it because:
-
-- It needs code in each runtime. Upstream Spark has no Kueue-aware executor allocator, a driver
-  plugin needs Spark internals, and a new Spark release cannot reach the Spark 3 versions in use.
-- Ray has no clean way in (see [Kueue mutates the job's replica count
-  directly](#kueue-mutates-the-jobs-replica-count-directly)).
-- It adds little for Spark: an evicted executor already decommissions on SIGTERM, the same path that
-  a driver-initiated scale-down uses.
-- With an autoscaler, a runtime that lowers its own size races with the autoscaler raising it again.
-- A second release path doubles the API and test surface before reactive downscaling has user
-  feedback.
-
-Its main benefit is choosing which Pods leave. Under reactive downscaling,
-`controller.kubernetes.io/pod-deletion-cost` already lets a framework steer that.
+ordering, spreading reductions across victims, a timeout for shrinks that do not converge, and
+proactive downscaling.
