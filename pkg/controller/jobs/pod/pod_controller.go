@@ -93,7 +93,7 @@ const (
 
 var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
-	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
+	errStaleSinglePodRequest       = jobframework.UnretryableError("got a single pod reconcile request for a pod that has joined a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errNotPodGroupWorkload         = jobframework.UnretryableError("a workload with the pod group name already exists but was not created by the pod group framework")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
@@ -805,10 +805,12 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		}
 		p.isFound = true
 
-		// If the key.Namespace doesn't contain a "group/" prefix, even though
-		// the pod has a group name, there's something wrong with the event handler.
+		// A single-pod request for a pod that now has a group name is stale. The
+		// group name can be set after the pod is created, as the StatefulSet and
+		// LeaderWorkerSet reconcilers do, and that update event queues the group
+		// request. Retrying this one would fail until the pod is deleted.
 		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
-			return nil, errIncorrectReconcileRequest
+			return nil, errStaleSinglePodRequest
 		}
 
 		return jobframework.NewLoadResult(!p.pod.DeletionTimestamp.IsZero(), true), nil

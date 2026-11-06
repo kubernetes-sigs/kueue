@@ -1988,6 +1988,26 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"single pod request for a pod that has joined a group is dropped without retry": {
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "pod"},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				GroupNameLabel("test-group").
+				GroupTotalCount("1").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				GroupNameLabel("test-group").
+				GroupTotalCount("1").
+				Obj()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"the workload is created when queue name is set": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
