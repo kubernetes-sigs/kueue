@@ -22,12 +22,12 @@ import (
 	"testing"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -41,28 +41,34 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
 		Obj()
-	slice := func(name, cpu string) *utiltestingapi.WorkloadWrapper {
+	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+	unowned := func(name, cpu string, age time.Duration) *utiltestingapi.WorkloadWrapper {
 		return utiltestingapi.MakeWorkload(name, "ns").
-			Label(controllerconstants.JobUIDLabel, "job").
+			Creation(now.Add(-age)).
 			Request(corev1.ResourceCPU, cpu).
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "default", cpu).Obj()).
 				Obj(), now)
 	}
+	slice := func(name, cpu string, age time.Duration) *utiltestingapi.WorkloadWrapper {
+		return unowned(name, cpu, age).ControllerReference(jobGVK, "job", "job-uid")
+	}
 	replaces := func(key string) map[string]string {
 		return map[string]string{constants.WorkloadSliceReplacementForAnnotation: key}
 	}
-	oldSlice := slice("old", "2").UID("old").Obj()
-	oldSliceFinished := slice("old", "2").UID("old").Finished().Obj()
-	newSlice := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Obj()
-	newSliceFinished := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Finished().Obj()
-	newestSlice := slice("newest", "4").UID("newest").Annotations(replaces("ns/new")).Obj()
-	otherAtOldKey := slice("old", "1").UID("other").Label(controllerconstants.JobUIDLabel, "other-job").Obj()
-	otherNamespace := slice("old", "1").UID("other-ns").Obj()
+	oldSlice := slice("old", "2", 3*time.Second).UID("old").Obj()
+	oldSliceFinished := slice("old", "2", 3*time.Second).UID("old").Finished().Obj()
+	newSlice := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Obj()
+	newSliceFinished := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Finished().Obj()
+	newestSlice := slice("newest", "4", time.Second).UID("newest").Annotations(replaces("ns/new")).Obj()
+	otherAtOldKey := unowned("old", "1", 0).UID("other").ControllerReference(jobGVK, "other-job", "other-job-uid").Obj()
+	otherNamespace := slice("old", "1", 3*time.Second).UID("other-ns").Obj()
 	otherNamespace.Namespace = "other-ns"
-	replacesOtherNamespace := slice("new", "3").UID("new").Annotations(replaces("other-ns/old")).Obj()
-	selfReplacing := slice("self", "1").UID("self").Annotations(replaces("ns/self")).Obj()
+	replacesOtherNamespace := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("other-ns/old")).Obj()
+	selfReplacing := slice("self", "1", 0).UID("self").Annotations(replaces("ns/self")).Obj()
+	unownedOld := unowned("old", "2", 3*time.Second).UID("old").Obj()
+	unownedNew := unowned("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Obj()
 
 	type step struct {
 		add, finish, del *kueue.Workload // finish is a Finished copy of a cached workload
@@ -98,6 +104,21 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{del: newestSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{finish: oldSliceFinished, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{finish: newSliceFinished, wantCPU: "0"},
+			},
+		},
+		"the oldest slice is charged again when the newest leaves after the middle one finished": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{add: newestSlice, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
+				{finish: newSliceFinished, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
+				{del: newestSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+			},
+		},
+		"Workloads without a controller are charged": {
+			steps: []step{
+				{add: unownedOld, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: unownedNew, wantCPU: "5", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
 			},
 		},
 		"another Workload at the replaced slice's key is charged": {

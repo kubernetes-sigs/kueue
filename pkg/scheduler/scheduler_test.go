@@ -6203,7 +6203,7 @@ func TestSchedule(t *testing.T) {
 			},
 			// wantAssignments is a map of workload name to the status assignments expected to be in the cache after the scheduling cycle.
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// sales/foo-1 is not listed: the cache stops charging it once sales/foo-2 replaces it.
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj()).Obj(),
 				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "15").Count(15).Obj()).Obj(),
 			},
 			// wantWorkloads an authoritative list of workloads expected in K8s API after the scheduling cycle.
@@ -6339,7 +6339,11 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// sales/foo-1 is not listed: the cache stops charging it once sales/foo-2 replaces it.
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(
+					utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj(),
+					utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj(),
+				).Obj(),
 				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").PodSets(
 					utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "10").Count(10).Obj(),
 					utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj(),
@@ -6480,7 +6484,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// sales/foo-1 is not listed: the cache stops charging it once sales/foo-2 replaces it.
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
 				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "50").Count(50).Obj()).Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -6613,7 +6617,13 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// sales/foo-1 is not listed: the cache stops charging it once sales/foo-2 replaces it.
+				"sales/foo-1": *utiltestingapi.MakeAdmission("partial-cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "2").Count(2).Obj(),
+					).
+					Obj(),
 				"sales/foo-2": *utiltestingapi.MakeAdmission("partial-cq").
 					PodSets(
 						utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
@@ -7097,7 +7107,12 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// sales/foo-1 is not listed: the cache stops charging it once sales/foo-2 replaces it.
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "50").
+						Count(50).
+						Obj()).
+					Obj(),
 				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").
 					PodSets(utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "default", "50").
@@ -7513,7 +7528,12 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// default/old is not listed: the cache stops charging it once default/grow replaces it.
+				"default/old": *utiltestingapi.MakeAdmission("cq-a").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "6").
+						Count(6).
+						Obj()).
+					Obj(),
 				"default/grow": *utiltestingapi.MakeAdmission("cq-a").
 					PodSets(utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "default", "8").
@@ -7891,7 +7911,12 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
-				// default/old is not listed: the cache stops charging it once default/grow replaces it.
+				"default/old": *utiltestingapi.MakeAdmission("cq-a").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "4").
+						Count(4).
+						Obj()).
+					Obj(),
 				"default/grow": *utiltestingapi.MakeAdmission("cq-a").
 					PodSets(utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "default", "6").
