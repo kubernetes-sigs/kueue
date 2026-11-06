@@ -134,6 +134,15 @@ func TestReclaimablePods(t *testing.T) {
 			Completions: 6,
 		},
 	)
+	job1Done := jobset.ReplicatedJobStatus{Name: "replicated-job-1", Succeeded: 1}
+	job1Reclaim := []kueue.ReclaimablePod{{Name: "replicated-job-1", Count: 2}}
+	partialWithPolicy := func(fp jobset.FailurePolicy, restarts int32) *testingjobset.JobSetWrapper {
+		w := baseWrapper.Clone().JobsStatus(job1Done)
+		w.Spec.FailurePolicy = &fp
+		w.Status.Restarts = restarts
+		w.Status.RestartsCountTowardsMax = restarts
+		return w
+	}
 
 	testcases := map[string]struct {
 		jobSet *jobset.JobSet
@@ -188,6 +197,61 @@ func TestReclaimablePods(t *testing.T) {
 					Count: 6,
 				},
 			},
+		},
+		"RestartJobSet with remaining budget blocks partial reclaim": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).Obj(),
+			want:   nil,
+		},
+		"RestartJobSet with exhausted budget reclaims": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 2).Obj(),
+			want:   job1Reclaim,
+		},
+		"RestartJobSetAndIgnoreMaxRestarts blocks partial reclaim": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				Rules: []jobset.FailurePolicyRule{{Action: jobset.RestartJobSetAndIgnoreMaxRestarts}},
+			}, 0).Obj(),
+			want: nil,
+		},
+		"unconditional FailJobSet rule reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules:       []jobset.FailurePolicyRule{{Action: jobset.FailJobSet}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"unconditional RestartJob rule reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules:       []jobset.FailurePolicyRule{{Action: jobset.RestartJob}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"conditional FailJobSet rule falls back to RestartJobSet": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:              jobset.FailJobSet,
+					OnJobFailureReasons: []string{batchv1.JobReasonPodFailurePolicy},
+				}},
+			}, 0).Obj(),
+			want: nil,
+		},
+		"RestartJobSet with remaining budget reclaims once all jobs succeed": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).JobsStatus(
+				job1Done,
+				jobset.ReplicatedJobStatus{Name: "replicated-job-2", Succeeded: 2},
+			).Obj(),
+			want: []kueue.ReclaimablePod{
+				{Name: "replicated-job-1", Count: 2},
+				{Name: "replicated-job-2", Count: 6},
+			},
+		},
+		"RestartJobSet with remaining budget reclaims once completed": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).Condition(metav1.Condition{
+				Type:   string(jobset.JobSetCompleted),
+				Status: metav1.ConditionTrue,
+			}).Obj(),
+			want: job1Reclaim,
 		},
 	}
 
