@@ -63,8 +63,9 @@ type clusterQueue struct {
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
-	// Only the newest slice of a chain (see sliceChain) is charged: its usage covers the older
-	// slices' Pods. chargedSlices indexes the charged slices by chain, replacedSlices holds the rest.
+	// A slice of a chain (see sliceChain) that another one covers (see covers) is not charged: the
+	// covering slice's usage covers its Pods. chargedSlices indexes the charged slices by chain,
+	// replacedSlices holds the covered ones.
 	chargedSlices     map[string]sets.Set[workload.Reference]
 	replacedSlices    map[workload.Reference]*workload.Info
 	NamespaceSelector labels.Selector
@@ -572,19 +573,23 @@ func sliceChain(wi *workload.Info) string {
 	return wi.Obj.Namespace + "/" + string(owner.UID) + "/" + name
 }
 
-// covers reports whether slice a covers slice b: a was created after b and charges at least b's
-// usage. Slices created in the same second, and a replacement that shrinks, stay charged.
+// covers reports whether slice a covers slice b: it charges at least b's usage, and either more of
+// some resource or the same and was created after b. So the larger of two slices is charged, also
+// when a replacement shrinks. Slices that each charge more of some resource, and slices with the
+// same usage created in the same second, stay charged.
 func covers(a, b *workload.Info) bool {
-	if !a.Obj.CreationTimestamp.After(b.Obj.CreationTimestamp.Time) {
-		return false
-	}
-	usage := a.ResourceUsage().Assigned
-	for fr, q := range b.ResourceUsage().Assigned {
-		if usage[fr].Cmp(q) < 0 {
+	ua, ub := a.ResourceUsage().Assigned, b.ResourceUsage().Assigned
+	for fr, q := range ub {
+		if ua[fr].Cmp(q) < 0 {
 			return false
 		}
 	}
-	return true
+	for fr, q := range ua {
+		if q.Cmp(ub[fr]) > 0 {
+			return true
+		}
+	}
+	return a.Obj.CreationTimestamp.After(b.Obj.CreationTimestamp.Time)
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -602,7 +607,7 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 		if c.chargedSlices[chain].Len() == 0 {
 			delete(c.chargedSlices, chain)
 		}
-		// Adding back the replaced slices of the chain charges the newest of them.
+		// Adding back the replaced slices of the chain charges those no other one covers.
 		defer func() {
 			for _, old := range slices.Collect(maps.Values(c.replacedSlices)) {
 				if sliceChain(old) == chain {
