@@ -123,7 +123,8 @@ build() {
 
 # History: B0, then squash commits M1..M4 of PRs 1..4, each changing its own
 # file. PRs 1 and 2 were tested on B0, PRs 2..4 as one Tide batch on M1, and
-# PR 2 alone as an earlier batch on M1. Nothing tested M1 + P2 + P3 (M3).
+# PR 2 alone as an earlier batch on M1. Batch 203 tests M3's tree but fails
+# on shard 1.
 src=${tmp}/src
 git init -q -b main "${src}"
 for f in a b c d; do echo "${f}" >"${src}/${f}"; done
@@ -208,6 +209,15 @@ check "${name}" "${out}" "
   .commit == \"${M2}\" and .shards == [\"${BATCH}/${SHARD0}/201\", \"${BATCH}/${SHARD1}/201\"]"
 
 name="batch member that no build tested is skipped"
+out=$(run "${name}" 0 "$(post "${M3}")" "${M3}")
+check "${name}" "${out}" ".commit == \"${M3}\" and (.skipped | test(\"no unit shard build tested the tree\"))"
+[[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+# Batch 203 tests M3's tree but fails on shard 1; 204 reruns shard 0.
+build "${BATCH}/${SHARD0}" 203 success batch "${M1}" "2:${P2} 3:${P3}"
+build "${BATCH}/${SHARD1}" 203 failure batch "${M1}" "2:${P2} 3:${P3}"
+build "${BATCH}/${SHARD0}" 204 success batch "${M1}" "2:${P2} 3:${P3}"
+name="batch with a failed shard is not a match"
 out=$(run "${name}" 0 "$(post "${M3}")" "${M3}")
 check "${name}" "${out}" ".commit == \"${M3}\" and (.skipped | test(\"no unit shard build tested the tree\"))"
 [[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
