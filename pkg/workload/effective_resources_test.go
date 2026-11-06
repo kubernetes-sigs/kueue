@@ -17,12 +17,18 @@ limitations under the License.
 package workload
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -383,5 +389,96 @@ func TestInfoCarriesEffectiveSnapshotAcrossDefaultChanges(t *testing.T) {
 	}
 	if got := refreshed.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(2000) != 0 {
 		t.Errorf("fresh CPU = %s, want 2000", got)
+	}
+}
+
+func TestValidateAdmissibilityAdjustmentError(t *testing.T) {
+	errLimitRangeListing := errors.New("limitrange listing error")
+
+	cases := map[string]struct {
+		wl            *kueue.Workload
+		clientBuilder func() client.Client
+		wantInfoErr   func(error) bool
+		wantAdmErr    func(error) bool
+	}{
+		"missing RuntimeClass returns NotFound error": {
+			wl: utiltestingapi.MakeWorkload("wl-unadmitted", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).
+				Obj(),
+			clientBuilder: func() client.Client {
+				return utiltesting.NewClientBuilder().
+					WithObjects(&corev1.Namespace{Name: "ns"}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					Build()
+			},
+			wantInfoErr: apierrors.IsNotFound,
+			wantAdmErr:  apierrors.IsNotFound,
+		},
+		"LimitRange listing error returns ErrInternal": {
+			wl: utiltestingapi.MakeWorkload("wl-lr-error", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			clientBuilder: func() client.Client {
+				return utiltesting.NewClientBuilder().
+					WithObjects(&corev1.Namespace{Name: "ns"}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithInterceptorFuncs(interceptor.Funcs{
+						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							if _, ok := list.(*corev1.LimitRangeList); ok {
+								return errLimitRangeListing
+							}
+							return c.List(ctx, list, opts...)
+						},
+					}).
+					Build()
+			},
+			wantInfoErr: func(err error) bool { return errors.Is(err, ErrInternal) },
+			wantAdmErr:  func(err error) bool { return errors.Is(err, ErrInternal) },
+		},
+		"quota-reserved workload passes despite AdjustmentErr": {
+			wl: utiltestingapi.MakeWorkload("wl-reserved", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Obj(),
+			clientBuilder: func() client.Client {
+				return utiltesting.NewClientBuilder().
+					WithObjects(&corev1.Namespace{Name: "ns"}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					Build()
+			},
+			wantInfoErr: apierrors.IsNotFound,
+			wantAdmErr:  nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := tc.clientBuilder()
+
+			info := NewInfoFromClient(ctx, cl, tc.wl)
+			if tc.wantInfoErr != nil {
+				if info.AdjustmentErr == nil {
+					t.Fatal("expected NewInfoFromClient to record AdjustmentErr")
+				}
+				if !tc.wantInfoErr(info.AdjustmentErr) {
+					t.Errorf("unexpected AdjustmentErr: %v", info.AdjustmentErr)
+				}
+			}
+
+			admErr := ValidateAdmissibility(ctx, cl, info, nil)
+			if tc.wantAdmErr == nil {
+				if admErr != nil {
+					t.Errorf("expected ValidateAdmissibility to succeed, got: %v", admErr)
+				}
+			} else {
+				if admErr == nil {
+					t.Fatal("expected ValidateAdmissibility to return error")
+				}
+				if !tc.wantAdmErr(admErr) {
+					t.Errorf("unexpected ValidateAdmissibility error: %v", admErr)
+				}
+			}
+		})
 	}
 }

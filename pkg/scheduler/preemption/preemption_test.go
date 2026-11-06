@@ -64,6 +64,7 @@ var snapCmpOpts = cmp.Options{
 	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
 	cmp.Comparer(resources.Equal),
+	cmpopts.EquateErrors(),
 }
 
 func TestPreemption(t *testing.T) {

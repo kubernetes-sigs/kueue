@@ -9937,9 +9937,11 @@ func TestReconciler(t *testing.T) {
 
 				ctx, log := utiltesting.ContextWithLog(t)
 
-				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				})
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
@@ -10280,6 +10282,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).
 				WithObjects(utiltestingapi.MakeResourceFlavor(rfName).NodeLabel(corev1.LabelArchStable, "arm64").Obj()).
 				WithLists(&corev1.PodList{Items: tc.pods}).
@@ -10375,7 +10378,8 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType)
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
@@ -10658,7 +10662,8 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		AdmittedAt(true, now).
 		Obj()
 
-	clientBuilder := utiltesting.NewClientBuilder()
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType)
 	indexer := utiltesting.AsIndexer(clientBuilder)
 	if err := SetupIndexes(ctx, indexer); err != nil {
 		t.Fatalf("Could not setup indexes: %v", err)
@@ -10777,6 +10782,7 @@ func TestReconciler_UngateGroupWithTerminatingExcessPodWithoutKueueFinalizer(t *
 		t.Fatalf("Could not setup indexes: %v", err)
 	}
 	kClient := clientBuilder.
+		WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 		WithObjects(utiltesting.MakeNamespace("ns"), &oldPod, &newPod).
 		WithObjects(utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj()).
 		WithStatusSubresource(&kueue.Workload{}).
