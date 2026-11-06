@@ -411,6 +411,15 @@ your DRA driver in `ResourceSlice` devices. You can inspect these with:
 kubectl get resourceslices -o jsonpath='{range .items[*]}{.spec.driver}{"\t"}{range .spec.devices[*]}{.name}: capacity={.capacity}{"\n"}{end}{end}'
 ```
 
+To give each capacity dimension its own quota, list the same DeviceClass in
+one mapping per dimension, each with a different `capacity.name`. For
+example, `gpu.memory` tracking `gpu.example.com/memory` and `gpu.cores`
+tracking `gpu.example.com/cores` are charged separately. A request that leaves
+out a dimension is charged that dimension's `RequestPolicy.Default`, or the
+device's full capacity if there is no default, so each ClusterQueue needs quota
+for every mapped dimension. A DeviceClass cannot appear in both a counter
+mapping and a capacity mapping.
+
 ### 2. Add the capacity resource to your ClusterQueue
 
 Set the quota in capacity units (e.g., `800Gi` for 10 GPUs with 80Gi each)
@@ -603,4 +612,4 @@ DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except
 
 MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
 
-For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager.
+For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager. Without them, the workload stays inadmissible, so MultiKueue never dispatches it.

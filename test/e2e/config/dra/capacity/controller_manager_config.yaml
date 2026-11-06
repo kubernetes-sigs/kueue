@@ -34,3 +34,13 @@ resources:
         deviceSelector:
           cel:
             expression: "device.driver == 'gpu.example.com'"
+  - name: gpu.compute
+    deviceClassNames:
+    - gpu.example.com
+    sources:
+    - capacity:
+        name: compute
+        driver: gpu.example.com
+        deviceSelector:
+          cel:
+            expression: "device.driver == 'gpu.example.com'"

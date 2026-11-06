@@ -36,6 +36,7 @@ type deviceClassCounterConfig struct {
 
 // deviceClassCapacityConfig holds capacity configuration for a specific DeviceClass.
 type deviceClassCapacityConfig struct {
+	quotaResource  corev1.ResourceName
 	driver         string
 	resourceName   resourcev1.QualifiedName
 	deviceSelector resourcev1.DeviceSelector
@@ -59,8 +60,8 @@ func NewResourceMapper() *ResourceMapper {
 }
 
 // Lookup returns the logical resource name for a device class.
-// For DeviceClasses with counter sources, the quota resource name is on each
-// counter config instead.
+// For DeviceClasses with counter or capacity sources, the quota resource name is
+// on each source config instead.
 func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.ResourceName, bool) {
 	if m == nil {
 		return "", false
@@ -99,9 +100,9 @@ func (m *ResourceMapper) CapacityBasedResourceNames() []corev1.ResourceName {
 		return nil
 	}
 	resourceNames := sets.New[corev1.ResourceName]()
-	for dc := range m.deviceClassCapacity {
-		if name, found := m.Lookup(dc); found {
-			resourceNames.Insert(name)
+	for _, configs := range m.deviceClassCapacity {
+		for _, config := range configs {
+			resourceNames.Insert(config.quotaResource)
 		}
 	}
 	result := resourceNames.UnsortedList()
@@ -139,6 +140,7 @@ func (m *ResourceMapper) PopulateFromConfiguration(mappings []configapi.DeviceCl
 				}
 				if source.Capacity != nil {
 					dcCapacity[deviceClassName] = append(dcCapacity[deviceClassName], deviceClassCapacityConfig{
+						quotaResource:  mapping.Name,
 						driver:         source.Capacity.Driver,
 						resourceName:   source.Capacity.Name,
 						deviceSelector: source.Capacity.DeviceSelector,
