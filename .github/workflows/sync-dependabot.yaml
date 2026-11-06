@@ -22,6 +22,14 @@ jobs:
               run: |
                 git config user.name "$(git log -1 --pretty=%an)"
                 git config user.email "$(git log -1 --pretty=%ae)"
+            - name: Set up Go
+              if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                go-version-file: go.mod
+                cache-dependency-path: |
+                  go.sum
+                  hack/tools/go.sum
             - name: Sync hugo version
               if: ${{ contains(github.event.pull_request.title, 'hugo') }}
               run: |
