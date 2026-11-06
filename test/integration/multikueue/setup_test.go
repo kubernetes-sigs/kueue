@@ -37,6 +37,7 @@ import (
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1287,6 +1288,71 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 						Message: "load client config failed: no access provider configured",
 					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Feature gate enabled and ClusterProfile CRD installed after startup", func() {
+		ginkgo.It("Should watch ClusterProfiles once the ClusterProfile CRD is installed", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
+
+			// A dedicated control plane is used so that the ClusterProfile CRD can be
+			// installed while the manager runs without affecting the shared clusters.
+			lateCRDCluster := createClusterWithDepCRDs(nil, depCRDPathsWithoutClusterProfile)
+			ginkgo.DeferCleanup(lateCRDCluster.stopAndTeardown)
+			ctx, k8sClient := lateCRDCluster.ctx, lateCRDCluster.client
+			behavioral.MustCreate(ctx, k8sClient, utiltesting.MakeNamespace(managersConfigNamespace.Name))
+
+			lateCRDCluster.fwk.StartManager(ctx, lateCRDCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueue.WithClusterProfileCRDPresent(false))
+			})
+
+			var mkc *kueue.MultiKueueCluster
+			ginkgo.By("Create a MultiKueueCluster with ClusterProfile", func() {
+				mkc = utiltestingapi.MakeMultiKueueCluster("cp-worker-crd-late").ClusterProfile("cp-crd-late").Obj()
+				gomega.Expect(k8sClient.Create(ctx, mkc)).To(gomega.Succeed())
+			})
+
+			mkcKey := client.ObjectKeyFromObject(mkc)
+			ginkgo.By("Verify the MultiKueueCluster reports that the ClusterProfile API is not served", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updated := &kueue.MultiKueueCluster{}
+					g.Expect(k8sClient.Get(ctx, mkcKey, updated)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.MultiKueueClusterActive)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "BadClusterProfile",
+						Message: "load client config failed: the ClusterProfile API is not served",
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Install the ClusterProfile CRD", func() {
+				_, err := envtest.InstallCRDs(lateCRDCluster.cfg, envtest.CRDInstallOptions{
+					Paths:              []string{behavioral.ClusterProfileCrds},
+					ErrorIfPathMissing: true,
+				})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			})
+
+			ginkgo.By("Create the ClusterProfile", func() {
+				cp := utiltestingapi.MakeClusterProfile("cp-crd-late", managersConfigNamespace.Name).Obj()
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Create(ctx, cp)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the ClusterProfile watch reconciles the MultiKueueCluster", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updated := &kueue.MultiKueueCluster{}
+					g.Expect(k8sClient.Get(ctx, mkcKey, updated)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.MultiKueueClusterActive)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "BadClusterProfile",
+						Message: "load client config failed: no access provider configured",
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
