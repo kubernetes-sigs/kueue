@@ -402,10 +402,20 @@ In a future version, we will re-evaluate the ordering and put a candidate that c
 
 #### Shrink and evict passes
 
+**Candidate groups and the 6-segment layout.** The iterator arranges candidates into six ordered
+segments:
+
+1. Evicted / shrinking candidates with hierarchical advantage
+2. Evicted / shrinking candidates with priority advantage (lower-priority, same cohort)
+3. Evicted / shrinking candidates from the same queue
+4. Non-evicted candidates with hierarchical advantage
+5. Non-evicted candidates with priority advantage
+6. Non-evicted candidates from the same queue
+
 The Kueue scheduler simulates the preemption over the candidate order and stops as soon as the
 preemptor fits:
 
-1. **Work already in progress.** Already-evicted candidates count as removed, and a Workload with an
+1. **Work already in progress (segments 1-3).** Already-evicted candidates count as removed, and a Workload with an
    in-flight target counts at that target.
 2. **Shrink pass.** Walk the order and simulate each eligible candidate at its floor, skipping
    candidates that can only be evicted whole. Stop once the preemptor fits.
