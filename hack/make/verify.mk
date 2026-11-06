@@ -95,6 +95,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
+	@trap 'python3 "$(PROJECT_DIR)/hack/tools-installer/install.py" --collect-logs' EXIT; \
 	$(PROJECT_DIR)/hack/make-failure-summary.sh $(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
@@ -128,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-unit-test-selection verify-make-failure-summary verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -208,9 +209,29 @@ define _e2e_common_test_recipe
 bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
 endef
 
+define _release_utils_test_recipe
+@venv_dir=$$(mktemp -d); \
+trap 'rm -r "$$venv_dir"' EXIT; \
+python3 -m venv "$$venv_dir"; \
+"$$venv_dir/bin/python" -m pip install \
+	--disable-pip-version-check \
+	--no-deps \
+	--only-binary=:all: \
+	--require-hashes \
+	--requirement $(PROJECT_DIR)/hack/releasing/requirements.txt; \
+PYTHONPATH=$(PROJECT_DIR)/hack/releasing "$$venv_dir/bin/python" -m unittest discover \
+	-s $(PROJECT_DIR)/hack/releasing \
+	-p '*_test.py'
+endef
+
+define _milestone_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/milestone_pull_test.sh
+endef
+
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
+$(HELM) template charts/kueue --set enableAlphaAPIs=true > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
 $(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
 $(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
@@ -219,6 +240,7 @@ $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.n
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set networkPolicy.enabled=true --set enableKueueViz=true > /dev/null
 endef
 
 define _helm_unit_test_recipe
@@ -232,6 +254,15 @@ endef
 
 define _kustomize_build_verify_recipe
 $(KUSTOMIZE) build config/alpha-enabled > /dev/null
+$(KUSTOMIZE) build config/components/crd/alpha > /dev/null
+endef
+
+define _rbac_role_coverage_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/rbac/verify.sh
+endef
+
+define _kustomization_resources_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/kustomization/verify.sh
 endef
 
 define _rbac_verify_recipe
@@ -242,6 +273,15 @@ endef
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
 $(CONTAINER_ENGINE) run --rm $(CONTAINER_USERNS_OPTS) --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --config /workspace/cmd/experimental/skills/.skillsaw.yaml --output /out/skillsaw-summary.html
+endef
+
+# ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
+# X.Y.Z.<short-sha> release-branch builds, which Dependabot can propose and PyPI lacks.
+define _ray_version_verify_recipe
+@printf '%s\n' "$${RAY_VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+	printf 'ERROR: RAY_VERSION=%s from hack/testing/ray/Dockerfile must be a plain X.Y.Z ray release published on PyPI\n' "$${RAY_VERSION}" >&2; \
+	exit 1; \
+}
 endef
 
 
@@ -284,6 +324,14 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
 	$(_e2e_common_test_recipe)
 
+.PHONY: verify-release-utils-test
+verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
+	$(_release_utils_test_recipe)
+
+.PHONY: verify-milestone-pull-test
+verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
+	$(_milestone_pull_test_recipe)
+
 .PHONY: verify-unit-test-selection
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
@@ -299,6 +347,10 @@ verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
+
+.PHONY: verify-ci-tools
+verify-ci-tools: ## Validate tool installation without network or containers.
+	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -316,6 +368,14 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
 
+.PHONY: verify-rbac-role-coverage
+verify-rbac-role-coverage: verify-tree-prereqs yq ## Verify every resource granted to the manager has editor and viewer ClusterRoles after generation
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: verify-kustomization-resources
+verify-kustomization-resources: verify-tree-prereqs yq ## Verify manifests shipped by the Helm chart are listed in kustomizations after generation
+	$(_kustomization_resources_verify_recipe)
+
 .PHONY: verify-rbac
 verify-rbac: verify-tree-prereqs ## Verify RBAC subject and roleRef relationships after generation
 	$(_rbac_verify_recipe)
@@ -323,6 +383,11 @@ verify-rbac: verify-tree-prereqs ## Verify RBAC subject and roleRef relationship
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw
 	$(_skills_lint_recipe)
+
+.PHONY: verify-ray-version
+verify-ray-version: export RAY_VERSION := $(RAY_VERSION)
+verify-ray-version: ## Verify the rayproject/ray tag is a plain X.Y.Z release
+	$(_ray_version_verify_recipe)
 
 # ---- Standalone targets (lightweight, for local use) ----------------------
 
@@ -362,6 +427,14 @@ shell-lint: ## Run shell script linting (via shellcheck).
 e2e-common-test: ## Run e2e-common shell helper tests.
 	$(_e2e_common_test_recipe)
 
+.PHONY: release-utils-test
+release-utils-test: ## Run release utility Python unit tests.
+	$(_release_utils_test_recipe)
+
+.PHONY: milestone-pull-test
+milestone-pull-test: ## Run milestone_pull shell tests.
+	$(_milestone_pull_test_recipe)
+
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
@@ -378,6 +451,14 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
 
+.PHONY: rbac-role-coverage-verify
+rbac-role-coverage-verify: yq ## Validate every resource granted to the manager has editor and viewer ClusterRoles.
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: kustomization-resources-verify
+kustomization-resources-verify: yq ## Validate manifests shipped by the Helm chart are listed in kustomizations.
+	$(_kustomization_resources_verify_recipe)
+
 .PHONY: rbac-verify
 rbac-verify: ## Verify RBAC subject and roleRef relationships (standalone).
 	$(_rbac_verify_recipe)
@@ -387,7 +468,7 @@ verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
 .PHONY: verify-website-links-preview
-verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
 
 .PHONY: i18n-verify
