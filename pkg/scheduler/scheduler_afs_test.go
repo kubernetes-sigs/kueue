@@ -41,6 +41,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -937,6 +938,7 @@ func TestScheduleForAFS(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
+						WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -1132,6 +1134,7 @@ func TestFailedAdmissionWriteRemovesEntryPenalty(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(ns, rf, cq, lq, wl).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 				if subResourceName == "status" {
@@ -1247,6 +1250,7 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(ns, rf, cq, lq, pending, secondPass).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && snapshotToFail.CompareAndSwap(true, false) {

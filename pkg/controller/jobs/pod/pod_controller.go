@@ -1020,7 +1020,8 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // RuntimeClass update may therefore keep a valid pod gated when the template
 // did not record the overhead used at admission; this errs on the safe side.
 // ResourceUsage can contain transformed resources, so it cannot be compared with
-// Pod requests.
+// Pod requests. If resolving adjustment inputs fails, the error is returned so
+// that reconciliation retries.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1028,9 +1029,10 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	if !slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return isGated(&pod) }) {
 		return nil, nil
 	}
-	in, errs := workload.ResolveAdjustmentInputs(ctx, c, wl)
-	for _, err := range errs {
+	in, err := workload.ResolveAdjustmentInputs(ctx, c, wl)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
+		return nil, err
 	}
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
