@@ -121,12 +121,12 @@ gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
 
 .PHONY: gopherage
-gopherage: gomod-download-tools ## Download gopherage (Go coverprofile merge and filter) locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install k8s.io/test-infra/gopherage@$(GOPHERAGE_VERSION)
+gopherage: ## Build and reuse the pinned gopherage coverage-profile merger.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOPHERAGE)" "k8s.io/test-infra" "$(GOPHERAGE_VERSION)" "k8s.io/test-infra/gopherage"
 
 .PHONY: gojq
-gojq: gomod-download-tools ## Download gojq locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/itchyny/gojq/cmd/gojq@$(GOJQ_VERSION)
+gojq: ## Build and reuse the pinned gojq JSON processor.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOJQ)" "github.com/itchyny/gojq" "$(GOJQ_VERSION)" "github.com/itchyny/gojq/cmd/gojq"
 
 .PHONY: kind
 kind: ## Download the pinned upstream kind binary if necessary.
