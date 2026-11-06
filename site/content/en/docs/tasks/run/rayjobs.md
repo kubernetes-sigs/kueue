@@ -14,7 +14,9 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.6.0 version or newer and KubeRay v1.1.0 or newer.
+1. Choose a KubeRay version compatible with your Kueue release. See
+   [KubeRay compatibility](/docs/tasks/run/rayclusters/#kuberay-compatibility)
+   for the tested version and additional requirements for individual features.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
