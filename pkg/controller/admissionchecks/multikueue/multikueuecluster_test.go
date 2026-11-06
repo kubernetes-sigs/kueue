@@ -208,6 +208,7 @@ func TestUpdateConfig(t *testing.T) {
 		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
+		clusterProfileAPINotServed    bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -623,6 +624,32 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
+		"cluster profile API not served yet": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Generation(1).
+					Obj(),
+			},
+			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+				makeTestClusterProfile("worker1", "accessProvider1"),
+			},
+			cpAccessProvider: &testClusterProfileAccessProvider{
+				supportedProviders: map[string]bool{
+					"accessProvider1": true,
+				},
+			},
+			clusterProfileAPINotServed: true,
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
+		},
 		"path with feature gate off emits deprecation warning": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
@@ -691,7 +718,7 @@ func TestUpdateConfig(t *testing.T) {
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder, nil, false)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder, nil, !tc.clusterProfileAPINotServed)
 
 			reconciler.rootContext = ctx
 
