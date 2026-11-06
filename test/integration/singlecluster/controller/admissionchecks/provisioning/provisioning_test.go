@@ -2146,6 +2146,96 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 		})
 	})
 
+	ginkgo.When("A PodSet has containers without an image", func() {
+		ginkgo.It("Should fill empty sidecar images on the ProvisioningRequest PodTemplate and admit the Workload", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			const headImage = "ray:2.9.0"
+			ginkgo.By("submit a Workload whose head PodSet has imageless sidecars", func() {
+				wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("head", 1).
+						Containers(
+							corev1.Container{
+								Name:  "ray-head",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+							corev1.Container{Name: "autoscaler"},
+							corev1.Container{Name: "ray-job-submitter"},
+						).
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				wl1Key = client.ObjectKeyFromObject(wl)
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check both sidecars borrow the head image and the Workload images stay empty", func() {
+				createdTemplate := &corev1.PodTemplate{}
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}, createdTemplate)).To(gomega.Succeed())
+				container := func(name, image string) gomega.OmegaMatcher {
+					return gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Image", image))
+				}
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(
+					container("ray-head", headImage), container("autoscaler", headImage), container("ray-job-submitter", headImage),
+				))
+				gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).To(gomega.Succeed())
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(
+					container("ray-head", headImage), container("autoscaler", ""), container("ray-job-submitter", ""),
+				))
+			})
+
+			ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the admission check is Ready and the Workload is admitted", func() {
+				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wl1Key, ac1.Name, kueue.CheckStateReady)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &wlObj)
+			})
+		})
+	})
+
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
 		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", framework.SlowSpec, func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {

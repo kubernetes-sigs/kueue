@@ -482,6 +482,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	}
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
+	fillEmptyContainerImages(&newPt.Template.Spec)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -537,6 +538,37 @@ func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
 func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
 	for _, name := range names {
 		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
+}
+
+// fillEmptyContainerImages sets every empty container and init container image to the
+// first non-empty image of the same PodSpec, regular containers first. The Ray integration
+// mirrors the sidecars KubeRay injects into the head Pod (autoscaler, RayJob submitter)
+// without an image, so the API server rejects the PodTemplate with "image: Required value".
+// The copied image is only a placeholder for scheduling simulation. Without a donor the
+// images stay empty.
+func fillEmptyContainerImages(spec *corev1.PodSpec) {
+	donor := ""
+	for _, cs := range [][]corev1.Container{spec.Containers, spec.InitContainers} {
+		for i := range cs {
+			if cs[i].Image != "" {
+				donor = cs[i].Image
+				break
+			}
+		}
+		if donor != "" {
+			break
+		}
+	}
+	if donor == "" {
+		return
+	}
+	for _, cs := range [][]corev1.Container{spec.Containers, spec.InitContainers} {
+		for i := range cs {
+			if cs[i].Image == "" {
+				cs[i].Image = donor
+			}
+		}
 	}
 }
 
