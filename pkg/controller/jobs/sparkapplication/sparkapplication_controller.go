@@ -88,7 +88,7 @@ func NewJob() jobframework.GenericJob {
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
 	func(b *builder.Builder, _ client.Client) *builder.Builder {
-		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) {
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 			return b
 		}
 		// An elastic job counts its executors from pods, and the Spark Operator does not
