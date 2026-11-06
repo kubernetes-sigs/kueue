@@ -416,7 +416,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
-		"reset keeps the status of a terminated manager pod": {
+		"reset keeps the status of a terminated manager pod (succeeded)": {
 			managersPods: []corev1.Pod{
 				*basePodBuilder.Clone().
 					KueueSchedulingGate().
@@ -430,6 +430,24 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*basePodBuilder.Clone().
 					KueueSchedulingGate().
 					StatusPhase(corev1.PodSucceeded).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+		},
+		"reset keeps the status of a terminated manager pod (failed)": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodFailed).
+					StatusPodIP("10.0.0.1").
+					Obj(),
+			},
+			operation:           resetLocalStatus,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					StatusPhase(corev1.PodFailed).
 					StatusPodIP("10.0.0.1").
 					Obj(),
 			},
@@ -488,16 +506,23 @@ func TestMultiKueueAdapter(t *testing.T) {
 			operation:           resetLocalStatus,
 			wantNoManagerWrites: true,
 		},
-		"reset does not write a gated manager pod group": {
+		"reset writes a gated manager pod group": {
 			managersPods: []corev1.Pod{
 				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+				*gatedPodGroup[1].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.2").Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, _ client.Client) error {
 				return adapter.ResetLocalStatus(ctx, managerClient, types.NamespacedName{Name: gatedPodGroup[0].Obj().Name, Namespace: TestNamespace})
 			},
-			wantNoManagerWrites: true,
 			wantManagersPods: []corev1.Pod{
-				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
+				*gatedPodGroup[0].Clone().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(schedulingGatedCondition).
+					Obj(),
+				*gatedPodGroup[1].Clone().
+					StatusPhase(corev1.PodPending).
+					StatusConditions(schedulingGatedCondition).
+					Obj(),
 			},
 		},
 		"sync creates missing remote pod, WorkloadIdentifierAnnotations enabled": {
