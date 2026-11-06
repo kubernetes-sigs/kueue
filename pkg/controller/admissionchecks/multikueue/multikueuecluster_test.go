@@ -205,6 +205,7 @@ func TestUpdateConfig(t *testing.T) {
 		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
+		disableClusterProfileGate     bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -600,7 +601,8 @@ func TestUpdateConfig(t *testing.T) {
 			wantErr: nil,
 		},
 		"cluster profile feature gate disabled": {
-			reconcileFor: "worker1",
+			reconcileFor:              "worker1",
+			disableClusterProfileGate: true,
 			clusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					ClusterProfile("worker1").
@@ -714,9 +716,7 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.kubeConfigPathPrefix = filepath.Dir(validKubeconfigLocation)
 			}
 
-			if len(tc.clusterprofiles) > 0 {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, !tc.disableClusterProfileGate)
 
 			// Create test kubeconfig file for path location type
 			if tc.clusters != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig != nil && tc.clusters[0].Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
