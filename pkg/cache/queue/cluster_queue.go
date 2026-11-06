@@ -862,6 +862,14 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
 }
 
+// RequeueIfNotPresentImmediately puts the workload back in the active queue
+// immediately. It is used when DRA preprocessing changes the requests while a
+// workload is checked out, since a NoFit decision made for the old requests
+// must not keep the refreshed workload inadmissible.
+func (c *ClusterQueue) RequeueIfNotPresentImmediately(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	return c.requeueIfNotPresent(ctrl.LoggerFrom(ctx), wInfo, true, reason, quotaReservedReason)
+}
+
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
 // stickyMatches reports whether a workload is the sticky one; callers pass a
 // live matcher (stickyWorkload.matches) for the heap or a captured one

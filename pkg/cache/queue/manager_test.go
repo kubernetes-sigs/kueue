@@ -162,6 +162,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 // generation. DRA charges live only in the Info, they cannot be rebuilt from
 // the spec, so requeue hands such a workload back to the workload controller.
 func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
+	const probe = workload.EquivalenceHash("probe-hash")
 	claimTmpl := "claim-tmpl"
 	gpuCharge := []workload.PodSetResources{{
 		Name:           kueue.DefaultPodSetName,
@@ -169,11 +170,20 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
 		Count:          1,
 	}}
+	refreshedGPUCharge := []workload.PodSetResources{{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		Count:          1,
+	}}
 
 	cases := map[string]struct {
 		draIntegration bool
 		// clientGeneration is the newest object, the one requeue fetches.
 		clientGeneration  int64
+		refreshCharges    bool
+		requeueReason     RequeueReason
+		wantInadmissible  bool
 		wantRequeued      bool
 		wantTotalRequests []workload.PodSetResources
 		// wantSentGeneration is the generation handed back on the reconcile
@@ -185,6 +195,23 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			clientGeneration:  1,
 			wantRequeued:      true,
 			wantTotalRequests: gpuCharge,
+		},
+		"keeps charges refreshed while the workload is inflight": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			requeueReason:     RequeueReasonNoFit,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
+		},
+		"namespace mismatch remains inadmissible after charges refresh": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			requeueReason:     RequeueReasonNamespaceMismatch,
+			wantInadmissible:  true,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
 		},
 		"hands the workload to the controller once the object has moved on": {
 			draIntegration:     true,
@@ -208,6 +235,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
 			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
@@ -219,16 +247,25 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			).Obj()
 			clientWl := wl.DeepCopy()
 			clientWl.Generation = tc.clientGeneration
+			clientWl.ResourceVersion = "1"
 
 			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
 			kClient := utiltesting.NewClientBuilder().
 				WithObjects(clientWl, lq).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
+			// Keep the queued object at the version the client actually stored.
+			// In the refreshed-charge case, this makes the changed TotalRequests
+			// the only reason Update should recompute SchedulingHash.
+			storedWl := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), storedWl); err != nil {
+				t.Fatalf("Failed reading workload from client: %v", err)
+			}
+			wl.ResourceVersion = storedWl.ResourceVersion
 			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
 			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
 			manager.SetDRAReconcileChannel(draCh)
-			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
 				t.Fatalf("Failed adding ClusterQueue: %v", err)
 			}
 			if err := manager.AddLocalQueue(ctx, lq); err != nil {
@@ -258,9 +295,39 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				t.Fatal("expected to pop workload")
 			}
 			inflight := &head.Info
+			if tc.refreshCharges {
+				refreshedCharges := workload.WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
+					},
+					nil,
+				)
+				if err := manager.AddOrUpdateWorkload(ctx, log, wl, refreshedCharges); err != nil {
+					t.Fatalf("Failed refreshing workload charges while inflight: %v", err)
+				}
+				// Requeue carries these newer requests onto the checked-out Info. The
+				// hash must be invalidated because it still describes the old charges.
+				inflight.SchedulingHash = probe
+			}
 
-			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
+			requeueReason := tc.requeueReason
+			if requeueReason == "" {
+				requeueReason = RequeueReasonGeneric
+			}
+			if tc.refreshCharges && tc.requeueReason == "" {
+				// A NoFit result for the old charge shape must not leave the
+				// refreshed workload parked in BestEffortFIFO's inadmissible set.
+				requeueReason = RequeueReasonNoFit
+			}
+			if got := manager.RequeueWorkload(ctx, inflight, requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
+			if tc.refreshCharges && gotInadmissible != tc.wantInadmissible {
+				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
+			}
+			if tc.refreshCharges && inflight.SchedulingHash == probe {
+				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)
 			}
 
 			var gotTotalRequests []workload.PodSetResources
