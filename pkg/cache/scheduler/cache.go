@@ -944,6 +944,9 @@ func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *
 	}
 	cached, found := cq.Workloads[wlKey]
 	if !found {
+		cached, found = cq.replacedSlices[wlKey]
+	}
+	if !found {
 		log.V(3).Info("Skipping cache operation as the workload is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
 		return nil
 	}
