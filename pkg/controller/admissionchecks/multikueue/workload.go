@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -57,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -655,9 +657,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
-	// except for two cases (in which we'll update the remote workload accorddingly):
+	// except for three cases (in which we'll update the remote workload accordingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -691,6 +694,20 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				if err := remClient.getClient().Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
+			}
+
+			// Added tolerations keep the remote admission valid, so the remote
+			// Workload is updated instead of being recreated. They are updated
+			// separately, so that a rejection does not block the updates above.
+			if features.Enabled(features.AllowAddingPodTemplateTolerations) {
+				tolerationsAdded, err := addRemoteTolerations(ctx, remClient.getClient(), group.local, remWl)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				updateRemote = updateRemote || tolerationsAdded
+			}
+
+			if updateRemote {
 				continue
 			}
 
@@ -847,6 +864,30 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 		return nil
 	}
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
+}
+
+// addRemoteTolerations copies the tolerations added to the local Workload to the
+// remote Workload, and reports whether the local Workload added any.
+func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload) (bool, error) {
+	updated := remote.DeepCopy()
+	if !utiltolerations.CopyAddedByName(workload.PodTemplates(updated), workload.PodTemplates(local)) {
+		return false, nil
+	}
+	err := remoteClient.Update(ctx, updated)
+	if apierrors.IsForbidden(err) {
+		// A Forbidden error is permanent: the worker rejects the tolerations,
+		// for example when it runs an older Kueue or has the feature gate
+		// disabled. Retrying cannot fix it, and returning the error would keep
+		// MultiKueue from syncing the job and the admission state, so the error
+		// is only logged and the remote Workload is kept.
+		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the added tolerations of the remote Workload", "remoteWorkload", klog.KObj(remote))
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to update remote workload: %w", err)
+	}
+	*remote = *updated
+	return true, nil
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
