@@ -79,7 +79,7 @@ SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" githu
 HELM_UNITTEST_PLUGIN_URL = https://github.com/helm-unittest/helm-unittest.git
 HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUGIN_URL))
 
-NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream
+NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --stream
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
 .PHONY: golangci-lint
