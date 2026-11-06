@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -6952,15 +6951,14 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 		watcher, err := watchClient.Watch(ctx, &kueue.ClusterQueueList{})
 		gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 		defer watcher.Stop()
-		quota := resource.MustParse(strconv.Itoa(cpuNominalQuota))
-		var (
-			mu         sync.Mutex
-			violations []string
-		)
+		cqName, quota := clusterQueue.Name, resource.MustParse(strconv.Itoa(cpuNominalQuota))
+		var violations []string
+		watched := make(chan struct{})
 		go func() {
+			defer close(watched)
 			for ev := range watcher.ResultChan() {
 				cq, ok := ev.Object.(*kueue.ClusterQueue)
-				if !ok || cq.Name != clusterQueue.Name {
+				if !ok || cq.Name != cqName {
 					continue
 				}
 				var cpu resource.Quantity
@@ -6972,9 +6970,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 					}
 				}
 				if cpu.Cmp(quota) > 0 || cq.Status.ReservingWorkloads > 1 {
-					mu.Lock()
 					violations = append(violations, fmt.Sprintf("reserved cpu %s, reserving workloads %d", cpu.String(), cq.Status.ReservingWorkloads))
-					mu.Unlock()
 				}
 			}
 		}()
@@ -7021,12 +7017,14 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 
 		ginkgo.By("the ClusterQueue never reported a slice and its replacement charged together")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			g.Expect(clusterQueue.Status.ReservingWorkloads).Should(gomega.Equal(int32(1)))
-			g.Expect(clusterQueue.Status.FlavorsReservation[0].Resources[0].Total.Equal(resource.MustParse("1"))).Should(gomega.BeTrue())
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: cqName}, cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.ReservingWorkloads).Should(gomega.Equal(int32(1)))
+			g.Expect(cq.Status.FlavorsReservation[0].Resources[0].Total.Equal(resource.MustParse("1"))).Should(gomega.BeTrue())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		mu.Lock()
-		defer mu.Unlock()
+		// Stop the watch and wait for its goroutine, so violations is read only once it is done.
+		watcher.Stop()
+		<-watched
 		gomega.Expect(violations).Should(gomega.BeEmpty())
 	})
 
