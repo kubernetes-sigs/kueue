@@ -114,7 +114,7 @@ func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption stra
 				CQ:       target.WorkloadCq.Name,
 			}
 		}
-		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: *strategy.allowBorrowing, Targets: wantTargets})
+		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.allowBorrowing, Targets: wantTargets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}
@@ -687,19 +687,16 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 
 		wantStrategies []wantStrategy
 	}{
-		// F1: candidate discovery is deferred until the strategy's Candidates()
-		// iterator is consumed, so a single borrowing strategy is yielded whose
-		// candidate sequence is empty.
-		"no candidates yields a single borrowing strategy with no targets": {
+		// F1: without candidates no strategy is yielded, so the caller never
+		// even simulates the first strategy.
+		"no candidates yields no strategies": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
 				makeCQ("b", "3").Obj(),
 			},
-			incoming: incomingWl("1", 0),
-			targetCQ: "a",
-			wantStrategies: []wantStrategy{
-				{Borrowing: true, Targets: []wantTarget{}},
-			},
+			incoming:       incomingWl("1", 0),
+			targetCQ:       "a",
+			wantStrategies: []wantStrategy{},
 		},
 		// F2: only one configured strategy means rule S2-b is never planned,
 		// even though the candidates failed rule S2-a.
@@ -1077,259 +1074,4 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestLazyCandidateGenerationWithCommittedVictims(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	flavors := []*kueue.ResourceFlavor{
-		utiltestingapi.MakeResourceFlavor("default").Obj(),
-	}
-	admittedWl := func(name string, cq kueue.ClusterQueueReference, cpu string, priority int32) kueue.Workload {
-		return *utiltestingapi.MakeWorkload(name, "").
-			Request(corev1.ResourceCPU, cpu).
-			Priority(priority).
-			SimpleReserveQuota(cq, "default", now).
-			Obj()
-	}
-	incomingWl := func(cpu string, priority int32) *kueue.Workload {
-		return utiltestingapi.MakeWorkload("in", "").
-			Request(corev1.ResourceCPU, cpu).
-			Priority(priority).
-			Obj()
-	}
-
-	t.Run("classical strategy defers attempt planning and candidate collection until after committed victims are preempted", func(t *testing.T) {
-		ctx, log := utiltesting.ContextWithLog(t)
-		// Before /a-committed is removed, CQ "a" is at nominal (2 + 1 == 3) with
-		// BorrowWithinCohort forbidden, so eager initialization would only plan
-		// {Borrowing: true}, filter out /c1, and yield /a-committed.
-		// Lazy initialization sees CQ "a" under nominal (2 < 3) once /a-committed
-		// is preempted via PreemptionFilter, planning {Borrowing: false} first and
-		// yielding only /c1.
-		fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
-			flavors: flavors,
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					}).Obj(),
-				utiltestingapi.MakeClusterQueue("b").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
-					Obj(),
-				utiltestingapi.MakeClusterQueue("c").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
-					Obj(),
-			},
-			admitted: []kueue.Workload{
-				admittedWl("a-high", "a", "2", 20),
-				admittedWl("a-committed", "a", "1", 0),
-				admittedWl("c1", "c", "1", 0),
-			},
-			incoming: incomingWl("2", 10),
-			targetCQ: "a",
-			now:      now,
-		})
-
-		committedKey := workload.Reference("/a-committed")
-		committedWl := fixture.snapshot.ClusterQueue("a").Workloads[committedKey]
-		committedVictims := PreemptedWorkloads{committedKey: committedWl}
-
-		// Obtain strategy iterator while /a-committed is still in the snapshot.
-		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)
-
-		var gotStrategies []wantStrategy
-		for strategy := range strategies {
-			strategy.WithCommittedPreemptionVictims(committedVictims)
-			if strategy.MayFit() {
-				t.Fatalf("MayFit() = true before PreemptWorkload and Candidates(); want false")
-			}
-			strategy.PreemptWorkload(committedKey)
-			if strategy.MayFit() {
-				t.Fatalf("MayFit() = true with only committed victims preempted; want false")
-			}
-
-			var gotCandidates []wantTarget
-			for wlKey := range strategy.Candidates() {
-				strategy.PreemptWorkload(wlKey)
-				target := strategy.targetsByKey[wlKey]
-				gotCandidates = append(gotCandidates, wantTarget{
-					Workload: wlKey,
-					Reason:   target.Reason,
-					CQ:       target.WorkloadCq.Name,
-				})
-			}
-			gotStrategies = append(gotStrategies, wantStrategy{
-				Borrowing: *strategy.allowBorrowing,
-				Targets:   gotCandidates,
-			})
-			strategy.Reset()
-		}
-
-		wantStrategies := []wantStrategy{
-			{Borrowing: false, Targets: []wantTarget{
-				{Workload: "/c1", Reason: kueue.InCohortReclamationReason, CQ: "c"},
-			}},
-			{Borrowing: true, Targets: []wantTarget{}},
-		}
-		if diff := cmp.Diff(wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
-			t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
-			t.Errorf("Snapshot was not restored (-initial,+end):\n%s", diff)
-		}
-	})
-
-	t.Run("classical strategy GetTargets succeeds with lazy candidate generation and committed victims", func(t *testing.T) {
-		ctx, log := utiltesting.ContextWithLog(t)
-		fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
-			flavors: flavors,
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-						BorrowWithinCohort: &kueue.BorrowWithinCohort{
-							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
-						},
-					}).Obj(),
-				utiltestingapi.MakeClusterQueue("b").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
-					Obj(),
-				utiltestingapi.MakeClusterQueue("c").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
-					Obj(),
-			},
-			admitted: []kueue.Workload{
-				admittedWl("a-high", "a", "2", 20),
-				admittedWl("a-committed", "a", "1", 0),
-				admittedWl("c1", "c", "1", 0),
-			},
-			incoming: incomingWl("2", 10),
-			targetCQ: "a",
-			now:      now,
-		})
-
-		committedKey := workload.Reference("/a-committed")
-		committedWl := fixture.snapshot.ClusterQueue("a").Workloads[committedKey]
-		committedVictims := PreemptedWorkloads{committedKey: committedWl}
-
-		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)
-		var gotTargetKeys []workload.Reference
-		for strategy := range strategies {
-			strategy.WithCommittedPreemptionVictims(committedVictims)
-			strategy.PreemptWorkload(committedKey)
-
-			var preempted []workload.Reference
-			for wlKey := range strategy.Candidates() {
-				strategy.PreemptWorkload(wlKey)
-				preempted = append(preempted, wlKey)
-				if strategy.MayFit() {
-					break
-				}
-			}
-			strategy.Reset()
-
-			targets, err := strategy.GetTargets(preempted)
-			if err != nil {
-				t.Fatalf("GetTargets() unexpected error: %v", err)
-			}
-			for _, target := range targets {
-				gotTargetKeys = append(gotTargetKeys, workload.Key(target.WorkloadInfo.Obj))
-			}
-			if len(gotTargetKeys) > 0 {
-				break
-			}
-		}
-
-		if diff := cmp.Diff([]workload.Reference{"/c1"}, gotTargetKeys); diff != "" {
-			t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
-			t.Errorf("Snapshot was not restored (-initial,+end):\n%s", diff)
-		}
-	})
-
-	t.Run("fair sharing strategy defers candidate collection until after committed victims are preempted", func(t *testing.T) {
-		ctx, log := utiltesting.ContextWithLog(t)
-		fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
-			flavors: flavors,
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
-					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					}).Obj(),
-				utiltestingapi.MakeClusterQueue("b").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
-					Obj(),
-			},
-			admitted: []kueue.Workload{
-				admittedWl("b-committed", "b", "1", -5),
-				admittedWl("b1", "b", "2", 0),
-			},
-			incoming:    incomingWl("3", 10),
-			targetCQ:    "a",
-			fairSharing: &config.FairSharing{},
-			now:         now,
-		})
-
-		committedKey := workload.Reference("/b-committed")
-		committedWl := fixture.snapshot.ClusterQueue("b").Workloads[committedKey]
-		committedVictims := PreemptedWorkloads{committedKey: committedWl}
-
-		// Obtain strategy iterator while /b-committed is still in the snapshot.
-		strategies := fixture.preemptor.GetPreemptionStrategyIterator(ctx, fixture.pCtx.preemptor, fixture.snapshot, fixture.pCtx.assignment)
-
-		var gotCandidates []workload.Reference
-		var gotTargetKeys []workload.Reference
-		for strategy := range strategies {
-			strategy.WithCommittedPreemptionVictims(committedVictims)
-			if strategy.MayFit() {
-				t.Fatalf("MayFit() = true before Candidates(); want false")
-			}
-			strategy.PreemptWorkload(committedKey)
-			if strategy.MayFit() {
-				t.Fatalf("MayFit() = true with only committed victims preempted; want false")
-			}
-
-			for wlKey := range strategy.Candidates() {
-				strategy.PreemptWorkload(wlKey)
-				gotCandidates = append(gotCandidates, wlKey)
-				if strategy.MayFit() {
-					break
-				}
-			}
-			strategy.Reset()
-
-			targets, err := strategy.GetTargets(gotCandidates)
-			if err != nil {
-				t.Fatalf("GetTargets() unexpected error: %v", err)
-			}
-			for _, target := range targets {
-				gotTargetKeys = append(gotTargetKeys, workload.Key(target.WorkloadInfo.Obj))
-			}
-		}
-
-		if diff := cmp.Diff([]workload.Reference{"/b1"}, gotCandidates); diff != "" {
-			t.Errorf("Unexpected candidates (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff([]workload.Reference{"/b1"}, gotTargetKeys); diff != "" {
-			t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
-		}
-		if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
-			t.Errorf("Snapshot was not restored (-initial,+end):\n%s", diff)
-		}
-	})
 }

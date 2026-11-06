@@ -240,7 +240,6 @@ func (p *wasPlanner) scheduleWithPreemption(
 	committedVictims preemption.PreemptedWorkloads,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
-		strategy.WithCommittedPreemptionVictims(committedVictims)
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
