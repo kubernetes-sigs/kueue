@@ -112,6 +112,11 @@ type domainState struct {
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
 
+	// leaderAffinityScore is the affinityScore of the group's leader on the node. For
+	// non-leaf domains, it is the highest score among the children that can host the
+	// leader, because the leader lands on a single node.
+	leaderAffinityScore int64
+
 	// spread is how much of this domain, and of its parent, the PodSet group
 	// being placed already occupies. The two are a rule's numerator and
 	// denominator, so they are only ever assigned together, by
@@ -121,6 +126,11 @@ type domainState struct {
 	// capacityBound is set by recordUsageDomainCaps, and read only at the level
 	// it writes.
 	capacityBound domainCapacityBound
+}
+
+// totalAffinityScore is what domains are ranked by.
+func (s *domainState) totalAffinityScore() int64 {
+	return s.affinityScore + s.leaderAffinityScore
 }
 
 func (s *domainState) sliceCapacity(obligations obligationMask) int32 {
@@ -302,7 +312,10 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
-	stats  *tasExclusionStats
+	// affinityScores are the scores of leaves, by index. The leaves read their score
+	// from domain state, which every pass clears.
+	affinityScores []int64
+	stats          *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -2201,9 +2214,9 @@ func (s *TASFlavorSnapshot) topAffinityTierDomains(candidates []*domain) []*doma
 	if !features.Enabled(features.TASRespectNodeAffinityPreferred) || len(candidates) == 0 {
 		return candidates
 	}
-	score := s.domainStateOf(candidates[0]).affinityScore
+	score := s.domainStateOf(candidates[0]).totalAffinityScore()
 	for i, c := range candidates {
-		if s.domainStateOf(c).affinityScore != score {
+		if s.domainStateOf(c).totalAffinityScore() != score {
 			return candidates[:i]
 		}
 	}
@@ -2564,8 +2577,8 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(bDomainState.leaderCount, aDomainState.leaderCount)
 		}
 
-		if respectNodeAffinityPreferred && aDomainState.affinityScore != bDomainState.affinityScore {
-			return cmp.Compare(bDomainState.affinityScore, aDomainState.affinityScore)
+		if respectNodeAffinityPreferred && aDomainState.totalAffinityScore() != bDomainState.totalAffinityScore() {
+			return cmp.Compare(bDomainState.totalAffinityScore(), aDomainState.totalAffinityScore())
 		}
 
 		if aDomainState.sliceCount[obligationLeader] != bDomainState.sliceCount[obligationLeader] {
@@ -2602,8 +2615,8 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		aDomainState, bDomainState := s.domainStateOf(a), s.domainStateOf(b)
-		if respectNodeAffinityPreferred && aDomainState.affinityScore != bDomainState.affinityScore {
-			return cmp.Compare(bDomainState.affinityScore, aDomainState.affinityScore)
+		if respectNodeAffinityPreferred && aDomainState.totalAffinityScore() != bDomainState.totalAffinityScore() {
+			return cmp.Compare(bDomainState.totalAffinityScore(), aDomainState.totalAffinityScore())
 		}
 
 		if aDomainState.sliceCount[obligationNone] != bDomainState.sliceCount[obligationNone] {
@@ -2644,9 +2657,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
@@ -2658,9 +2669,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
@@ -2780,7 +2789,8 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	return podRequirements, nil
 }
 
-// fillLeaderFeasibleLeaves records which leaves suit the leader. It asks about every
+// fillLeaderFeasibleLeaves records which leaves suit the leader and the leader's
+// preferred affinity score on them. It asks about every
 // leaf rather than only the workers', because the group shares the domain the assignment
 // names, not the leaf: with a required level above the leaf, or with the hostname level
 // injected, the leader and the workers can sit on different nodes of the same domain.
@@ -2794,54 +2804,51 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
 		return nil
 	}
-	if leaves, found := s.cachedLeaderLeaves(requirements); found {
-		state.leaderFeasibleLeaves = leaves
-		return nil
+	leaderLeaves, leaderScores, err := s.findLeaderLeaves(ctx, requirements)
+	if err != nil {
+		return err
+	}
+	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
+	for i, leaf := range leaderLeaves {
+		state.leaderFeasibleLeaves.Insert(leaf.GetID())
+		s.domainStateOf(&s.leaves[leaf.GetID()].domain).leaderAffinityScore = leaderScores[i]
+	}
+	return nil
+}
+
+// findLeaderLeaves returns the leaves that suit the leader and the leader's affinity
+// score on each, leaving the workers' scores in domain state as they were.
+func (s *TASFlavorSnapshot) findLeaderLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, []int64, error) {
+	key, cacheable := requirements.leaderMatchKey()
+	if cacheable {
+		if entry, found := s.matchingLeavesCache[key]; found {
+			return entry.leaves, entry.affinityScores, nil
+		}
 	}
 	allLeaves := slices.Collect(s.candidates())
-	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
-	// this pass only wants the feasible set, so the workers' scores are put back.
-	scores := make([]int64, len(allLeaves))
+	// The simulator writes the leader's scores into the domain state holding the
+	// workers', and may add to what is there, so the workers' are set aside.
+	workerScores := make([]int64, len(allLeaves))
 	for i, leaf := range allLeaves {
-		scores[i] = leaf.GetAffinityScore()
+		workerScores[i] = leaf.GetAffinityScore()
+		leaf.SetAffinityScore(0)
 	}
 	leaderStats := newTASExclusionStats()
 	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
 		&leaderStats.NodeExclusionStats)
+	leaderScores := affinityScoresOf(leaderLeaves)
 	for i, leaf := range allLeaves {
-		leaf.SetAffinityScore(scores[i])
+		leaf.SetAffinityScore(workerScores[i])
 	}
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range leaderLeaves {
-		state.leaderFeasibleLeaves.Insert(leaf.GetID())
+	if cacheable {
+		s.storeMatchingLeaves(key, leaderLeaves, leaderScores, leaderStats)
 	}
-	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
-	}
-	return nil
-}
-
-// cachedLeaderLeaves returns the leaves an earlier call found for these leader filters,
-// as a fresh set so that a caller cannot write through it into the cache.
-func (s *TASFlavorSnapshot) cachedLeaderLeaves(requirements *topologyAssignmentPodRequirements) (sets.Set[utiltas.TopologyDomainID], bool) {
-	key, ok := requirements.leaderMatchKey()
-	if !ok {
-		return nil, false
-	}
-	entry, found := s.matchingLeavesCache[key]
-	if !found {
-		return nil, false
-	}
-	leaves := sets.New[utiltas.TopologyDomainID]()
-	for _, leaf := range entry.leaves {
-		leaves.Insert(leaf.GetID())
-	}
-	return leaves, true
+	return leaderLeaves, leaderScores, nil
 }
 
 // leaderMatchKey is the workers' key marked as the leader's. The leader is asked about
@@ -2899,6 +2906,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
+			for i, leaf := range cached.leaves {
+				leaf.SetAffinityScore(cached.affinityScores[i])
+			}
 			return cached.leaves, cached.stats, nil
 		}
 	}
@@ -2910,18 +2920,26 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+}
+
+func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
+	scores := make([]int64, len(leaves))
+	for i, leaf := range leaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	return scores
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
@@ -3006,6 +3024,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	minSliceCountWithLeaderDifference := int32(math.MaxInt32)
 	leaderCount := int32(0)
 	affinityScore := int64(0)
+	leaderAffinityScore := int64(0)
 	// tracksTail is false below the slice level, where a domain is too
 	// fine-grained to hold a slice and the slice counts carry no meaning.
 	tracksTail := shape.hasTail() && level < sliceLevelIdx
@@ -3039,6 +3058,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 			minPodCountWithLeaderDifference = min(childPodCount-childPodCountWithLeader, minPodCountWithLeaderDifference)
 			minSliceCountWithLeaderDifference = min(childDomainState.sliceCount[obligationNone]-childDomainState.sliceCount[obligationLeader], minSliceCountWithLeaderDifference)
 			leaderCount = max(childDomainState.leaderCount, leaderCount)
+			leaderAffinityScore = max(childDomainState.leaderAffinityScore, leaderAffinityScore)
 		}
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
@@ -3048,6 +3068,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity
 	domainState.affinityScore = affinityScore
+	domainState.leaderAffinityScore = leaderAffinityScore
 	childrenSliceCapacity := sliceCapacity
 	if s.virtualHostname && level == s.usageLevelIdx() {
 		domainState.podCount = min(domainState.podCount, domainState.capacityBound.podCount)
