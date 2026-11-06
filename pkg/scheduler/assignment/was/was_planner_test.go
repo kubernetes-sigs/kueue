@@ -155,6 +155,11 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
 
 	victims := slices.Clone(step.nodeVictims)
+	if scheduleOpts.PreemptionFilter != nil {
+		for _, cv := range scheduleOpts.CommittedPreemptionVictims {
+			scheduleOpts.PreemptionFilter.PreemptWorkload(cv)
+		}
+	}
 	var consumedCandidates []workload.Reference
 	if scheduleOpts.PreemptionCandidates != nil {
 		allPlaced := step.allPodsPlaced()
@@ -1147,6 +1152,27 @@ func TestPlan(t *testing.T) {
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
 				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
 			)
+			filter := preemption.BuildFilter(log, snapshot, wl)
+			freeCapacityBefore := freeCapacity(t, snapshot)
+
+			var opts []assignment.PlannerOption
+			var revertRemoval func()
+			if len(tc.committedVictims) > 0 {
+				var toRemove []*workload.Info
+				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
+				for _, cv := range tc.committedVictims {
+					wlInfo := snapshot.ClusterQueue(testCQ).Workloads[cv]
+					committedMap[cv] = wlInfo
+					if wlInfo != nil {
+						toRemove = append(toRemove, wlInfo)
+					}
+				}
+				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
+				if len(toRemove) > 0 {
+					revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
+				}
+			}
+
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
 				preemption.NewOracle(preemptor, snapshot), nil,
@@ -1156,19 +1182,13 @@ func TestPlan(t *testing.T) {
 			if initialMode := initialAssignment.RepresentativeMode(); initialMode != tc.initialMode {
 				t.Fatalf("AssignFlavors() misconfigured - incorrect initial mode: want %v, got %v", tc.initialMode, initialMode)
 			}
-			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
-			var opts []assignment.PlannerOption
-			if len(tc.committedVictims) > 0 {
-				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
-				for _, cv := range tc.committedVictims {
-					committedMap[cv] = snapshot.ClusterQueue(testCQ).Workloads[cv]
-				}
-				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
-			}
-			planner := NewPlanner(wl, snapshot, preemptor)
+			planner := NewPlanner(wl, snapshot, preemptor, filter)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
+			if revertRemoval != nil {
+				revertRemoval()
+			}
 
 			// Then
 			if gotPlan.Assignment != &initialAssignment {
@@ -1289,7 +1309,7 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 	)
 	assignment := assigner.AssignFlavors(ctx, log, nil)
 
-	planner := NewPlanner(wl, snapshot, preemptor)
+	planner := NewPlanner(wl, snapshot, preemptor, preemption.BuildFilter(log, snapshot, wl))
 	plan := planner.Plan(ctx, &assignment)
 	if plan.Error != nil {
 		t.Fatalf("Plan() unexpected error: %v", plan.Error)
@@ -1646,7 +1666,7 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			}
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
-			planner := NewPlanner(wl, snapshot, preemptor)
+			planner := NewPlanner(wl, snapshot, preemptor, preemption.BuildFilter(log, snapshot, wl))
 			gotPlan := planner.Plan(ctx, &initialAssignment)
 
 			if gotPlan.Error != nil {
@@ -1911,27 +1931,29 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				preemption.NewOracle(preemptor, snapshot), nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 			)
-			// Mirror scheduler.getAssignments: temporarily remove committed victims during
-			// AssignFlavors, then restore them so Plan handles them via PreemptionFilter.
+			// Mirror scheduler.getAssignments: build PreemptionFilter on the clean snapshot,
+			// then remove committed victims from the active snapshot across both AssignFlavors and Plan.
+			filter := preemption.BuildFilter(log, snapshot, wl)
+			freeCapacityBefore := freeCapacity(t, snapshot)
+
 			var revertRemoval func()
 			if len(toRemove) > 0 {
 				revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
 			}
 			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
-			if revertRemoval != nil {
-				revertRemoval()
-			}
 			if gotInitialMode := initialAssignment.RepresentativeMode(); gotInitialMode != tc.initialMode {
 				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
 			}
-			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			var opts []assignment.PlannerOption
 			if len(committedMap) > 0 {
 				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 			}
-			planner := NewPlanner(wl, snapshot, preemptor)
+			planner := NewPlanner(wl, snapshot, preemptor, filter)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
+			if revertRemoval != nil {
+				revertRemoval()
+			}
 
 			if gotPlan.Error != nil {
 				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
