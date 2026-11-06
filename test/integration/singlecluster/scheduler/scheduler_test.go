@@ -739,6 +739,49 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
 		})
 
+		ginkgo.DescribeTable("when PriorityBoost is enabled, changing an admitted Workload's boost with a Pod PriorityClass re-evaluates pending Workloads", func(newBoost string) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+			wlAdmitted := utiltestingapi.MakeWorkload("wl-admitted", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				PodPriorityClassRef("pod-priority").
+				Priority(0).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlAdmitted)
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				PodPriorityClassRef("pod-priority").
+				Priority(0).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "50").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
+			behavioral.ExpectPendingWorkloadsMetric(preemptionClusterQ, 0, 1)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
+				if newBoost == "" {
+					delete(wl.Annotations, controllerconstants.PriorityBoostAnnotationKey)
+				} else {
+					wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = newBoost
+				}
+				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlAdmitted)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
+		},
+			ginkgo.Entry("with a decreased boost", "-100"),
+			ginkgo.Entry("with a removed boost", ""),
+		)
+
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
 				lqsStopPolicy = new(kueue.Hold)

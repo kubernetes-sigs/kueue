@@ -3674,6 +3674,68 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				features.PriorityBoost: false,
 			},
 		},
+		"priority boost decreased with PPC": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-10").
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
+		"priority boost removed with PPC": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Obj(),
+			wantChanged: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
+		"priority boost unchanged with PPC": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "10").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "+10").
+				Obj(),
+			wantChanged: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
+		},
+		"priority boost changed with PPC but PriorityBoost disabled": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			wantChanged: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: false,
+			},
+		},
 		"same priority class on both workloads": {
 			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				WorkloadPriorityClassRef("priority-1").
@@ -3764,6 +3826,22 @@ func TestWorkloadPriorityClassChanged(t *testing.T) {
 				Priority(100).
 				Obj(),
 			wantChanged: false,
+		},
+		"priority value decreased with PPC and PriorityBoost": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(500).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			newWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodPriorityClassRef("pod-priority").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Obj(),
+			wantChanged: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PriorityBoost: true,
+			},
 		},
 	}
 
