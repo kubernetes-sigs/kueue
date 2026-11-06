@@ -335,6 +335,13 @@ type PodSetAssignment struct {
 	// +optional
 	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
 
+	// perPodRequests records the untransformed effective requests of one Pod
+	// at admission time, including RuntimeClass overhead and defaults. It is
+	// used to verify that Pods in an admitted group fit their reserved role.
+	// Older admissions may not have this field.
+	// +optional
+	PerPodRequests corev1.ResourceList `json:"perPodRequests,omitempty"`
+
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
 	// Value could be missing for Workloads created before this field was added,

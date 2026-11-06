@@ -9367,6 +9367,19 @@ spec:
                           maxLength: 63
                           pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
+                        perPodRequests:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: |-
+                            perPodRequests records the untransformed effective requests of one Pod
+                            at admission time, including RuntimeClass overhead and defaults. It is
+                            used to verify that Pods in an admitted group fit their reserved role.
+                            Older admissions may not have this field.
+                          type: object
                         resourceUsage:
                           additionalProperties:
                             anyOf:

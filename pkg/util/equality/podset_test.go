@@ -45,11 +45,13 @@ func TestComparePodTemplate(t *testing.T) {
 		}},
 		NodeSelector: map[string]string{"f1l1": "v1"},
 	}
+	basePodSet := utiltestingapi.MakePodSet(kueue.NewPodSetReference("pod"), 1).PodSpec(base)
 
 	cases := map[string]struct {
-		a    corev1.PodSpec
-		b    corev1.PodSpec
-		want bool
+		a       corev1.PodSpec
+		b       corev1.PodSpec
+		options []ComparePodSetsOption
+		want    bool
 	}{
 		"identical": {
 			a:    *base.DeepCopy(),
@@ -95,11 +97,32 @@ func TestComparePodTemplate(t *testing.T) {
 			b:    *base.DeepCopy(),
 			want: false,
 		},
+		"different runtime classes": {
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:    basePodSet.Clone().RuntimeClass("runc").Obj().Template.Spec,
+			want: false,
+		},
+		"runtime class on one side": {
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:    *base.DeepCopy(),
+			want: false,
+		},
+		"runtime class mismatch ignored for a running workload": {
+			a:       basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:       *base.DeepCopy(),
+			options: []ComparePodSetsOption{WithIgnoreRuntimeClassName()},
+			want:    true,
+		},
+		"same runtime class": {
+			a:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			b:    basePodSet.Clone().RuntimeClass("kata").Obj().Template.Spec,
+			want: true,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := ComparePodTemplate(&tc.a, &tc.b); got != tc.want {
+			if got := ComparePodTemplate(&tc.a, &tc.b, tc.options...); got != tc.want {
 				t.Errorf("ComparePodTemplate() = %v, want %v", got, tc.want)
 			}
 		})
