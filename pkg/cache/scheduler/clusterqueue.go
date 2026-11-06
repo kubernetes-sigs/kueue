@@ -527,9 +527,13 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
-	if _, replaced := c.replacedSlices[k]; replaced {
-		c.replacedSlices[k] = wi
-		return
+	if old, replaced := c.replacedSlices[k]; replaced {
+		if old.Obj.UID == w.UID {
+			c.replacedSlices[k] = wi
+			return
+		}
+		// Another Workload under the same key: the replaced one is gone.
+		delete(c.replacedSlices, k)
 	}
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
@@ -543,11 +547,19 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
+	// The replacement's usage also covers the earlier slices of the chain that are still cached.
 	// TAS slices keep today's accounting: a replacement may be placed on other nodes than the
 	// Pods of the slice it replaces, which hold their nodes until they stop.
-	if old, ok := c.Workloads[replacedSliceKey(w)]; ok && !old.IsUsingTAS() && !wi.IsUsingTAS() {
-		c.deleteWorkload(log, workload.Key(old.Obj))
-		c.replacedSlices[workload.Key(old.Obj)] = old
+	seen := sets.New(k)
+	for oldKey := replacedSliceKey(w); oldKey != "" && !seen.Has(oldKey); {
+		old, ok := c.Workloads[oldKey]
+		if !ok || old.IsUsingTAS() || wi.IsUsingTAS() {
+			break
+		}
+		seen.Insert(oldKey)
+		c.deleteWorkload(log, oldKey) // may hand the usage back to the slice old replaces
+		c.replacedSlices[oldKey] = old
+		oldKey = replacedSliceKey(old.Obj)
 	}
 }
 

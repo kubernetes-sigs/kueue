@@ -48,9 +48,16 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 					Assignment(corev1.ResourceCPU, "default", cpu).Obj()).
 				Obj(), now)
 	}
-	oldSlice := slice("old", "2").Obj()
-	oldSliceFinished := slice("old", "2").Finished().Obj()
-	newSlice := slice("new", "3").Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old").Obj()
+	replaces := func(key string) map[string]string {
+		return map[string]string{constants.WorkloadSliceReplacementForAnnotation: key}
+	}
+	oldSlice := slice("old", "2").UID("old").Obj()
+	oldSliceFinished := slice("old", "2").UID("old").Finished().Obj()
+	newSlice := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Obj()
+	newSliceFinished := slice("new", "3").UID("new").Annotations(replaces("ns/old")).Finished().Obj()
+	newestSlice := slice("newest", "4").UID("newest").Annotations(replaces("ns/new")).Obj()
+	otherAtOldKey := slice("old", "1").UID("other").Obj()
+	selfReplacing := slice("self", "1").UID("self").Annotations(replaces("ns/self")).Obj()
 
 	type step struct {
 		add, finish, del *kueue.Workload // finish is a Finished copy of a cached workload
@@ -76,6 +83,28 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{del: newSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 				{finish: oldSliceFinished, wantCPU: "0"},
+			},
+		},
+		"a chain of three slices is charged once": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{add: newestSlice, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
+				{del: newestSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{finish: oldSliceFinished, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{finish: newSliceFinished, wantCPU: "0"},
+			},
+		},
+		"another Workload at the replaced slice's key is charged": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{add: otherAtOldKey, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
+			},
+		},
+		"a Workload naming itself is charged": {
+			steps: []step{
+				{add: selfReplacing, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/self"}},
 			},
 		},
 		"gate off charges both": {
