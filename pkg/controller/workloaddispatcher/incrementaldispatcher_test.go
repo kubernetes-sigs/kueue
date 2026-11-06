@@ -23,10 +23,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -37,132 +35,76 @@ import (
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
-	const workloadName = "test-workload"
+	const (
+		workloadName = "test-workload"
+		acName       = "ac1"
+	)
 
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault)
+	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: acName, State: kueue.CheckStatePending}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now)
 
 	tests := map[string]struct {
-		workload       *kueue.Workload
-		mkAcState      *kueue.AdmissionCheckState
-		wantErr        error
-		remoteClusters []string
-		clusters       []kueue.MultiKueueCluster
+		// workload is the Workload present in the cluster; nil means none.
+		workload *kueue.Workload
+		// roundStarted seeds a nomination round start time for the Workload.
+		roundStarted bool
+
+		wantNominatedClusters []string
+		wantRoundStarted      bool
 	}{
-		"workload not found": {
-			workload: nil,
-			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, workloadName),
+		"nominates the first step of clusters": {
+			workload:              baseWorkload.Clone().Obj(),
+			wantNominatedClusters: []string{"cluster1"},
+			wantRoundStarted:      true,
 		},
-		"workload deleted": {
-			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
-		},
-		"admission check nil": {
-			workload: baseWorkload.DeepCopy(),
-		},
-		"admission check is rejected": {
-			workload: baseWorkload.DeepCopy(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStateRejected,
-			},
-		},
-		"admission check is ready": {
-			workload: baseWorkload.DeepCopy(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStateReady,
-			},
-		},
-		"already assigned to cluster": {
-			workload: baseWorkload.Clone().ClusterName("assigned").Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-		},
-		"workload is already finished": {
-			workload: baseWorkload.Clone().Finished().Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-			remoteClusters: []string{"cluster1"},
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("cluster1").
-					KubeConfig(kueue.SecretLocationType, "cluster1").
-					Generation(1).
-					Obj(),
-			},
-		},
-		"workload has quota reserved": {
-			workload: baseWorkload.DeepCopy(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-			remoteClusters: []string{"cluster1"},
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("cluster1").
-					KubeConfig(kueue.SecretLocationType, "cluster1").
-					Generation(1).
-					Obj(),
-			},
+		"workload not found clears the round state": {
+			roundStarted: true,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			objs := []client.Object{}
-			if tc.mkAcState != nil {
-				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
-				ac := utiltestingapi.MakeAdmissionCheck(string(tc.mkAcState.Name)).
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
-					Obj()
-
-				objs = append(objs, ac)
-			}
-
+			objs := multiKueueObjects(acName, "cluster1")
+			builder := utiltesting.NewClientBuilder()
 			if tc.workload != nil {
 				objs = append(objs, tc.workload)
+				builder = builder.WithStatusSubresource(tc.workload)
 			}
-
-			if tc.mkAcState != nil {
-				mkConfig := utiltestingapi.MakeMultiKueueConfig(string(tc.mkAcState.Name)).Clusters("cluster1").Obj()
-				objs = append(objs, mkConfig)
-			}
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Fail to add to scheme %s", err)
-			}
-
-			if tc.clusters != nil {
-				for _, cluster := range tc.clusters {
-					objs = append(objs, &cluster)
-				}
-			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
+			cl := builder.WithObjects(objs...).Build()
 			rec := &IncrementalDispatcherReconciler{
-				client:          cl,
-				helper:          helper,
-				clock:           fakeClock,
+				dispatcher:      newTestDispatcher(t, cl, fakeClock),
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 
 			req := ctrl.Request{Namespace: metav1.NamespaceDefault, Name: workloadName}
+			if tc.roundStarted {
+				rec.setRoundStartTime(req.NamespacedName, now)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := rec.Reconcile(ctx, req)
-			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			if _, err := rec.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile returned unexpected error: %v", err)
+			}
+
+			if tc.workload != nil {
+				gotWl := &kueue.Workload{}
+				if err := cl.Get(ctx, req.NamespacedName, gotWl); err != nil {
+					t.Fatalf("Fail to get workload: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantNominatedClusters, gotWl.Status.NominatedClusterNames); diff != "" {
+					t.Errorf("Unexpected nominated clusters (-want/+got)\n%s", diff)
+				}
+			}
+			if _, found := rec.getRoundStartTime(req.NamespacedName); found != tc.wantRoundStarted {
+				t.Errorf("Unexpected round start time recorded: want %t, got %t", tc.wantRoundStarted, found)
 			}
 		})
 	}
