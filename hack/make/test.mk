@@ -24,7 +24,7 @@ ENVTEST_K8S_VERSION ?= 1.37
 ENVTEST_RETRY_ATTEMPTS ?= 7
 ENVTEST_RETRY_DELAY ?= 2
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) --exponential -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
@@ -671,7 +671,7 @@ test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-
 kind-k8s-main-image-build: kind
 	@echo "Fetching latest Kubernetes CI build version..."
 	$(eval K8S_CI_VERSION := $(or \
-		$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential -- curl -fsSL https://dl.k8s.io/ci/latest.txt), \
+		$(shell $(PROJECT_DIR)/hack/testing/retry.sh -- curl -fsSL https://dl.k8s.io/ci/latest.txt), \
 		$(error failed to fetch latest Kubernetes CI version)))
 	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
 	$(NETWORK_RETRY) $(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
