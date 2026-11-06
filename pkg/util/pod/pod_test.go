@@ -410,10 +410,12 @@ func TestSpecShape(t *testing.T) {
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
 	}
+	restartPolicyAlways := corev1.ContainerRestartPolicyAlways
 	cases := map[string]struct {
-		podSpec       *corev1.PodSpec
-		wantResources any
-		wantPresent   bool
+		podSpec            *corev1.PodSpec
+		wantResources      any
+		wantPresent        bool
+		wantInitContainers any
 	}{
 		"pod-level resources omitted when unset": {
 			podSpec:     &corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}},
@@ -424,10 +426,49 @@ func TestSpecShape(t *testing.T) {
 			wantResources: podResources.Requests,
 			wantPresent:   true,
 		},
+		"container restartPolicy omitted when unset": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+			},
+			wantInitContainers: []map[string]any{
+				{
+					"resources": map[string]any{
+						"requests": corev1.ResourceList(nil),
+					},
+					"ports": []corev1.ContainerPort(nil),
+				},
+			},
+		},
+		"container restartPolicy included when set": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{
+						Name:          "sidecar",
+						RestartPolicy: &restartPolicyAlways,
+					},
+				},
+			},
+			wantInitContainers: []map[string]any{
+				{
+					"resources": map[string]any{
+						"requests": corev1.ResourceList(nil),
+					},
+					"ports":         []corev1.ContainerPort(nil),
+					"restartPolicy": corev1.ContainerRestartPolicyAlways,
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, present := SpecShape(tc.podSpec)["resources"]
+			shape := SpecShape(tc.podSpec)
+			if tc.wantInitContainers != nil {
+				gotInit := shape["initContainers"]
+				if diff := cmp.Diff(tc.wantInitContainers, gotInit); diff != "" {
+					t.Errorf("Unexpected initContainers shape (-want,+got):\n%s", diff)
+				}
+			}
+			got, present := shape["resources"]
 			if present != tc.wantPresent {
 				t.Fatalf("Unexpected presence of \"resources\" key: want %v, got %v", tc.wantPresent, present)
 			}
@@ -439,6 +480,7 @@ func TestSpecShape(t *testing.T) {
 }
 
 func TestGenerateRoleHash(t *testing.T) {
+	restartPolicyAlways := corev1.ContainerRestartPolicyAlways
 	withoutPodResources := &corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}}
 	withPodResources := &corev1.PodSpec{
 		Containers: []corev1.Container{{Name: "c"}},
@@ -446,8 +488,21 @@ func TestGenerateRoleHash(t *testing.T) {
 			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 		},
 	}
+	withRegularInit := &corev1.PodSpec{
+		InitContainers: []corev1.Container{{Name: "init"}},
+		Containers:     []corev1.Container{{Name: "c"}},
+	}
+	withSidecarInit := &corev1.PodSpec{
+		InitContainers: []corev1.Container{{Name: "init", RestartPolicy: &restartPolicyAlways}},
+		Containers:     []corev1.Container{{Name: "c"}},
+	}
 
 	baseHash, err := GenerateRoleHash(withoutPodResources)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	regularInitHash, err := GenerateRoleHash(withRegularInit)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -475,6 +530,22 @@ func TestGenerateRoleHash(t *testing.T) {
 				t.Errorf("Unexpected role hash comparison with base hash: want equality %t, base hash %q, got hash %q", tc.wantBaseHash, baseHash, gotHash)
 			}
 		})
+	}
+
+	sidecarInitHash, err := GenerateRoleHash(withSidecarInit)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if sidecarInitHash == regularInitHash {
+		t.Errorf("Expected restartable init container to produce different role hash than regular init container, but both got %q", regularInitHash)
+	}
+
+	sidecarInitHash2, err := GenerateRoleHash(withSidecarInit.DeepCopy())
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if sidecarInitHash != sidecarInitHash2 {
+		t.Errorf("Expected identical restartable init container specs to have matching role hash, got %q and %q", sidecarInitHash, sidecarInitHash2)
 	}
 }
 
