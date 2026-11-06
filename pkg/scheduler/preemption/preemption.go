@@ -285,6 +285,10 @@ func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, al
 	pf.m.Lock()
 	defer pf.m.Unlock()
 
+	if pf.initialized {
+		panic("PreemptionFilter already initialized")
+	}
+
 	pf.initialized = true
 	pf.usage = workload.Usage{
 		Quota: workload.ResourceUsage{
