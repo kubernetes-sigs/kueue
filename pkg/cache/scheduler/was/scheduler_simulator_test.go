@@ -1785,6 +1785,7 @@ func TestScheduleWorkload(t *testing.T) {
 		},
 		"committed victim with filter: node placement fits on free node, filter forces one victim for quota": {
 			existingPods: []*corev1.Pod{
+				node1Blocker,
 				testingpod.MakePod("victim-1-pod", ns).
 					UID("victim-1-uid").
 					Annotation(kueue.WorkloadAnnotation, "victim-1").
@@ -1794,13 +1795,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
-			pods: []*corev1.Pod{
-				testingpod.MakePod("p1", ns).
-					UID("p1-uid").
-					Request(corev1.ResourceCPU, "2").
-					SchedulingGroup("pg").
-					Obj(),
-			},
+			pods:      []*corev1.Pod{workloadPod("p1", "pg").Request(corev1.ResourceCPU, "2").Obj()},
 			scheduleOpts: []simulator.ScheduleOption{
 				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim-1")}),
 				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
@@ -1808,7 +1803,7 @@ func TestScheduleWorkload(t *testing.T) {
 				})),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Node: "node1"},
+				key("p1"): {Node: "node2"},
 			},
 			wantPreempted: []workload.Reference{wlRef("victim-1")},
 		},
