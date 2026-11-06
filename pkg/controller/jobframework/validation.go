@@ -385,13 +385,16 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout <= 0 {
+		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"))
+		}
+		if cfg.Timeout != nil && *cfg.Timeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds must be greater than 0"))
 		}
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds must be greater than 0 seconds"))
 		}
-		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+		if maxTimeoutOnWorkload != nil && cfg.Timeout != nil && *cfg.Timeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}

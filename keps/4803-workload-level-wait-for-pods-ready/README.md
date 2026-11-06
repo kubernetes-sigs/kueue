@@ -149,15 +149,16 @@ type WorkloadSpec struct {
     WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 }
 
+// +kubebuilder:validation:MinProperties=1
 type WaitForPodsReady struct {
     // timeoutSeconds defines the maximum time the workload may remain
     // admitted before all pods are in a Ready or Succeeded state.
     // When elapsed, the workload is evicted with reason PodsReadyTimeout.
     // If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
     // this field takes precedence.
-    // +required
+    // +optional
     // +kubebuilder:validation:Minimum=1
-    TimeoutSeconds int64 `json:"timeoutSeconds,omitempty"`
+    TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
 
     // RecoveryTimeoutSeconds defines a timeout, measured since the workload
     // loses readiness after a Workload is Admitted and running.
@@ -222,7 +223,7 @@ copied to the resulting workload's annotations. This covers most integrations
 - Validate that the timeouts values in `kueue.x-k8s.io/wait-for-pods-ready` are
   positive integers and does not exceed the maximum value set by the admin in the
   cluster configuration.
-- Setting a recoveryTimeout without timeout set is not supported.
+- A recoveryTimeout can be set without a timeout; the timeout then falls back to the cluster-wide value.
 - For Kueue managed Deployment, the **Deployment** webhook copies the annotation
   from its metadata to the Template metadata to make sure it's propagated to the
   Pods and then to the workloads. It also removes the annotation from the template
@@ -236,7 +237,6 @@ copied to the resulting workload's annotations. This covers most integrations
 ### Future Work
 
 - Extend the support for `.unscheduledTimeout`.
-- Make `timeoutSeconds` optional.
 
 ### Test Plan
 

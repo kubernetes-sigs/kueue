@@ -1855,9 +1855,9 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 
 // parseWorkloadTimeouts defines the workload timeouts either from workload
 // spec or the annotation.
-func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (time.Duration, *time.Duration) {
+func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (*int64, *int64) {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		return 0, nil
+		return nil, nil
 	}
 	cfg := wl.Spec.WaitForPodsReady
 	if cfg == nil {
@@ -1866,40 +1866,42 @@ func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (time.Durati
 		cfg, err = waitforpodsready.ParseWaitForPodsReady(wl)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration")
-			return 0, nil
+			return nil, nil
 		}
 	}
 	if cfg == nil {
-		return 0, nil
+		return nil, nil
 	}
-	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
-	var recoveryTimeout *time.Duration
-	if cfg.RecoveryTimeoutSeconds != nil && *cfg.RecoveryTimeoutSeconds > 0 {
-		recoveryTimeout = new(time.Duration(*cfg.RecoveryTimeoutSeconds) * time.Second)
-	}
-	return timeout, recoveryTimeout
+	return cfg.TimeoutSeconds, cfg.RecoveryTimeoutSeconds
 }
 
 // determineTimeouts returns the timeout and recovery timeout for the workload.
 // It relies first on the per-workload spec, then on the legacy per-workload annotation,
 // and finally falls back to the cluster-level configuration.
-// It returns ok=false when no timeout and recovery timeout are configured at any level.
+// It returns ok=false when no workload timeout or cluster configuration is available.
 func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
-	workloadTimeout, workloadRecoveryTimeout := parseWorkloadTimeouts(ctx, wl)
+	workloadTimeoutSeconds, workloadRecoveryTimeoutSeconds := parseWorkloadTimeouts(ctx, wl)
+	hasClusterConfig := r.waitForPodsReady != nil
+
+	// Resolve the timeout, preferring the per-workload value over the cluster-level one.
 	switch {
-	case workloadTimeout > 0:
-		timeout = workloadTimeout
-		recoveryTimeout = workloadRecoveryTimeout
-		if recoveryTimeout == nil && r.waitForPodsReady != nil {
-			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
-		}
-	case r.waitForPodsReady != nil:
+	case workloadTimeoutSeconds != nil && *workloadTimeoutSeconds > 0:
+		timeout = time.Duration(*workloadTimeoutSeconds) * time.Second
+	case hasClusterConfig:
 		timeout = r.waitForPodsReady.timeout
-		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
 	default:
-		// No timeout configured at either level.
+		// No start timeout is configured at either level.
 		return 0, nil, false
 	}
+
+	// Resolve the recovery timeout with the same per-workload-over-cluster precedence.
+	switch {
+	case workloadRecoveryTimeoutSeconds != nil && *workloadRecoveryTimeoutSeconds > 0:
+		recoveryTimeout = new(time.Duration(*workloadRecoveryTimeoutSeconds) * time.Second)
+	case hasClusterConfig:
+		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+	}
+
 	return timeout, recoveryTimeout, true
 }
 
