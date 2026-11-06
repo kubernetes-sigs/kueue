@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,7 +38,9 @@ import (
 )
 
 func NewFakeClient(objs ...client.Object) client.Client {
-	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
+	return NewClientBuilder().
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		WithObjects(objs...).WithStatusSubresource(objs...).Build()
 }
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {

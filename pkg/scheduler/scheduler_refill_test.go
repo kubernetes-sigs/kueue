@@ -41,6 +41,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -1102,6 +1103,7 @@ func TestRefillReleasesWorkloadAlreadyAccountedInCache(t *testing.T) {
 		).
 		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
 
 	cqCache := schdcache.New(cl)
@@ -1251,6 +1253,7 @@ func TestRefillFitOnlyDeferralIsPerCycle(t *testing.T) {
 		).
 		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
 
 	cqCache := schdcache.New(cl)
@@ -1407,6 +1410,7 @@ func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 		).
 		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
 
 	cqCache := schdcache.New(cl)
@@ -1605,6 +1609,7 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 					&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
 				).
 				WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
@@ -1844,6 +1849,7 @@ func TestRefillNotTriggeredWhenPodsReadyBlocksAdmission(t *testing.T) {
 		).
 		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
 
 	cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(true))
@@ -1964,6 +1970,7 @@ func TestRefillPopKeepsMidCycleRequeueSignal(t *testing.T) {
 			utiltesting.MakeNamespaceWrapper("signal-hold").Obj(),
 		).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, ok := obj.(*corev1.Namespace); ok && !fired {

@@ -215,6 +215,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 							}, tc.objects...,
 						)...).
 						WithStatusSubresource(&kueue.Workload{}).
+						WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.admissionError != nil {
@@ -11024,6 +11025,7 @@ func TestLastSchedulingContext(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
+						WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 						})
@@ -11329,7 +11331,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 						updates++
 						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
 					},
-				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
@@ -12161,6 +12165,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 					clientBuilder := utiltesting.NewClientBuilder().
 						WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload).
 						WithStatusSubresource(&kueue.Workload{}).
+						WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
@@ -12292,6 +12297,7 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(ns, rf, cq, lq, wl).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 				patchAttempted = true
@@ -12393,6 +12399,7 @@ func TestSchedulerDropsAssumedWorkloadWhenFirstPassAdmissionWriteFails(t *testin
 				cl := utiltesting.NewClientBuilder().
 					WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
 					WithStatusSubresource(&kueue.Workload{}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
@@ -12514,6 +12521,7 @@ func TestSchedulerKeepsAdmittedWorkloadWhenCommittedAdmissionWriteReportsError(t
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
 				WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
