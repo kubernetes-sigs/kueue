@@ -113,14 +113,18 @@ fake_gopherage() {
   esac
 }
 
-# build PREFIX ID STATE TYPE BASE PULLS: a shard build with prowjob.json and
-# filtered.cov. PREFIX ends with the job name; PULLS is "N:SHA ...".
+# build PREFIX ID STATE TYPE BASE PULLS [TOTAL]: a shard build with prowjob.json
+# and filtered.cov. PREFIX ends with the job name; PULLS is "N:SHA ...".
+# TOTAL is the shard job's UNIT_TOTAL_SHARDS (default 2). "-" omits it.
 build() {
-  local prefix=$1 id=$2 state=$3 type=$4 base=$5 pulls="" n
-  for n in $6; do pulls+="${pulls:+,}{\"number\":${n%%:*},\"sha\":\"${n#*:}\"}"; done
+  local prefix=$1 id=$2 state=$3 type=$4 base=$5 pulls="" n total=${7:-2} envjson=""
+  for n in ${6:-}; do pulls+="${pulls:+,}{\"number\":${n%%:*},\"sha\":\"${n#*:}\"}"; done
+  if [[ "${total}" != "-" ]]; then
+    envjson="{\"name\":\"UNIT_TOTAL_SHARDS\",\"value\":\"${total}\"}"
+  fi
   mkdir -p "${FX}/${prefix}/${id}/artifacts"
-  printf '{"spec":{"job":"%s","type":"%s","refs":{"base_sha":"%s","pulls":[%s]}},"status":{"state":"%s"}}\n' \
-    "${prefix##*/}" "${type}" "${base}" "${pulls}" "${state}" >"${FX}/${prefix}/${id}/prowjob.json"
+  printf '{"spec":{"job":"%s","type":"%s","pod_spec":{"containers":[{"env":[%s]}]},"refs":{"base_sha":"%s","pulls":[%s]}},"status":{"state":"%s"}}\n' \
+    "${prefix##*/}" "${type}" "${envjson}" "${base}" "${pulls}" "${state}" >"${FX}/${prefix}/${id}/prowjob.json"
   printf 'mode: atomic\nsigs.k8s.io/kueue/pkg/%s.go:1.1,2.2 1 1\n' "${id}" >"${FX}/${prefix}/${id}/artifacts/filtered.cov"
 }
 
@@ -194,6 +198,12 @@ check() {
 post() {
   printf '{"type":"postsubmit","job":"%s","refs":{"org":"kubernetes-sigs","repo":"kueue","base_ref":"main","base_sha":"%s","clone_uri":"%s"}}' \
     "${JOB_NAME}" "$1" "${ORIGIN}"
+}
+
+# presubmit PR SHA BASE
+presubmit() {
+  printf '{"type":"presubmit","job":"pull-kueue-test-unit-coverage-main","refs":{"org":"kubernetes-sigs","repo":"kueue","base_ref":"main","base_sha":"%s","pulls":[{"number":%s,"sha":"%s"}]}}' \
+    "$3" "$1" "$2"
 }
 
 name="PR commit matches its presubmits on M^"
@@ -294,6 +304,83 @@ name="presubmit waits for a build without prowjob.json"
 out=$(run "${name}" 0 "{\"type\":\"presubmit\",\"job\":\"pull-kueue-test-unit-coverage-main\",\"refs\":{\"org\":\"kubernetes-sigs\",\"repo\":\"kueue\",\"base_ref\":\"main\",\"base_sha\":\"${B0}\",\"pulls\":[{\"number\":1,\"sha\":\"${P1}\"}]}}")
 check "${name}" "${out}" "
   .commit == \"${P1}\" and .shards == [\"${PR_LOGS}/1/${SHARD0}/100\", \"${PR_LOGS}/1/${SHARD1}/101\"]"
+
+# Each presubmit below uses its own PR, so PR 1's builds stay at
+# UNIT_TOTAL_SHARDS=2. Each sets its own wait bounds.
+name="presubmit with no shard build on its refs is skipped"
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 0 "$(presubmit 15 "${P1}" "${B0}")")
+check "${name}" "${out}" '(.skipped | test("no pull-kueue-test-unit-shard-0-main build on these refs")) and (.skipped | test("/test pull-kueue-test-unit-coverage-main"))'
+[[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+name="presubmit fails when one shard failed on its refs"
+APPEAR_SECONDS=0
+SLEEP_HOOK=""
+build "${PR_LOGS}/16/${SHARD1}" 160 failure presubmit "${B0}" "16:${P1}"
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 1 "$(presubmit 16 "${P1}" "${B0}")")
+
+name="presubmit fails when a shard build omits the shard count"
+build "${PR_LOGS}/17/${SHARD0}" 170 success presubmit "${B0}" "17:${P1}"
+build "${PR_LOGS}/17/${SHARD1}" 171 success presubmit "${B0}" "17:${P1}" -
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 1 "$(presubmit 17 "${P1}" "${B0}")")
+grep -q "unset" "${tmp}/log" || fail "${name}: no 'unset' in the log"
+
+name="presubmit fails a high shard count instead of skipping"
+build "${PR_LOGS}/18/${SHARD1}" 180 success presubmit "${B0}" "18:${P1}" 3
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 1 "$(presubmit 18 "${P1}" "${B0}")")
+grep -q "UNIT_COVERAGE_SHARDS" "${tmp}/log" || fail "${name}: no UNIT_COVERAGE_SHARDS in the log"
+
+name="presubmit skips when one shard never ran"
+build "${PR_LOGS}/19/${SHARD0}" 190 success presubmit "${B0}" "19:${P1}"
+out=$(JOB_NAME=pull-kueue-test-unit-coverage-main APPEAR_SECONDS=0 SLEEP_HOOK='' \
+  run "${name}" 0 "$(presubmit 19 "${P1}" "${B0}")")
+check "${name}" "${out}" '.skipped | type == "string"'
+[[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+# PR 10 adds a new file, so it merges cleanly onto M4. The matching batch ran
+# with UNIT_TOTAL_SHARDS=3. Removed afterwards.
+git -C "${src}" checkout -q --detach "${B0}"
+echo pr10 >"${src}/e"
+git -C "${src}" add e
+git -C "${src}" commit -q -m pr10
+git -C "${src}" push -q "${ORIGIN}" "HEAD:refs/pull/10/head"
+P10=$(git -C "${src}" rev-parse HEAD)
+M5=$(squash "${M4}" "${P10}" 10)
+git -C "${src}" push -q "${ORIGIN}" "${M5}:refs/heads/main"
+for s in "${SHARD0}" "${SHARD1}"; do
+  build "${BATCH}/${s}" 300 success batch "${M4}" "10:${P10}" 3
+done
+name="batch shard count above the config fails"
+out=$(run "${name}" 1 "$(post "${M5}")" "${M5}")
+grep -q "UNIT_COVERAGE_SHARDS" "${tmp}/log" || fail "${name}: no UNIT_COVERAGE_SHARDS in the log"
+rm -rf "${FX}/${BATCH}/${SHARD0}/300" "${FX}/${BATCH}/${SHARD1}/300"
+
+name="postsubmit old shard count fails red"
+out=$(UNIT_COVERAGE_SHARDS=3 run "${name}" 1 "$(post "${M1}")" "${M1}")
+grep -q "UNIT_COVERAGE_SHARDS" "${tmp}/log" || fail "${name}: no UNIT_COVERAGE_SHARDS in the log"
+[[ ! -e "${out}/coverage-sources.json" ]] || fail "${name}: coverage-sources.json written"
+[[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+# No PR-path success. The batch shards succeeded with UNIT_TOTAL_SHARDS=2,
+# the config is 3, and two shards are not a complete set.
+git -C "${src}" checkout -q --detach "${B0}"
+echo pr12 >"${src}/f"
+git -C "${src}" add f
+git -C "${src}" commit -q -m pr12
+git -C "${src}" push -q "${ORIGIN}" "HEAD:refs/pull/12/head"
+P12=$(git -C "${src}" rev-parse HEAD)
+M6=$(squash "${M5}" "${P12}" 12)
+git -C "${src}" push -q "${ORIGIN}" "${M6}:refs/heads/main"
+for s in "${SHARD0}" "${SHARD1}"; do
+  build "${BATCH}/${s}" 301 success batch "${M5}" "12:${P12}"
+done
+name="postsubmit batch-only old shard count fails red"
+out=$(UNIT_COVERAGE_SHARDS=3 run "${name}" 1 "$(post "${M6}")" "${M6}")
+grep -q "UNIT_COVERAGE_SHARDS" "${tmp}/log" || fail "${name}: no UNIT_COVERAGE_SHARDS in the log"
+rm -rf "${FX}/${BATCH}/${SHARD0}/301" "${FX}/${BATCH}/${SHARD1}/301"
 
 if [[ -s "${failures}" ]]; then
   echo "$(($(wc -l <"${failures}"))) failure(s)" >&2
