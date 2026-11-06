@@ -188,11 +188,8 @@ func (r *Reconciler) getStatefulSets(ctx context.Context, req reconcile.Request)
 	if err := r.client.List(ctx, statefulSets, client.InNamespace(req.Namespace),
 		client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: req.Name},
 	); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to get StatefulSets")
-			return nil, err
-		}
-		return nil, nil
+		log.Error(err, "Failed to get StatefulSets")
+		return nil, err
 	}
 	return statefulSets.Items, nil
 }
@@ -410,11 +407,9 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	dropLWSPrefixedKeys(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
-		if podIndexLabel != nil {
-			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
-		}
-		topologyRequest, err := builder.Build()
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
+			PodIndexLabel(podIndexLabel).
+			Build()
 		if err != nil {
 			return nil, err
 		}
