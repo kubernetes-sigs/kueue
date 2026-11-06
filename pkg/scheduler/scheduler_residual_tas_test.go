@@ -17,20 +17,25 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -40,6 +45,20 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+// newResidualTASTestCache mirrors cmd/kueue/main.go: the cache uses the WAS
+// simulator when SchedulerLibraryIntegration is enabled.
+func newResidualTASTestCache(ctx context.Context, t *testing.T, cl client.Client) *schdcache.Cache {
+	t.Helper()
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		return schdcache.New(cl)
+	}
+	simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+	}
+	return schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+}
 
 func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 	const residualMessage = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
@@ -82,7 +101,7 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, false)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewFakeClient()
-			cache := schdcache.New(cl)
+			cache := newResidualTASTestCache(ctx, t, cl)
 			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 			for _, flavor := range []string{"a", "b"} {
 				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavor).
@@ -97,10 +116,11 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("adding ClusterQueue: %v", err)
 			}
-			pod := testingpod.MakePod("old", "ns").NodeName("a").Request(corev1.ResourceCPU, "1").
+			pod := testingpod.MakePod("old", "ns").UID("old-uid").NodeName("a").Request(corev1.ResourceCPU, "1").
 				Annotation(kueue.WorkloadAnnotation, "released").Obj()
 			now := metav1.Now()
 			pod.DeletionTimestamp = &now
+			cache.TrackPod(ctx, pod)
 			cache.TASCache().UpdateTASPodUsage(pod, log)
 			incoming := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -177,7 +197,7 @@ func TestPartialAdmissionWithResidualTASPods(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 					ctx, log := utiltesting.ContextWithLog(t)
 					cl := utiltesting.NewFakeClient()
-					cache := schdcache.New(cl)
+					cache := newResidualTASTestCache(ctx, t, cl)
 					cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 					for _, flavor := range []string{"a", "b"} {
 						cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavor).
@@ -208,12 +228,13 @@ func TestPartialAdmissionWithResidualTASPods(t *testing.T) {
 					if !cache.AddOrUpdateWorkload(ctx, log, victim) {
 						t.Fatal("adding victim reservation")
 					}
-					pod := testingpod.MakePod("old", "ns").NodeName("b").Request(corev1.ResourceCPU, "3").Obj()
+					pod := testingpod.MakePod("old", "ns").UID("old-uid").NodeName("b").Request(corev1.ResourceCPU, "3").Obj()
 					pod.Annotations = map[string]string{kueue.WorkloadAnnotation: "released"}
 					if tc.deleting {
 						now := metav1.Now()
 						pod.DeletionTimestamp = &now
 					}
+					cache.TrackPod(ctx, pod)
 					cache.TASCache().UpdateTASPodUsage(pod, log)
 					snap, err := cache.Snapshot(ctx)
 					if err != nil {
@@ -300,7 +321,7 @@ func TestMultiVictimPreemptionWithResidualTASPods(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 					ctx, log := utiltesting.ContextWithLog(t)
 					cl := utiltesting.NewFakeClient()
-					cache := schdcache.New(cl)
+					cache := newResidualTASTestCache(ctx, t, cl)
 					cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 					cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas").
 						NodeLabel("group", "tas").TopologyName("topology").Obj())
@@ -336,6 +357,7 @@ func TestMultiVictimPreemptionWithResidualTASPods(t *testing.T) {
 						pod := testingpod.MakePod(name, "ns").UID(name+"-pod").
 							NodeName(name).Request(corev1.ResourceCPU, "5").
 							Annotation(kueue.WorkloadAnnotation, name).Obj()
+						cache.TrackPod(ctx, pod)
 						cache.TASCache().UpdateTASPodUsage(pod, log)
 					}
 					for _, name := range tc.released {
