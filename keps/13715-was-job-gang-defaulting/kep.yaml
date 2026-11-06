@@ -1,0 +1,43 @@
+title: Default Gang Scheduling for Kueue-managed Jobs
+kep-number: 13715
+authors:
+  - "@apullo777"
+status: provisional
+creation-date: 2026-08-05
+reviewers:
+  - "@kannon92"
+  - "@mm4tt"
+approvers:
+  - "@mimowo"
+  - "@sohankunkerkar"
+  - "@tenzen-y"
+
+see-also:
+  - "/keps/12385-was-podgroups"
+  - "/keps/13150-bring-your-own-podgroup"
+  - "/keps/10765-workload-priority-class-defaulting"
+  - "/keps/3589-manage-jobs-selectively"
+  # Upstream, for reference (not in this repository):
+  # - KEP-6089 Workload-Aware Scheduling controller APIs (sig-scheduling)
+  # - KEP-5547 Integrate Workload APIs with the Job controller (sig-apps)
+  # - JobSet KEP-969 WAS integration (kubernetes-sigs/jobset#1253)
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.21"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+# Implementation cannot start before Kueue's Kubernetes dependency bump to 1.37,
+# so this target moves with that bump.
+milestone:
+  alpha: "v0.21"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: BatchJobGangSchedulingByDefault
+disable-supported: true
