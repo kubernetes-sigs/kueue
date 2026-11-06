@@ -868,3 +868,49 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateWorkloadPriorityClassNameNotRemoved(t *testing.T) {
+	priorityClassPath := field.NewPath("metadata", "labels").Key(constants.WorkloadPriorityClassLabel)
+	withPriorityClass := func(name string) *batchv1.Job {
+		return utiltestingjob.MakeJob("job", "ns").WorkloadPriorityClass(name).Obj()
+	}
+	withoutPriorityClass := utiltestingjob.MakeJob("job", "ns").Obj()
+
+	testCases := map[string]struct {
+		oldObj  *batchv1.Job
+		newObj  *batchv1.Job
+		wantErr field.ErrorList
+	}{
+		"adding the priority class is allowed": {
+			oldObj: withoutPriorityClass,
+			newObj: withPriorityClass("high"),
+		},
+		"changing the priority class is allowed": {
+			oldObj: withPriorityClass("high"),
+			newObj: withPriorityClass("low"),
+		},
+		"keeping the priority class is allowed": {
+			oldObj: withPriorityClass("high"),
+			newObj: withPriorityClass("high"),
+		},
+		"having no priority class is allowed": {
+			oldObj: withoutPriorityClass,
+			newObj: withoutPriorityClass,
+		},
+		"removing the priority class is rejected": {
+			oldObj: withPriorityClass("high"),
+			newObj: withoutPriorityClass,
+			wantErr: field.ErrorList{
+				field.Invalid(priorityClassPath, "", "WorkloadPriorityClass cannot be removed from a workload"),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotErr := jobframework.ValidateWorkloadPriorityClassNameNotRemoved(tc.oldObj, tc.newObj)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
