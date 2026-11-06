@@ -3203,10 +3203,10 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 // replaceDomainInOrder fills the unhealthy node's runs without moving any other
 // rank. A replacement domain can span several runs separated by healthy nodes.
 func replaceDomainInOrder(original, replacement *utiltas.TopologyAssignment, unhealthyNode string) (*utiltas.TopologyAssignment, error) {
-	var replacedCount int32
+	var countToReplace int32
 	for _, domain := range original.Domains {
 		if domain.Values[len(domain.Values)-1] == unhealthyNode {
-			replacedCount += domain.Count
+			countToReplace += domain.Count
 		}
 	}
 	var replacementCount int32
@@ -3216,8 +3216,8 @@ func replaceDomainInOrder(original, replacement *utiltas.TopologyAssignment, unh
 		}
 		replacementCount += domain.Count
 	}
-	if replacementCount != replacedCount {
-		return nil, fmt.Errorf("replacement assignment count %d does not match unhealthy domain count %d", replacementCount, replacedCount)
+	if replacementCount != countToReplace {
+		return nil, fmt.Errorf("replacement assignment count %d does not match unhealthy domain count %d", replacementCount, countToReplace)
 	}
 
 	domains := make([]utiltas.TopologyDomainAssignment, 0, len(original.Domains)+len(replacement.Domains))
