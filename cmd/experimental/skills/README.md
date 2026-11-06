@@ -15,6 +15,8 @@
 | [kueue-e2e-cluster-singlecluster](kueue-e2e-cluster-singlecluster/SKILL.md) | "spin up an e2e cluster", "get a kind cluster ready for e2e", single-cluster e2e suite setup (baseline, extended, sequential, TAS, cert-manager, DRA) |
 | [kueue-e2e-cluster-multikueue](kueue-e2e-cluster-multikueue/SKILL.md) | "spin up MultiKueue e2e clusters", "set up manager/worker kind clusters", MultiKueue e2e suite setup (baseline, extended, sequential, DRA) |
 | [reviewer/](reviewer/README.md) | "review this PR", "review this code", "evaluate this diff", "score these commits", "review the changes between", "code quality evaluation", any code review of kueue changes |
+| [kueue-pr-evidence-common](kueue-pr-evidence-common/SKILL.md) | an evidence skill publishes its block, "preview the evidence block", "refresh the reviewer notes", shared conventions for kueue-pr-evidence-* skills |
+| [kueue-pr-evidence-state-diff](kueue-pr-evidence-state-diff/SKILL.md) | "show the state change in this PR", "before/after Kueue state", scheduling, preemption, admission, MultiKueue, metrics, or TAS |
 
 ---
 
@@ -49,3 +51,7 @@
 @kueue-e2e-cluster-multikueue/SKILL.md
 
 @reviewer/README.md
+
+@kueue-pr-evidence-common/SKILL.md
+
+@kueue-pr-evidence-state-diff/SKILL.md
