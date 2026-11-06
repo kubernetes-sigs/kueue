@@ -78,9 +78,10 @@ import (
 )
 
 const (
-	FailedToStartFinishedReason = "FailedToStart"
-	managedOwnersChainLimit     = 10
-	scaleUpProbeExtra           = "scale-up-probe"
+	FailedToStartFinishedReason  = "FailedToStart"
+	managedOwnersChainLimit      = 10
+	scaleUpProbeExtra            = "scale-up-probe"
+	prebuiltWorkloadOutOfSyncMsg = "The prebuilt workload is out of sync with its user job"
 )
 
 var (
@@ -474,9 +475,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log.V(3).Info("Reconciling Job")
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
-	wl, err := r.ensureOneWorkload(ctx, job, object)
-	if err != nil {
-		return ctrl.Result{}, err
+	var wl *kueue.Workload
+	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
+		var outOfSync, wasOwned bool
+		wl, outOfSync, wasOwned, err = r.ensurePrebuiltWorkload(ctx, job, object, prebuiltWorkload)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if outOfSync {
+			if err := r.handleOutOfSyncPrebuiltWorkload(ctx, job, object, wl, wasOwned); err != nil {
+				return ctrl.Result{}, fmt.Errorf("handling out-of-sync prebuilt Workload %s: %w", klog.KObj(wl), err)
+			}
+			return ctrl.Result{}, nil
+		}
+	} else {
+		wl, err = r.ensureOneWorkload(ctx, job, object)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Update workload conditions if implemented JobWithCustomWorkloadConditions interface.
@@ -1100,85 +1116,145 @@ func workloadOwnedBy(wl *kueue.Workload, job GenericJob) bool {
 	return owned
 }
 
+func (r *JobReconciler) ensurePrebuiltWorkload(ctx context.Context, job GenericJob, object client.Object, prebuiltWorkload string) (wl *kueue.Workload, outOfSync bool, wasOwned bool, err error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	wl = &kueue.Workload{}
+	if err = r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl); err != nil {
+		return nil, false, false, client.IgnoreNotFound(err)
+	}
+	// Ignore the workload if it is controlled by another object.
+	if controlledBy := metav1.GetControllerOfNoCopy(wl); controlledBy != nil && controlledBy.UID != object.GetUID() {
+		log.V(3).Info(
+			"Skipping prebuilt Workload controlled by another object",
+			"workload", klog.KObj(wl),
+			"controlledBy", controlledBy,
+		)
+		return nil, false, false, nil
+	}
+
+	// Do not adopt a prebuilt workload that is already finished. It cannot
+	// represent the execution of this job, and adopting it would finalize the
+	// job immediately, leaving it running unmanaged and without a quota
+	// reservation. A finished workload owned by this job is still
+	// returned, so that the job is finalized and the workload finalizer is
+	// removed as usual.
+	wasOwned = workloadOwnedBy(wl, job)
+	if workloadfinish.IsFinished(wl) && !wasOwned {
+		log.V(3).Info(
+			"Skipping finished prebuilt Workload",
+			"workload", klog.KObj(wl),
+		)
+		return nil, false, false, nil
+	}
+
+	if cj, implements := job.(ComposableJob); implements {
+		err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
+	} else {
+		err = EnsurePrebuiltWorkloadOwnership(ctx, r.client, wl, object)
+	}
+	if err != nil {
+		return nil, false, false, err
+	}
+
+	if finishedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); finishedCond != nil && finishedCond.Status == metav1.ConditionTrue {
+		return wl, finishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync, wasOwned, nil
+	}
+
+	if workloadslicing.Enabled(object) {
+		// TODO(kevin85421): Currently this only handles slices that the scheduler
+		// failed to finish after admitting the replacement. More cases may need
+		// to be handled in the future.
+		if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
+			return nil, false, false, err
+		}
+	}
+
+	// Skip the in-sync check for ElasticJob workloads if the workload is a
+	// newly scaled-up replacement. This prevents premature removal of remote
+	// objects for a Job that has not yet been synced after scale-up.
+	if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
+		log.V(5).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
+		return wl, false, wasOwned, nil
+	}
+
+	if features.Enabled(features.MultiKueueRayInTreeAutoscaling) && workloadslicing.Enabled(object) {
+		resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if resizePending {
+			log.V(5).Info("WorkloadSlice: skip in-sync check during resize handover")
+			return wl, false, wasOwned, nil
+		}
+	}
+
+	inSync, err := r.isPrebuiltWorkloadInSync(ctx, wl, job)
+	if err != nil {
+		return nil, false, false, err
+	}
+	return wl, !inSync, wasOwned, nil
+}
+
+func (r *JobReconciler) handleOutOfSyncPrebuiltWorkload(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, wasOwned bool) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Only restore PodSetsInfo from wl when this job had already adopted an admitted
+	// workload and has not yet completed stopping; otherwise wl's pod template was never
+	// injected into the job and restoring from it would overwrite the job's own template.
+	var restoreWl *kueue.Workload
+	if wasOwned && workload.HasQuotaReservation(wl) && !job.IsSuspended() {
+		restoreWl = wl
+	}
+
+	if !wl.DeletionTimestamp.IsZero() {
+		log.V(3).Info("Workload has a deletion timestamp")
+		if err := r.stopJob(ctx, job, restoreWl, StopReasonWorkloadDeleted, "Workload is deleted"); err != nil {
+			return fmt.Errorf("suspending job with deleted Workload: %w", err)
+		}
+		return workload.RemoveFinalizer(ctx, r.client, wl)
+	}
+
+	if message, success, finished := job.Finished(ctx); finished {
+		log.V(3).Info("Job is finished")
+		alreadyFinished := workloadfinish.IsFinished(wl)
+		if !alreadyFinished {
+			reason := kueue.WorkloadFinishedReasonSucceeded
+			if !success {
+				reason = kueue.WorkloadFinishedReasonFailed
+			}
+			if err := workloadfinish.Finish(ctx, r.client, wl, reason, message, r.clock); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonFinishedWorkload, "FinishedWorkload",
+				"Workload '%s' is declared finished", workload.Key(wl))
+		}
+		if err := r.finalizeJob(ctx, job); err != nil {
+			return err
+		}
+		if alreadyFinished {
+			return workload.RemoveFinalizer(ctx, r.client, wl)
+		}
+		return nil
+	}
+
+	if err := r.stopJob(ctx, job, restoreWl, StopReasonNoMatchingWorkload, prebuiltWorkloadOutOfSyncMsg); err != nil {
+		return err
+	}
+	if job.IsActive() {
+		log.V(3).Info("Job is suspended but still has active pods, waiting")
+		return nil
+	}
+	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, prebuiltWorkloadOutOfSyncMsg, r.clock); err != nil {
+		return err
+	}
+	return ErrPrebuiltWorkloadNotFound
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
-		wl := &kueue.Workload{}
-		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkload, Namespace: object.GetNamespace()}, wl)
-		if err != nil {
-			return nil, client.IgnoreNotFound(err)
-		}
-		// Ignore the workload is controlled by another object.
-		if controlledBy := metav1.GetControllerOfNoCopy(wl); controlledBy != nil && controlledBy.UID != object.GetUID() {
-			log.V(3).Info(
-				"Skipping prebuilt Workload controlled by another object",
-				"workload", klog.KObj(wl),
-				"controlledBy", controlledBy,
-			)
-			return nil, nil
-		}
-
-		// Do not adopt a prebuilt workload that is already finished. It cannot
-		// represent the execution of this job, and adopting it would finalize the
-		// job immediately, leaving it running unmanaged and without a quota
-		// reservation. A finished workload owned by this job is still
-		// returned, so that the job is finalized and the workload finalizer is
-		// removed as usual.
-		if workloadfinish.IsFinished(wl) && !workloadOwnedBy(wl, job) {
-			log.V(3).Info(
-				"Skipping finished prebuilt Workload",
-				"workload", klog.KObj(wl),
-			)
-			return nil, nil
-		}
-
-		if cj, implements := job.(ComposableJob); implements {
-			err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
-		} else {
-			err = EnsurePrebuiltWorkloadOwnership(ctx, r.client, wl, object)
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		if workloadslicing.Enabled(object) {
-			// TODO(kevin85421): Currently this only handles slices that the scheduler
-			// failed to finish after admitting the replacement. More cases may need
-			// to be handled in the future.
-			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
-				return nil, err
-			}
-		}
-
-		// Skip the in-sync check for ElasticJob workloads if the workload is a
-		// newly scaled-up replacement. This prevents premature removal of remote
-		// objects for a Job that has not yet been synced after scale-up.
-		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
-			log.V(5).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
-			return wl, nil
-		}
-
-		if features.Enabled(features.MultiKueueRayInTreeAutoscaling) && workloadslicing.Enabled(object) {
-			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
-			if err != nil {
-				return nil, err
-			}
-			if resizePending {
-				log.V(5).Info("WorkloadSlice: skip in-sync check during resize handover")
-				return wl, nil
-			}
-		}
-
-		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
-			return nil, err
-		}
-		return wl, nil
-	}
-
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
 		podSets, err := JobPodSets(ctx, job, r.client)
@@ -1675,27 +1751,11 @@ func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJo
 	return !jobCounts.EqualTo(wlCounts), nil
 }
 
-func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
-	var (
-		equivalent bool
-		err        error
-	)
-
+func (r *JobReconciler) isPrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
 	if cj, implements := job.(ComposableJob); implements {
-		equivalent, err = cj.EquivalentToWorkload(ctx, r.client, wl)
-	} else {
-		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
+		return cj.EquivalentToWorkload(ctx, r.client, wl)
 	}
-
-	if !equivalent || err != nil {
-		if err != nil {
-			return false, err
-		}
-		// mark the workload as finished
-		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
-	}
-	return true, nil
+	return EquivalentToWorkload(ctx, r.client, job, wl)
 }
 
 // expectedRunningPodSets gets the expected podsets during the job execution, returns nil if the workload has no reservation or

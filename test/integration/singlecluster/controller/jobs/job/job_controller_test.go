@@ -3166,6 +3166,133 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should hold quota until active pods stop when an admitted prebuilt Workload goes out of sync", func() {
+		container := corev1.Container{
+			Name:  "c",
+			Image: "pause",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2500m")},
+			},
+		}
+		testingjob.SetContainerDefaults(&container)
+
+		wl1 := utiltestingapi.MakeWorkload("prebuilt-wl1", ns.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				Containers(*container.DeepCopy()).
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl1)
+		wl1Key := client.ObjectKeyFromObject(wl1)
+
+		job1 := testingjob.MakeJob("job1", ns.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			PrebuiltWorkloadLabel(wl1.Name).
+			Parallelism(2).
+			Completions(2).
+			Containers(*container.DeepCopy()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job1)
+		job1Key := client.ObjectKeyFromObject(job1)
+
+		ginkgo.By("waiting for job1 and its prebuilt workload to be admitted and unsuspended", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wl1Key)
+			behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, job1Key, map[string]string{
+				instanceKey: onDemandFlavor.Name,
+			})
+		})
+
+		ginkgo.By("marking job1 active with running pods", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob1 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job1Key, createdJob1)).Should(gomega.Succeed())
+				createdJob1.Status.StartTime = new(metav1.Now())
+				createdJob1.Status.Active = 2
+				g.Expect(k8sClient.Status().Update(ctx, createdJob1)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		job2 := testingjob.MakeJob("job2", ns.Name).
+			Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job2)
+		job2Key := client.ObjectKeyFromObject(job2)
+		wl2Key := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
+
+		ginkgo.By("verifying job2 is pending while job1 consumes all ClusterQueue quota", func() {
+			behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wl2Key)
+		})
+
+		ginkgo.By("mutating job1 parallelism so it becomes out of sync with its prebuilt workload while pods run", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob1 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job1Key, createdJob1)).Should(gomega.Succeed())
+				createdJob1.Spec.Parallelism = new(int32(1))
+				g.Expect(k8sClient.Update(ctx, createdJob1)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying job1 is immediately suspended while pods are still active", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob1 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job1Key, createdJob1)).Should(gomega.Succeed())
+				g.Expect(createdJob1.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("retaining quota and keeping prebuilt workload unfinished while job1 still has active pods", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				createdWl1 := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wl1Key, createdWl1)).Should(gomega.Succeed())
+				g.Expect(createdWl1.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+
+				cq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), cq)).Should(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).Should(gomega.ContainElement(kueue.FlavorUsage{
+					Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+					Resources: []kueue.ResourceUsage{{
+						Name:     corev1.ResourceCPU,
+						Total:    resource.MustParse("5"),
+						Borrowed: resource.MustParse("0"),
+					}},
+				}))
+
+				createdJob2 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job2Key, createdJob2)).Should(gomega.Succeed())
+				g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("reporting active pods terminated on job1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob1 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job1Key, createdJob1)).Should(gomega.Succeed())
+				createdJob1.Status.Active = 0
+				g.Expect(k8sClient.Status().Update(ctx, createdJob1)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("restoring job1 template, finishing prebuilt workload OutOfSync, and admitting waiting job2 once active pods are gone", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob1 := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, job1Key, createdJob1)).Should(gomega.Succeed())
+				g.Expect(createdJob1.Annotations[workloadjob.StoppingAnnotation]).ShouldNot(gomega.Equal("true"))
+				g.Expect(createdJob1.Spec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
+
+				createdWl1 := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wl1Key, createdWl1)).Should(gomega.Succeed())
+				g.Expect(createdWl1.Status.Conditions).Should(
+					utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wl2Key)
+			behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, job2Key, map[string]string{
+				instanceKey: onDemandFlavor.Name,
+			})
+		})
+	})
+
 	ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor", func() {
 		highPriorityClass := utiltesting.MakePriorityClass("high").PriorityValue(100).Obj()
 		behavioral.MustCreate(ctx, k8sClient, highPriorityClass)
