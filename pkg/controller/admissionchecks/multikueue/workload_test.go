@@ -2136,7 +2136,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					Build())
 
-				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connState.connected = !tc.worker1Reconnecting
 				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
@@ -2168,7 +2168,7 @@ func TestWlReconcile(t *testing.T) {
 						},
 					})
 					worker2Client = NewNeverCachingClient(worker2Builder.Build())
-					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					w2remoteClient.connState.connected = !tc.worker2Reconnecting
 					w2remoteClient.connState.disconnectedSince = tc.worker2DisconnectedSince
@@ -2313,7 +2313,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
 
-	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -2330,7 +2330,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		Build())
-	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
 	cRec.remoteClients["worker2"] = w2remoteClient
 
@@ -2513,7 +2513,7 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			}
 			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
 
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 				WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
@@ -2648,14 +2648,14 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				WithObjects(remoteWl, remoteJob).
 				WithStatusSubresource(&kueue.Workload{}).
 				Build())
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "worker1", adapters)
 			w1remoteClient.client = worker1Client
 			if !tc.worker1Disconnected {
 				w1remoteClient.connState.markConnected()
 			}
 			cRec.remoteClients["worker1"] = w1remoteClient
 
-			w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker2", adapters)
+			w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "worker2", adapters)
 			w2remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).WithStatusSubresource(&kueue.Workload{}).Build())
 			w2remoteClient.connState.markConnected()
 			cRec.remoteClients["worker2"] = w2remoteClient
@@ -2843,7 +2843,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 					Obj()).
 				WithStatusSubresource(&kueue.Workload{}).
 				Build())
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "worker1", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
 			cRec.remoteClients["worker1"] = w1remoteClient
@@ -2943,7 +2943,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
 
-	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
 		WithStatusSubresource(&kueue.Workload{}).

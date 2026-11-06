@@ -49,7 +49,9 @@ import (
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -884,7 +886,7 @@ func TestReconnectBackoff(t *testing.T) {
 				return inner(builderCtx, cfg, opts)
 			}
 
-			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.wlResyncCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
@@ -1017,7 +1019,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters), withEventRecorder(recorder))
 
 	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
-	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	rc := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 	rc.failedConnAttempts = 3
 	rc.retryConnNextAttempt = metav1.NewTime(nextRetry)
 	cRec.remoteClients["worker1"] = rc
@@ -1174,7 +1176,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
 
@@ -2140,6 +2142,76 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 			c := &clustersReconciler{clusterProfileCRDPresent: tc.crdPresent}
 			if got := c.shouldWatchClusterProfiles(); got != tc.want {
 				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconnectResyncIsLowPriority(t *testing.T) {
+	type item struct {
+		name     string
+		priority int
+	}
+	cases := map[string]struct {
+		eventWorkloads []string
+		wantItems      []item
+	}{
+		"resynced workloads are dequeued after other workloads": {
+			eventWorkloads: []string{"new"},
+			wantItems: []item{
+				{name: "new", priority: 0},
+				{name: "assigned", priority: handler.LowPriority},
+				{name: "nominated", priority: handler.LowPriority},
+			},
+		},
+		"an event raises the priority of a resynced workload": {
+			eventWorkloads: []string{"nominated"},
+			wantItems: []item{
+				{name: "nominated", priority: 0},
+				{name: "assigned", priority: handler.LowPriority},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerClient := getClientBuilder(ctx).
+				WithObjects(
+					utiltestingapi.MakeWorkload("assigned", TestNamespace).ClusterName("worker1").Obj(),
+					utiltestingapi.MakeWorkload("nominated", TestNamespace).NominatedClusterNames("worker1", "worker2").Obj(),
+					utiltestingapi.MakeWorkload("other", TestNamespace).ClusterName("worker2").Obj(),
+					utiltestingapi.MakeWorkload("new", TestNamespace).Obj(),
+				).
+				Build()
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
+			rc := newRemoteClient(managerClient, cRec.wlUpdateCh, cRec.wlResyncCh, cRec.watchEndedCh, cRec.cqUpdateCh, defaultOrigin, "worker1", adapters)
+
+			if retryAfter := rc.requeueWorkloadsForCluster(ctx); retryAfter != nil {
+				t.Fatalf("unexpected resync retry after %v", *retryAfter)
+			}
+			if len(cRec.wlUpdateCh) != 0 {
+				t.Errorf("resync sent %d events at the default priority", len(cRec.wlUpdateCh))
+			}
+
+			q := priorityqueue.New[reconcile.Request]("test")
+			t.Cleanup(q.ShutDown)
+			resync := resyncHandler(0)
+			for len(cRec.wlResyncCh) > 0 {
+				resync.Generic(ctx, <-cRec.wlResyncCh, q)
+			}
+			for _, wlName := range tc.eventWorkloads {
+				q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: wlName, Namespace: TestNamespace}})
+			}
+
+			var gotItems []item
+			for q.Len() > 0 {
+				req, priority, _ := q.GetWithPriority()
+				gotItems = append(gotItems, item{name: req.Name, priority: priority})
+				q.Done(req)
+			}
+			if diff := cmp.Diff(tc.wantItems, gotItems, cmp.AllowUnexported(item{})); diff != "" {
+				t.Errorf("unexpected dequeued workloads (-want/+got):\n%s", diff)
 			}
 		})
 	}
