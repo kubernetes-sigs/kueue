@@ -38,7 +38,7 @@ You cannot turn TAS off for that flavor by editing it; see
 
 ### Topology levels
 
-Choose levels whose labels every node behind the flavor has. A node that is
+Use only levels that every node in the flavor is labeled with. A node that is
 missing the label for any level is excluded from the TAS flavor, together with
 its capacity. Check the labels before you create the Topology, for example:
 
