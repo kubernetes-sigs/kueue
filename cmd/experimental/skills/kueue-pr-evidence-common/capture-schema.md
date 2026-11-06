@@ -7,9 +7,11 @@ Producer: `kueue-pr-evidence-state-diff` (#18142). Consumers:
 
 Write one JSON document per side of one scenario: `capture.base.json`, run at
 `MERGE_BASE` in a [kueue-worktree.sh](scripts/kueue-worktree.sh) tree, and
-`capture.head.json`, run at `HEAD_SHA`. Both must have the same `run.scenario`
-and the same ordered checkpoint `name`s. Diff by checkpoint `name`, never by
-position alone. Keep captures outside the repository, under
+`capture.head.json`, run at `HEAD_SHA`. Both must have the same `run.scenario`.
+A side that passes every assertion has every checkpoint, in order. A side that
+fails one stops there: its `checkpoints` are a prefix of that list and
+`failure` says where it stopped. Diff by checkpoint `name`, never by position
+alone, and treat a name missing on one side as not reached. Keep captures outside the repository, under
 `${XDG_CACHE_HOME:-~/.cache}/kueue-pr-evidence/`.
 
 ## Document
