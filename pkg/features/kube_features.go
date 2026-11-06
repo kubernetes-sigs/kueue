@@ -195,6 +195,12 @@ const (
 	// while it was empty.
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero featuregate.Feature = "ElasticJobsViaWorkloadSlicesFlavorChangeFromZero"
 
+	// owner: @reruno
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// Enables elastic SparkApplications with dynamic allocation via workload slices.
+	ElasticJobsViaWorkloadSlicesForSparkApplication featuregate.Feature = "ElasticJobsViaWorkloadSlicesForSparkApplication"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -995,6 +1001,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationDeviceTaints:                     {KueueDRADeviceFeasibility},
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
+	ElasticJobsViaWorkloadSlicesForSparkApplication:     {ElasticJobsViaWorkloadSlices, SparkApplicationIntegration},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 }
@@ -1084,6 +1091,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ElasticJobsViaWorkloadSlicesForSparkApplication: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},

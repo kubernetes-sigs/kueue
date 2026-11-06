@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 			TopologyName("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+		clusterQueue = utiltestingapi.MakeClusterQueue("tas-cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
 				Resource(corev1.ResourceCPU, "5").
 				Resource(corev1.ResourceMemory, "5Gi").

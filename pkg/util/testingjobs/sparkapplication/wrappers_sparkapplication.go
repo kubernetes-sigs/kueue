@@ -143,6 +143,15 @@ func (w *SparkApplicationWrapper) DynamicAllocation(dynamicAllocation *sparkappv
 	return w
 }
 
+// SparkConf sets a sparkConf entry.
+func (w *SparkApplicationWrapper) SparkConf(key, value string) *SparkApplicationWrapper {
+	if w.Spec.SparkConf == nil {
+		w.Spec.SparkConf = map[string]string{}
+	}
+	w.Spec.SparkConf[key] = value
+	return w
+}
+
 // DriverServiceAccount sets the driver service account.
 func (w *SparkApplicationWrapper) DriverServiceAccount(sa string) *SparkApplicationWrapper {
 	w.Spec.Driver.ServiceAccount = new(sa)
@@ -224,6 +233,36 @@ func (w *SparkApplicationWrapper) ExecutorTolerations(ts []corev1.Toleration) *S
 // ExecutorTemplate sets a pod template on the executor pod.
 func (w *SparkApplicationWrapper) ExecutorTemplate(t *corev1.PodTemplateSpec) *SparkApplicationWrapper {
 	w.Spec.Executor.Template = t
+	return w
+}
+
+// ExecutorSchedulingGates sets scheduling gates on the executor pod template.
+func (w *SparkApplicationWrapper) ExecutorSchedulingGates(gates ...corev1.PodSchedulingGate) *SparkApplicationWrapper {
+	if w.Spec.Executor.Template == nil {
+		w.Spec.Executor.Template = &corev1.PodTemplateSpec{}
+	}
+	w.Spec.Executor.Template.Spec.SchedulingGates = gates
+	return w
+}
+
+// AppState sets the application state in the status.
+func (w *SparkApplicationWrapper) AppState(state sparkappv1beta2.ApplicationStateType) *SparkApplicationWrapper {
+	w.Status.AppState.State = state
+	return w
+}
+
+// SubmissionID sets the submission ID in the status.
+func (w *SparkApplicationWrapper) SubmissionID(id string) *SparkApplicationWrapper {
+	w.Status.SubmissionID = id
+	return w
+}
+
+// ExecutorState sets the state of an executor in the status.
+func (w *SparkApplicationWrapper) ExecutorState(name string, state sparkappv1beta2.ExecutorState) *SparkApplicationWrapper {
+	if w.Status.ExecutorState == nil {
+		w.Status.ExecutorState = make(map[string]sparkappv1beta2.ExecutorState)
+	}
+	w.Status.ExecutorState[name] = state
 	return w
 }
 
