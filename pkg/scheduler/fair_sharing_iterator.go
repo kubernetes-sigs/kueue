@@ -215,12 +215,10 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 	}
 
 	// 4: Effective priority
-	if features.Enabled(features.PrioritySortingWithinCohort) {
-		p1 := priority.EffectivePriority(e.log, a.Obj)
-		p2 := priority.EffectivePriority(e.log, b.Obj)
-		if p1 != p2 {
-			return p1 > p2
-		}
+	p1 := priority.EffectivePriority(e.log, a.Obj)
+	p2 := priority.EffectivePriority(e.log, b.Obj)
+	if p1 != p2 {
+		return p1 > p2
 	}
 
 	// 5: FIFO
