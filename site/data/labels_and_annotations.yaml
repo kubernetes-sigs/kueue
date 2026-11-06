@@ -71,8 +71,8 @@
     The annotation selects how scale-up replicas are admitted for elastic jobs.
     Supported values are `"atomic"` (default when unset) and `"partial"`.
 
-    This annotation requires `kueue.x-k8s.io/elastic-job: "true"` and the
-    `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate.
+    This annotation is alpha-level for the `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate
+    and requires `kueue.x-k8s.io/elastic-job: "true"`.
 
 - key: kueue.x-k8s.io/is-group-workload
   type: Annotation
