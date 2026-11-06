@@ -115,6 +115,13 @@ func determineCapacityForPodSet(
 			claimPath := field.NewPath("spec", "podSets").Index(psIdx).Child("template", "spec", "resourceClaims").Index(j)
 			reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
+			if !sliceCache.APIAvailable() {
+				return nil, field.ErrorList{field.Forbidden(
+					reqPath.Child("exactly", "deviceClassName"),
+					fmt.Sprintf("DeviceClass %s requires ResourceSlice API (resource.k8s.io/v1) for capacity-based resources, which is not available on the cluster", deviceClass),
+				)}
+			}
+
 			classSelectors, requestSelectors, errs := prepareDeviceSelectors(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
 			if len(errs) > 0 {
 				return nil, errs

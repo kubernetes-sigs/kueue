@@ -35,18 +35,43 @@ const allDriversKey DriverReference = ""
 // ensure a consistent snapshot of ResourceSlices within a single reconciliation.
 type ResourceSliceCache struct {
 	client client.Client
+	// apiAvailable indicates whether the ResourceSlice API (resource.k8s.io/v1) is available on the cluster.
+	apiAvailable bool
 	// cachedSlices maps a DriverReference to its cached ResourceSlice listing.
 	// The sentinel key allDriversKey ("") stores the result of an unfiltered
 	// listing used as a fallback for DeviceClasses without counter sources.
 	cachedSlices map[DriverReference][]resourcev1.ResourceSlice
 }
 
+// ResourceSliceCacheOption allows customizing ResourceSliceCache.
+type ResourceSliceCacheOption func(*ResourceSliceCache)
+
+// WithResourceSliceAPIAvailable configures whether the ResourceSlice API is available on the cluster.
+func WithResourceSliceAPIAvailable(available bool) ResourceSliceCacheOption {
+	return func(c *ResourceSliceCache) {
+		c.apiAvailable = available
+	}
+}
+
 // NewResourceSliceCache creates a new ResourceSliceCache.
-func NewResourceSliceCache(cl client.Client) *ResourceSliceCache {
-	return &ResourceSliceCache{
+func NewResourceSliceCache(cl client.Client, opts ...ResourceSliceCacheOption) *ResourceSliceCache {
+	c := &ResourceSliceCache{
 		client:       cl,
+		apiAvailable: true,
 		cachedSlices: make(map[DriverReference][]resourcev1.ResourceSlice),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// APIAvailable returns true when the ResourceSlice API is available on the cluster.
+func (c *ResourceSliceCache) APIAvailable() bool {
+	if c == nil {
+		return true
+	}
+	return c.apiAvailable
 }
 
 // ListByDriver returns ResourceSlices for the given driver, using the spec.driver

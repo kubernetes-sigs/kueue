@@ -211,9 +211,17 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 		ctx, _ := utiltesting.ContextWithLog(t)
 		return GetCounterResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl), mapper, wl)
 	}
+	counterChargesNoAPI := func(t *testing.T, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+		ctx, _ := utiltesting.ContextWithLog(t)
+		return GetCounterResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl, WithResourceSliceAPIAvailable(false)), mapper, wl)
+	}
 	capacityCharges := func(t *testing.T, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
 		ctx, _ := utiltesting.ContextWithLog(t)
 		return DetermineCapacityResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl), mapper, wl)
+	}
+	capacityChargesNoAPI := func(t *testing.T, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (map[kueue.PodSetReference]corev1.ResourceList, field.ErrorList) {
+		ctx, _ := utiltesting.ContextWithLog(t)
+		return DetermineCapacityResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl, WithResourceSliceAPIAvailable(false)), mapper, wl)
 	}
 
 	tests := []struct {
@@ -224,6 +232,18 @@ func TestCounterAndCapacityChargesSkipIneligiblePools(t *testing.T) {
 		want    map[kueue.PodSetReference]corev1.ResourceList
 		wantErr field.ErrorList
 	}{
+		{
+			name:    "counter charge fails when ResourceSlice API is unavailable",
+			charges: counterChargesNoAPI,
+			mapping: counterMapping,
+			wantErr: field.ErrorList{field.Forbidden(reqPath.Child("exactly", "deviceClassName"), "")},
+		},
+		{
+			name:    "capacity charge fails when ResourceSlice API is unavailable",
+			charges: capacityChargesNoAPI,
+			mapping: capacityMapping,
+			wantErr: field.ErrorList{field.Forbidden(reqPath.Child("exactly", "deviceClassName"), "")},
+		},
 		{
 			name:    "counter charge ignores a pool whose devices consume an unpublished counter set",
 			charges: counterCharges,

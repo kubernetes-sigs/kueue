@@ -313,9 +313,23 @@ func GetResourceRequestsForResourceClaimTemplates(
 					return nil, allErrs
 				}
 				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(dc)) > 0 {
+					if !sliceCache.APIAvailable() {
+						allErrs = append(allErrs, field.Forbidden(
+							field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
+							fmt.Sprintf("DeviceClass %s requires ResourceSlice API (resource.k8s.io/v1) for counter-based resources, which is not available on the cluster", dc),
+						))
+						return nil, allErrs
+					}
 					continue
 				}
 				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(dc)) > 0 {
+					if !sliceCache.APIAvailable() {
+						allErrs = append(allErrs, field.Forbidden(
+							field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("resourceClaimTemplateName"),
+							fmt.Sprintf("DeviceClass %s requires ResourceSlice API (resource.k8s.io/v1) for capacity-based resources, which is not available on the cluster", dc),
+						))
+						return nil, allErrs
+					}
 					continue
 				}
 				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(qty.String())})
@@ -518,6 +532,13 @@ func validateCELSelectorsAgainstDevices(
 	celReqs := extractCELRequests(claimSpec)
 	if len(celReqs) == 0 {
 		return nil
+	}
+
+	if !sliceCache.APIAvailable() {
+		return field.ErrorList{field.Forbidden(
+			basePath,
+			"ResourceSlice API (resource.k8s.io/v1) is not available on the cluster to evaluate CEL selectors",
+		)}
 	}
 
 	var collectedSlices []resourcev1.ResourceSlice
