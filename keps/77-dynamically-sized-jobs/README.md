@@ -501,6 +501,11 @@ Known limitations in Alpha (see the [graduation criteria](#elasticjobsviaworkloa
   If they ask for more executors than `spec.executor.instances` and `spec.dynamicAllocation`, the first slice is
   smaller than what the driver starts with, and the extra executors stay gated until a scale-up slice is admitted.
   The executor count is also not clamped to the range set only in `spec.sparkConf`.
+- Only unconstrained topology is supported for an elastic `SparkApplication` (see
+  [Topology Aware Scheduling Integration](#topology-aware-scheduling-integration)). Unlike the Job webhook,
+  the Kueue `SparkApplication` webhook does not reject required or preferred topology on an elastic `SparkApplication`.
+- Elastic `SparkApplications` with MultiKueue are out of scope. Kueue does not support `SparkApplication`
+  with MultiKueue yet ([#18107](https://github.com/kubernetes-sigs/kueue/issues/18107)).
 
 #### Scale Up
 
@@ -722,6 +727,8 @@ SparkApplication support is gated separately via `ElasticJobsViaWorkloadSlicesFo
 #### Beta
 
 * [ ] Re-evaluate reading dynamic allocation settings from `spec.sparkConf`.
+* [ ] Evaluate and deliver MultiKueue support for elastic `SparkApplications`, including scaling from the
+  manager cluster to the worker cluster. If it lands earlier, update the Alpha limitations to match.
 * [ ] Re-evaluate the scale-down approach for `SparkApplication` (updating the admitted `Workload` in place
   or creating a new `Workload` slice), as listed in the `ElasticJobsViaWorkloadSlices` GA criteria.
 
