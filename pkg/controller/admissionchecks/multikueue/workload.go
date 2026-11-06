@@ -189,28 +189,30 @@ func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, rem
 }
 
 // removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
-// controller object unless another workload of the job still uses it. A job with several
-// workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
-// object shared by all of them.
+// controller object unless another workload of the job still uses it.
 func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
+	if err := g.removeUnsharedObjects(ctx, cluster, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
+		return err
+	}
+	g.remotes[cluster] = nil
+	return nil
+}
+
+// removeUnsharedObjects deletes remWl through rc, and the remote controller object on cluster
+// unless another workload of the job still uses it. A job with several workloads (e.g. a
+// LeaderWorkerSet with a workload per group) has a single remote controller object shared by
+// all of them.
+func (g *wlGroup) removeUnsharedObjects(ctx context.Context, cluster string, rc *remoteClient, remWl *kueue.Workload) error {
 	if g.jobHasMultipleWorkloads() {
 		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
 		if err != nil {
 			return err
 		}
 		if shared {
-			return g.removeRemoteWorkload(ctx, cluster)
+			return deleteRemoteWorkload(ctx, rc, remWl)
 		}
 	}
-	return g.RemoveRemoteObjects(ctx, cluster)
-}
-
-func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
-	if err := deleteRemoteWorkload(ctx, g.remoteClients[cluster], g.remotes[cluster]); err != nil {
-		return err
-	}
-	g.remotes[cluster] = nil
-	return nil
+	return g.removeRemoteObjects(ctx, rc, remWl)
 }
 
 // deleteRemoteWorkload removes the finalizer of remWl and deletes it through rc.
@@ -370,6 +372,12 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 	clusterNames, _ := w.previousClusterNames.Get(key)
 	var retryAfter time.Duration
 	for _, clusterName := range sets.List(clusterNames) {
+		if clusterName == workload.ClusterName(group.local) {
+			// group.local still names clusterName: it was either read before the eviction that
+			// recorded clusterName, or admitted there again. Nothing can be removed yet, so keep
+			// the entry for a later reconcile.
+			continue
+		}
 		retry, err := w.removeObjectsOnPreviousCluster(ctx, group, clusterName)
 		if err != nil {
 			return 0, err
@@ -387,9 +395,9 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 	return retryAfter, nil
 }
 
-// removeObjectsOnPreviousCluster deletes the remote objects on clusterName, unless the group
-// still reads that cluster or it has no MultiKueueCluster. It returns true when clusterName is
-// disconnected, so the cleanup has to be retried.
+// removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
+// of the job uses, unless the group still reads that cluster or it has no MultiKueueCluster.
+// It returns true when clusterName is disconnected, so the cleanup has to be retried.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
 		// The group reads this cluster, so the regular flow removes its remote objects.
@@ -414,7 +422,7 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	if err != nil {
 		remWl = nil
 	}
-	if err := group.removeRemoteObjects(ctx, rc, remWl); err != nil {
+	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {
 		return false, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
@@ -441,13 +449,29 @@ func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	return w.clock.Now()
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
+// remoteClientsForWorkload returns the clients of the clusters in the admission check's MultiKueueConfig,
+// plus the cluster that admitted the workload if it was removed from the config since.
+// Removing a cluster from the config only stops new dispatches to it, so the workload keeps
+// running there instead of being dispatched again while its remote objects are left behind.
+func (w *wlReconciler) remoteClientsForWorkload(
+	ctx context.Context,
+	acName kueue.AdmissionCheckReference,
+	local *kueue.Workload,
+) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
 		return nil, nil, err
 	}
-	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
-	for _, clusterName := range cfg.Spec.Clusters {
+	clusterNames := cfg.Spec.Clusters
+	if admitting := workload.ClusterName(local); admitting != "" && !slices.Contains(clusterNames, admitting) {
+		// Without a MultiKueueCluster the admitting cluster cannot be reached,
+		// so leave it out and let the workload be retried right away.
+		if _, found := w.clusters.controllerFor(admitting); found {
+			clusterNames = append(clusterNames, admitting)
+		}
+	}
+	availableClients = make(map[string]*remoteClient, len(clusterNames))
+	for _, clusterName := range clusterNames {
 		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			availableClients[clusterName] = client
 		} else {
@@ -482,8 +506,11 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
+// readGroup builds the wlGroup of the local workload. It reads the remote workload from each
+// connected cluster returned by remoteClientsForWorkload, storing nil when the cluster has no
+// remote workload, and records the clusters that cannot be read.
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
+	rClients, unavailable, err := w.remoteClientsForWorkload(ctx, acName, local)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
