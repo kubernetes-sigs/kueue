@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -198,9 +199,7 @@ func BuildFilter(
 		preempted: make(map[workload.Reference]*workload.Info),
 	}
 	for _, cq := range snapshot.ClusterQueues() {
-		for wlRef, wl := range cq.Workloads {
-			pf.workloads[wlRef] = wl
-		}
+		maps.Copy(pf.workloads, cq.Workloads)
 	}
 	return pf
 }
