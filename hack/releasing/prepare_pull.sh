@@ -81,6 +81,11 @@ if ! command -v gh > /dev/null; then
   exit 1
 fi
 
+if ! command -v python3 > /dev/null; then
+  echo "Can't find 'python3' tool in PATH, please install Python 3"
+  exit 1
+fi
+
 if [[ "$#" -lt 1 ]]; then
   echo "${0} [--target <all|release|main>] <version>"
   echo
@@ -211,6 +216,9 @@ function cleanup {
   done
 }
 trap cleanup EXIT
+
+# Read before any branch switch: older release branches may not have this helper.
+MARK_STEP_DONE_PY=$(<"${REPO_ROOT}/hack/releasing/mark_step_done.py")
 
 # $1 - version
 # $2 - branch
@@ -360,6 +368,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
     PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
     if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
       RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
+      RELEASE_ISSUE_BODY=$(printf '%s' "${RELEASE_ISSUE_BODY}" | python3 -c "${MARK_STEP_DONE_PY}" prepare-pull-release)
       gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
         echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
       }
@@ -388,6 +397,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
   PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
   if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
     RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
+    RELEASE_ISSUE_BODY=$(printf '%s' "${RELEASE_ISSUE_BODY}" | python3 -c "${MARK_STEP_DONE_PY}" prepare-pull-main)
     gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
       echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
     }

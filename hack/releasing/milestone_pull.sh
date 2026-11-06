@@ -195,6 +195,7 @@ function update_release_issue() {
 
   body=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="$1" --json body | jq -r '.body')
   new_body=${body//<!-- MILESTONE_PULL -->/$2#${pr_number}}
+  new_body=$(printf '%s' "${new_body}" | python3 "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/mark_step_done.py" milestone-pull)
 
   if [[ "${new_body}" == "${body}" ]]; then
     echo "!!! The <!-- MILESTONE_PULL --> placeholder was not found in the release issue; leaving the body unchanged."
@@ -404,6 +405,11 @@ function main() {
 
   if ! command -v gh > /dev/null; then
     echo "!!! Can't find 'gh' tool in PATH, please install from https://github.com/cli/cli"
+    exit 2
+  fi
+
+  if ! command -v python3 > /dev/null; then
+    echo "!!! Can't find 'python3' tool in PATH, please install Python 3"
     exit 2
   fi
 

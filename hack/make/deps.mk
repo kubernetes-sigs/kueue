@@ -83,38 +83,42 @@ NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --ex
 NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
 .PHONY: golangci-lint
-golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+golangci-lint: ## Download the pinned upstream golangci-lint binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py golangci-lint "$(GOLANGCI_LINT_VERSION)" "$(GOLANGCI_LINT)"
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
 	# The custom builder runs in golangci-lint's module; keep Kueue's selected Go toolchain.
-	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	@identity=$$( { $(GO_CMD) env GOVERSION GOHOSTOS GOHOSTARCH; cat hack/testing/kal-linter/.custom-gcl.yaml; $(GOLANGCI_LINT) version; } | cksum); \
+	marker="$(GOLANGCI_LINT_KAL).source-version"; \
+	if [ -x "$(GOLANGCI_LINT_KAL)" ] && [ -f "$$marker" ] && [ "$$(cat "$$marker")" = "$$identity" ]; then exit 0; fi; \
+	(cd hack/testing/kal-linter && $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom) && \
+	mv hack/testing/kal-linter/bin/golangci-lint-kube-api-linter "$(GOLANGCI_LINT_KAL)" && \
+	printf '%s\n' "$$identity" > "$$marker"
 
 .PHONY: controller-gen
-controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
-	@echo "→ Downloading controller-gen locally if necessary..."
-	$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+controller-gen: ## Build and reuse the pinned controller-gen tool.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(CONTROLLER_GEN)" "sigs.k8s.io/controller-tools" "$(CONTROLLER_GEN_VERSION)" "sigs.k8s.io/controller-tools/cmd/controller-gen"
 
 .PHONY: kustomize
-kustomize: gomod-download-tools ## Download kustomize locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+kustomize: ## Download the pinned upstream kustomize binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kustomize "$(KUSTOMIZE_VERSION)" "$(KUSTOMIZE)"
 
 .PHONY: envtest
-envtest: gomod-download-tools ## Download envtest-setup locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+envtest: ## Build and reuse the pinned setup-envtest tool.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(ENVTEST)" "sigs.k8s.io/controller-runtime/tools/setup-envtest" "$(ENVTEST_VERSION)" "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 
 .PHONY: ginkgo
-ginkgo: gomod-download-tools ## Download ginkgo locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
+ginkgo: ## Build and reuse the pinned Ginkgo test runner.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GINKGO)" "github.com/onsi/ginkgo/v2" "$(GINKGO_VERSION)" "github.com/onsi/ginkgo/v2/ginkgo"
 
 .PHONY: gotestsum
-gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
 
 .PHONY: kind
-kind: gomod-download-tools ## Download kind locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
+kind: ## Download the pinned upstream kind binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py kind "$(KIND_VERSION)" "$(KIND)"
 
 .PHONY: kubectl
 kubectl: ## Download kubectl locally if necessary.
@@ -139,11 +143,11 @@ kubectl: ## Download kubectl locally if necessary.
 	install -m 0755 "$$tmp_dir/kubectl" "$(KUBECTL)"
 
 .PHONY: yq
-yq: gomod-download-tools ## Download yq locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+yq: ## Download the pinned upstream yq binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py yq "$(YQ_VERSION)" "$(YQ)"
 
 .PHONY: helm
-helm: gomod-download-tools ## Download helm locally if necessary.
+helm: ## Download helm locally if necessary.
 	@if [ "$$($(HELM) version --template '{{.Version}}' 2>/dev/null)" = "$(HELM_VERSION)" ]; then exit 0; fi; \
 	echo "Downloading helm $(HELM_VERSION) locally..."; \
 	platform="$$($(GO_CMD) env GOOS)-$$($(GO_CMD) env GOARCH)"; \
@@ -167,7 +171,6 @@ helm: gomod-download-tools ## Download helm locally if necessary.
 
 .PHONY: helm-unittest-plugin
 helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
-helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	@# Helm registers the plugin before running its install hook, so plugin list can include an unusable plugin.
 	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest --help >/dev/null 2>&1; then \
 		if ! $(NETWORK_RETRY) \
@@ -180,24 +183,24 @@ helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
 	fi
 
 .PHONY: genref
-genref: gomod-download-tools ## Download genref locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@$(GENREF_VERSION)
+genref: ## Build and reuse the pinned reference documentation generator.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GENREF)" "github.com/kubernetes-sigs/reference-docs/genref" "$(GENREF_VERSION)" "github.com/kubernetes-sigs/reference-docs/genref"
 
 .PHONY: hugo
 hugo: gomod-download-tools ## Download hugo locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install -tags extended github.com/gohugoio/hugo@$(HUGO_VERSION)
 
 .PHONY: mdtoc
-mdtoc: gomod-download-tools ## Download mdtoc locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install sigs.k8s.io/mdtoc@$(MDTOC_VERSION)
+mdtoc: ## Download the pinned upstream mdtoc binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py mdtoc "$(MDTOC_VERSION)" "$(MDTOC)"
 
 .PHONY: helm-docs
-helm-docs: gomod-download-tools ## Download helm-docs locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
+helm-docs: ## Download the pinned upstream helm-docs binary if necessary.
+	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py helm-docs "$(HELM_DOCS_VERSION)" "$(HELM_DOCS)"
 
 .PHONY: mockgen
-mockgen: gomod-download-tools ## Download mockgen locally if necessary.
-	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) CGO_ENABLED=1 $(GO_CMD) install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION)
+mockgen: ## Build and reuse the pinned mock generator.
+	CGO_ENABLED=1 GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(MOCKGEN)" "go.uber.org/mock" "$(MOCKGEN_VERSION)" "go.uber.org/mock/mockgen"
 
 ##@ External CRDs
 

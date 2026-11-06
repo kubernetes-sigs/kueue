@@ -25,6 +25,129 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
+func TestMergeKeepExisting(t *testing.T) {
+	cases := map[string]struct {
+		dst           *map[string]string
+		src           map[string]string
+		want          *map[string]string
+		wantConflicts []string
+		nilCallback   bool
+	}{
+		"nil dst pointer": {
+			dst: nil,
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: nil,
+		},
+		"nil dst, nil src": {
+			dst:  new(map[string]string),
+			src:  nil,
+			want: new(map[string]string),
+		},
+		"nil dst, non-empty src": {
+			dst: new(map[string]string),
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+		},
+		"empty dst, non-empty src": {
+			dst: &map[string]string{},
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+		},
+		"existing key with the same value": {
+			dst: &map[string]string{
+				"key1": "value1",
+			},
+			src: map[string]string{
+				"key1": "value1",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+		},
+		"existing key with a conflicting value": {
+			dst: &map[string]string{
+				"key1": "value1",
+			},
+			src: map[string]string{
+				"key1": "value2",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+			wantConflicts: []string{"key1=value1/value2"},
+		},
+		"existing key with a conflicting value and nil callback": {
+			dst: &map[string]string{
+				"key1": "value1",
+			},
+			src: map[string]string{
+				"key1": "value2",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+			},
+			nilCallback: true,
+		},
+		"new key": {
+			dst: &map[string]string{
+				"key1": "value1",
+			},
+			src: map[string]string{
+				"key2": "value2",
+			},
+			want: &map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			},
+		},
+		"mixed keys": {
+			dst: &map[string]string{
+				"same":     "s",
+				"conflict": "kept",
+			},
+			src: map[string]string{
+				"same":     "s",
+				"conflict": "ignored",
+				"new":      "n",
+			},
+			want: &map[string]string{
+				"same":     "s",
+				"conflict": "kept",
+				"new":      "n",
+			},
+			wantConflicts: []string{"conflict=kept/ignored"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var conflicts []string
+			var onConflict func(k, kept, ignored string)
+			if !tc.nilCallback {
+				onConflict = func(k, kept, ignored string) {
+					conflicts = append(conflicts, k+"="+kept+"/"+ignored)
+				}
+			}
+			MergeKeepExisting(tc.dst, tc.src, onConflict)
+			if diff := cmp.Diff(tc.want, tc.dst); diff != "" {
+				t.Errorf("MergeKeepExisting() dst mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantConflicts, conflicts, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("MergeKeepExisting() reported conflicts mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCopy(t *testing.T) {
 	cases := map[string]struct {
 		dst  *map[string]string
