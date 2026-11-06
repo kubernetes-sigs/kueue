@@ -421,6 +421,73 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 	})
 
+	var _ = ginkgo.Context("RequeueState reset on sustained PodsReady", ginkgo.Label("feature:resetrequeuestateonpodsready"), func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ResetRequeueStateOnPodsReady, true)
+			// Leaves time to mark the re-admitted workload PodsReady before this timeout evicts it again.
+			podsReadyTimeout = 3 * time.Second
+			requeueingBackoffLimitCount = new(int32(2))
+		})
+
+		ginkgo.It("Should reset the requeueState after sustained PodsReady and restart the requeue count", framework.SlowSpec, func() {
+			ginkgo.By("create the 'prod' workload")
+			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			behavioral.MustCreate(ctx, k8sClient, prodWl)
+
+			ginkgo.By("checking the 'prod' workload is admitted")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
+
+			ginkgo.By("wait for the 'prod' workload to be evicted by the PodsReady timeout")
+			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: new(int32(1)),
+			}, false)
+
+			ginkgo.By("re-admit the 'prod' workload and mark it PodsReady")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, prodWl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					})
+					return true, nil
+				})).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the requeueState is cleared once PodsReady has been True for the timeout")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the next PodsReady timeout eviction restarts the requeue count at one")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, prodWl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadWaitForStart,
+						Message: "Not all pods are ready or succeeded",
+					})
+					return true, nil
+				})).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			behavioral.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
+				Count: new(int32(1)),
+			}, false)
+		})
+	})
+
 	var _ = ginkgo.Context("Tiny PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = behavioral.TinyTimeout

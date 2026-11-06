@@ -207,6 +207,51 @@ evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ...,
 Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
 until the number of re-queue reaches the `backoffLimitCount`.
 
+#### Resetting the re-queue count
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+A Workload that runs for a long time and survives incidents keeps adding to its
+re-queue count, so `backoffLimitCount` can eventually deactivate a Workload which is
+healthy most of the time. To count consecutive failures instead, enable the
+`ResetRequeueStateOnPodsReady`
+[feature gate](/docs/installation/#change-the-feature-gates-configuration), which is
+disabled by default:
+
+```yaml
+featureGates:
+  ResetRequeueStateOnPodsReady: true
+waitForPodsReady:
+  timeout: 30m
+  requeuingStrategy:
+    backoffLimitCount: 5
+```
+
+Once the Pods of an admitted Workload have been ready for a full `waitForPodsReady`
+timeout, Kueue clears its `.status.requeueState`, both `count` and `requeueAt`. The
+window is the `timeout`, not the `recoveryTimeout`. A
+[per-workload timeout](#per-workload-timeouts) takes priority over the cluster-wide
+one. The readiness is measured from the later of the Workload admission and the
+moment its Pods became ready.
+
+Readiness must last for the whole window. A Workload whose Pods keep failing before
+the window ends keeps its re-queue count, and every `PodsReadyTimeout` eviction adds
+to it.
+
+Kueue records a `RequeueStateReset` event with the cleared count and the timeout.
+The eviction history in `.status.schedulingStats` and the `Requeued` condition are
+not changed, and a Workload deactivated by `backoffLimitCount` stays deactivated
+until you re-activate it.
+
+Because each reset starts the count again, a Workload that keeps becoming ready for
+one timeout and then failing for longer than `recoveryTimeout` is never deactivated
+by `backoffLimitCount`. For a Job, its `backoffLimit` and `podFailurePolicy` still
+apply; Workloads without such a limit, such as pod groups, keep being re-queued.
+
+When you turn the feature gate on and restart Kueue, every admitted Workload with a
+re-queue count that is already past the window is reset, unless it is being evicted.
+That writes one status update and one event per Workload.
+
 ## Example
 
 

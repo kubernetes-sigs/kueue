@@ -162,6 +162,12 @@ status:
 When a Workload deactivated by All-or-nothing with ready Pods is re-activated,
 the requeueState (`.status.requeueState`) will be reset to null.
 
+With the alpha `ResetRequeueStateOnPodsReady`
+[feature gate](/docs/installation/#change-the-feature-gates-configuration), the
+requeueState is also reset after the Workload holds its readiness for a
+`waitForPodsReady` timeout, see
+[Resetting the re-queue count](/docs/tasks/manage/setup_wait_for_pods_ready/#resetting-the-re-queue-count).
+
 ## Scheduling stats
 
 While the Workload API is not a primary user-facing API, cluster administrators

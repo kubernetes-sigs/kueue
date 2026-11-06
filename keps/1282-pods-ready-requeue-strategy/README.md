@@ -10,6 +10,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API Changes](#api-changes)
@@ -20,6 +21,7 @@
     - [Proposed Sorting](#proposed-sorting)
   - [Exponential Backoff Mechanism](#exponential-backoff-mechanism)
     - [Evaluation](#evaluation)
+    - [Resetting the Requeue Count on Sustained Readiness](#resetting-the-requeue-count-on-sustained-readiness)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -33,6 +35,8 @@
   - [Configure at the ClusterQueue level](#configure-at-the-clusterqueue-level)
   - [Make knob to be possible to set timeout until the workload is deactivated](#make-knob-to-be-possible-to-set-timeout-until-the-workload-is-deactivated)
     - [Evaluation](#evaluation-1)
+  - [A dedicated reset window](#a-dedicated-reset-window)
+  - [Exempt long-running Workloads from the requeue limit](#exempt-long-running-workloads-from-the-requeue-limit)
 <!-- /toc -->
 
 ## Summary
@@ -44,6 +48,7 @@ Introduce new options that allow administrators to configure how Workloads are p
 ### Goals
 
 * Allowing administrators to configure requeuing behavior to ensure fair resource sharing after workloads fail to start running after they have been admitted.
+* Allowing the requeue count to describe consecutive `PodsReady` timeouts, so a long-running Workload that recovers is not deactivated for timeouts spread over its lifetime.
 
 ### Non-Goals
 
@@ -94,6 +99,36 @@ In the story 2 scenario, after the evicted workload reaches the maximum retry cr
 and the workload is never backoff, we want to easily requeue the workload to the queue without recreating the job.
 This is possible if the Workload is deactivated (`.spec.active`=`false`) as opposed to deleting it.
 
+#### Story 4
+
+An administrator runs a long-lived Workload, for example a group of serving Pods
+managed by a LeaderWorkerSet, with `waitForPodsReady` and `backoffLimitCount` configured.
+
+* The Workload runs and stays healthy for weeks.
+* During an incident its Pods fail, and the Workload is evicted with the `PodsReadyTimeout` reason.
+* The Workload recovers, and its Pods are ready again.
+
+Each `PodsReadyTimeout` eviction adds one to `.status.requeueState.count`, and the count
+never goes down while the Workload stays active. After enough incidents over the lifetime of the
+Workload, `backoffLimitCount` deactivates it, although it has been healthy for a long
+time.
+
+The administrator wants the count to describe consecutive failures, not the age of the Workload.
+
+Enabling the alpha `ResetRequeueStateOnPodsReady` feature gate makes Kueue clear the count
+once the Workload has been ready for the `waitForPodsReady` timeout:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  ResetRequeueStateOnPodsReady: true
+waitForPodsReady:
+  timeout: 30m
+  requeuingStrategy:
+    backoffLimitCount: 5
+```
+
 ### Risks and Mitigations
 
 <!--
@@ -108,6 +143,13 @@ How will UX be reviewed, and by whom?
 Consider including folks who also work outside the SIG or subproject.
 -->
 
+* A Workload that keeps becoming ready for one timeout and then failing for longer
+  than the `recoveryTimeout` is never deactivated by `backoffLimitCount`, because each
+  reset starts the count again. The feature is an opt-in alpha gate, disabled by
+  default. For `batch/v1` Jobs, the Job's own `backoffLimit` and `podFailurePolicy`
+  still count the Pod failures. Pod groups and LeaderWorkerSets have no such limit and
+  keep retrying; for serving Workloads that is the intended behavior. A dedicated reset
+  window is a possible follow-up, see [A dedicated reset window](#a-dedicated-reset-window).
 
 ## Design Details
 
@@ -309,6 +351,42 @@ Finally, the jobframework reconciler stops a job based in the next reconcile.
 Additionally, when a deactivated workload by eviction is re-activated, the `requeueState` is reset to null. 
 If a workload is deactivated by other ways such as user operations, the `requeueState` is not reset.
 
+The `requeueState` can also be reset before the limit is reached, after the Workload holds
+its readiness; see [Resetting the Requeue Count on Sustained Readiness](#resetting-the-requeue-count-on-sustained-readiness).
+
+#### Resetting the Requeue Count on Sustained Readiness
+
+The alpha `ResetRequeueStateOnPodsReady` feature gate, introduced in v0.21 and disabled
+by default, clears `.status.requeueState` after a Workload has held its readiness for a
+`waitForPodsReady` timeout. The count then describes consecutive failures again.
+
+Kueue clears both `.status.requeueState.count` and `.status.requeueState.requeueAt` with
+a status merge patch when all of the following hold:
+
+* the `ResetRequeueStateOnPodsReady` feature gate is enabled;
+* `.status.requeueState` is set;
+* the Workload is admitted (`Admitted=True`) and not evicted (`Evicted` is not True);
+* the `PodsReady` condition is True;
+* a `waitForPodsReady` timeout resolves: the per-workload timeout (with the
+  `WorkloadLevelWaitForPodsReady` feature gate), or else the cluster-wide
+  `waitForPodsReady.timeout`;
+* at least that timeout has passed since the start of the window.
+
+The window starts at the later of the transition of the `Admitted` condition to True and
+the transition of the `PodsReady` condition to True. A `PodsReady=True` kept from an
+earlier admission must not count: the Job framework resets the condition only on its next
+reconcile, so a quick re-admission can leave the old one in place.
+
+After the reset, the next `PodsReadyTimeout` eviction starts the backoff again from
+`backoffBaseSeconds`, as after a reactivation. Kueue records a `RequeueStateReset` event
+carrying the cleared count and the timeout. The eviction history
+(`.status.schedulingStats.evictions`) and the `Requeued` condition are not changed, and
+a deactivated Workload is not reactivated.
+
+Readiness must be held for the whole window. A Workload whose Pods keep flapping never
+accumulates the window, because each transition of `PodsReady` to True restarts it, so
+every timeout still counts.
+
 ### Test Plan
 
 [X] I/we understand the owners of the involved components may require updates to
@@ -327,11 +405,13 @@ implementing this enhancement to ensure the enhancements have also solid foundat
 Most of the test coverage should probably live inside of `pkd/queue`. Additional test cases should be added that test different requeuing configurations.
 
 - `pkg/queue`: `Nov 2 2023` - `33.9%`
+- `TestReconcileRequeueStateReset` in `pkg/controller/core` covers the reset: the gate disabled, readiness shorter and longer than the timeout, the window starting at the admission, a per-workload timeout, an evicted Workload, a Workload without admission, a failed status patch, and the recheck merged with the maximum execution time.
 
 #### Integration tests
 
 - Add integration test that matches user story 1.
 - Add an integration test to detect if flapping associated with preempted workloads being readmitted before the preemptor workload when `requeuingTimestamp: Creation` is set.
+- A context "RequeueState reset on sustained PodsReady" in `test/integration/singlecluster/scheduler/podsready` checks that the reset clears the `requeueState` and that the next timeout eviction restarts the count.
 
 ### Graduation Criteria
 
@@ -350,6 +430,15 @@ milestones with these graduation criteria:
 [maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
 [deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
 -->
+
+Alpha:
+
+- The `ResetRequeueStateOnPodsReady` feature gate, disabled by default, in v0.21.
+
+Beta:
+
+- Feedback from the users of long-running Workloads, for example serving ones.
+- A decision on reusing the `waitForPodsReady` timeout as the reset window or on adding a dedicated field.
 
 ### Changes to metrics
 
@@ -375,6 +464,7 @@ The label 'reason' can have the following values:
 
 - Jan 18th: Implemented the re-queue strategy that workloads evicted due to pods-ready (story 1) [#1311](https://github.com/kubernetes-sigs/kueue/pulls/1311)
 - Feb 12th: Implemented the re-queueing backoff mechanism triggered by eviction with PodsReadyTimeout reason (story 2 and 3) [#1709](https://github.com/kubernetes-sigs/kueue/pulls/1709)
+- Oct 20th, 2026: Implemented the reset of the re-queue count after sustained PodsReady, behind the alpha `ResetRequeueStateOnPodsReady` feature gate (story 4) [#17520](https://github.com/kubernetes-sigs/kueue/pull/17520)
 
 <!--
 Major milestones in the lifecycle of a KEP should be tracked in this section.
@@ -436,3 +526,34 @@ Before the jobframework reconciler deactivates a workload,
 the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
 In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
 if the queueManager finds the workloads exceeding `backoffLimitTimeout` and sets false to workload `.spec.active`.
+
+### A dedicated reset window
+
+The reset window could be its own `requeuingStrategy` field, for example
+`podsReadyResetWindow`, instead of reusing the `waitForPodsReady` timeout.
+
+```go
+type RequeuingStrategy struct {
+	...
+	// podsReadyResetWindow defines how long a Workload must hold its readiness
+	// before Kueue clears its requeueState.
+	//
+	// Defaults to the effective waitForPodsReady timeout.
+	// +optional
+	PodsReadyResetWindow *metav1.Duration `json:"podsReadyResetWindow,omitempty"`
+}
+```
+
+This is deferred because it needs an API change, and the timeout is close enough for a
+first iteration; see [Resetting the Requeue Count on Sustained Readiness](#resetting-the-requeue-count-on-sustained-readiness).
+The kubelet follows the same pattern for container restarts: it resets the restart
+backoff once a container has run for 10 minutes without problems, see
+[Pod lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/).
+
+### Exempt long-running Workloads from the requeue limit
+
+Kueue could stop counting requeues for the Workloads that are meant to run for a long
+time, without resetting the count. This is rejected: Kueue has no general way to tell
+such Workloads apart, and a per-integration rule would not cover the pod groups of
+custom controllers. The reset covers those Workloads too, and it keeps counting the
+consecutive failures.
