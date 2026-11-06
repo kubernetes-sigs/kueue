@@ -308,6 +308,67 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should report DRA device reserved and pending metrics for ClusterQueue", func() {
+			ginkgo.By("Creating a ResourceClaimTemplate requesting 2 devices")
+			rct := utiltesting.MakeResourceClaimTemplate("metrics-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating a workload that references the ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("metrics-wl-admitted", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template",
+					ResourceClaimTemplateName: new("metrics-template"),
+				},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is admitted and reserved metric is updated")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+			behavioral.ExpectCQDRADevicesReservedMetric(clusterQueue, "foo.example.com", resourceFlavor.Name, 2)
+			behavioral.ExpectCQDRADevicesPendingMetric(clusterQueue, "foo.example.com", gomega.Equal(0.0))
+
+			ginkgo.By("Creating a second workload requesting 10 devices (exceeds remaining quota of 8)")
+			rctLarge := utiltesting.MakeResourceClaimTemplate("metrics-template-large", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 10).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rctLarge)).To(gomega.Succeed())
+
+			wlPending := utiltestingapi.MakeWorkload("metrics-wl-pending", ns.Name).
+				Queue("test-lq").
+				Obj()
+			wlPending.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "device-template-large",
+					ResourceClaimTemplateName: new("metrics-template-large"),
+				},
+			}
+			wlPending.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "device-template-large"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wlPending)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying second workload is pending and pending metric is updated")
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			behavioral.ExpectCQDRADevicesPendingMetric(clusterQueue, "foo.example.com", gomega.Equal(10.0))
+			behavioral.ExpectCQDRADevicesReservedMetric(clusterQueue, "foo.example.com", resourceFlavor.Name, 2)
+
+			ginkgo.By("Deleting the pending workload")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wlPending, true)
+			behavioral.ExpectCQDRADevicesPendingMetric(clusterQueue, "foo.example.com", gomega.Equal(0.0))
+
+			ginkgo.By("Finishing the admitted workload")
+			integration.FinishWorkloads(ctx, k8sClient, wl)
+			behavioral.ExpectCQDRADevicesReservedMetric(clusterQueue, "foo.example.com", resourceFlavor.Name, 0)
+		})
+
 		ginkgo.It("Should re-admit ResourceClaimTemplate workload with DRA resources after PodsReady backoff", framework.SlowSpec, func() {
 			ginkgo.By("Restarting the controller with WaitForPodsReady enabled")
 			fwk.StopManager(ctx)
