@@ -285,3 +285,14 @@ type JobWithCustomQueueNameChange interface {
 	// to customize the workload queue-name using custom logic.
 	CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error
 }
+
+// JobWithCustomQueueNameChangePreparation optionally allows a custom queue-name
+// handler to include its change in the update that changes workload priority.
+// Without it, JobWithCustomQueueNameChange retains its separate update.
+type JobWithCustomQueueNameChangePreparation interface {
+	// PrepareQueueNameChange mutates only the workload's queue name, without
+	// writing it to the API server, and reports whether it changed. It must
+	// agree with CustomQueueNameChange and is called only when updating priority
+	// for a suspended job's workload without a quota reservation.
+	PrepareQueueNameChange(wl *kueue.Workload) bool
+}
