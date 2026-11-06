@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -185,8 +186,13 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
+	opts := simulator.BuildOptions(options...)
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
+	committedVictims := sets.New(opts.CommittedVictims...)
+	for _, wl := range opts.AssumedWorkloads {
+		if committedVictims.Has(workload.Key(wl)) {
+			continue
+		}
 		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
@@ -206,10 +212,11 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		return nil, err
 	}
 	snapshot := &wasSimulator{
-		wasSnapshot:        clusterSnap,
-		pods:               tracker,
-		podGroups:          make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
-		compositePodGroups: make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
+		wasSnapshot:               clusterSnap,
+		pods:                      tracker,
+		podGroups:                 make(map[client.ObjectKey]*schedulingv1beta1.PodGroup),
+		compositePodGroups:        make(map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup),
+		pastCycleCommittedVictims: opts.CommittedVictims,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
 		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods), nodes)

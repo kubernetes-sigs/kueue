@@ -366,7 +366,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log.V(3).Info("Obtained heads", "headCount", len(heads), "waitDuration", startTime.Sub(cycleStartTime))
 
 	// 2. Take a snapshot of the cache.
-	var snapshotOpts []schdcache.SnapshotOption
+	snapshotOpts := []schdcache.SnapshotOption{
+		schdcache.WithPreemptionExpectations(s.preemptor.Expectations()),
+	}
 	if afs.Enabled(s.admissionFairSharing) {
 		snapshotOpts = append(snapshotOpts, schdcache.WithAfsUsageLedger(s.queues.AfsUsageLedger))
 	}

@@ -60,8 +60,9 @@ type wasSimulator struct {
 	// podGroups and compositePodGroups track groups added via AddPodGroup and
 	// AddCompositePodGroup so they can be replayed onto emptyCluster when it is
 	// lazily initialized.
-	podGroups          map[client.ObjectKey]*schedulingv1beta1.PodGroup
-	compositePodGroups map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
+	podGroups                 map[client.ObjectKey]*schedulingv1beta1.PodGroup
+	compositePodGroups        map[client.ObjectKey]*schedulingv1alpha3.CompositePodGroup
+	pastCycleCommittedVictims []workload.Reference
 }
 
 // lazyCluster builds its cluster on first use, so cycles that never ask do not
@@ -229,8 +230,9 @@ func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.Sche
 		libOpts.PreemptionFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
 	}
 	if !scheduleOpts.SimulateEmpty {
-		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates, sets.New(scheduleOpts.CommittedPreemptionVictims...))
-		libOpts.CommittedVictims = s.committedVictims(scheduleOpts.CommittedPreemptionVictims)
+		committedVictims := sets.New(scheduleOpts.CommittedPreemptionVictims...).Insert(s.pastCycleCommittedVictims...)
+		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates, committedVictims)
+		libOpts.CommittedVictims = s.committedVictims(committedVictims)
 	}
 	return libOpts
 }

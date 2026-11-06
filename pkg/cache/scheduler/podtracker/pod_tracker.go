@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -56,6 +57,14 @@ func (t *Tracker) PodsForWorkload(wlKey workload.Reference) []*corev1.Pod {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.workloadPods[wlKey].toSlice()
+}
+
+// TrackedWorkloads returns a set of references to all of the Workloads
+// that have at least one Pod recorded in the PodTracker.
+func (t *Tracker) TrackedWorkloads() sets.Set[workload.Reference] {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return sets.KeySet(t.workloadPods)
 }
 
 func (m podsByWorkload) recordPod(wlKey workload.Reference, podKey client.ObjectKey, pod *corev1.Pod) {
