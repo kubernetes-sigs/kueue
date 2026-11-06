@@ -173,3 +173,33 @@ func TestFairSharingIteratorReturnsAllEntriesOfClusterQueue(t *testing.T) {
 		t.Errorf("Unexpected pop order (-want,+got):\n%s", diff)
 	}
 }
+
+// TestFairSharingIteratorPushIntoClusterQueueWithEntries verifies that push
+// keeps the entries a ClusterQueue still has in the cycle, and places the
+// pushed entry among them in compareEntries order.
+func TestFairSharingIteratorPushIntoClusterQueueWithEntries(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := &schdcache.ClusterQueueSnapshot{Name: "cq"}
+
+	makeEntry := func(wl *kueue.Workload) entry {
+		return entry{
+			Info:                 *workload.NewInfo(log, wl),
+			clusterQueueSnapshot: cq,
+		}
+	}
+	headOld := makeEntry(utiltestingapi.MakeWorkload("head-old", "ns").Creation(now).Obj())
+	headNew := makeEntry(utiltestingapi.MakeWorkload("head-new", "ns").Creation(now.Add(2 * time.Minute)).Obj())
+	pushed := makeEntry(utiltestingapi.MakeWorkload("pushed", "ns").Creation(now.Add(time.Minute)).Obj())
+
+	iterator := makeFairSharingIterator(ctx, []entry{headNew, headOld}, workload.Ordering{})
+	iterator.push(&pushed)
+	var got []string
+	for iterator.hasNext() {
+		got = append(got, iterator.pop().Obj.Name)
+	}
+	want := []string{"head-old", "pushed", "head-new"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected pop order (-want,+got):\n%s", diff)
+	}
+}
