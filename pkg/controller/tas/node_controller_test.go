@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,7 +122,9 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	workloadWithTwoExpectedPods := utiltestingapi.MakeWorkload(wlName, nsName).
 		Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+			PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+			Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuotaAt(
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -144,6 +147,17 @@ func TestNodeFailureReconciler(t *testing.T) {
 		StatusPhase(corev1.PodRunning).
 		NodeName(nodeName).
 		Obj()
+
+	// indexedPod returns a pod of workloadWithTwoExpectedPods for the given completion index.
+	indexedPod := func(name, index string, phase corev1.PodPhase) *testingpod.PodWrapper {
+		return testingpod.MakePod(name, nsName).
+			Annotation(kueue.WorkloadAnnotation, wlName).
+			Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+			Label(batchv1.JobCompletionIndexAnnotation, index).
+			NodeSelector(corev1.LabelHostname, nodeName).
+			StatusPhase(phase)
+	}
 
 	pendingPodWithSelector := testingpod.MakePod("pending-pod-selector", nsName).
 		Annotation(kueue.WorkloadAnnotation, wlName).
@@ -1168,6 +1182,197 @@ func TestNodeFailureReconciler(t *testing.T) {
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, all assigned pods succeeded -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				baseWorkload.DeepCopy(),
+				testingpod.MakePod("succeeded-pod", nsName).Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeName(nodeName).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, both assigned indexes succeeded -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-1", "1", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, 1 of 2 assigned indexes succeeded and the other is not created -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, two succeeded pods for the same index and the other index is not created -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0-a", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-0-b", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, an index failed and its retry succeeded on the node -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0-a", "0", corev1.PodFailed).NodeName(nodeName).Obj(),
+				indexedPod("pod-0-b", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-1", "1", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, a succeeded index and an index pending by node selector -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-1", "1", corev1.PodPending).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node has untolerated NoSchedule taint, 1 of 2 assigned indexes succeeded and the other is failed -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Label(corev1.LabelHostname, nodeName).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-1", "1", corev1.PodFailed).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:     true,
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node NotReady, all assigned pods succeeded -> Healthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				testingpod.MakePod("succeeded-pod", nsName).Annotation(kueue.WorkloadAnnotation, wlName).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeName(nodeName).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node NotReady, hostname label differs from Node name, all assigned pods succeeded -> Healthy": {
+			initObjs: []client.Object{
+				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				testingpod.MakePod("succeeded-pod", nsName).Annotation(kueue.WorkloadAnnotation, wlName).Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, nodeName).
+					NodeName(nodeObjectName).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node deleted, all assigned indexes succeeded -> Healthy": {
+			initObjs: []client.Object{
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+				indexedPod("pod-1", "1", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
+		"Node deleted, 1 of 2 assigned indexes succeeded -> Unhealthy": {
+			initObjs: []client.Object{
+				workloadWithTwoExpectedPods.DeepCopy(),
+				indexedPod("pod-0", "0", corev1.PodSucceeded).NodeName(nodeName).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},

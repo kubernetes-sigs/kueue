@@ -598,13 +598,19 @@ func HasTASAssignmentOnNode(admission *kueue.Admission, nodeName string) bool {
 
 // HasNodeInPodSetAssignment reports whether the PodSetAssignment has pods assigned to nodeName.
 func HasNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) bool {
+	return PodCountOnNodeInPodSetAssignment(psa, nodeName) > 0
+}
+
+// PodCountOnNodeInPodSetAssignment returns the number of pods that the PodSetAssignment assigns to nodeName.
+func PodCountOnNodeInPodSetAssignment(psa *kueue.PodSetAssignment, nodeName string) int32 {
 	if psa == nil || psa.TopologyAssignment == nil || !IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
-		return false
+		return 0
 	}
+	var count int32
 	for domain := range InternalSeqFrom(psa.TopologyAssignment) {
-		if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName && domain.Count > 0 {
-			return true
+		if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName {
+			count += domain.Count
 		}
 	}
-	return false
+	return count
 }
