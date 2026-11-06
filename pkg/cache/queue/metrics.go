@@ -26,16 +26,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-// ShouldExposeLocalQueueMetrics reports whether the manager holds the LocalQueue
-// and the LocalQueue metrics configuration selects it.
-func (m *Manager) ShouldExposeLocalQueueMetrics(localQueueKey queue.LocalQueueReference) bool {
+// RecordLocalQueueMetrics calls record if the manager holds the LocalQueue and
+// the LocalQueue metrics configuration selects it. It holds the read lock while
+// recording, so no record runs after DeleteLocalQueue returns.
+func (m *Manager) RecordLocalQueueMetrics(localQueueKey queue.LocalQueueReference, record func()) {
 	if !m.lqMetrics.IsEnabled() {
-		return false
+		return
 	}
 	m.RLock()
 	defer m.RUnlock()
-	lq, ok := m.localQueues[localQueueKey]
-	return ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels)
+	if lq, ok := m.localQueues[localQueueKey]; ok && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+		record()
+	}
 }
 
 // reportPendingWorkloads reports metrics for both ClusterQueue,

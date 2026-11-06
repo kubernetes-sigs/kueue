@@ -17,12 +17,15 @@ limitations under the License.
 package metrics
 
 import (
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -136,6 +139,94 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 			if got := testCase.cfg.ShouldExposeLocalQueueMetrics(testCase.lqLabels); got != testCase.want {
 				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, testCase.want)
 			}
+		})
+	}
+}
+
+func TestLocalQueueRecorder(t *testing.T) {
+	lq := LocalQueueReference{Name: "recorder-lq", Namespace: "recorder-ns"}
+	cases := map[string]struct {
+		nilRecorder          bool
+		deleteBeforeRecord   bool
+		deleteWhileRecording bool
+		deleteAfterRecord    bool
+		wantRecorded         bool
+		wantSeries           int
+	}{
+		"record": {
+			wantRecorded: true,
+			wantSeries:   1,
+		},
+		"nil recorder": {
+			nilRecorder: true,
+		},
+		"delete before record": {
+			deleteBeforeRecord: true,
+		},
+		"delete while recording": {
+			deleteWhileRecording: true,
+			wantRecorded:         true,
+		},
+		"delete after record": {
+			deleteAfterRecord: true,
+			wantRecorded:      true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ClearLocalQueueMetrics(lq)
+			t.Cleanup(func() { ClearLocalQueueMetrics(lq) })
+			var recorder *LocalQueueRecorder
+			if !tc.nilRecorder {
+				recorder = NewLocalQueueRecorder(lq)
+			}
+			if tc.deleteBeforeRecord {
+				recorder.Delete()
+			}
+			deleted := make(chan struct{})
+			var recorded bool
+			recorder.Record(func() {
+				recorded = true
+				if recorder.mu.TryLock() {
+					recorder.mu.Unlock()
+					t.Fatal("Record does not hold the lock while record runs")
+				}
+				if tc.deleteWhileRecording {
+					go func() {
+						recorder.Delete()
+						close(deleted)
+					}()
+					// TryRLock fails once Delete waits for the lock. Delete must not
+					// return before record does.
+					timeout := time.After(wait.ForeverTestTimeout)
+					for recorder.mu.TryRLock() {
+						recorder.mu.RUnlock()
+						select {
+						case <-deleted:
+							t.Fatal("Delete returned while record was running")
+						case <-timeout:
+							t.Fatal("Timed out waiting for Delete to wait for the lock")
+						default:
+							runtime.Gosched()
+						}
+					}
+				}
+				LocalQueueQuotaReservedWorkload(lq, "", time.Second, nil, nil)
+			})
+			if tc.deleteWhileRecording {
+				select {
+				case <-deleted:
+				case <-time.After(wait.ForeverTestTimeout):
+					t.Fatal("Timed out waiting for Delete to return")
+				}
+			}
+			if tc.deleteAfterRecord {
+				recorder.Delete()
+			}
+			if recorded != tc.wantRecorded {
+				t.Errorf("Record called record = %v, want %v", recorded, tc.wantRecorded)
+			}
+			expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, tc.wantSeries, "name", "recorder-lq", "namespace", "recorder-ns")
 		})
 	}
 }

@@ -19,6 +19,7 @@ package metrics
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -72,4 +73,41 @@ func (cfg *LocalQueueMetricsConfig) IsEnabled() bool {
 // based on the global configuration.
 func (cfg *LocalQueueMetricsConfig) ShouldExposeLocalQueueMetrics(lqLabels map[string]string) bool {
 	return cfg.IsEnabled() && (cfg == nil || cfg.QueueSelector.Matches(labels.Set(lqLabels)))
+}
+
+// LocalQueueRecorder records the metrics of one LocalQueue until it is deleted, so a
+// caller that checked the LocalQueue before the deletion cannot recreate its series.
+type LocalQueueRecorder struct {
+	mu      sync.RWMutex
+	lq      LocalQueueReference
+	deleted bool
+}
+
+func NewLocalQueueRecorder(lq LocalQueueReference) *LocalQueueRecorder {
+	return &LocalQueueRecorder{lq: lq}
+}
+
+// Record calls record unless the LocalQueue was deleted. A nil recorder records nothing.
+// Delete waits for record to return, so record must not take a lock held by Delete's caller.
+func (r *LocalQueueRecorder) Record(record func()) {
+	if r == nil {
+		return
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if !r.deleted {
+		record()
+	}
+}
+
+// Delete stops later Record calls and clears the LocalQueue metrics, including
+// the series written by Record calls that were still running.
+func (r *LocalQueueRecorder) Delete() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.deleted = true
+	r.mu.Unlock()
+	ClearLocalQueueMetrics(r.lq)
 }
