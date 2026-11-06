@@ -679,7 +679,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
-		reportTreeAdmittedActiveWorkloads(cohort)
+		c.reportTreeAdmittedActiveWorkloads(cohort)
 	}
 
 	if parent != nil {
