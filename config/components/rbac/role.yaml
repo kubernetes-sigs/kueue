@@ -286,6 +286,7 @@ rules:
   - cohorts
   - dynamicquotaorchestrators
   - localqueues
+  - multikueuecapacityproviderconfigs
   - multikueueclusters
   - multikueueconfigs
   - preemptionconfigs
