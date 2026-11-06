@@ -320,7 +320,7 @@ func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]k
 
 	for _, r := range resources {
 		if !flavorQuotaSpecRegexp.MatchString(r) {
-			return resourceGroups, fmt.Errorf("invalid resources specification %q in --%s", r, quotaType)
+			return resourceGroups, fmt.Errorf("invalid resources specification %q in --%s, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]", r, quotaType)
 		}
 
 		rg, err := toResourceGroup(r, quotaType)
