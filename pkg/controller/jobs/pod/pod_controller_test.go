@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1112,6 +1113,98 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 
 	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
 		t.Errorf("PodSet order changed after swapping client-supplied role-hashes (-before, +after):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsRestartableInitContainer(t *testing.T) {
+	regular := testingpod.MakePod("regular", "").
+		Request(corev1.ResourceCPU, "500m").
+		Request(corev1.ResourceMemory, "16Mi")
+	regular.Spec.InitContainers = []corev1.Container{{
+		Name: "init",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("16Mi"),
+		}},
+	}}
+	sidecar := regular.Clone().Name("sidecar")
+	sidecar.Spec.InitContainers[0].RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
+
+	testCases := map[string]struct {
+		pods       []corev1.Pod
+		wantPodSet int
+		wantCount  int32
+		wantCPU    string
+		wantMemory string
+	}{
+		"regular init container and sidecar produce separate roles": {
+			pods: []corev1.Pod{
+				*regular.Clone().Obj(),
+				*sidecar.Clone().Obj(),
+			},
+			wantPodSet: 2,
+			wantCount:  1,
+			wantCPU:    "1500m",
+			wantMemory: "48Mi",
+		},
+		"pods with regular init containers share a role": {
+			pods: []corev1.Pod{
+				*regular.Clone().Name("p1").Obj(),
+				*regular.Clone().Name("p2").Obj(),
+			},
+			wantPodSet: 1,
+			wantCount:  2,
+			wantCPU:    "1",
+			wantMemory: "32Mi",
+		},
+		"pods with sidecars share a role": {
+			pods: []corev1.Pod{
+				*sidecar.Clone().Name("p1").Obj(),
+				*sidecar.Clone().Name("p2").Obj(),
+			},
+			wantPodSet: 1,
+			wantCount:  2,
+			wantCPU:    "2",
+			wantMemory: "64Mi",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := constructGroupPodSets(tc.pods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() error = %v", err)
+			}
+			if len(got) != tc.wantPodSet {
+				t.Fatalf("constructGroupPodSets() returned %d PodSets, want %d", len(got), tc.wantPodSet)
+			}
+			var totalCPU, totalMemory resource.Quantity
+			for _, ps := range got {
+				if ps.Count != tc.wantCount {
+					t.Errorf("PodSet %q count = %d, want %d", ps.Name, ps.Count, tc.wantCount)
+				}
+				requests := resources.PodRequests(&ps.Template.Spec)
+				cpu, memory := requests[corev1.ResourceCPU], requests[corev1.ResourceMemory]
+				cpu.Mul(int64(ps.Count))
+				memory.Mul(int64(ps.Count))
+				totalCPU.Add(cpu)
+				totalMemory.Add(memory)
+			}
+			if totalCPU.Cmp(resource.MustParse(tc.wantCPU)) != 0 || totalMemory.Cmp(resource.MustParse(tc.wantMemory)) != 0 {
+				t.Errorf("total requests = %s CPU, %s memory; want %s CPU, %s memory", totalCPU.String(), totalMemory.String(), tc.wantCPU, tc.wantMemory)
+			}
+
+			// The result must not depend on the input pod order.
+			reversed := slices.Clone(tc.pods)
+			slices.Reverse(reversed)
+			gotReversed, err := constructGroupPodSets(reversed, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+			}
+			if diff := cmp.Diff(got, gotReversed); diff != "" {
+				t.Errorf("PodSets depend on input pod order (-original, +reversed):\n%s", diff)
+			}
+		})
 	}
 }
 
