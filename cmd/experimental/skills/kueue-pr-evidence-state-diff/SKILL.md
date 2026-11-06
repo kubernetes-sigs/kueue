@@ -1,6 +1,6 @@
 ---
 name: kueue-pr-evidence-state-diff
-description: Show reviewers how Kueue state changes with a PR. Runs one declarative scenario on the merge base and on the PR head (envtest by default), diffs Workload conditions and admission, ClusterQueue and LocalQueue counts, flavorsUsage, requeue state and events, and publishes a short table under "Useful notes for your reviewer", dry-run first. Use when a PR changes scheduling, preemption, admission or queue status behavior.
+description: Show reviewers a before/after Kueue state table. The PR author's coding agent chooses the observable state from the change and runs the same steps on the merge base and the head. Use when a PR changes scheduling, preemption, admission, MultiKueue, metrics, or TAS.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
@@ -8,118 +8,132 @@ metadata:
 
 # Skill: Before/after Kueue state for a PR
 
-Part of the `kueue-pr-evidence-*` family
-([#18141](https://github.com/kubernetes-sigs/kueue/issues/18141)). One scenario
-runs unchanged on `MERGE_BASE` and on `HEAD_SHA`. The "before" column always
-comes from the merge base run, never from memory. Publishing goes through
+The PR author's coding agent produces a before/after table of Kueue state.
+Human reviewers read it. The PR's integration or e2e test remains the
+regression test. This skill only turns that test into a short evidence block.
+
+Publishing follows
 [kueue-pr-evidence-common](../kueue-pr-evidence-common/SKILL.md).
 
 ## When to use
 
-- A PR changes controller or scheduler behavior that shows up in Workload
-  conditions, admission, ClusterQueue or LocalQueue status, or events.
-- A merged PR needs re-verification: pass `--commit <merge-sha>`.
-- Skip API-only, docs-only and refactor PRs; the block would say there is no
-  observable state change.
+Start from what the PR changes, and choose the observable state for this PR.
+The rows depend on the fix. Pick them case by case:
 
-## Steps
+- Scheduling, preemption, or admission: Workload conditions and admission,
+  ClusterQueue and LocalQueue counts, `flavorsUsage`, requeue state, events.
+- MultiKueue: manager and worker Workload status, and admission checks.
+- Metrics: the metric values the PR changes.
+- TAS: topology assignments.
 
-Run from the kueue checkout that contains this skill. `PR_WORKTREE` is a
-checkout of the PR head.
+For a docs-only, refactor, or API-only PR, stop. There is no observable state
+to publish.
 
-1. **Pick or write a scenario.** `scripts/state-diff list` shows the built-ins
-   in `scenarios/`. For a PR-specific scenario, derive a YAML file from the PR's
-   own integration test and keep it outside the repository, for example in
-   `$OUT/scenarios/`. The format is in [scenario-format.md](scenario-format.md).
-   Gate every capture on an assertion and use waits instead of sleeps. Check the
-   file with `scripts/state-diff compile --scenario <file>`.
+## How to run
 
-2. **Resolve the SHAs and the output directory:**
+Derive the steps from the PR's own integration or e2e test. Run those same
+steps, unchanged, on the merge base and on the head. The "before" column
+comes from the base run.
 
-   ```bash
-   C=cmd/experimental/skills/kueue-pr-evidence-common/scripts
-   S=cmd/experimental/skills/kueue-pr-evidence-state-diff/scripts
-   eval "$("$C/merge-base.sh" --worktree "$PR_WORKTREE")"  # MERGE_BASE HEAD_SHA
-   OUT="${XDG_CACHE_HOME:-$HOME/.cache}/kueue-pr-evidence/pr-<number>"
-   ```
+Resolve the merge base and the base worktree as in
+[kueue-pr-evidence-common](../kueue-pr-evidence-common/SKILL.md). Use a second
+detached worktree at the PR head when the head run needs a dump file, so the
+user's checkout stays untouched.
 
-3. **Run both sides:**
+Capture state at the test's key assertions. In each throwaway tree, add a
+temporary untracked dump: a copied spec, or a temporary file in the test
+package. Write the captured state under the evidence output directory outside
+the repo. The dump stays in the throwaway tree and is deleted with it.
 
-   ```bash
-   "$S/state-diff" run --scenario <name|file> --repo "$PR_WORKTREE" \
-     --base "$MERGE_BASE" --head "$HEAD_SHA" --out "$OUT"
-   # merged PR instead: --commit <merge-sha>   (base = merge-sha^1)
-   ```
+Use envtest by default. Use kind, or the e2e suite with `E2E_MODE=dev`, when
+the behavior needs real Pods, PodsReady, DRA, TAS node fit, or MultiKueue.
+Name the runner in the block.
 
-   Each side gets its own `kueue-worktree.sh` tree, so the PR worktree stays
-   untouched. The CLI overlays an untracked driver test into the scenario's
-   integration suite there, runs it, and removes the tree. It prints
-   `runner: envtest|kind <reason>` and writes the captures
-   (`pr-evidence.capture/v1`), `run.json`, `diff.json` and the block
-   `$OUT/kueue-pr-evidence-state-diff.md`.
+A failing base run is evidence of the bug. A failing head run is incomplete:
+publish nothing, and fix the steps or the PR.
 
-4. **Check the verdict.** If the generated verdict misses the point of the PR,
-   re-render with one factual line that states the delta:
+## Practical notes
 
-   ```bash
-   "$S/state-diff" render --dir "$OUT/state-diff/<scenario>" --verdict "..."
-   ```
-
-5. **Preview, then publish.** Show the dry-run diff to the user and wait for
-   approval before running the same command without `--dry-run`:
-
-   ```bash
-   "$C/inject-pr-notes" --pr <number> --skill kueue-pr-evidence-state-diff \
-     --file "$OUT/kueue-pr-evidence-state-diff.md" \
-     --base "$MERGE_BASE" --head "$HEAD_SHA" --dry-run
-   ```
-
-   `run` and `render` also accept `--pr <number>` or `--body-in <file>` to print
-   the same dry-run. They never write the PR.
-
-## Exit codes
-
-| Code | Meaning |
-|---|---|
-| 0 | Block rendered. A base assertion failure is evidence of the bug. |
-| 2 | Usage or scenario error, or the scenario needs the kind runner. |
-| 3 | Head failed an assertion, both sides failed, or the run broke. Fix the scenario or the PR and publish nothing. A head failure writes the block to `state-diff/<scenario>/block.head-failed.md`, never to the publish path. |
-
-`RUN BROKEN` with `cache entry not found` or `bad checksum` means something
-cleaned the Go build cache during the build. Re-run with a private
-`GOCACHE=... GOMODCACHE=...`.
+- Set the same feature gates on both sides. When a gate does not exist at the
+  base, run the base without it and say so on the `gates:` line.
+- A manager started by the suite keeps the feature-gate values from setup
+  time. When the PR depends on such a gate, start a dedicated manager after
+  the gates are set.
+- Wait with `Eventually`. Let ClusterQueue status settle past its 1s batch
+  period (`constants.UpdatesBatchPeriod`) before you capture. A window of 2s
+  with no further change is enough. A shorter window records stale counts.
+- Envtest has no kubelet and no job controller. Apply Workloads directly.
+  Finish eviction with `FinishEvictionForWorkloads` in
+  `test/util/behavioral/workload.go` (package
+  `sigs.k8s.io/kueue/test/util/behavioral`). Finish a Workload with
+  `FinishWorkloads` in `test/util/behavioral/integration/workload.go`
+  (package `sigs.k8s.io/kueue/test/util/behavioral/integration`).
+- A Ready Node created in envtest keeps the `node.kubernetes.io/not-ready`
+  taint. Remove that taint, or create the Node with `CreateNodesWithStatus`
+  in `test/util/behavioral/integration/objects.go` (package
+  `sigs.k8s.io/kueue/test/util/behavioral/integration`), which removes it.
 
 ## Block shape
 
-A verdict line, then `Runner: ... · gates: ... · scenario ...`, a table with
-only the changed fields (12 rows visible at most), one `Unchanged:` line and a
-`Repro:` line. A `<details>` section holds the full diff, failure messages,
-capture paths and the scenario YAML. The CLI exits 3 when the block exceeds the
-25-line budget.
+One block, inside the 25 visible-line budget from the common skill. Show at
+most 12 changed rows. Columns are object, field, base, and head. Omit rows
+that match.
 
-## Runner selection
+Visible part, in this order:
 
-- **envtest** (default): an API server plus the Kueue manager from the
-  scenario's integration suite package (default
-  `test/integration/singlecluster/scheduler`). Envtest has no kubelet and no job
-  controller, so Workloads are applied directly and the `finishEviction` and
-  `finish` steps simulate the job side.
-- **kind**: chosen when the scenario declares
-  `requires: [pods-ready|dra|tas-node-fit|multikueue]` or `runner: kind`. The
-  CLI prints the choice and stops. Run each side with `E2E_MODE=dev`
-  (`make kind-image-build` in each tree, then the e2e harness), write captures
-  in the [capture format](../kueue-pr-evidence-common/capture-schema.md) to
-  `$OUT/state-diff/<scenario>/capture.{base,head}.json`, and use `render`.
-  Record a failed assertion in the capture's `failure` field. When `run.json`
-  is missing or disagrees with the captures, `render` rebuilds it from them;
-  pass `--scenario <file>` to include the scenario YAML.
+1. One factual verdict sentence.
+2. One `Runner: ... · gates: ... · scenario: ...` line. `scenario` names the
+   case you chose for this PR.
+3. The changed-rows table.
+4. One `Unchanged:` line listing what you checked and found the same.
+5. One `Repro:` line with the test command.
 
-## Tests
+Put the steps you ran, and changed rows past the visible table, in
+`<details>`.
 
-Run from the repository root:
+## Example
 
-```bash
-python3 -B -m unittest discover -s cmd/experimental/skills/kueue-pr-evidence-state-diff/tests -p '*_test.py'
+Shape only. Choose different rows for the PR in front of you.
+
+```markdown
+<!-- pr-evidence:kueue-pr-evidence-state-diff:start -->
+**kueue-pr-evidence-state-diff** base 602de8f1b432 -> head e691e542aa87
+
+Admitted Workload is preempted on head, and the pending one reserves quota.
+
+Runner: envtest · gates: defaults · scenario: preempt within one ClusterQueue
+
+| object | field | base | head |
+|---|---|---|---|
+| wl/low | Evicted | absent | True, Preempted |
+| wl/high | admission | absent | reserved |
+| cq/cq | pendingWorkloads | 1 | 0 |
+
+Unchanged: LocalQueue counts, flavorsUsage.
+Repro: `INTEGRATION_TARGET='test/integration/singlecluster/scheduler' GINKGO_ARGS="--focus='preempt within ClusterQueue'" make test-integration`
+
+<details><summary>Steps and remaining rows</summary>
+
+Same steps on the merge base and on the head:
+
+1. Create a ClusterQueue with within-ClusterQueue preemption and a LocalQueue.
+2. Create a low-priority Workload and wait until it reserves quota.
+3. Create a high-priority Workload that needs that quota.
+4. Finish eviction for the low-priority Workload.
+5. Capture Evicted, admission, pendingWorkloads, LocalQueue counts, flavorsUsage, and events.
+
+| object | field | base | head |
+|---|---|---|---|
+| wl/low | event Normal Preempted | absent | present |
+| wl/high | event Normal QuotaReserved | absent | present |
+
+</details>
+<!-- pr-evidence:kueue-pr-evidence-state-diff:end -->
 ```
 
-The tests run offline: no cluster, no Go build, no network.
+## Publish
+
+Follow [kueue-pr-evidence-common](../kueue-pr-evidence-common/SKILL.md). The
+skill name in the markers is `kueue-pr-evidence-state-diff`. Fetch the PR
+body, show the diff, and run `gh pr edit` only after the user explicitly
+approves.
