@@ -482,6 +482,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	}
 	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 	addPlaceholderVolumes(&newPt.Template.Spec, findDanglingVolumeMounts(&newPt.Template.Spec))
+	dropUnbackedVolumeDevices(&newPt.Template.Spec)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -532,11 +533,41 @@ func findDanglingVolumeMounts(spec *corev1.PodSpec) []string {
 // LeaderWorkerSet (volumeClaimTemplates) and JobSet (volumeClaimPolicies) add those volumes only to the
 // Pods they create, so the API server rejects a PodTemplate whose volumeMounts have no matching volume.
 // The placeholder is optimistic: it does not model the real volume's storage or topology constraints.
-// shortcut: volumeDevices (block-mode claims) are not handled; emptyDir cannot back a device, so they
-// need a PVC/ephemeral placeholder if required.
+// volumeDevices (block-mode claims) are handled by dropUnbackedVolumeDevices instead.
 func addPlaceholderVolumes(spec *corev1.PodSpec, names []string) {
 	for _, name := range names {
 		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: name, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	}
+}
+
+// dropUnbackedVolumeDevices removes every container or init container
+// volumeDevice whose volume is not a PersistentVolumeClaim or Ephemeral volume,
+// the only sources that the API server accepts for a volumeDevice.
+//
+// Block-mode StatefulSet or LeaderWorkerSet volumeClaimTemplates and JobSet
+// spec.volumeClaimPolicies are used through volumeDevices whose
+// PersistentVolumeClaim volume only the owning controller adds to the Pods.
+// An emptyDir placeholder cannot back a device, and a PersistentVolumeClaim or
+// Ephemeral placeholder would refer to a claim that does not exist and fail the
+// VolumeBinding check in the cluster-autoscaler simulation, so the device is
+// dropped instead.
+//
+// Like addPlaceholderVolumes, it only changes templates that the API server
+// would otherwise reject, and it is optimistic: the capacity check ignores the
+// storage and topology constraints of the dropped devices.
+func dropUnbackedVolumeDevices(spec *corev1.PodSpec) {
+	blockVolumes := sets.New[string]()
+	for _, v := range spec.Volumes {
+		if v.PersistentVolumeClaim != nil || v.Ephemeral != nil {
+			blockVolumes.Insert(v.Name)
+		}
+	}
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for i := range containers {
+			containers[i].VolumeDevices = slices.Pick(containers[i].VolumeDevices, func(d *corev1.VolumeDevice) bool {
+				return blockVolumes.Has(d.Name)
+			})
+		}
 	}
 }
 

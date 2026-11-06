@@ -225,6 +225,94 @@ func TestAddPlaceholderVolumes(t *testing.T) {
 	}
 }
 
+func TestDropUnbackedVolumeDevices(t *testing.T) {
+	pvc := corev1.Volume{
+		Name:                  "data",
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+	}
+	ephemeral := corev1.Volume{
+		Name:      "scratch",
+		Ephemeral: &corev1.EphemeralVolumeSource{VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplate{}},
+	}
+	emptyDir := corev1.Volume{Name: "state", EmptyDir: &corev1.EmptyDirVolumeSource{}}
+	dataDevice := corev1.VolumeDevice{Name: "data", DevicePath: "/dev/data"}
+	scratchDevice := corev1.VolumeDevice{Name: "scratch", DevicePath: "/dev/scratch"}
+	stateDevice := corev1.VolumeDevice{Name: "state", DevicePath: "/dev/state"}
+	stateMount := corev1.VolumeMount{Name: "state", MountPath: "/state"}
+	cases := map[string]struct {
+		spec     corev1.PodSpec
+		wantSpec corev1.PodSpec
+	}{
+		"devices backed by PersistentVolumeClaim or Ephemeral volumes are kept": {
+			spec: corev1.PodSpec{
+				Volumes:        []corev1.Volume{pvc, ephemeral},
+				InitContainers: []corev1.Container{{Name: "init", VolumeDevices: []corev1.VolumeDevice{scratchDevice}}},
+				Containers:     []corev1.Container{{Name: "c", VolumeDevices: []corev1.VolumeDevice{dataDevice, scratchDevice}}},
+			},
+			wantSpec: corev1.PodSpec{
+				Volumes:        []corev1.Volume{pvc, ephemeral},
+				InitContainers: []corev1.Container{{Name: "init", VolumeDevices: []corev1.VolumeDevice{scratchDevice}}},
+				Containers:     []corev1.Container{{Name: "c", VolumeDevices: []corev1.VolumeDevice{dataDevice, scratchDevice}}},
+			},
+		},
+		"devices without a volume are dropped from init and regular containers": {
+			spec: corev1.PodSpec{
+				Volumes:        []corev1.Volume{pvc},
+				InitContainers: []corev1.Container{{Name: "init", VolumeDevices: []corev1.VolumeDevice{stateDevice}}},
+				Containers: []corev1.Container{
+					{Name: "c1", VolumeDevices: []corev1.VolumeDevice{stateDevice, dataDevice}},
+					{Name: "c2", VolumeDevices: []corev1.VolumeDevice{scratchDevice}},
+				},
+			},
+			wantSpec: corev1.PodSpec{
+				Volumes:        []corev1.Volume{pvc},
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "c1", VolumeDevices: []corev1.VolumeDevice{dataDevice}},
+					{Name: "c2"},
+				},
+			},
+		},
+		// A volumeClaimTemplate overrides a same-name pod template volume.
+		"device whose volume is an emptyDir is dropped": {
+			spec: corev1.PodSpec{
+				Volumes:    []corev1.Volume{emptyDir},
+				Containers: []corev1.Container{{Name: "c", VolumeDevices: []corev1.VolumeDevice{stateDevice}}},
+			},
+			wantSpec: corev1.PodSpec{
+				Volumes:    []corev1.Volume{emptyDir},
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+		},
+		"device of a volume that another container mounts is dropped after the placeholder is added": {
+			spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "c1", VolumeMounts: []corev1.VolumeMount{stateMount}},
+					{Name: "c2", VolumeDevices: []corev1.VolumeDevice{stateDevice}},
+				},
+			},
+			wantSpec: corev1.PodSpec{
+				Volumes: []corev1.Volume{emptyDir},
+				Containers: []corev1.Container{
+					{Name: "c1", VolumeMounts: []corev1.VolumeMount{stateMount}},
+					{Name: "c2"},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Same order as in buildPodTemplate.
+			addPlaceholderVolumes(&tc.spec, findDanglingVolumeMounts(&tc.spec))
+			dropUnbackedVolumeDevices(&tc.spec)
+			if diff := cmp.Diff(tc.wantSpec, tc.spec); diff != "" {
+				t.Errorf("Unexpected pod spec (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClearStaleAdmissionAnnotations(t *testing.T) {
 	template := corev1.PodTemplateSpec{
 		Annotations: map[string]string{

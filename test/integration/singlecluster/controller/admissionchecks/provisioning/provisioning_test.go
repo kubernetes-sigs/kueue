@@ -2146,6 +2146,94 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 		})
 	})
 
+	ginkgo.When("A StatefulSet uses a block volumeClaimTemplate as a volume device", func() {
+		ginkgo.It("Should create the ProvisioningRequest with the device dropped from the PodTemplate only", func() {
+			stateDevice := corev1.VolumeDevice{Name: "state", DevicePath: "/dev/state"}
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			ginkgo.By("submit a StatefulSet whose container uses a block volumeClaimTemplate as a device", func() {
+				// The API server accepts the device without a matching volume in the pod template:
+				// StatefulSet validation adds the volumeClaimTemplate volumes only to a copy, and
+				// the StatefulSet controller adds them to each Pod it creates.
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+					Queue(lq.Name).
+					Replicas(1).
+					Request(corev1.ResourceCPU, "500m").
+					VolumeDevice(stateDevice).
+					VolumeClaimTemplate(corev1.PersistentVolumeClaim{
+						Name: "state",
+						Spec: corev1.PersistentVolumeClaimSpec{
+							AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+							VolumeMode:  new(corev1.PersistentVolumeBlock),
+							Resources: corev1.VolumeResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					}).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sts, true)
+				})
+				wl1Key = types.NamespacedName{Name: workloadstatefulset.GetWorkloadName(sts.UID, sts.Name), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for the workload to have QuotaReserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the PodTemplate has no volume device while the Workload keeps it", func() {
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				createdTemplate := &corev1.PodTemplate{}
+				templateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}
+				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(
+					gomega.HaveField("VolumeDevices", gomega.BeEmpty()),
+				))
+				gomega.Expect(createdTemplate.Template.Spec.Volumes).To(gomega.BeEmpty())
+
+				gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+				gomega.Expect(wlObj.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(
+					gomega.HaveField("VolumeDevices", gomega.ConsistOf(stateDevice)),
+				))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Volumes).To(gomega.BeEmpty())
+			})
+		})
+	})
+
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
 		ginkgo.It("Should be successfully re-admitted on another flavor without an admission check", framework.SlowSpec, func() {
 			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
