@@ -11,7 +11,8 @@ Write one JSON document per side of one scenario: `capture.base.json`, run at
 A side that passes every assertion has every checkpoint, in order. A side that
 fails one stops there: its `checkpoints` are a prefix of that list and
 `failure` says where it stopped. Diff by checkpoint `name`, never by position
-alone, and treat a name missing on one side as not reached. Keep captures outside the repository, under
+alone. A missing name equal to `failure.checkpoint` is failed: compare
+`failure.observed` for it. Later missing names are not reached. Keep captures outside the repository, under
 `${XDG_CACHE_HOME:-~/.cache}/kueue-pr-evidence/`.
 
 ## Document
