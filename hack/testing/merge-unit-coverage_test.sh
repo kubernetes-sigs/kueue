@@ -29,8 +29,11 @@ trap 'rm -rf "${tmp}"' EXIT
 # shellcheck source=hack/testing/merge-unit-coverage.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/merge-unit-coverage.sh"
 
-failures=0
-fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
+# fail inside out=$(run ...) runs in a subshell, so a counter variable would
+# be lost and the suite could print FAIL and still exit 0. A file survives.
+failures=${tmp}/failures
+: >"${failures}"
+fail() { echo "FAIL: $*" >&2; echo x >>"${failures}"; }
 
 # Keep the user's git config (signing, hooks) out of the test.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -241,8 +244,8 @@ out=$(run "${name}" 0 "{\"type\":\"presubmit\",\"job\":\"pull-kueue-test-unit-co
 check "${name}" "${out}" "
   .commit == \"${P1}\" and .shards == [\"${PR_LOGS}/1/${SHARD0}/100\", \"${PR_LOGS}/1/${SHARD1}/101\"]"
 
-if ((failures > 0)); then
-  echo "${failures} failure(s)" >&2
+if [[ -s "${failures}" ]]; then
+  echo "$(($(wc -l <"${failures}"))) failure(s)" >&2
   exit 1
 fi
 echo "All tests passed."
