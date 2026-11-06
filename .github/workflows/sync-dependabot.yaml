@@ -15,7 +15,9 @@ jobs:
       ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test')
           && github.event.pull_request.user.login == 'dependabot[bot]'
           && github.actor == 'dependabot[bot]'
-          && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test') }}
+          && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test')
+          && (contains(github.event.pull_request.title, 'hugo')
+              || contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools')) }}
     runs-on: ubuntu-latest
 
     # The job has no side effects, so a newer run can replace an older one.
@@ -31,6 +33,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - name: Set up Go
+        if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            hack/tools/go.sum
       - name: Sync hugo version
         if: ${{ contains(github.event.pull_request.title, 'hugo') }}
         run: make sync-hugo-version
