@@ -19,13 +19,13 @@
 # - pull-kueue-test-unit-coverage-main (presubmit): starts together with the
 #   shards, so it has the same refs. It waits until every shard build on
 #   exactly these refs has finished, then merges the newest successful build
-#   of each shard. (A batch job type works the same way if Tide ever runs it.)
+#   of each shard.
 # - post-kueue-test-unit-coverage-main (postsubmit on main): for the pushed
 #   squash commit M it picks the shard builds whose tested tree equals M's
-#   tree (the PR's own runs on M^, or a Tide batch build). Tide merges only
-#   after the shards passed, so nothing waits. A commit is skipped only when
-#   no build tested its tree, for example a batch member whose prefix no
-#   batch build tested.
+#   tree (the PR's own runs on M^, or a Tide batch build). It reads the
+#   shards' batch builds. Tide merges only after the shards passed, so
+#   nothing waits. A commit is skipped only when no build tested its tree,
+#   for example a batch member whose prefix no batch build tested.
 #
 # Outputs, for the Spyglass coverage lens, TestGrid and the Codecov workflow:
 #   $ARTIFACTS/filtered.cov          merged profile of the shards' filtered.cov
@@ -147,9 +147,12 @@ skip() {
   exit 0
 }
 
-# Presubmit and batch: wait for the shard builds that have exactly our refs.
+# Presubmit: wait for the shard builds that have exactly our refs.
+# An optional presubmit without run_before_merge is never a Tide batch job,
+# so there is no batch entry point here. The postsubmit still reads the
+# shards' batch builds.
 merge_same_refs() {
-  local type=$1 want pr prefix i job scanned builds ok running elapsed start picked=() retest
+  local want pr prefix i job scanned builds ok running elapsed start picked=() retest
   local unknown seen since
   # shellcheck disable=SC2016 # jq expressions
   want=$("${JQ}" -c '{type: .type, base: .refs.base_sha,
@@ -162,8 +165,7 @@ merge_same_refs() {
   start=$(date +%s)
   for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do
     job=$(shard_job "${i}")
-    if [[ "${type}" == presubmit ]]; then prefix="pr-logs/pull/${ORG_REPO}/${pr}/${job}/"
-    else prefix="pr-logs/pull/batch/${job}/"; fi
+    prefix="pr-logs/pull/${ORG_REPO}/${pr}/${job}/"
     seen=""
     while :; do
       scanned=$(scan "${job}" "${prefix}") || die "cannot list ${job}"
@@ -201,8 +203,11 @@ merge_same_refs() {
 # conflict. Returns 1 if a commit cannot be fetched after three tries.
 # clonerefs adds no remote, so fetch from the repository URL.
 tested_tree() {
-  local refs=$1 c n sha tree try
+  local refs=$1 c n sha tree try errfile rc
   c=$("${JQ}" -r .base <<<"${refs}")
+  # merge-tree also exits 1 when an object is missing, which is indistinguishable
+  # from a content conflict. Check the base first so a missing base fails the job.
+  git -C "${REPO_DIR}" cat-file -e "${c}^{commit}" 2>/dev/null || { log "cannot find base ${c}"; return 1; }
   while read -r n sha; do
     for try in 1 2 3; do
       git -C "${REPO_DIR}" cat-file -e "${sha}^{commit}" 2>/dev/null && break
@@ -211,7 +216,21 @@ tested_tree() {
         || { ((try == 3)) || sleep 10; }
     done
     git -C "${REPO_DIR}" cat-file -e "${sha}^{commit}" 2>/dev/null || { log "cannot fetch ${sha}"; return 1; }
-    tree=$(git -C "${REPO_DIR}" merge-tree --write-tree "${c}" "${sha}" 2>/dev/null) || return 0
+    # Stdout is only the tree id. Stderr is captured apart from it so a
+    # diagnostic can never be committed as that id, and is logged on failure.
+    errfile=$(mktemp)
+    rc=0
+    tree=$(git -C "${REPO_DIR}" merge-tree --write-tree "${c}" "${sha}" 2>"${errfile}") || rc=$?
+    if ((rc == 1)); then
+      rm -f "${errfile}"
+      return 0
+    fi
+    if ((rc != 0)); then
+      log "git merge-tree failed (rc ${rc}) for ${sha} on ${c}: $(cat "${errfile}")"
+      rm -f "${errfile}"
+      return 1
+    fi
+    rm -f "${errfile}"
     c=$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@x GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@x \
       git -C "${REPO_DIR}" commit-tree "${tree}" -p "${c}" -p "${sha}" -m merge) || return 1
   done < <("${JQ}" -r '.pulls[] | "\(.number) \(.sha)"' <<<"${refs}")
@@ -221,7 +240,8 @@ tested_tree() {
 # pick_exact TREE LINES: LINES are "<shard> <state> <path> <refs>". For the
 # first refs (newest first) on which every shard succeeded and whose tested
 # tree is TREE, prints the refs and then one build path per shard. Returns 1
-# if none matches, and 2 if none matches but a candidate could not be fetched.
+# if none matches, and 2 if none matches but a candidate could not be fetched
+# or merged.
 pick_exact() {
   local tree=$1 lines=$2 refs i t failed=0
   while read -r refs; do
@@ -256,6 +276,12 @@ merge_postsubmit() {
   local m p1 tree pr i job lines bases picked rc unfetched=0
   m=$("${JQ}" -r .refs.base_sha <<<"${JOB_SPEC}")
   [[ "$(git -C "${REPO_DIR}" rev-parse HEAD)" == "${m}" ]] || die "REPO_DIR is not at ${m}"
+  # A depth-1 clone has no parent, so the single-parent check below would skip
+  # the commit. Fail first: rev-list would also see too few bases, and
+  # merge-tree would lack history. clonerefs makes a full clone unless
+  # clone_depth is set.
+  [[ "$(git -C "${REPO_DIR}" rev-parse --is-shallow-repository)" == true ]] \
+    && die "shallow clone; rev-list and merge-tree need the full history of ${m}"
   [[ "$(git -C "${REPO_DIR}" rev-list --parents -n 1 "${m}" | wc -w)" -eq 2 ]] \
     || skip "${m} is not a single-parent (squash) commit" "${m}"
   p1=$(git -C "${REPO_DIR}" rev-parse "${m}^")
@@ -294,9 +320,9 @@ merge_postsubmit() {
     merge_picked "${m}" "${picked}"
     return
   fi
-  # A commit that could not be fetched may be the match; fail so that a rerun
-  # can find it, instead of skipping the commit for good.
-  ((rc == 1 && !unfetched)) || die "no match for ${m}, and a candidate's commits could not be fetched"
+  # A commit that could not be fetched or merged may be the match; fail so
+  # that a rerun can find it, instead of skipping the commit for good.
+  ((rc == 1 && !unfetched)) || die "no match for ${m}, and a candidate's commits could not be fetched or merged"
   skip "no unit shard build tested the tree of ${m} (for example a batch member whose prefix no batch build tested, or unit jobs skipped)" "${m}"
 }
 
@@ -309,8 +335,7 @@ main() {
   REPO_URL=$("${JQ}" -r '.refs.clone_uri // "https://github.com/\(.refs.org)/\(.refs.repo).git"' <<<"${JOB_SPEC}")
   mkdir -p "${ARTIFACTS}"
   case "$("${JQ}" -r .type <<<"${JOB_SPEC}")" in
-    presubmit) merge_same_refs presubmit ;;
-    batch) merge_same_refs batch ;;
+    presubmit) merge_same_refs ;;
     postsubmit) merge_postsubmit ;;
     *) die "unsupported job type" ;;
   esac

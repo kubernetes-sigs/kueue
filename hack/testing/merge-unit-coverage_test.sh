@@ -160,12 +160,15 @@ done
 # A newer shard-1 retry of PR 1 that crier has not written prowjob.json for.
 mkdir -p "${FX}/${PR_LOGS}/1/${SHARD1}/101"
 
-# run NAME WANT_RC JOB_SPEC [CHECKOUT]: runs main in a subshell with a fresh
-# clone at CHECKOUT as REPO_DIR. Prints the artifacts directory.
+# run NAME WANT_RC JOB_SPEC [CHECKOUT [CLONE_ARGS [CLONE_SRC]]]: runs main in a
+# subshell with a fresh clone at CHECKOUT as REPO_DIR. CLONE_ARGS are extra
+# git-clone arguments, split on spaces. CLONE_SRC defaults to the bare origin.
+# Prints the artifacts directory.
 run() {
-  local name=$1 want=$2 spec=$3 at=${4:-} rc
+  local name=$1 want=$2 spec=$3 at=${4:-} clone_args=${5:-} clone_src=${6:-${ORIGIN}} rc
   local out=${tmp}/out/${name// /-} repo=${tmp}/repo/${name// /-}
-  git clone -q "${ORIGIN}" "${repo}"
+  # shellcheck disable=SC2086 # clone args are separate words
+  git clone -q ${clone_args} "${clone_src}" "${repo}"
   [[ -z "${at}" ]] || git -C "${repo}" checkout -q --detach "${at}"
   set +o errexit
   (
@@ -224,6 +227,54 @@ name="batch with a failed shard is not a match"
 out=$(run "${name}" 0 "$(post "${M3}")" "${M3}")
 check "${name}" "${out}" ".commit == \"${M3}\" and (.skipped | test(\"no unit shard build tested the tree\"))"
 [[ ! -e "${out}/filtered.cov" ]] || fail "${name}: filtered.cov written"
+
+# PR 8 sits on an unrelated root. merge-tree exits 128, which must fail the
+# postsubmit instead of looking like "no match". The batch is removed
+# afterwards so later cases do not see it. Placed before batch 202, which
+# already makes this commit fail.
+unrelated=${tmp}/unrelated
+git init -q -b main "${unrelated}"
+echo u >"${unrelated}/u"
+git -C "${unrelated}" add .
+git -C "${unrelated}" commit -q -m unrelated
+U=$(git -C "${unrelated}" rev-parse HEAD)
+git -C "${unrelated}" push -q "${ORIGIN}" "HEAD:refs/pull/8/head"
+for s in "${SHARD0}" "${SHARD1}"; do
+  build "${BATCH}/${s}" 210 success batch "${M1}" "2:${P2} 8:${U}"
+done
+name="merge-tree error fails instead of skipping"
+out=$(run "${name}" 1 "$(post "${M3}")" "${M3}")
+grep -q "git merge-tree failed" "${tmp}/log" || fail "${name}: no 'git merge-tree failed' in the log"
+rm -rf "${FX}/${BATCH}/${SHARD0}/210" "${FX}/${BATCH}/${SHARD1}/210"
+
+# PR 6 edits a from B0, so it conflicts with M1. A conflict is still "no tree",
+# and the postsubmit skips. Removed afterwards.
+P6=$(pull 6 a)
+for s in "${SHARD0}" "${SHARD1}"; do
+  build "${BATCH}/${s}" 211 success batch "${M1}" "6:${P6}"
+done
+name="conflicting candidate still skips"
+out=$(run "${name}" 0 "$(post "${M3}")" "${M3}")
+check "${name}" "${out}" ".commit == \"${M3}\" and (.skipped | test(\"no unit shard build tested the tree\"))"
+rm -rf "${FX}/${BATCH}/${SHARD0}/211" "${FX}/${BATCH}/${SHARD1}/211"
+
+# The pull commit exists, so only the missing base decides the result.
+name="missing base fails"
+rc=0
+(
+  set -o errexit
+  REPO_DIR=${src}
+  REPO_URL=${ORIGIN}
+  JQ=${JQ:-jq}
+  tested_tree '{"base":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pulls":[{"number":1,"sha":"'"${P1}"'"}]}'
+) >"${tmp}/tt.out" 2>"${tmp}/tt.err" || rc=$?
+((rc == 1)) || fail "${name}: exit ${rc}, want 1"
+grep -q "cannot find base" "${tmp}/tt.err" || fail "${name}: $(cat "${tmp}/tt.err" 2>&1)"
+
+# Depth 1 has no parent, so without the shallow guard this skips as a merge.
+name="shallow clone fails"
+out=$(run "${name}" 1 "$(post "${M4}")" "" "--depth 1 --no-checkout" "file://${ORIGIN}")
+grep -q "shallow" "${tmp}/log" || fail "${name}: no 'shallow' in the log"
 
 # A batch whose PR 9 head is not on the remote may be M3's match.
 for s in "${SHARD0}" "${SHARD1}"; do
