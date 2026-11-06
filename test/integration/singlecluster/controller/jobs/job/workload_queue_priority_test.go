@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -92,7 +93,7 @@ var _ = ginkgo.Describe("Atomic Job queue and priority updates", ginkgo.Label("j
 			select {
 			case event, open := <-stream.ResultChan():
 				if !open {
-					return false, fmt.Errorf("workload watch closed before the combined update")
+					return false, errors.New("workload watch closed before the combined update")
 				}
 				if event.Type == watch.Error {
 					return false, apierrors.FromObject(event.Object)
