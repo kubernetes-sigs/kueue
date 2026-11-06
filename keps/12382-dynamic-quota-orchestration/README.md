@@ -38,7 +38,7 @@
   - [Stale Effective Quota](#stale-effective-quota)
     - [Expiration with <code>validUntil</code>](#expiration-with-validuntil)
     - [Renewal](#renewal)
-    - [Condition <code>EffectiveQuotaStale</code>](#condition-effectivequotastale)
+    - [Condition <code>EffectiveQuotaActive</code>](#condition-effectivequotaactive)
     - [Clock skew](#clock-skew)
     - [Upgrade and downgrade](#upgrade-and-downgrade)
   - [DQO Discovery-only mode](#dqo-discovery-only-mode)
@@ -310,7 +310,7 @@ type ClusterQueueStatus struct {
     // ...
 
     // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-    // present, unless the EffectiveQuotaStale condition is True.
+    // present, unless the EffectiveQuotaActive condition is False.
     //
     // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
     // feature gate is disabled.
@@ -321,7 +321,7 @@ type ClusterQueueStatus struct {
 
 type CohortStatus struct {
     // conditions hold the latest available observations of the Cohort
-    // current state. Added for the EffectiveQuotaStale condition.
+    // current state. Added for the EffectiveQuotaActive condition.
     //
     // +optional
     // +listType=map
@@ -334,7 +334,7 @@ type CohortStatus struct {
     // ...
 
     // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-    // present, unless the EffectiveQuotaStale condition is True.
+    // present, unless the EffectiveQuotaActive condition is False.
     //
     // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
     // feature gate is disabled.
@@ -357,8 +357,8 @@ type EffectiveQuotaStatus struct {
     // +kubebuilder:validation:MaxItems=16
     ResourceGroups []ResourceGroup `json:"resourceGroups"`
 
-    // validUntil is the time after which the effective quota is considered
-    // stale. Kueue then ignores resourceGroups and uses spec.resourceGroups.
+    // validUntil is the time after which the effective quota expires.
+    // Kueue then ignores resourceGroups and uses spec.resourceGroups.
     // The managing component extends it while it keeps managing the quota.
     // When omitted, the effective quota does not expire.
     //
@@ -388,6 +388,30 @@ type EffectiveQuotaStatusOrchestratorRef struct {
     // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
     Name string `json:"name"`
 }
+```
+
+The condition that tells whether the effective quota is in effect, set on
+`ClusterQueue.status.conditions` and `Cohort.status.conditions`:
+
+```go
+const (
+    // EffectiveQuotaActive indicates whether status.effectiveQuotas is in effect.
+    // When False, Kueue ignores status.effectiveQuotas and uses
+    // spec.resourceGroups. It is set on ClusterQueues and Cohorts while
+    // status.effectiveQuotas is set and the DynamicQuotaOrchestration feature
+    // gate is enabled.
+    EffectiveQuotaActive string = "EffectiveQuotaActive"
+)
+
+// EffectiveQuotaActive condition reasons.
+const (
+    // EffectiveQuotaActiveReasonReady means status.effectiveQuotas.validUntil is
+    // not set or is in the future. The condition is True.
+    EffectiveQuotaActiveReasonReady = "Ready"
+    // EffectiveQuotaActiveReasonExpired means status.effectiveQuotas.validUntil
+    // has passed. The condition is False.
+    EffectiveQuotaActiveReasonExpired = "Expired"
+)
 ```
 
 #### DynamicQuotaOrchestrator
@@ -756,7 +780,7 @@ in particular for:
 1. registration and start of the `DynamicQuotaOrchestration` controller
 2. effectiveness of the `status.effectiveQuotas` field. When the FG is disabled
 the field is inactive even if populated.
-3. expiration of effective quota, including the `EffectiveQuotaStale` condition
+3. expiration of effective quota, including the `EffectiveQuotaActive` condition
 (see [Stale Effective Quota](#stale-effective-quota)). No separate feature gate is added.
 
 ### Source of Truth for Quotas
@@ -764,7 +788,7 @@ the field is inactive even if populated.
 The source of truth for quotas in Kueue components, such as scheduler or metric reporters,
 is defined as follows:
 1. when `DynamicQuotaOrchestration` feature gate is enabled and `status.effectiveQuotas` is
-  defined, and the object does not have the `EffectiveQuotaStale=True` condition,
+  defined, and the object does not have the `EffectiveQuotaActive=False` condition,
   then use `status.effectiveQuotas.resourceGroups`
 2. otherwise use `spec.resourceGroups`
 
@@ -908,32 +932,34 @@ reconcile. Since DQO reconciles are event-driven, the DQO also requeues itself
 for the time when half of the TTL remains. This results in about two status
 writes per TTL for each ClusterQueue and Cohort in the subtree.
 
-#### Condition `EffectiveQuotaStale`
+#### Condition `EffectiveQuotaActive`
 
-The ClusterQueue and Cohort controllers own the `EffectiveQuotaStale` condition,
+The ClusterQueue and Cohort controllers own the `EffectiveQuotaActive` condition,
 set on `ClusterQueue.status.conditions` and `Cohort.status.conditions`
 (the latter is added by this KEP). When `validUntil` is in the future, they
 requeue the object for `validUntil`.
 
 | Status | Reason | Description |
 | --- | --- | --- |
-| `True` | `Expired` | `validUntil` has passed. Kueue ignores `status.effectiveQuotas` and uses `spec.resourceGroups`. |
-| `False` | `Valid` | `validUntil` is in the future. `status.effectiveQuotas` is in effect. |
+| `True` | `Ready` | `validUntil` is not set or is in the future. `status.effectiveQuotas` is in effect. |
+| `False` | `Expired` | `validUntil` has passed. Kueue ignores `status.effectiveQuotas` and uses `spec.resourceGroups`. |
 
 ```
-                DQO sets validUntil
-(no condition) ---------------------> EffectiveQuotaStale=False (Valid)
+              effectiveQuotas set
+(no condition) ---------------------> EffectiveQuotaActive=True (Ready)
                                           |                 ^
                         validUntil passes |                 | DQO renews validUntil
                                           v                 |
-                                      EffectiveQuotaStale=True (Expired)
+                                      EffectiveQuotaActive=False (Expired)
 ```
 
-The condition is absent when `status.effectiveQuotas` or `validUntil` is not
-set, or when the feature gate is disabled.
+The condition is absent when `status.effectiveQuotas` is not set, or when the
+feature gate is disabled.
 
 The scheduler, queue manager and metrics ignore `status.effectiveQuotas`
-when the object has `EffectiveQuotaStale=True`. They do not compare `validUntil`
+only when the object has `EffectiveQuotaActive=False`. Without the condition,
+or with `True`, they use it. Another reason for an inactive effective quota
+later only needs a new `False` reason, not a scheduler change. They do not compare `validUntil`
 with the current time, because nothing triggers an update when that time passes.
 Setting the condition is an update, so they see the expiry right away.
 The Cohort controller also reacts when only `validUntil` changes, so it
@@ -963,7 +989,9 @@ Kueue does not add a grace period.
 #### Upgrade and downgrade
 
 On upgrade, nothing expires. `effectiveQuotaTTLSeconds` is not set by default,
-and existing `status.effectiveQuotas` have no `validUntil`. After an administrator
+and existing `status.effectiveQuotas` have no `validUntil`. The ClusterQueue and
+Cohort controllers add `EffectiveQuotaActive=True` to objects with
+`status.effectiveQuotas`. After an administrator
 sets the field, an active DQO adds `validUntil` on its next successful
 distribution. Until then the effective quota does not expire, also when the DQO
 cannot distribute. The DQO does not write `validUntil` when
@@ -972,7 +1000,7 @@ An effective quota left by a DQO deleted before the upgrade, or by a DQO that
 cannot distribute, still requires administrator intervention.
 
 On downgrade, older Kueue versions ignore `validUntil` and the
-`EffectiveQuotaStale` condition, so an expired effective quota becomes
+`EffectiveQuotaActive` condition, so an expired effective quota becomes
 effective again. Administrators should clear expired `status.effectiveQuotas`
 before downgrading.
 
@@ -1113,10 +1141,10 @@ Unit tests will cover:
   not set or removed when the TTL is not set, renewed only when at most half of
   the TTL remains, not renewed when discovery or distribution fails,
   and the requeue time (with a fake clock)
-- the ClusterQueue and Cohort controllers setting and clearing `EffectiveQuotaStale`,
+- the ClusterQueue and Cohort controllers setting and clearing `EffectiveQuotaActive`,
   and the requeue for `validUntil` (with a fake clock)
 - the source of truth helpers ignoring `status.effectiveQuotas` with
-  `EffectiveQuotaStale=True`, and never expiring it without `validUntil`
+  `EffectiveQuotaActive=False`, and never expiring it without `validUntil`
 
 #### Integration Tests
 
@@ -1147,7 +1175,7 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - Make the scheduler consume effective quota when present (and FG enabled).
 - Implement tests using the "external" `CapacityProvider` controller implemented for tests.
 - Implement opt-in expiration of effective quota using `validUntil` and the
-  `EffectiveQuotaStale` condition, see [Stale Effective Quota](#stale-effective-quota).
+  `EffectiveQuotaActive` condition, see [Stale Effective Quota](#stale-effective-quota).
 
 #### Beta
 
@@ -1173,6 +1201,7 @@ Integration tests do not wait for a real TTL, since the minimum is 1m. They move
 - 2026 Aug 09: Initial KEP draft.
 - 2026 Oct 30: Move automatic expiration of effective quota from Alternatives to the design, for Beta.
 - 2026 Nov 05: Make expiration opt-in for Alpha with no default `effectiveQuotaTTLSeconds`, and raise its maximum to 7 days.
+- 2026 Nov 06: Rename the condition to `EffectiveQuotaActive`, with reasons `Ready` and `Expired`, and set it to `True` also when `validUntil` is not set.
 
 ## Drawbacks
 
