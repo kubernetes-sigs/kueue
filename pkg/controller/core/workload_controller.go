@@ -125,8 +125,7 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 ) (updated map[kueue.PodSetReference]corev1.ResourceList, done bool, result ctrl.Result, err error) {
 	capacityResources, ccFieldErrs := dra.DetermineCapacityResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
 	if len(ccFieldErrs) > 0 {
-		_, result, err := r.markDRAInadmissible(ctx, wl, ccFieldErrs, "Failed to process DRA capacity resources for workload")
-		return nil, true, result, err
+		return nil, true, ctrl.Result{}, r.markDRAInadmissible(ctx, wl, ccFieldErrs, "Failed to process DRA capacity resources for workload")
 	}
 
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
@@ -183,8 +182,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// Process ResourceClaimTemplates (existing DRA path)
 	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
 	if len(fieldErrs) > 0 {
-		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
-		return done, result, nil, err
+		return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
 	}
 
 	// Process Extended Resources backed by DRA
@@ -192,8 +190,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wi)
 		if len(extFieldErrs) > 0 {
-			done, result, err := r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
-			return done, result, nil, err
+			return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
 		}
 		// Merge extended resources into draResources. When a DeviceClass appears
 		// in both paths, the extended resources path uses the deviceClassMappings
@@ -206,8 +203,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && r.resourceSliceAPIAvailable {
 		counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
 		if len(counterFieldErrs) > 0 {
-			done, result, err := r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
-			return done, result, nil, err
+			return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
 		}
 		draResources = dra.MergeDRAResources(draResources, counterResources)
 	}
@@ -263,7 +259,7 @@ func (r *WorkloadReconciler) hasMultiKueueAdmissionCheck(wl *kueue.Workload) boo
 	return false
 }
 
-func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
+func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) error {
 	processingErr := fieldErrs.ToAggregate()
 	quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
 	existingCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
@@ -281,7 +277,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		return changed, nil
 	})
 	if updateErr != nil {
-		return true, ctrl.Result{}, errors.Join(
+		return errors.Join(
 			fmt.Errorf("%s: %w", logMsg, processingErr),
 			fmt.Errorf("failed to persist DRA inadmissibility: %w", updateErr),
 		)
@@ -298,12 +294,12 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		)
 	}
 	if workload.HasInternalError(fieldErrs) {
-		return true, ctrl.Result{}, fmt.Errorf("%s: %w", logMsg, processingErr)
+		return fmt.Errorf("%s: %w", logMsg, processingErr)
 	}
 	if changed {
 		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", processingErr.Error())
 	}
-	return true, ctrl.Result{}, nil
+	return nil
 }
 
 type waitForPodsReadyConfig struct {
