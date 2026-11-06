@@ -809,6 +809,7 @@ type PreemptionStrategy string
 const (
 	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
 	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
+	ReclaimOnly                 PreemptionStrategy = "ReclaimOnly"
 )
 
 type FairSharing struct {
@@ -835,11 +836,23 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
+	// - ReclaimOnly: Only preempt a workload to reclaim nominal quota (rule S1
+	//   in KEP-1714). A workload in another ClusterQueue is preempted only if
+	//   AlmostLCA(preemptor, preemptee), with the preemptor workload admitted,
+	//   stays within its nominal quota and every cohort and ClusterQueue on the
+	//   path from AlmostLCA(preemptee, preemptor) down to the preemptee's
+	//   ClusterQueue is borrowing. Workloads in the preemptor's own ClusterQueue
+	//   can still be preempted according to withinClusterQueue. Fair sharing is
+	//   still used to order admission, but it never triggers a preemption on its
+	//   own. Candidates are considered starting from the ClusterQueues farthest
+	//   from the preemptor in the cohort hierarchy; a level that can't be
+	//   reclaimed yet is revisited once reclaiming elsewhere makes it possible.
 	//
 	// Only the following lists are supported:
 	// - ["LessThanOrEqualToFinalShare"]
 	// - ["LessThanInitialShare"]
 	// - ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
+	// - ["ReclaimOnly"]
 	//
 	// Any other combination or ordering fails configuration validation.
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`

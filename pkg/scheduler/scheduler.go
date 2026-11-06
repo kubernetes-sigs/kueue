@@ -1674,7 +1674,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
-	)
+	).WithFairSharingReclaimOnly(fairsharing.ReclaimOnly(s.fairSharing))
 
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
