@@ -160,7 +160,9 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	if count <= 0 {
 		delete(u.perCQ, cqKey)
 	}
-	if status.ClusterQueue != "" {
+	// The status may belong to a deleted ClusterQueue, whose series must not be reported again.
+	// Callers hold the Manager lock, so reading the ClusterQueues is safe.
+	if status.ClusterQueue != "" && m.hm.ClusterQueue(status.ClusterQueue) != nil {
 		cqCustomLabels := m.customLabels.CQGet(status.ClusterQueue)
 		if count <= 0 {
 			log.V(4).Info("Clearing CQ unadmitted workload metric", "clusterQueue", status.ClusterQueue, "status", cqKey)
@@ -183,7 +185,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 			)
 		}
 	} else {
-		log.V(4).Info("Skipping CQ unadmitted metric report due to empty ClusterQueue", "status", status)
+		log.V(4).Info("Skipping CQ unadmitted metric report due to missing ClusterQueue", "status", status)
 	}
 
 	if !m.lqMetrics.IsEnabled() {
