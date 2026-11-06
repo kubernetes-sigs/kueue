@@ -96,6 +96,7 @@ var (
 func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationManager *jobframework.IntegrationManager) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
+	allErrs = append(allErrs, validatePartialPreemption(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme, integrationManager)...)
 	allErrs = append(allErrs, validateMultiKueue(c, integrationManager)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
@@ -274,6 +275,16 @@ func validateClusterProfileAccessProviders(providers []configapi.ClusterProfileA
 		}
 	}
 	return allErrs
+}
+
+func validatePartialPreemption(_ *configapi.Configuration) field.ErrorList {
+	if features.Enabled(features.PartialPreemption) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap) {
+		return field.ErrorList{field.Forbidden(
+			featureGatesPath.Key(string(features.PartialPreemption)),
+			"cannot be enabled together with RecomputeAssignmentUponPreemptionTargetsOverlap",
+		)}
+	}
+	return nil
 }
 
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {

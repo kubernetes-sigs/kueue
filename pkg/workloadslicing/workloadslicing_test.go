@@ -1240,7 +1240,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					Obj(),
 			},
 		},
-		"OneWorkloadSlice_UpdateFailure": {
+		"OneWorkloadSlice_PatchFailure": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
@@ -1248,7 +1248,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						ResourceVersion("1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
-					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					Patch: func(ctx context.Context, client client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						return errTest
 					}}).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
@@ -2190,7 +2190,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			targets, wl := ReplacedWorkloadSlice(tt.args.wl, tt.args.snap)
-			if diff := cmp.Diff(tt.want.targets, targets); diff != "" {
+			if diff := cmp.Diff(tt.want.targets, targets, cmpopts.IgnoreUnexported(preemption.Target{})); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() targets (+want,-got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {

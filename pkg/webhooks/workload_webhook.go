@@ -429,6 +429,7 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 	if old == nil || new == nil {
 		return nil
 	}
+	var allErrs field.ErrorList
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
 			return apivalidation.ValidateImmutableField(new, old, path)
@@ -439,7 +440,29 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
-	return apivalidation.ValidateImmutableField(new, old, path)
+	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		for i := range new.PodSetAssignments {
+			np := &new.PodSetAssignments[i]
+			op := &old.PodSetAssignments[i]
+			if np.PreemptionTargetCount != nil && *np.PreemptionTargetCount > ptr.Deref(np.Count, 0) {
+				allErrs = append(allErrs, field.Invalid(
+					path.Child("podSetAssignments").Index(i).Child("preemptionTargetCount"),
+					*np.PreemptionTargetCount,
+					fmt.Sprintf("should be less than or equal to count (%d)", ptr.Deref(np.Count, 0))))
+				continue
+			}
+			// Kueue owns preemptionTargetCount and updates it on an already-admitted Workload to request (or
+			// clear) a partial-preemption scale-down; allow it to change.
+			op.PreemptionTargetCount = np.PreemptionTargetCount
+			// On the release of a partial preemption, Kueue lowers an elastic Workload's admitted count and
+			// resourceUsage to the target (a decrease only); allow that.
+			if ptr.Deref(np.Count, 0) <= ptr.Deref(op.Count, 0) {
+				op.Count = np.Count
+				op.ResourceUsage = np.ResourceUsage
+			}
+		}
+	}
+	return append(allErrs, apivalidation.ValidateImmutableField(new, old, path)...)
 }
 
 // validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked

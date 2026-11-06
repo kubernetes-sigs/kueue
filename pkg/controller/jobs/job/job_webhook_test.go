@@ -63,6 +63,24 @@ var (
 	workloadPriorityClassNamePath           = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
+func setPodFailurePolicyIgnoreDisruptionTarget(job *batchv1.Job) *batchv1.Job {
+	job.Spec.PodFailurePolicy = &batchv1.PodFailurePolicy{
+		Rules: []batchv1.PodFailurePolicyRule{{
+			Action: batchv1.PodFailurePolicyActionIgnore,
+			OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{
+				Type:   corev1.DisruptionTarget,
+				Status: corev1.ConditionTrue,
+			}},
+		}},
+	}
+	return job
+}
+
+func setRestartPolicy(job *batchv1.Job, policy corev1.RestartPolicy) *batchv1.Job {
+	job.Spec.Template.Spec.RestartPolicy = policy
+	return job
+}
+
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
 		name               string
@@ -749,6 +767,94 @@ func TestValidateCreate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
+		{
+			name: "valid partial preemption opt-in job",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in is ignored when the gate is off",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		{
+			name: "partial preemption opt-in requires an elastic job",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(partialPreemptionAnnotationPath, "true",
+					fmt.Sprintf("partial preemption requires the elastic job annotation %s", kueueconstants.ElasticJobAnnotation)),
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		{
+			name: "partial preemption opt-in requires Indexed completion",
+			job: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(completionModePath, batchv1.NonIndexedCompletion,
+					"must be Indexed when partial preemption is enabled"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in requires restartPolicy Never",
+			job: setRestartPolicy(setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()), corev1.RestartPolicyOnFailure),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(restartPolicyPath, corev1.RestartPolicyOnFailure,
+					"must be Never when partial preemption is enabled"),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "partial preemption opt-in requires a podFailurePolicy ignoring DisruptionTarget",
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(podFailurePolicyPath,
+					fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+						batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1406,6 +1512,49 @@ func TestValidateUpdate(t *testing.T) {
 				),
 			},
 			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		{
+			name: "partial preemption opt-in stays valid on update",
+			oldJob: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			newJob: setPodFailurePolicyIgnoreDisruptionTarget(testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj()),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		{
+			name: "adding a partial preemption opt-in without a podFailurePolicy is rejected on update",
+			oldJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue").
+				Indexed(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Required(podFailurePolicyPath,
+					fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+						batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:            true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
 		},
 	}
 	for _, tc := range testcases {

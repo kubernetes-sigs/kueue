@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,7 +47,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -59,6 +62,11 @@ const (
 	JobMinParallelismAnnotation              = "kueue.x-k8s.io/job-min-parallelism"
 	JobCompletionsEqualParallelismAnnotation = "kueue.x-k8s.io/job-completions-equal-parallelism"
 	StoppingAnnotation                       = "kueue.x-k8s.io/stopping"
+
+	// PartialPreemptionMinCountAnnotation is the scale-down floor for partial preemption: the lowest
+	// replica count a PodSet may be shrunk to. The job integration copies it to the PodSet's
+	// preemptionMinCount. It is independent of job-min-parallelism (partial admission).
+	PartialPreemptionMinCountAnnotation = "kueue.x-k8s.io/partial-preemption-min-count"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -82,6 +90,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 
 func NewJob() jobframework.GenericJob {
 	return &Job{}
@@ -356,10 +365,11 @@ func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 
 func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
-		Name:     kueue.DefaultPodSetName,
-		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
-		Count:    j.podsCount(),
-		MinCount: j.podSetMinCount(),
+		Name:               kueue.DefaultPodSetName,
+		Template:           *cleanLabels(j.Spec.Template.DeepCopy()),
+		Count:              j.podsCount(),
+		MinCount:           j.podSetMinCount(),
+		PreemptionMinCount: j.podSetPreemptionMinCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
@@ -484,6 +494,24 @@ func (j *Job) podSetMinCount() *int32 {
 	return j.minPodsCount()
 }
 
+// podSetPreemptionMinCount returns the partial-preemption scale-down floor read from the
+// kueue.x-k8s.io/partial-preemption-min-count annotation, or nil when the feature gate is off
+// or the annotation is absent or malformed.
+func (j *Job) podSetPreemptionMinCount() *int32 {
+	if !features.Enabled(features.PartialPreemption) {
+		return nil
+	}
+	strVal, found := j.GetAnnotations()[PartialPreemptionMinCountAnnotation]
+	if !found {
+		return nil
+	}
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil || minCount < 0 {
+		return nil
+	}
+	return new(int32(minCount))
+}
+
 func (j *Job) partialAdmissionRequested() bool {
 	return j.minPodsCount() != nil
 }
@@ -506,4 +534,52 @@ func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 
 func GetWorkloadNameForJob(jobName string, jobUID types.UID) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, jobUID, gvk)
+}
+
+// PodsToReclaim implements jobframework.JobWithPartialPreemption. An Indexed Job keeps the lowest
+// `target` completion indexes and evicts the highest; a non-Indexed Job evicts its youngest Pods.
+// Terminating or gated Pods are skipped.
+func (j *Job) PodsToReclaim(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	target, ok := targets[kueue.DefaultPodSetName]
+	if !ok {
+		return nil, nil
+	}
+	// List the Job's Pods through the WorkloadSliceName field index, not a namespace-wide scan.
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, c, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		return nil, err
+	}
+	running := make([]*corev1.Pod, 0, len(pods))
+	for _, p := range pods {
+		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		running = append(running, p)
+	}
+	if int32(len(running)) <= target {
+		return nil, nil
+	}
+	completionIndex := make(map[*corev1.Pod]int, len(running))
+	for _, p := range running {
+		completionIndex[p] = jobCompletionIndex(p)
+	}
+	slices.SortFunc(running, func(a, b *corev1.Pod) int {
+		// Keep the lowest completion indexes, evict the highest. Non-Indexed Pods (math.MaxInt) sort
+		// last; break ties by evicting the youngest.
+		if c := cmp.Compare(completionIndex[a], completionIndex[b]); c != 0 {
+			return c
+		}
+		return b.CreationTimestamp.Compare(a.CreationTimestamp.Time)
+	})
+	return running[target:], nil
+}
+
+// jobCompletionIndex reads the completion-index annotation; an unparseable index sorts last.
+func jobCompletionIndex(p *corev1.Pod) int {
+	if v, ok := p.Annotations[batchv1.JobCompletionIndexAnnotation]; ok {
+		if idx, err := strconv.Atoi(v); err == nil {
+			return idx
+		}
+	}
+	return math.MaxInt
 }

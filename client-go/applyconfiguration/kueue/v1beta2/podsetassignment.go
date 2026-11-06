@@ -163,6 +163,14 @@ type PodSetAssignmentApplyConfiguration struct {
 	// topologyAssignment.
 	//
 	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+	// preemptionTargetCount requests the elastic job to scale this PodSet down to
+	// preemptionTargetCount so partial preemption can reclaim its quota, when set and
+	// lower than count. Kueue owns this field; the job runtime reads it and sheds
+	// pods down to preemptionTargetCount. Kueue clears this field once the PodSet's
+	// desired spec count has converged to preemptionTargetCount or below.
+	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	//
+	PreemptionTargetCount *int32 `json:"preemptionTargetCount,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -222,5 +230,13 @@ func (b *PodSetAssignmentApplyConfiguration) WithTopologyAssignment(value *Topol
 // If called multiple times, the DelayedTopologyRequest field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithDelayedTopologyRequest(value kueuev1beta2.DelayedTopologyRequestState) *PodSetAssignmentApplyConfiguration {
 	b.DelayedTopologyRequest = &value
+	return b
+}
+
+// WithPreemptionTargetCount sets the PreemptionTargetCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreemptionTargetCount field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithPreemptionTargetCount(value int32) *PodSetAssignmentApplyConfiguration {
+	b.PreemptionTargetCount = &value
 	return b
 }

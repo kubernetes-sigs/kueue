@@ -924,6 +924,13 @@ const (
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
 
+	// owner: @zhengchenyu
+	//
+	// PartialPreemption enables preempting only a subset of an elastic workload's PodSet
+	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
+	// workload tolerates downscaling.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
+
 	// owner: @tenzen-y
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/18154
 	//
@@ -1216,6 +1223,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

@@ -674,6 +674,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// Evict the over-target Pods of a partial-preemption target (reactive downscaling).
+	if err := r.reconcilePartialPreemption(ctx, job, wl); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
 	// pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
@@ -2132,6 +2137,10 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
+	}
+
+	if job.Object().GetAnnotations()[constants.PartialPreemptionAnnotation] == "true" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionAnnotation, "true")
 	}
 
 	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before

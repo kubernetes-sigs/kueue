@@ -18,6 +18,7 @@ package job
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,12 +43,14 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -5575,6 +5578,87 @@ func TestReclaimablePods(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ReclaimablePods() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestJobPodsToReclaim(t *testing.T) {
+	ns := "ns"
+	job := utiltestingjob.MakeJob("job", ns).Parallelism(5).Obj()
+	// SliceName falls back to the Workload name when the slice annotation is absent.
+	wl := utiltestingapi.MakeWorkload("wl", ns).Obj()
+
+	makePod := func(name string, index int, gated, terminated bool) *corev1.Pod {
+		p := testingpod.MakePod(name, ns).
+			Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+			Annotation(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(index)).
+			Label(constants.PodSetLabel, string(kueue.DefaultPodSetName))
+		if gated {
+			p = p.Gate(string(kueue.ElasticJobSchedulingGate))
+		}
+		if terminated {
+			p = p.StatusPhase(corev1.PodFailed)
+		}
+		return p.Obj()
+	}
+
+	cases := map[string]struct {
+		pods      []*corev1.Pod
+		target    int32
+		wantNames []string
+	}{
+		"evicts the highest completion indexes above the target": {
+			pods: []*corev1.Pod{
+				makePod("p0", 0, false, false),
+				makePod("p1", 1, false, false),
+				makePod("p2", 2, false, false),
+				makePod("p3", 3, false, false),
+				makePod("p4", 4, false, false),
+			},
+			target:    2,
+			wantNames: []string{"p2", "p3", "p4"},
+		},
+		"skips gated and terminated pods": {
+			pods: []*corev1.Pod{
+				makePod("p0", 0, false, false),
+				makePod("p1", 1, false, false),
+				makePod("p2", 2, true, false),
+				makePod("p3", 3, false, true),
+			},
+			target:    1,
+			wantNames: []string{"p1"},
+		},
+		"nothing to reclaim at the target": {
+			pods: []*corev1.Pod{
+				makePod("p0", 0, false, false),
+				makePod("p1", 1, false, false),
+			},
+			target:    2,
+			wantNames: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName)
+			for _, pod := range tc.pods {
+				builder = builder.WithObjects(pod)
+			}
+			kClient := builder.Build()
+
+			got, err := (*Job)(job).PodsToReclaim(ctx, kClient, wl, map[kueue.PodSetReference]int32{kueue.DefaultPodSetName: tc.target})
+			if err != nil {
+				t.Fatalf("PodsToReclaim: %v", err)
+			}
+			var gotNames []string
+			for _, pod := range got {
+				gotNames = append(gotNames, pod.Name)
+			}
+			if diff := cmp.Diff(tc.wantNames, gotNames); diff != "" {
+				t.Errorf("reclaim pods (-want +got):\n%s", diff)
 			}
 		})
 	}

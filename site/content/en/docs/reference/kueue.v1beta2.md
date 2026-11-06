@@ -2242,6 +2242,17 @@ enabled.</p>
 <p>This is an alpha field and requires enabling PartialAdmission feature gate.</p>
 </td>
 </tr>
+<tr><td><code>preemptionMinCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>preemptionMinCount is the lowest count partial preemption may shrink this PodSet to.
+If unset, partial preemption does not shrink this PodSet. The job integration sets it
+from the job's own minimum, independently of minCount.</p>
+<p>Only one podSet within the workload can use this.</p>
+<p>This is an alpha field and requires enabling the PartialPreemption feature gate.</p>
+</td>
+</tr>
 <tr><td><code>topologyRequest</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetTopologyRequest"><code>PodSetTopologyRequest</code></a>
 </td>
@@ -2459,6 +2470,18 @@ AdmissionCheck used.
 Kueue schedules the second pass of scheduling for each workload with at
 least one PodSet which has delayedTopologyRequest=true and without
 topologyAssignment.</p>
+</td>
+</tr>
+<tr><td><code>preemptionTargetCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>preemptionTargetCount requests the elastic job to scale this PodSet down to
+preemptionTargetCount so partial preemption can reclaim its quota, when set and
+lower than count. Kueue owns this field; the job runtime reads it and sheds
+pods down to preemptionTargetCount. Kueue clears this field once the PodSet's
+desired spec count has converged to preemptionTargetCount or below.
+This is an alpha field and requires enabling the PartialPreemption feature gate.</p>
 </td>
 </tr>
 </tbody>

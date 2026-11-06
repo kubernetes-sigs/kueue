@@ -18,6 +18,7 @@ package elasticjobs
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -47,6 +50,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -1615,6 +1619,113 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantMetricsSeconds, seconds, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Invalid PodSchedulingGateRemovalSeconds seconds (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUngaterReleasesReclaimedQuota(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	now := time.Now().Truncate(time.Second)
+
+	const specCount int32 = 5
+
+	makeWorkload := func(target int32) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			ControllerReference(rayClusterGVK, "ray", "ray-uid").
+			PodSets(*utiltestingapi.MakePodSet(workersPodSet, int(specCount)).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(workersPodSet).
+						Assignment(corev1.ResourceCPU, "flavor", "5").
+						Count(specCount).
+						Obj()).
+					Obj(), now,
+			).
+			AdmittedAt(true, now).
+			Obj()
+		wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = new(target)
+		workload.SetPartiallyPreemptedCondition(wl, now, true, kueue.InClusterQueueReason, "requested scale-down")
+		return wl
+	}
+
+	makeUngatedPods := func(count int) []corev1.Pod {
+		pods := make([]corev1.Pod, 0, count)
+		for i := range count {
+			pods = append(pods, *makeElasticPodForPodSet(fmt.Sprintf("worker-%d", i), workersPodSet).Obj())
+		}
+		return pods
+	}
+
+	// The ungater only releases quota: it lowers the admitted count (and resourceUsage) to follow
+	// the live Pods down toward the target. It never evicts Pods (the job integration does) and
+	// never flips the condition (the workload controller does).
+	cases := map[string]struct {
+		target            int32
+		ungatedPods       int
+		wantAdmittedCount int32
+	}{
+		"live pods exceed the admitted count":          {target: 2, ungatedPods: 6, wantAdmittedCount: 5},
+		"no drain yet keeps the admitted count":        {target: 2, ungatedPods: 5, wantAdmittedCount: 5},
+		"partial drain lowers the admitted count":      {target: 2, ungatedPods: 3, wantAdmittedCount: 3},
+		"drained to target lowers count to the target": {target: 2, ungatedPods: 2, wantAdmittedCount: 2},
+		"live pods drop below the target":              {target: 2, ungatedPods: 1, wantAdmittedCount: 2},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := makeWorkload(tc.target)
+			pods := makeUngatedPods(tc.ungatedPods)
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
+				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
+				WithStatusSubresource(wl).
+				WithObjects(wl)
+			for i := range pods {
+				clientBuilder = clientBuilder.WithObjects(&pods[i])
+			}
+			kClient := clientBuilder.Build()
+
+			ungater := &elasticJobUngater{
+				client:            kClient,
+				clock:             testingclock.NewFakeClock(now),
+				expectationsStore: expectations.NewStore(ControllerName),
+			}
+
+			key := types.NamespacedName{Namespace: wl.Namespace, Name: wl.Name}
+			if _, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
+				t.Fatalf("Reconcile returned error: %v", err)
+			}
+
+			var gotPods corev1.PodList
+			if err := kClient.List(ctx, &gotPods); err != nil {
+				t.Fatalf("listing pods: %v", err)
+			}
+			if len(gotPods.Items) != tc.ungatedPods {
+				t.Errorf("remaining pods = %d, want %d (ungater must not evict)", len(gotPods.Items), tc.ungatedPods)
+			}
+
+			var gotWl kueue.Workload
+			if err := kClient.Get(ctx, key, &gotWl); err != nil {
+				t.Fatalf("getting workload: %v", err)
+			}
+			psa := gotWl.Status.Admission.PodSetAssignments[0]
+			if psa.Count == nil || *psa.Count != tc.wantAdmittedCount {
+				t.Errorf("admitted count = %v, want %d", psa.Count, tc.wantAdmittedCount)
+			}
+			if got := psa.ResourceUsage[corev1.ResourceCPU]; got.Value() != int64(tc.wantAdmittedCount) {
+				t.Errorf("resourceUsage cpu = %s, want %d", got.String(), tc.wantAdmittedCount)
+			}
+			cond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPartiallyPreempted)
+			if cond == nil || cond.Status != metav1.ConditionTrue {
+				t.Errorf("PartiallyPreempted condition = %v, want True (ungater does not flip it)", cond)
 			}
 		})
 	}

@@ -19,6 +19,7 @@ package jobframework
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -116,6 +117,16 @@ type JobWithReclaimablePods interface {
 	// must account for which ranks remain after scaling down to prevent quota leaks.
 	// See the batch Job implementation and kueue#12958, kueue#13117.
 	ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error)
+}
+
+// JobWithPartialPreemption is an optional interface implemented by elastic integrations that choose
+// which Pods to evict when a partial-preemption reclaim target is set on their Workload. Without it,
+// Kueue evicts no Pods for the integration.
+type JobWithPartialPreemption interface {
+	// PodsToReclaim returns the running Pods to evict so each PodSet shrinks to its target. wl is the
+	// admitted Workload; integrations use it to find the job's Pods. The integration picks which Pods
+	// leave. Terminating or gated Pods must not be returned.
+	PodsToReclaim(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error)
 }
 
 // JobWithCustomStop is an optional interface that should be implemented by generic jobs

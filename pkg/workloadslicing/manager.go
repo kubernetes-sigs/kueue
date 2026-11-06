@@ -23,11 +23,13 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -98,6 +100,10 @@ func (r *Manager) EnsureWorkloadSlices(
 			if workload.IsAdmitted(wl) {
 				for _, psa := range wl.Status.Admission.PodSetAssignments {
 					if wlPodSetsCounts[psa.Name] > *psa.Count {
+						if workload.HasPendingPreemptionTargetCount(wl) {
+							klog.FromContext(ctx).V(3).Info("Deferring scale-up probe while partial-preemption reclaim target is pending", "workload", klog.KObj(wl))
+							return wl, true, nil
+						}
 						// The workload was partially admitted, create the full scale up probe
 						return nil, true, nil
 					}
@@ -110,10 +116,20 @@ func (r *Manager) EnsureWorkloadSlices(
 		// a. It hasn't been admitted (no quota reserved), or
 		// b. It's a scale-down event.
 		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
-			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
-			if err := r.Client.Update(ctx, wl); err != nil {
+			if err := clientutil.Patch(ctx, r.Client, wl, func() (bool, error) {
+				workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
+				return true, nil
+			}, clientutil.WithLoose()); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
+			return wl, true, nil
+		}
+
+		// Scale-up on an admitted workload. A pending partial-preemption reclaim target means a
+		// preemptor already asked this workload to scale down; keep the current slice until the
+		// reclaim completes instead of creating a larger one.
+		if workload.HasPendingPreemptionTargetCount(wl) {
+			klog.FromContext(ctx).V(3).Info("Deferring workload slice scale-up while a partial-preemption reclaim target is still pending", "workload", klog.KObj(wl))
 			return wl, true, nil
 		}
 
@@ -144,6 +160,14 @@ func (r *Manager) EnsureWorkloadSlices(
 			if err := r.Client.Update(ctx, selectedWorkload); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
 			}
+			return selectedWorkload, true, nil
+		}
+
+		// Scale-up on an admitted workload. A pending partial-preemption reclaim target means a
+		// preemptor already asked this workload to scale down; keep the current slice until the
+		// reclaim completes instead of creating a larger one.
+		if workload.HasPendingPreemptionTargetCount(selectedWorkload) {
+			klog.FromContext(ctx).V(3).Info("Deferring workload slice scale-up while a partial-preemption reclaim target is still pending", "workload", klog.KObj(selectedWorkload))
 			return selectedWorkload, true, nil
 		}
 

@@ -95,4 +95,11 @@ const (
 
 	ElasticJobScaleUpStrategyAtomic  = "atomic"
 	ElasticJobScaleUpStrategyPartial = "partial"
+
+	// PartialPreemptionAnnotation, when set to "true" on a Job (and propagated to its Workload),
+	// opts the job into partial preemption: instead of being evicted as a whole, its downscalable
+	// PodSets may be scaled down towards minCount to reclaim quota. Requires the PartialPreemption
+	// feature gate. The job's runtime must honor the requested scale-down (status.admission
+	// preemptionTargetCount).
+	PartialPreemptionAnnotation = "kueue.x-k8s.io/partial-preemption"
 )

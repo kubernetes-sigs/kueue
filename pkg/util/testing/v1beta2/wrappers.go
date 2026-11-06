@@ -632,6 +632,11 @@ func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) SetPreemptionMinimumCount(mc int32) *PodSetWrapper {
+	p.PreemptionMinCount = &mc
+	return p
+}
+
 func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, t)
 	return p

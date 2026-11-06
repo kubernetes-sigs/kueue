@@ -1885,3 +1885,55 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		})
 	}
 }
+
+// admittedWLMinCount returns an admitted Workload with the given spec/admitted/min counts.
+func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now time.Time) *kueue.Workload {
+	workload := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).
+			Request(corev1.ResourceCPU, "1").
+			SetMinimumCount(minCount).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(admittedCount).
+				Obj()).
+			Obj(), now).
+		Obj()
+	if target > 0 {
+		workload.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = &target
+	}
+	return workload
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionTargetCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		gate    bool
+		target  int32
+		wantErr bool
+	}{
+		"gate on: setting targetCount is allowed":               {gate: true, wantErr: false},
+		"gate on: targetCount above admitted count is rejected": {gate: true, target: 6, wantErr: true},
+		"gate off: setting targetCount is rejected (immutable)": {gate: false, wantErr: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := admittedWLMinCount(5, 5, 1, 0, now)
+			target := tc.target
+			if target == 0 {
+				target = 1
+			}
+			after := admittedWLMinCount(5, 5, 1, target, now)
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}

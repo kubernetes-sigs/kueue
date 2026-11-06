@@ -3916,3 +3916,65 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }
+
+func TestReconcileScaleDown(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	makeWl := func(admitCount, target int32) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(admitCount).Obj()).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+		tgt := target
+		wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = &tgt
+		workload.SetPartiallyPreemptedCondition(wl, now, true, kueue.InClusterQueueReason, "scale-down")
+		return wl
+	}
+
+	cases := map[string]struct {
+		admitCount  int32
+		target      int32
+		wantChanged bool
+		wantCleared bool
+	}{
+		"admitted count reached target clears target and releases quota": {admitCount: 2, target: 2, wantChanged: true, wantCleared: true},
+		"admitted count still above target keeps the target":             {admitCount: 4, target: 2, wantChanged: false, wantCleared: false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := makeWl(tc.admitCount, tc.target)
+			kClient := utiltesting.NewClientBuilder().WithStatusSubresource(wl).WithObjects(wl).Build()
+			r := &WorkloadReconciler{client: kClient, clock: fakeClock}
+
+			changed, err := r.reconcileScaleDown(ctx, wl)
+			if err != nil {
+				t.Fatalf("reconcileScaleDown: %v", err)
+			}
+			if changed != tc.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tc.wantChanged)
+			}
+
+			var got kueue.Workload
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+				t.Fatalf("get workload: %v", err)
+			}
+			cleared := got.Status.Admission.PodSetAssignments[0].PreemptionTargetCount == nil
+			if cleared != tc.wantCleared {
+				t.Errorf("target cleared = %v, want %v", cleared, tc.wantCleared)
+			}
+			if tc.wantCleared {
+				cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadPartiallyPreempted)
+				if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != kueue.WorkloadPartiallyPreemptedReasonQuotaReleased {
+					t.Errorf("PartiallyPreempted condition = %v, want False/QuotaReleased", cond)
+				}
+			}
+		})
+	}
+}

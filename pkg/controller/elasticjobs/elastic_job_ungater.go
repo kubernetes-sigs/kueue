@@ -26,11 +26,13 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,7 +47,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -57,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	"sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -139,10 +144,21 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, errPendingUngateOps
 	}
 
-	pods, err := r.podsToUngate(ctx, active)
+	pods, ungatedPerPodSet, err := r.podsToUngate(ctx, active)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
+
+	// Release the quota reclaimed by partial preemption before ungating: when a reclaim target
+	// is in flight, following the drained Pods down to the target takes priority, and it must run
+	// even on reconciles where nothing is left to ungate. The over-target Pods are evicted by the
+	// job integration, not here.
+	if features.Enabled(features.PartialPreemption) && workload.HasPendingPreemptionTargetCount(active) {
+		if err := r.releaseReclaimedQuota(ctx, active, ungatedPerPodSet); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	if len(pods) == 0 {
 		return reconcile.Result{}, nil
 	}
@@ -262,20 +278,16 @@ func refreshPodAdmission(pod *corev1.Pod, update podAdmissionUpdate) (bool, erro
 	return changed, nil
 }
 
-func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
-	// All pods in the slice chain share the same WorkloadSliceNameAnnotation,
-	// so the index lookup returns every pod created on behalf of this job.
-	// Although those pods may still carry an older slice's name in their
-	// WorkloadAnnotation (the template is stamped at the slice's admission),
-	// wl is the chain's active slice (resolved in Reconcile), so its granted
-	// PodSet counts are the right cap for ungating any of them.
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName)
+// podsToUngate lists the slice's Pods once and returns the Pods to ungate plus the per-PodSet count
+// of already-ungated non-terminal Pods (which consume quota). The caller feeds that count to
+// releaseReclaimedQuota, so a reconcile lists the Pods only once.
+func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, map[kueue.PodSetReference]int32, error) {
+	log := ctrl.LoggerFrom(ctx)
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 	if err != nil {
-		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
+		return nil, nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
-	granted := workload.ExtractGrantedPodSetCounts(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
@@ -290,12 +302,12 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 				var err error
 				update, err = admissionUpdateForPodSet(wl, ps)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				admissionUpdates[ps] = update
 			}
 			if !podAdmissionCompatible(p, update) {
-				ctrl.LoggerFrom(ctx).Info("leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
+				log.Info("leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
 					"pod", klog.KObj(p), "podSet", ps)
 				continue
 			}
@@ -306,10 +318,18 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		}
 	}
 
-	log := ctrl.LoggerFrom(ctx)
+	granted := workload.ExtractGrantedPodSetCounts(wl)
 	var gated []*corev1.Pod
 	for ps, candidates := range gatedPerPodSet {
-		room := granted[ps] - ungatedPerPodSet[ps]
+		// While a reclaim target is in flight, cap ungating at the target so Pods recreated above
+		// it stay gated.
+		ungateCap := granted[ps]
+		if features.Enabled(features.PartialPreemption) {
+			if target, ok := workload.PreemptionTargetCount(wl, ps); ok && target < ungateCap {
+				ungateCap = target
+			}
+		}
+		room := ungateCap - ungatedPerPodSet[ps]
 		var toUngate []*corev1.Pod
 		if room > 0 {
 			toUngate = sortCandidates(log, candidates, wl, ps)
@@ -320,13 +340,52 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		log.V(4).Info("elastic ungating quota accounting for PodSet",
 			"podSet", ps,
 			"grantedCount", granted[ps],
+			"ungateCap", ungateCap,
 			"alreadyUngatedCount", ungatedPerPodSet[ps],
 			"gatedCount", len(candidates),
 			"ungatingCount", len(toUngate),
 		)
 		gated = append(gated, toUngate...)
 	}
-	return gated, nil
+	return gated, ungatedPerPodSet, nil
+}
+
+// releaseReclaimedQuota lowers each partial-preemption PodSet's admitted count toward its reclaim
+// target as its ungated Pods drain, scaling resourceUsage with it.
+func (r *elasticJobUngater) releaseReclaimedQuota(ctx context.Context, wl *kueue.Workload, ungatedPerPodSet map[kueue.PodSetReference]int32) error {
+	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
+		return nil
+	}
+	log := ctrl.LoggerFrom(ctx)
+	wlCopy := wl.DeepCopy()
+	if err := patching.PatchAdmissionStatus(ctx, r.client, wlCopy, r.clock, func(wl *kueue.Workload) (bool, error) {
+		// Recompute from scratch: the closure may run again on a patch conflict.
+		updated := false
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			if psa.PreemptionTargetCount == nil {
+				continue
+			}
+			target := *psa.PreemptionTargetCount
+			admitCount := ptr.Deref(psa.Count, target)
+			newCount := max(min(admitCount, ungatedPerPodSet[psa.Name]), target)
+			if newCount >= admitCount {
+				continue
+			}
+			// Scale resourceUsage in proportion to the count so count and usage stay consistent.
+			req := resources.NewRequestsFromResourceList(psa.ResourceUsage)
+			req.Divide(int64(admitCount))
+			req.Mul(int64(newCount))
+			psa.ResourceUsage = req.ToResourceList(resources.NewResourceFormatter())
+			psa.Count = new(newCount)
+			updated = true
+		}
+		return updated, nil
+	}, patching.WithLooseOnApply()); err != nil {
+		return fmt.Errorf("releasing partial-preemption quota: %w", err)
+	}
+	log.V(3).Info("partial-preemption quota followed live pods down", "workload", klog.KObj(wl))
+	return nil
 }
 
 // sortCandidates orders by completion index, or by name if any Pod lacks a valid index.
