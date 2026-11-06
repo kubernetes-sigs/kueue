@@ -70,6 +70,59 @@ type Snapshot struct {
 	residualTASPods []tasPodUsageValue
 }
 
+func (s *Snapshot) MutableCopy() *MutableManager {
+	dst := &MutableManager{
+		Manager: hierarchy.NewManager(newCohortSnapshot),
+	}
+	for _, cohort := range s.Cohorts() {
+		dst.AddCohort(cohort.Name)
+		dstCohort := dst.Cohort(cohort.Name)
+		dstCohort.ResourceNode = cohort.ResourceNode.Clone()
+		dstCohort.FairWeight = cohort.FairWeight
+		if cohort.HasParent() {
+			dst.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
+		}
+	}
+	for _, cq := range s.ClusterQueues() {
+		workloads := maps.Clone(cq.Workloads)
+		if workloads == nil {
+			workloads = make(map[workload.Reference]*workload.Info)
+		}
+		cqCopy := &ClusterQueueSnapshot{
+			Name:         cq.Name,
+			ResourceNode: cq.ResourceNode.Clone(),
+			Workloads:    workloads,
+			released:     maps.Clone(cq.released),
+			FairWeight:   cq.FairWeight,
+		}
+		dst.AddClusterQueue(cqCopy)
+		if cq.HasParent() {
+			dst.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
+		}
+	}
+	return dst
+}
+
+type MutableManager struct {
+	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
+}
+
+func (s *MutableManager) RemoveWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	delete(cq.Workloads, workload.Key(wl.Obj))
+	if !cq.released.Has(workload.Key(wl.Obj)) {
+		cq.RemoveUsage(wl.Usage())
+	}
+}
+
+func (s *MutableManager) AddWorkload(wl *workload.Info) {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	cq.Workloads[workload.Key(wl.Obj)] = wl
+	if !cq.released.Has(workload.Key(wl.Obj)) {
+		cq.AddUsage(wl.Usage())
+	}
+}
+
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
 	if s.candidateOrderCache == nil {
 		s.candidateOrderCache = newCandidateOrderCache()

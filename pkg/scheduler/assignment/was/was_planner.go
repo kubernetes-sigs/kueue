@@ -46,54 +46,18 @@ func NewPlanner(
 	wl *workload.Info,
 	snapshot *schedcache.Snapshot,
 	preemptor *preemption.Preemptor,
+	filter *preemption.PreemptionFilter,
 ) assignment.Planner {
-	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor}
+	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor, filter: filter}
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
-var _ simulator.PreemptionFilter = (*committedVictimsPreemptionFilter)(nil)
 
 type wasPlanner struct {
 	wl        *workload.Info
 	snapshot  *schedcache.Snapshot
 	preemptor *preemption.Preemptor
-}
-
-type committedVictimsPreemptionFilter struct {
-	wl               *workload.Info
-	assignment       *flavorassigner.Assignment
-	committedVictims preemption.PreemptedWorkloads
-	snap             *schedcache.Snapshot
-}
-
-func (f *committedVictimsPreemptionFilter) MayFit() bool {
-	if workload.HasQuotaReservation(f.wl.Obj) {
-		return true
-	}
-	cq := f.snap.ClusterQueue(f.wl.ClusterQueue)
-	return cq.Fits(workload.Usage{Quota: f.assignment.Usage.Quota}) == schedcache.FitsCheckOk
-}
-
-func (f *committedVictimsPreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
-	if wl, ok := f.committedVictims[wlKey]; ok {
-		if f.snap.HasWorkload(wl) {
-			f.snap.RemoveWorkload(wl)
-		}
-	}
-}
-
-func (f *committedVictimsPreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
-	if wl, ok := f.committedVictims[wlKey]; ok {
-		if !f.snap.HasWorkload(wl) {
-			f.snap.AddWorkload(wl)
-		}
-	}
-}
-
-func (f *committedVictimsPreemptionFilter) Reset() {
-	for wlKey := range f.committedVictims {
-		f.UnpreemptWorkload(wlKey)
-	}
+	filter    *preemption.PreemptionFilter
 }
 
 func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, options ...assignment.PlannerOption) (plan assignment.Plan) {
@@ -167,23 +131,16 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
 		var opts []simulator.ScheduleOption
-		var preemptionFilter *committedVictimsPreemptionFilter
 		if len(committedVictims) > 0 {
-			preemptionFilter = &committedVictimsPreemptionFilter{
-				wl:               p.wl,
-				assignment:       assignment,
-				committedVictims: committedVictims,
-				snap:             p.snapshot,
-			}
+			p.filter.Initialize(assignment, true)
 			opts = append(opts, simulator.WithCommittedPreemptionVictims(committedVictims.References()))
-			opts = append(opts, simulator.WithPreemptionFilter(preemptionFilter))
+			opts = append(opts, simulator.WithPreemptionFilter(p.filter))
 		}
 
 		var preemptionVictims []workload.Reference
 		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
-		if preemptionFilter != nil {
-			preemptionFilter.Reset()
-		}
+		p.filter.Reset()
+
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -240,13 +197,15 @@ func (p *wasPlanner) scheduleWithPreemption(
 	committedVictims preemption.PreemptedWorkloads,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+		p.filter.Initialize(&assignment, strategy.AllowBorrowing())
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
-			simulator.WithPreemptionFilter(&strategy),
+			simulator.WithPreemptionFilter(p.filter),
 			simulator.WithCommittedPreemptionVictims(committedVictims.References()),
 		)
+		p.filter.Reset()
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
