@@ -74,6 +74,7 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 
 	type step struct {
 		add, finish, del *kueue.Workload // finish is a Finished copy of a cached workload
+		delIfUnchanged   *kueue.Workload
 		wantCPU          string
 		wantWorkloads    []workload.Reference
 	}
@@ -87,6 +88,14 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{add: oldSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{finish: oldSliceFinished, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{del: newSlice, wantCPU: "0"},
+			},
+		},
+		"a replaced slice is deleted if unchanged": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
+				{delIfUnchanged: oldSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{del: newSlice, wantCPU: "0"},
 			},
 		},
@@ -168,6 +177,10 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 					cache.AddOrUpdateWorkload(ctx, log, s.add.DeepCopy())
 				case s.finish != nil:
 					cache.AddOrUpdateWorkload(ctx, log, s.finish.DeepCopy())
+				case s.delIfUnchanged != nil:
+					if !cache.DeleteWorkloadIfUnchanged(log, s.delIfUnchanged) {
+						t.Fatalf("Step %d: DeleteWorkloadIfUnchanged did not delete the workload", i)
+					}
 				case s.del != nil:
 					if err := cache.DeleteWorkload(log, workload.Key(s.del)); err != nil {
 						t.Fatalf("Step %d: deleting workload: %v", i, err)
