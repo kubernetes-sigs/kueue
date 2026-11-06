@@ -2,6 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "enableKueueViz": {
+      "type": "boolean"
+    },
     "managerConfig": {
       "type": "object",
       "description": "Optional mode selects yaml or structured. When omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
@@ -18,6 +21,38 @@
         }
       },
       "additionalProperties": false
+    }
+  },
+  "if": {
+    "properties": {
+      "enableKueueViz": {
+        "const": true
+      }
+    },
+    "required": ["enableKueueViz"]
+  },
+  "then": {
+    "properties": {
+      "kueueViz": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "object",
+            "properties": {
+              "auth": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["Disabled", "TokenReview"]
+                  }
+                },
+                "required": ["mode"]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$comment": "Copyright The Kubernetes Authors. Licensed under the Apache License, Version 2.0; see https://www.apache.org/licenses/LICENSE-2.0."
