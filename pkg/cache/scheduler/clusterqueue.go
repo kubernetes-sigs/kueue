@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -38,7 +39,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -564,9 +564,11 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	}
 }
 
-// sameJob reports whether a and b are Workloads of the same job, as the slices of one chain are.
+// sameJob reports whether a and b are Workloads of the same job, as the slices of one chain are:
+// they are in the same namespace and have the same controller.
 func sameJob(a, b *kueue.Workload) bool {
-	return a.Namespace == b.Namespace && a.Labels[controllerconstants.JobUIDLabel] == b.Labels[controllerconstants.JobUIDLabel]
+	ownerA, ownerB := metav1.GetControllerOfNoCopy(a), metav1.GetControllerOfNoCopy(b)
+	return a.Namespace == b.Namespace && ownerA != nil && ownerB != nil && ownerA.UID == ownerB.UID
 }
 
 // replacedSliceKey is the key of the workload slice that w replaces, or "" when it replaces none.
@@ -587,11 +589,24 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 	if !exist {
 		return
 	}
-	// A replacement leaving before the slice it replaces, e.g. on a failed admission, hands
-	// the usage back to that slice.
+	// A replacement leaving before the slices it replaces, e.g. on a failed admission, hands
+	// the usage back to them. They are added back oldest first, so each one still covered by a
+	// later one is uncharged again.
 	defer func() {
-		if old, ok := c.replacedSlices[replacedSliceKey(wi.Obj)]; ok {
-			delete(c.replacedSlices, workload.Key(old.Obj))
+		if replacedSliceKey(wi.Obj) == "" {
+			return
+		}
+		var chain []*workload.Info
+		for key, old := range c.replacedSlices {
+			if sameJob(old.Obj, wi.Obj) {
+				chain = append(chain, old)
+				delete(c.replacedSlices, key)
+			}
+		}
+		slices.SortFunc(chain, func(a, b *workload.Info) int {
+			return cmp.Or(a.Obj.CreationTimestamp.Compare(b.Obj.CreationTimestamp.Time), cmp.Compare(a.Obj.Name, b.Obj.Name))
+		})
+		for _, old := range chain {
 			c.addOrUpdateWorkload(log, old)
 		}
 	}()
