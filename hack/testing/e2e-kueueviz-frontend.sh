@@ -27,8 +27,8 @@ fi
 RETRY="${PROJECT_DIR}/hack/testing/retry.sh"
 
 # Install missing dependencies
-"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- apt-get update
-"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- apt-get install -y curl make xdg-utils
+"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get update
+"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get install -y curl make xdg-utils
 
 # Function to clean up background processes
 cleanup() {
@@ -38,7 +38,7 @@ cleanup() {
 
 # Run frontend unit tests before starting the app
 cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
-"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npm install
+"${RETRY}" --attempts 5 --delay 5 --stream -- npm install
 npm test
 
 # Start kueueviz frontend
@@ -46,8 +46,8 @@ npm start & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
 cd "${PROJECT_DIR}/test/e2e/kueueviz"
-"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npm install
-"${RETRY}" --attempts 5 --delay 5 --stream --exponential -- npx cypress install
+"${RETRY}" --attempts 5 --delay 5 --stream -- npm install
+"${RETRY}" --attempts 5 --delay 5 --stream -- npx cypress install
 npm run cypress:run --headless --config-file cypress.config.js
 
 # The trap will handle cleanup 

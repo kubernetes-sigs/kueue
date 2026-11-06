@@ -85,7 +85,7 @@ function build_kind_node_image {
     fi
 
     echo "Building kind node image: $E2E_KIND_VERSION (K8s v$KIND_VERSION)"
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         "$KIND" build node-image "v$KIND_VERSION" --image "$E2E_KIND_VERSION"
 }
 
@@ -181,7 +181,7 @@ function e2e_docker_pull_if_needed {
     export -f e2e_image_pull_is_retriable
     # shellcheck disable=SC2016 # E2E_PULL_IMAGE is expanded by retry.sh's continue-if eval
     E2E_PULL_IMAGE="${image}" "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential --stream \
+        --stream \
         --continue-if 'e2e_image_pull_is_retriable "{output}" "${E2E_PULL_IMAGE}"' \
         -- docker pull "$image"
 }
@@ -192,7 +192,7 @@ function e2e_docker_manifest_available {
 
     # shellcheck disable=SC2016 # the $1 expansion is evaluated by the inner bash -c
     "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential --stream \
+        --stream \
         --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
         -- bash -c 'docker manifest inspect "$1" 2>&1 >/dev/null' _ "$image"
 }
@@ -202,8 +202,7 @@ function e2e_download_url {
 
     # Make HTTP errors retryable instead of passing their response bodies to
     # kubectl as manifests.
-    "${ROOT_DIR}/hack/testing/retry.sh" \
-        --attempts 7 --delay 2 --exponential -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" -- \
         curl -fsSL "${url}"
 }
 
@@ -285,7 +284,7 @@ function e2e_wait_for_deployment_webhook_endpoints {
 
     export -f e2e_check_deployment_webhook_endpoints_once
     # shellcheck disable=SC2016 # the $@ expansion is evaluated by the inner bash -c
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 150 --delay 2 --no-exponential --stream -- \
         bash -c 'e2e_check_deployment_webhook_endpoints_once "$@"' _ \
         "${kubeconfig}" "${ns}" "${deployment_name}" "${service_name}"
 }
@@ -714,7 +713,6 @@ function cluster_create {
     if ! "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 3 \
         --delay 3 \
-        --exponential \
         --continue-if "$continue_if" \
         --cleanup "$cleanup_cmd" \
         -- bash -c "$create_cmd"; then
@@ -1003,7 +1001,7 @@ kind: ResourceFlavor
 metadata:
   name: webhook-probe
 EOF
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
 }
 
@@ -1461,7 +1459,7 @@ function install_sparkoperator {
         --set image.tag="${expected_version}"
         --set 'spark.jobNamespaces[0]='
     )
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream -- \
         "${HELM}" "${install_args[@]}"
 }
 
@@ -1602,7 +1600,7 @@ function install_dra_example_driver {
     dra_chart_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
     trap "rm -rf '$dra_chart_dir'" RETURN
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+    "${ROOT_DIR}/hack/testing/retry.sh" --stream \
         -- "$HELM" pull "${DRA_EXAMPLE_DRIVER_HELM_CHART}" --version "${expected_version#v}" --untar --untardir "$dra_chart_dir"
 
     cluster_kind_load_image "${name}" "${DRA_EXAMPLE_DRIVER_IMAGE}"
