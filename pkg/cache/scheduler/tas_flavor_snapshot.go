@@ -3031,7 +3031,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
 		}
-		affinityScore += childDomainState.affinityScore
+		// A child with no room for the PodSet's Pods adds no score, so a domain
+		// does not win only because it has more nodes.
+		if childPodCount > 0 {
+			affinityScore += childDomainState.affinityScore
+		}
 	}
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity
