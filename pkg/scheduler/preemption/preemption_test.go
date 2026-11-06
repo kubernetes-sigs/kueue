@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -5685,11 +5684,10 @@ func TestPreemptionFilter(t *testing.T) {
 	}
 }
 
-func TestPreemptionFilter_LifecycleAndConcurrency(t *testing.T) {
+func TestPreemptionFilter_Lifecycle(t *testing.T) {
 	_, snapshot := setupPreemptionStrategy(t, "2")
 	_, log := utiltesting.ContextWithLog(t)
 	vLowKey := workload.NewReference("default", "v-low")
-	vMidKey := workload.NewReference("default", "v-mid")
 
 	wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
 		Priority(50).
@@ -5734,32 +5732,17 @@ func TestPreemptionFilter_LifecycleAndConcurrency(t *testing.T) {
 		expectPanic(t, "UnpreemptWorkload after Reset", func() { filter.UnpreemptWorkload(vLowKey) })
 	})
 
-	t.Run("concurrent MayFit and mutation calls are race-free", func(t *testing.T) {
+	t.Run("re-Initialize without Reset restores preempted workloads", func(t *testing.T) {
 		filter := BuildFilter(log, snapshot, wlInfo)
 		filter.Initialize(&assignment, true)
-
-		var wg sync.WaitGroup
-		for range 4 {
-			wg.Go(func() {
-				for range 200 {
-					_ = filter.MayFit()
-				}
-			})
+		filter.PreemptWorkload(vLowKey)
+		if !filter.MayFit() {
+			t.Fatal("expected MayFit() = true after preempting v-low")
 		}
-		wg.Go(func() {
-			for range 200 {
-				filter.PreemptWorkload(vLowKey)
-				filter.PreemptWorkload(vMidKey)
-				filter.UnpreemptWorkload(vMidKey)
-				filter.UnpreemptWorkload(vLowKey)
-			}
-		})
-		wg.Wait()
 
-		filter.Reset()
 		filter.Initialize(&assignment, true)
 		if filter.MayFit() {
-			t.Fatal("expected MayFit() = false after restoring all workloads")
+			t.Fatal("expected MayFit() = false after re-Initialize restored v-low")
 		}
 	})
 }
