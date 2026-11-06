@@ -104,8 +104,7 @@ type PreemptionFilter struct {
 	log       logr.Logger
 	preemptor *workload.Info
 
-	// Mutable
-	manager *schdcache.BareManagerSnapshot
+	managerSnap *schdcache.BareManagerSnapshot
 
 	initialized    bool
 	usage          workload.Usage
@@ -192,11 +191,11 @@ func BuildFilter(
 ) *PreemptionFilter {
 	managerSnap := snapshot.CopyManager()
 	pf := &PreemptionFilter{
-		log:       log,
-		preemptor: wl,
-		manager:   managerSnap,
-		workloads: make(map[workload.Reference]*workload.Info),
-		preempted: make(map[workload.Reference]*workload.Info),
+		log:         log,
+		preemptor:   wl,
+		managerSnap: managerSnap,
+		workloads:   make(map[workload.Reference]*workload.Info),
+		preempted:   make(map[workload.Reference]*workload.Info),
 	}
 	for _, cq := range snapshot.ClusterQueues() {
 		maps.Copy(pf.workloads, cq.Workloads)
@@ -216,7 +215,7 @@ func (pf *PreemptionFilter) MayFit() bool {
 		return true
 	}
 
-	cq := pf.manager.ClusterQueue(pf.preemptor.ClusterQueue)
+	cq := pf.managerSnap.ClusterQueue(pf.preemptor.ClusterQueue)
 	if cq == nil {
 		return false
 	}
@@ -240,7 +239,7 @@ func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
 	}
 
 	if wl, ok := pf.workloads[wlKey]; ok {
-		pf.manager.RemoveWorkload(wl)
+		pf.managerSnap.RemoveWorkload(wl)
 		pf.preempted[wlKey] = wl
 		delete(pf.workloads, wlKey)
 	}
@@ -259,13 +258,13 @@ func (pf *PreemptionFilter) unpreemptWorkload(wlKey workload.Reference) {
 	}
 
 	if wl, preempted := pf.preempted[wlKey]; preempted {
-		pf.manager.AddWorkload(wl)
+		pf.managerSnap.AddWorkload(wl)
 		pf.workloads[wlKey] = wl
 		delete(pf.preempted, wlKey)
 	}
 }
 
-// Reset restores any workloads still preempted in the strategy back to the snapshot.
+// reset restores any workloads still preempted in the filter back to the manager snapshot.
 func (pf *PreemptionFilter) reset() {
 	pf.m.Lock()
 	defer pf.m.Unlock()

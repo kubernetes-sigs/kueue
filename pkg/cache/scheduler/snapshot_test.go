@@ -2600,7 +2600,7 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 	}
 }
 
-func TestMutableCopy(t *testing.T) {
+func TestSnapshotCopyManager(t *testing.T) {
 	now := time.Now()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -2697,7 +2697,7 @@ func TestMutableCopy(t *testing.T) {
 		t.Fatalf("initial cq-a Available = %v, want %v", got, want)
 	}
 
-	// Mutating Snapshot does not affect MutableCopy.
+	// Mutating Snapshot does not affect BareManagerSnapshot.
 	// Note: cq-a has NominalQuota=2 and LendingLimit=1 (localQuota=1), so cq-a's 2 CPU usage
 	// contributes 1 CPU to parent cohorts; together with cq-b's 1 CPU, root usage is 2 CPU (2000m).
 	revert := snap.SimulateWorkloadRemoval([]*workload.Info{keptWl, otherWl})
@@ -2712,7 +2712,7 @@ func TestMutableCopy(t *testing.T) {
 	}
 	revert()
 
-	// Removing and re-adding a released workload in MutableCopy leaves usage unchanged.
+	// Removing and re-adding a released workload in BareManagerSnapshot leaves usage unchanged.
 	copyMgr.RemoveWorkload(releasedWl)
 	if got := copyMgr.ClusterQueue("cq-a").ResourceNode.Usage[cpu]; got.CmpInt64(2_000) != 0 {
 		t.Errorf("removing released workload changed copyMgr usage: got %v, want 2000", got)
@@ -2722,7 +2722,7 @@ func TestMutableCopy(t *testing.T) {
 		t.Errorf("re-adding released workload changed copyMgr usage: got %v, want 2000", got)
 	}
 
-	// Mutating MutableCopy updates its hierarchy usage and leaves Snapshot untouched.
+	// Mutating BareManagerSnapshot updates its hierarchy usage and leaves Snapshot untouched.
 	copyMgr.RemoveWorkload(keptWl)
 	if got := copyMgr.ClusterQueue("cq-a").ResourceNode.Usage[cpu]; got.CmpInt64(0) != 0 {
 		t.Errorf("copyMgr cq-a usage after RemoveWorkload = %v, want 0", got)

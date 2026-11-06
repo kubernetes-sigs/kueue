@@ -5667,7 +5667,7 @@ func TestPreemptionFilter(t *testing.T) {
 				{cq: "cq", wlKey: vMidKey},
 				{cq: "cq-other", wlKey: vOtherCQKey},
 			} {
-				cqSnap := filter.manager.ClusterQueue(entry.cq)
+				cqSnap := filter.managerSnap.ClusterQueue(entry.cq)
 				if cqSnap != nil {
 					if _, inFilterCq := cqSnap.Workloads[entry.wlKey]; !inFilterCq {
 						gotPreempted = append(gotPreempted, entry.wlKey)
