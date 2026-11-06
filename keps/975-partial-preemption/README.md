@@ -83,7 +83,7 @@ the quota accounting correct throughout.
 ### Goals
 
 - Provide an opt-in mechanism where preemption of an elastic Workload reclaims quota by removing
-  Pods from one of its PodSets, down to no lower than its `preemptionMinCount`, rather than evicting
+  Pods from its PodSets, down to no lower than their `preemptionMinCount`, rather than evicting
   the whole Workload.
 - Reclaim only as many Pods as the preemptor needs.
 - Guarantee no quota over-subscription at any point during the scale-down.
@@ -207,8 +207,8 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 
 ### Notes/Constraints/Caveats
 
-- The victim must opt in, and exactly one of its PodSets must be above its `preemptionMinCount` (see
-  [Eligibility](#eligibility)); otherwise it is evicted whole.
+- The victim must opt in, and at least one of its PodSets must be above its `preemptionMinCount`
+  (see [Eligibility](#eligibility)); otherwise it is evicted whole.
 - `preemptionTargetCount` is owned by Kueue and is not a user-set field. A later preemption may
   lower a target, even while it is in flight, but never raises it.
 - Workloads with gang semantics, such as Spark barrier stages, MPI or non-elastic distributed
@@ -382,10 +382,10 @@ whole candidates in order, so there is no behavioral change.
 #### Eligibility
 
 A candidate is eligible for partial preemption when the `PartialPreemption` gate is enabled, the
-Workload carries the opt-in annotation with value `"true"` and is elastic, and exactly one PodSet
-has an effective used count above its `preemptionMinCount`. That PodSet must not have a topology
-assignment. Otherwise the candidate falls back to whole eviction; shrinking several PodSets is a
-Beta criterion. The used count comes from the Workload's usage; an existing lower
+Workload carries the opt-in annotation with value `"true"` and is elastic, and at least one PodSet
+has an effective used count above its `preemptionMinCount`. Those PodSets must not have a topology
+assignment. Otherwise the candidate falls back to whole eviction. The used count comes from the
+Workload's usage; an existing lower
 `preemptionTargetCount` is used as the effective count for simulation. With `waitForPodsReady`
 enabled, a Workload that has not yet reached PodsReady is evicted whole rather than shrunk. In
 Alpha, a Workload with the `kueue.x-k8s.io/multikueue-origin` label, which MultiKueue dispatched to
@@ -458,7 +458,7 @@ target stays in place unless the shrink pass lowers it toward the floor; no step
 For a partial target, Kueue does **not** evict the Workload or call `stopJob`. It patches the
 victim's admission status to set `preemptionTargetCount`, and sets the `PartiallyPreempted`
 condition to `True`. Its reason and message are the same as for the `Preempted` condition, plus the
-PodSet and target count. Kueue emits a `PartiallyPreempted` event on the victim and a
+PodSets and target counts. Kueue emits a `PartiallyPreempted` event on the victim and a
 `PreemptedWorkload` event on the preemptor, and increments
 `kueue_partially_preempted_workloads_total`. Kueue records the event and the metric only when it
 newly sets or lowers the target; a cycle that reuses an unchanged in-flight target does neither.
@@ -474,9 +474,9 @@ when shrinking is not enough. With partial preemption enabled, `fillBackWorkload
 last target rather than the second-to-last: whole-eviction preemption skips the last target because
 it is always required, but a partial last victim can still be restored to a count above its floor.
 In Alpha, fill-back adds each victim back whole if the preemptor still fits. Otherwise, for a victim
-that was shrunk but not evicted, it binary-searches the largest count up to the victim's count
-before the simulation (at most its in-flight target) that still fits. An evicted victim is restored
-whole or not at all.
+that was shrunk but not evicted, it binary-searches each shrunk PodSet in turn for the largest count
+up to its count before the simulation (at most its in-flight target) that still fits. An evicted
+victim is restored whole or not at all.
 
 **Alpha gap:** an evicted victim is never restored to its floor, and whole and partial restores are
 interleaved per victim instead of every whole restore happening first. Both are addressed in future
@@ -722,7 +722,6 @@ make this code solid enough prior to committing the changes necessary to impleme
 #### Beta
 
 - The gate is enabled by default, and all reported bugs are fixed.
-- Shrink more than one PodSet per Workload.
 - A preemption floor separate from the job's own minimum.
 - Support PodSets with a topology assignment, and MultiKueue.
 - Shrink victims selected by `PreemptionConfig` rules.
