@@ -1048,6 +1048,7 @@ func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
 		addFlavor    bool
 		stopPolicy   *kueue.StopPolicy
 		lendingLimit *resource.Quantity
+		deleted      bool
 		usage        string
 		wantLendable float64
 	}{
@@ -1098,17 +1099,17 @@ func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
 			usage:        "1",
 			wantLendable: 0,
 		},
+		"terminating cluster queue reports zero": {
+			addFlavor:    true,
+			deleted:      true,
+			usage:        "4",
+			wantLendable: 0,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-
-			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
-			if tc.addFlavor {
-				cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("flavor").Obj())
-			}
 
 			cq := utiltestingapi.MakeClusterQueue("lendable-cq").
 				Cohort("cohort").
@@ -1118,6 +1119,14 @@ func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
 			if tc.lendingLimit != nil {
 				cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].LendingLimit = tc.lendingLimit
 			}
+			cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+
+			cl := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if tc.addFlavor {
+				cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("flavor").Obj())
+			}
 
 			t.Cleanup(func() {
 				metrics.ClearClusterQueueResourceMetrics(cq.Name)
@@ -1125,6 +1134,9 @@ func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
 
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Unexpected error adding queue: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
 			}
 
 			if tc.usage != "0" {
@@ -1139,6 +1151,15 @@ func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
 			}
 
 			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(cq.Name))
+			if tc.deleted {
+				r := NewClusterQueueReconciler(cl, qManager, cqCache, WithReportResourceMetrics(true))
+				if err := cl.Delete(ctx, cq); err != nil {
+					t.Fatalf("Failed to delete ClusterQueue: %v", err)
+				}
+				if _, err := r.Reconcile(ctx, ctrl.Request{Name: cq.Name}); err != nil {
+					t.Fatalf("Reconcile failed: %v", err)
+				}
+			}
 			got := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueLendableResources, map[string]string{"cluster_queue": cq.Name})
 			if len(got) != 1 {
 				t.Fatalf("expected 1 lendable metric, got %d", len(got))

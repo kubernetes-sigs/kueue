@@ -328,14 +328,19 @@ func TestClearCohortMetrics_ClearsTargetAndAncestors(t *testing.T) {
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortQuotaMetricLabels("ch2", frDefaultCPU), 14)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortQuotaMetricLabels("root", frDefaultCPU), 62)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortQuotaMetricLabels("root", frDefaultCPU), 13)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch1", frDefaultCPU), 12)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("root", frDefaultCPU), 49)
 
 	cache.ClearCohortMetrics(log, "ch1")
 	expectGaugeCount(t, kueuemetrics.CohortSubtreeQuota, 0, cohortQuotaMetricLabels("ch1", frDefaultCPU))
 	expectGaugeCount(t, kueuemetrics.CohortSubtreeResourceReservations, 0, cohortQuotaMetricLabels("ch1", frDefaultCPU))
+	expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels("ch1", frDefaultCPU))
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortQuotaMetricLabels("ch2", frDefaultCPU), 14)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortQuotaMetricLabels("ch2", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch2", frDefaultCPU), 7)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, cohortQuotaMetricLabels("root", frDefaultCPU), 44)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeResourceReservations, cohortQuotaMetricLabels("root", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("root", frDefaultCPU), 37)
 }
 
 func TestAddOrUpdateCohort_Table(t *testing.T) {
@@ -1786,7 +1791,7 @@ func TestRecordCohortMetrics_LendableResources(t *testing.T) {
 		t.Fatalf("updating cqb to stopped: %v", err)
 	}
 	cache.RecordCohortMetrics(log, "ch")
-	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 3)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 6)
 
 	addTestUsage(cache, []usageChange{
 		{cqName: "cqa", fr: frDefaultCPU, val: 10_000},
@@ -1870,15 +1875,16 @@ func TestRecordCohortMetrics_LendableResourcesAcrossNestedCohorts(t *testing.T) 
 			usage: []usageChange{{cqName: "stopped", fr: fr, val: 5_000}},
 			want:  map[kueue.CohortReference]float64{"nested": 10, "root": 10},
 		},
-		"stopped queue shared reservations still count": {
+		"stopped queue usage above its nominal quota still counts": {
 			queues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
 				utiltestingapi.MakeClusterQueue("stopped").Cohort("nested").StopPolicy(kueue.Hold).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8", "", "2").Obj()).Obj(),
 			},
-			usage: []usageChange{{cqName: "stopped", fr: fr, val: 9_000}},
-			want:  map[kueue.CohortReference]float64{"nested": 7, "root": 7},
+			usage:       []usageChange{{cqName: "stopped", fr: fr, val: 9_000}},
+			want:        map[kueue.CohortReference]float64{"nested": 9, "root": 9},
+			comparePeer: true,
 		},
 		"no lendable series with feature disabled": {
 			queues: []*kueue.ClusterQueue{
@@ -1964,8 +1970,8 @@ func TestRecordCohortMetrics_ExcludesInactiveQueuesFromNestedCohort(t *testing.T
 	})
 	cache.RecordCohortMetrics(log, "nested")
 
-	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("nested", frDefaultCPU), 7)
-	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("root", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("nested", frDefaultCPU), 10)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("root", frDefaultCPU), 10)
 
 	active := utiltestingapi.MakeClusterQueue("active").
 		Cohort("nested").

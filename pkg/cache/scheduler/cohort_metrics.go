@@ -230,12 +230,14 @@ func (m activeSubtreeResourcesMemo) total(ch *cohort) resourceNode {
 	}
 
 	for _, cq := range ch.ChildCQs() {
-		parent := total
-		if !cq.Active() {
-			// Discard lending capacity, but retain shared reservations using the CQ's original local quota.
-			parent.SubtreeQuota = make(resources.FlavorResourceQuantities)
+		if cq.Active() {
+			accumulateResourceNode(total, cq.resourceNode)
+			continue
 		}
-		accumulateResourceNode(parent, cq.resourceNode)
+		// An inactive CQ lends nothing, so only its usage above its own nominal quota borrows from active lenders.
+		for fr, usage := range cq.resourceNode.Usage {
+			total.Usage[fr] = total.Usage[fr].Add(resources.MaxAmount(resources.NewAmount(0), usage.Sub(cq.resourceNode.SubtreeQuota[fr])))
+		}
 	}
 
 	for _, child := range ch.ChildCohorts() {

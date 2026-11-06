@@ -1032,7 +1032,7 @@ admission penalties, divided by the LocalQueue's fair sharing weight`,
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_lendable_resources",
-			Help:      `Reports the instantaneous amount of quota a ClusterQueue can lend to peers now, per flavor-resource pair. Only reservations exceeding quota protected by the lending limit reduce this value. Reports 0 for inactive (pending/stopped/terminating) ClusterQueues.`,
+			Help:      `Reports the ClusterQueue's unused nominal quota that its lending limit allows it to lend, per flavor-resource pair. Only reservations exceeding quota protected by the lending limit reduce this value. Quota that peers already borrow is not subtracted; see kueue_cohort_lendable_resources for what is still unused in the Cohort. Reports 0 for inactive (pending/stopped/terminating) ClusterQueues.`,
 		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 	trackGaugeVec(ClusterQueueLendableResources, gaugeCleanupScopeClusterQueueResource)
@@ -1076,7 +1076,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cohort_lendable_resources",
-			Help:      `Reports the instantaneous lendable capacity available in a cohort for each flavor-resource, computed from the cohort's subtree quota and reservations, respecting lending limits. Inactive ClusterQueues are excluded as lenders, but their shared quota reservations still count. Series is absent when lendable is zero.`,
+			Help:      `Reports the quota still unused within the Cohort's subtree, per flavor-resource pair, computed from the subtree's quota and reservations. Lending limits of the ClusterQueues and Cohorts below the Cohort are respected; the Cohort's own lending limit and the quota left in its ancestors are not. Inactive (pending/stopped/terminating) ClusterQueues are excluded as lenders, and only their reservations above their own nominal quota count. Series is absent when the value is zero.`,
 		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, cohortMetricLabels...),
 	)
 	trackGaugeVec(CohortLendableResources, gaugeCleanupScopeCohort)
