@@ -1692,7 +1692,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	plannerOptions := []assignment.PlannerOption{}
 	if len(inCycleCommittedVictims) > 0 {
 		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
-		revertRemoval := snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
+		var revertRemoval func()
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
+		} else {
+			revertRemoval = simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
+		}
 		defer revertRemoval()
 	}
 

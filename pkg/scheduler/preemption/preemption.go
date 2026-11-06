@@ -213,6 +213,10 @@ func (pf *PreemptionFilter) MayFit() bool {
 		panic("PreemptionFilter not initialized")
 	}
 
+	if workload.HasQuotaReservation(pf.preemptor.Obj) {
+		return true
+	}
+
 	cq := pf.manager.ClusterQueue(pf.preemptor.ClusterQueue)
 	for fr, v := range pf.usage.Quota.Assigned {
 		if !pf.allowBorrowing && cq.BorrowingWith(fr, v) {
@@ -306,6 +310,14 @@ func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference
 		}
 		ps.PreemptWorkload(wlKey)
 		targets = append(targets, t)
+	}
+	if !workloadQuotaFits(ps.pCtx, ps.allowBorrowing) {
+		if logV := ps.pCtx.log.V(5); logV.Enabled() {
+			logV.Info("Discarding preemption targets: insufficient quota",
+				"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets))
+		}
+		return nil, nil
 	}
 	if ps.verify != nil {
 		if valid, reason := ps.verify(targets); !valid {
