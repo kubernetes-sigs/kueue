@@ -189,11 +189,12 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 	}
 }
 
-func TestShouldExposeLocalQueueMetrics(t *testing.T) {
+func TestRecordLocalQueueMetrics(t *testing.T) {
 	cases := map[string]struct {
 		disableLQMetrics bool
 		lqMetrics        *metrics.LocalQueueMetricsConfig
 		localQueue       *kueue.LocalQueue
+		deleteLocalQueue bool
 		want             bool
 	}{
 		"known LocalQueue": {
@@ -201,6 +202,10 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 			want:       true,
 		},
 		"unknown LocalQueue": {},
+		"deleted LocalQueue": {
+			localQueue:       utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+			deleteLocalQueue: true,
+		},
 		"LocalQueue matched by localQueueSelector": {
 			lqMetrics:  &metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "true"})},
 			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Label("metrics", "true").Obj(),
@@ -222,15 +227,33 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, !tc.disableLQMetrics)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			manager := NewManagerForUnitTests(utiltesting.NewClientBuilder().Build(), nil, WithLocalQueueMetrics(tc.lqMetrics))
 			if tc.localQueue != nil {
 				if err := manager.AddLocalQueue(ctx, tc.localQueue); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if got := manager.ShouldExposeLocalQueueMetrics("ns/lq"); got != tc.want {
-				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, tc.want)
+			if tc.deleteLocalQueue {
+				manager.DeleteLocalQueue(log, tc.localQueue)
+			}
+			var got bool
+			manager.RecordLocalQueueMetrics("ns/lq", func() {
+				got = true
+				// RecordLocalQueueMetrics holds the read lock while record runs, so that
+				// DeleteLocalQueue waits for record but other readers do not.
+				if manager.TryLock() {
+					manager.Unlock()
+					t.Error("RecordLocalQueueMetrics does not hold the lock while record runs")
+				}
+				if !manager.TryRLock() {
+					t.Error("RecordLocalQueueMetrics holds the write lock while record runs")
+				} else {
+					manager.RUnlock()
+				}
+			})
+			if got != tc.want {
+				t.Errorf("RecordLocalQueueMetrics() recorded = %v, want %v", got, tc.want)
 			}
 		})
 	}
