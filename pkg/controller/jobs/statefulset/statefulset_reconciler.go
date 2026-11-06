@@ -92,6 +92,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if _, managed := managedByAnotherFramework(sts); managed {
+		return ctrl.Result{}, nil
+	}
 	wlName, err := findWorkloadName(ctx, r.client, sts)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -102,9 +105,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			return ctrl.Result{}, err
 		}
 		wl = nil
-	}
-	if _, managed := managedByAnotherFramework(sts); managed {
-		return ctrl.Result{}, nil
 	}
 	if wl == nil {
 		shouldManage, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client,
