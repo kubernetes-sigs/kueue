@@ -2,7 +2,7 @@
 title: "Set Up Concurrent Admission"
 linkTitle: "Concurrent Admission"
 date: 2026-05-05
-weight: 8
+weight: 140
 description: >
   Configure Kueue to migrate admitted workloads to more preferred ResourceFlavors and run flavor-scoped admission checks concurrently.
 ---
