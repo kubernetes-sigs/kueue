@@ -355,7 +355,7 @@ func TestForEach(t *testing.T) {
 	}
 }
 
-func TestGetJobTypeForOwner(t *testing.T) {
+func TestGetIntegrationForOwner(t *testing.T) {
 	dontManage := IntegrationCallbacks{
 		NewReconciler: func(context.Context, client.Client, client.FieldIndexer, events.EventRecorder, ...Option) (JobReconcilerInterface, error) {
 			panic("not implemented")
@@ -429,16 +429,16 @@ func TestGetJobTypeForOwner(t *testing.T) {
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			wantJobType := mgr.getJobTypeForOwner(tc.owner)
+			gotJobType := mgr.getIntegrationForOwner(tc.owner).JobType
 			if tc.wantJobType == nil {
-				if wantJobType != nil {
+				if gotJobType != nil {
 					t.Errorf("This owner should be unmanaged")
 				}
 			} else {
-				if wantJobType == nil {
+				if gotJobType == nil {
 					t.Errorf("This owner should be managed")
 				} else {
-					if diff := cmp.Diff(tc.wantJobType, wantJobType); diff != "" {
+					if diff := cmp.Diff(tc.wantJobType, gotJobType); diff != "" {
 						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
 					}
 				}

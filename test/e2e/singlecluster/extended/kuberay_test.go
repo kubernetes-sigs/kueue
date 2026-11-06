@@ -28,6 +28,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
@@ -694,6 +696,116 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayCluster did not become ready", createdRayCluster))
 		})
+	})
+
+	ginkgo.It("Should admit the submitter Job for a RayJob using an existing cluster", ginkgo.Label("shard:kuberay-a"), func() {
+		kuberayTestImage := e2e.GetKuberayTestImage()
+
+		ginkgo.By("Reserving all CPU quota for the existing RayCluster")
+		// The head and worker need 1400m CPU; the submitter needs another 300m.
+		quotaPatch := client.MergeFrom(cq.DeepCopy())
+		behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, "1400m")
+		gomega.Expect(k8sClient.Patch(ctx, cq, quotaPatch)).To(gomega.Succeed())
+		rayCluster := testingraycluster.MakeCluster("shared-cluster", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		clusterWorkloadKey := client.ObjectKey{
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+			Namespace: ns.Name,
+		}
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, clusterWorkloadKey)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).To(gomega.Succeed())
+			g.Expect(rayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayCluster did not become ready", rayCluster))
+
+		ginkgo.By("Submitting a RayJob to the admitted cluster using a separate Kubernetes Job")
+		rayJob := testingrayjob.MakeJob("rayjob-selector", ns.Name).
+			Queue(localQueueName).
+			ClusterSelector(map[string]string{rayutils.RayJobClusterSelectorKey: rayCluster.Name}).
+			RayClusterSpec(nil).
+			Suspend(false).
+			ShutdownAfterJobFinishes(false).
+			WithSubmissionMode(rayv1.K8sJobMode).
+			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
+			WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "rayjob-submitter",
+						Image: kuberayTestImage,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("300m")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("300m")},
+						},
+					}},
+					RestartPolicy:                 corev1.RestartPolicyNever,
+					TerminationGracePeriodSeconds: new(int64(1)),
+				},
+			}).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, rayJob)
+
+		submitterJob := &batchv1.Job{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			jobs := &batchv1.JobList{}
+			g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(ns.Name), client.MatchingLabels{
+				rayutils.RayOriginatedFromCRNameLabelKey: rayJob.Name,
+			})).To(gomega.Succeed())
+			g.Expect(jobs.Items).To(gomega.HaveLen(1))
+			*submitterJob = jobs.Items[0]
+			g.Expect(metav1.IsControlledBy(submitterJob, rayJob)).To(gomega.BeTrue())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg[client.Object]("KubeRay did not create the submitter Job", rayJob, submitterJob))
+
+		ginkgo.By("Checking the submitter has its own pending Workload")
+		submitterWorkload := &kueue.Workload{}
+		submitterWorkloadKey := client.ObjectKey{
+			Name:      workloadjob.GetWorkloadNameForJob(submitterJob.Name, submitterJob.UID),
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(submitterJob), submitterJob)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, submitterWorkloadKey, submitterWorkload)).To(gomega.Succeed())
+			g.Expect(metav1.IsControlledBy(submitterWorkload, submitterJob)).To(gomega.BeTrue())
+			g.Expect(submitterWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(localQueueName)))
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg[client.Object]("Submitter Job did not get its own Workload", submitterJob, submitterWorkload))
+		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, submitterWorkloadKey)
+
+		ginkgo.By("Checking the submitter creates no Pods while quota is unavailable")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(submitterJob), submitterJob)).To(gomega.Succeed())
+			g.Expect(submitterJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+				batchv1.JobNameLabel: submitterJob.Name,
+			})).To(gomega.Succeed())
+			g.Expect(pods.Items).To(gomega.BeEmpty())
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Adding quota for the submitter and waiting for successful job submission")
+		quotaPatch = client.MergeFrom(cq.DeepCopy())
+		behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, "1700m")
+		gomega.Expect(k8sClient.Patch(ctx, cq, quotaPatch)).To(gomega.Succeed())
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, submitterWorkloadKey)
+		e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, submitterWorkloadKey, corev1.ResourceCPU, "300m")
+		e2e.ExpectJobToBeCompletedWithTimeout(ctx, k8sClient, submitterJob, behavioral.VeryLongTimeout)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), rayJob)).To(gomega.Succeed())
+			g.Expect(rayJob.Status.RayClusterName).To(gomega.Equal(rayCluster.Name))
+			g.Expect(rayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+			g.Expect(rayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayJob did not finish successfully", rayJob))
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, clusterWorkloadKey)
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).To(gomega.Succeed())
+		gomega.Expect(rayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
 	})
 
 	ginkgo.It("Should account for the autoscaler sidecar in the head PodSet quota when in-tree autoscaling is enabled", ginkgo.Label("shard:kuberay-b"), func() {
