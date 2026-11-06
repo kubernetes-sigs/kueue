@@ -57,6 +57,9 @@ type cpWorkerState struct {
 	cqs          []*kueue.ClusterQueue
 	disconnected bool
 	listErr      error
+	// clusterDeleted means that the MultiKueueCluster object is gone, but the
+	// clusters reconciler did not remove the remote client yet.
+	clusterDeleted bool
 }
 
 func asObjs[T client.Object](objs []T) []client.Object {
@@ -659,6 +662,66 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 				).
 				Condition(synchronizedCondition("Capacity synchronized from connected MultiKueue worker clusters; disconnected worker clusters: [worker2 worker3]", 1)).
+				Obj(),
+			wantStatusPatches: 1,
+		},
+		"deleted MultiKueueCluster is skipped before the clusters reconciler removes its remote client": {
+			cp: utiltestingalpha.MakeCapacityProvider("cp1").
+				ControllerName(kueue.MultiKueueControllerName).
+				OrchestratedFlavors("default").
+				Parameters(kueuealpha.SchemeGroupVersion.Group, testProviderConfigKind, "cp-config1").
+				Generation(1).
+				Obj(),
+			providerConfigs: []*kueuealpha.MultiKueueCapacityProviderConfig{
+				utiltestingalpha.MakeMultiKueueCapacityProviderConfig("cp-config1").ManagerSubtreeRootRef(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq1").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "1").Obj()).
+					AdmissionChecks("ac1").
+					Obj(),
+			},
+			lqs: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+			},
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			mkConfigs: []*kueue.MultiKueueConfig{
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+			},
+			workers: map[string]cpWorkerState{
+				"worker1": {
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					cqs: []*kueue.ClusterQueue{
+						utiltestingapi.MakeClusterQueue("w1-cq1").
+							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
+							Obj(),
+					},
+				},
+				"worker2": {
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					cqs: []*kueue.ClusterQueue{
+						utiltestingapi.MakeClusterQueue("w2-cq1").
+							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "500").Obj()).
+							Obj(),
+					},
+					clusterDeleted: true,
+				},
+			},
+			wantCP: utiltestingalpha.MakeCapacityProvider("cp1").
+				ControllerName(kueue.MultiKueueControllerName).
+				OrchestratedFlavors("default").
+				Parameters(kueuealpha.SchemeGroupVersion.Group, testProviderConfigKind, "cp-config1").
+				Generation(1).
+				Capacity(utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("default").Resource("cpu", "10").Obj()).
+					Obj(),
+				).
+				Condition(synchronizedCondition("Capacity synchronized from connected MultiKueue worker clusters; disconnected worker clusters: [worker2]", 1)).
 				Obj(),
 			wantStatusPatches: 1,
 		},
@@ -1421,6 +1484,11 @@ func TestCPReconcile(t *testing.T) {
 				})
 			if tc.cp != nil {
 				builder = builder.WithObjects(tc.cp)
+			}
+			for worker, wState := range workers {
+				if !wState.clusterDeleted {
+					builder = builder.WithObjects(utiltestingapi.MakeMultiKueueCluster(worker).Obj())
+				}
 			}
 			if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
 				t.Fatalf("Failed to set up indexes: %v", err)

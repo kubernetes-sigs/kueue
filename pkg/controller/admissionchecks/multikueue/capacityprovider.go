@@ -271,6 +271,24 @@ func (r *cpReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 	connectedWorkers := 0
 
 	for _, workerName := range cfg.Spec.Clusters {
+		// The clusters reconciler removes the remote client of a deleted MultiKueueCluster
+		// asynchronously, so check the object itself. Otherwise the reconcile queued by the
+		// MultiKueueCluster delete event could still sum the quotas of the deleted worker.
+		mkc := &kueue.MultiKueueCluster{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: workerName}, mkc); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return aggregatedWorkerQuotas{}, fmt.Errorf("getting MultiKueueCluster %q: %w", workerName, err)
+			}
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker MultiKueueCluster not found, skipping it in quota aggregation", "workerCluster", workerName)
+			disconnected.Insert(workerName)
+			continue
+		}
+		if !mkc.DeletionTimestamp.IsZero() {
+			ctrl.LoggerFrom(ctx).V(3).Info("Worker MultiKueueCluster is being deleted, skipping it in quota aggregation", "workerCluster", workerName)
+			disconnected.Insert(workerName)
+			continue
+		}
+
 		var rc *remoteClient
 		var found bool
 		if r.clusters != nil {
