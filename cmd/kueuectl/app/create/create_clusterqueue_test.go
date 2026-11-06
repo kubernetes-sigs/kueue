@@ -519,7 +519,7 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should fail when invalid resource quotas": {
 			quotaArgs: []string{"alpha:cpu=;memory=1"},
-			wantErr:   `invalid resources specification "alpha:cpu=;memory=1" in --nominal-quota`,
+			wantErr:   `invalid resources specification "alpha:cpu=;memory=1" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when a resource name has an empty prefix": {
 			quotaArgs: []string{"alpha:cpu=1;/gpu=1"},
@@ -558,24 +558,24 @@ func TestParseResourceQuotas(t *testing.T) {
 		"should fail when invalid resources separator": {
 			// pflag keeps it as one spec only when CSV-quoted, e.g. '"alpha:cpu=0,memory=1"'.
 			quotaArgs: []string{"alpha:cpu=0,memory=1"},
-			wantErr:   `invalid resources specification "alpha:cpu=0,memory=1" in --nominal-quota`,
+			wantErr:   `invalid resources specification "alpha:cpu=0,memory=1" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when a spec has no flavor": {
 			// pflag splits "alpha:cpu=0,memory=1" into two specs.
 			quotaArgs: []string{"alpha:cpu=0", "memory=1"},
-			wantErr:   `invalid resources specification "memory=1" in --nominal-quota`,
+			wantErr:   `invalid resources specification "memory=1" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when a spec has a leading space": {
 			quotaArgs: []string{"alpha:cpu=1", " beta:memory=2"},
-			wantErr:   `invalid resources specification " beta:memory=2" in --nominal-quota`,
+			wantErr:   `invalid resources specification " beta:memory=2" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when invalid param": {
 			quotaArgs: []string{"alpha"},
-			wantErr:   `invalid resources specification "alpha" in --nominal-quota`,
+			wantErr:   `invalid resources specification "alpha" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when invalid flavor specification": {
 			quotaArgs: []string{"alpha=cpu=0;memory=1"},
-			wantErr:   `invalid resources specification "alpha=cpu=0;memory=1" in --nominal-quota`,
+			wantErr:   `invalid resources specification "alpha=cpu=0;memory=1" in --nominal-quota, expected FLAVOR:RESOURCE=QUANTITY[;RESOURCE=QUANTITY...]`,
 		},
 		"should fail when a flavor name ends with a dash": {
 			quotaArgs: []string{"alpha-:cpu=1"},
