@@ -240,6 +240,10 @@ var (
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=preempting_cluster_queue="the ClusterQueue executing preemption",reason="eviction or preemption reason",replica_role="one of `leader`, `follower`, or `standalone`"
+	PartiallyPreemptedWorkloadsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
 
@@ -842,6 +846,14 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
+	PartiallyPreemptedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "partially_preempted_workloads_total",
+			Help:      "The number of partial preemption requests per preempting ClusterQueue and reason. Counted only when a target is newly set or lowered.",
+		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
 	WorkloadEvictionLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -1322,6 +1334,11 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+func ReportPartialPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingReason string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(preemptingCqName), preemptingReason, roletracker.GetRole(tracker)}, customLabelValues...)
+	PartiallyPreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -1353,6 +1370,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	PartiallyPreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
@@ -1709,6 +1727,7 @@ func Register() {
 		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
+		PartiallyPreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
 		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,

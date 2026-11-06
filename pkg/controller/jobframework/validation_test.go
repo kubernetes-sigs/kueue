@@ -431,6 +431,50 @@ func TestValidateJobOnUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata.annotations["+workloadslicing.EnabledAnnotationKey+"]"), "false", "field is immutable"),
 			},
 		},
+		"partial preemption annotation cannot be removed on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation cannot be added on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation cannot be disabled on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "false").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata.annotations["+kueueconstants.PartialPreemptionAnnotation+"]"), "false", "field is immutable"),
+			},
+		},
+		"partial preemption annotation unchanged on update": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: true,
+			},
+		},
+		"partial preemption annotation can change while the feature gate is off": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption: false,
+			},
+		},
 		"prebuilt workload label valid on update": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name").Suspend(true).Obj(),

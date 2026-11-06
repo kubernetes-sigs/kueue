@@ -82,6 +82,8 @@ func fairPreemptionStrategy(
 	}
 
 	candidatesIter := func(yieldCandidate func(*Target) bool) {
+		// The iterator can run more than once, each run starts from all the candidates.
+		candidateWls := candidateWls
 		var cont bool
 		targetsInPreemptorCQ := false
 

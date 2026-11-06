@@ -1041,7 +1041,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
+	revertUsage := snapshot.SimulateWorkloadRemoval(preemption.WorkloadReplacements(merged.Workloads()))
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -1101,7 +1101,12 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 // simulateOtherPreemptions projects the victims of preemptions already decided this cycle
 // out of the snapshot and returns the single undo.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
+	targets := slices.Collect(maps.Values(preemptedWorkloads))
+	targetWorkloads := make([]*workload.Info, 0, len(targets))
+	for _, t := range targets {
+		targetWorkloads = append(targetWorkloads, t.WorkloadInfo)
+	}
+	return snapshot.SimulateRemovals(ctx, log, targetWorkloads)
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
