@@ -640,6 +640,15 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, clVals, c.roleTracker)
 		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, c.resourceNode.Usage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
 		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, c.AdmittedUsage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
+
+		var lendable float64
+		if c.Active() {
+			// Usage within localQuota does not consume quota exposed to the parent.
+			lendableAmt := resources.MaxAmount(resources.NewAmount(0),
+				c.resourceNode.SubtreeQuota[fr].Sub(resources.MaxAmount(c.resourceNode.localQuota(fr), c.resourceNode.Usage[fr])))
+			lendable = lendableAmt.AsApproximateFloat64(fr.Resource)
+		}
+		metrics.ReportClusterQueueLendableResources(cohort, cqName, fName, rName, lendable, clVals, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)

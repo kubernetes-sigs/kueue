@@ -1356,3 +1356,239 @@ func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *te
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels("a", "beta"), 1)
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels("b", "alpha"), 1)
 }
+
+func TestRecordCohortMetrics_LendableResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MetricsForCohorts, true)
+	fixture := newCohortMetricsFixture(t)
+	cache := fixture.cache
+	ctx, log := fixture.ctx, fixture.log
+	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	setupRecordMetricsHierarchy(ctx, t, log, cache,
+		[]*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+		[]*kueue.Cohort{utiltestingapi.MakeCohort("ch").Obj()},
+		[]*kueue.ClusterQueue{
+			utiltestingapi.MakeClusterQueue("cqa").
+				Cohort("ch").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj(),
+			utiltestingapi.MakeClusterQueue("cqb").
+				Cohort("ch").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+				Obj(),
+		},
+	)
+
+	clearCohortMetricsForTest(t, "ch")
+
+	addTestUsage(cache, []usageChange{
+		{cqName: "cqa", fr: frDefaultCPU, val: 4_000},
+		{cqName: "cqb", fr: frDefaultCPU, val: 3_000},
+	})
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 11)
+
+	stopped := utiltestingapi.MakeClusterQueue("cqb").
+		Cohort("ch").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+		Obj()
+	stopPolicy := kueue.Hold
+	stopped.Spec.StopPolicy = &stopPolicy
+	if err := cache.UpdateClusterQueue(log, stopped); err != nil {
+		t.Fatalf("updating cqb to stopped: %v", err)
+	}
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 3)
+
+	addTestUsage(cache, []usageChange{
+		{cqName: "cqa", fr: frDefaultCPU, val: 10_000},
+		{cqName: "cqb", fr: frDefaultCPU, val: 8_000},
+	})
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels("ch", frDefaultCPU))
+}
+
+func TestRecordCohortMetrics_LendableResourcesAcrossNestedCohorts(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	testCases := map[string]struct {
+		cohorts     []*kueue.Cohort
+		queues      []*kueue.ClusterQueue
+		usage       []usageChange
+		want        map[kueue.CohortReference]float64
+		comparePeer bool
+		disabled    bool
+	}{
+		"borrowing sibling consumes idle quota": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("borrower").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			usage:       []usageChange{{cqName: "borrower", fr: fr, val: 8_000}},
+			want:        map[kueue.CohortReference]float64{"nested": 4, "root": 4},
+			comparePeer: true,
+		},
+		"cohort nominal quota is consumed by a child": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("nested").Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).Obj(),
+			},
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("borrower").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).Obj(),
+			},
+			usage:       []usageChange{{cqName: "borrower", fr: fr, val: 3_000}},
+			want:        map[kueue.CohortReference]float64{"nested": 2, "root": 2},
+			comparePeer: true,
+		},
+		"nested lending limit protects child quota": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("nested").Parent("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4", "", "2").Obj()).Obj(),
+			},
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).Obj(),
+			},
+			want:        map[kueue.CohortReference]float64{"nested": 12, "root": 2},
+			comparePeer: true,
+		},
+		"stopped direct child is not a lender": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("stopped").Cohort("root").StopPolicy(kueue.Hold).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).Obj(),
+			},
+			want: map[kueue.CohortReference]float64{"nested": 10, "root": 10},
+		},
+		"stopped nested child is not a lender": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("stopped").Cohort("nested").StopPolicy(kueue.Hold).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).Obj(),
+			},
+			want: map[kueue.CohortReference]float64{"nested": 0, "root": 10},
+		},
+		"stopped queue retains its protected quota": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("stopped").Cohort("nested").StopPolicy(kueue.Hold).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8", "", "2").Obj()).Obj(),
+			},
+			usage: []usageChange{{cqName: "stopped", fr: fr, val: 5_000}},
+			want:  map[kueue.CohortReference]float64{"nested": 10, "root": 10},
+		},
+		"stopped queue shared reservations still count": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("stopped").Cohort("nested").StopPolicy(kueue.Hold).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8", "", "2").Obj()).Obj(),
+			},
+			usage: []usageChange{{cqName: "stopped", fr: fr, val: 9_000}},
+			want:  map[kueue.CohortReference]float64{"nested": 7, "root": 7},
+		},
+		"no lendable series with feature disabled": {
+			queues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("idle").Cohort("nested").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj(),
+			},
+			want:     map[kueue.CohortReference]float64{"nested": 0, "root": 0},
+			disabled: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MetricsForCohorts, !tc.disabled)
+			fixture := newCohortMetricsFixture(t)
+			cache := fixture.cache
+			cohorts := []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("nested").Parent("root").Obj(),
+			}
+			cohorts = append(cohorts, tc.cohorts...)
+			queues := append(slices.Clone(tc.queues),
+				utiltestingapi.MakeClusterQueue("peer").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).Obj())
+			setupRecordMetricsHierarchy(fixture.ctx, t, fixture.log, cache,
+				[]*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()}, cohorts, queues)
+			clearCohortMetricsForTest(t, "root", "nested")
+			for _, change := range tc.usage {
+				addUsage(cache.hm.ClusterQueue(change.cqName), change.fr, resources.NewAmount(change.val))
+			}
+			cache.RecordCohortMetrics(fixture.log, "nested")
+			for cohortName, want := range tc.want {
+				if want == 0 {
+					expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels(cohortName, fr))
+				} else {
+					expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels(cohortName, fr), want)
+				}
+			}
+			if tc.comparePeer {
+				snapshot, err := cache.Snapshot(fixture.ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := snapshot.ClusterQueues()["peer"].Available(fr).AsApproximateFloat64(fr.Resource)
+				if got != tc.want["root"] {
+					t.Errorf("empty peer can borrow %v, cohort metric reports %v", got, tc.want["root"])
+				}
+			}
+		})
+	}
+}
+
+func TestRecordCohortMetrics_ExcludesInactiveQueuesFromNestedCohort(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MetricsForCohorts, true)
+	fixture := newCohortMetricsFixture(t)
+	cache := fixture.cache
+	ctx, log := fixture.ctx, fixture.log
+	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	stopPolicy := kueue.Hold
+	stopped := utiltestingapi.MakeClusterQueue("stopped").
+		Cohort("nested").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+		Obj()
+	stopped.Spec.StopPolicy = &stopPolicy
+
+	setupRecordMetricsHierarchy(ctx, t, log, cache,
+		[]*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+		[]*kueue.Cohort{
+			utiltestingapi.MakeCohort("root").Obj(),
+			utiltestingapi.MakeCohort("nested").Parent("root").Obj(),
+		},
+		[]*kueue.ClusterQueue{
+			utiltestingapi.MakeClusterQueue("active").
+				Cohort("nested").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj(),
+			stopped,
+		},
+	)
+	clearCohortMetricsForTest(t, "root", "nested")
+
+	addTestUsage(cache, []usageChange{
+		{cqName: "stopped", fr: frDefaultCPU, val: 3_000},
+	})
+	cache.RecordCohortMetrics(log, "nested")
+
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("nested", frDefaultCPU), 7)
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("root", frDefaultCPU), 7)
+
+	active := utiltestingapi.MakeClusterQueue("active").
+		Cohort("nested").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+	active.Spec.StopPolicy = &stopPolicy
+	if err := cache.UpdateClusterQueue(log, active); err != nil {
+		t.Fatalf("updating active CQ to stopped: %v", err)
+	}
+	cache.RecordCohortMetrics(log, "nested")
+
+	expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels("nested", frDefaultCPU))
+	expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels("root", frDefaultCPU))
+}
