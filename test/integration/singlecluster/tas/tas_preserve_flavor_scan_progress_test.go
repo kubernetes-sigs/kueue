@@ -43,7 +43,7 @@ const equalPriority = 100
 // These specs cover the FlavorFungibilityPreserveScanProgress gate end to end: a Workload whose TAS
 // placement fails on the flavor selected by quota must still reach another flavor of the
 // ResourceGroup and be admitted there.
-var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progress", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progress", func() {
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
@@ -54,19 +54,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		// Fair sharing on, so the fair-share entry iterator and preemption path drive
 		// this spec rather than the classical ones.
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
 			FairSharing: &config.FairSharing{},
 		}))
-	})
 
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-preserve-flavor-scan-")
 
 		// One node per flavor. The blocker Workload fills the flavor-1 node, so the
