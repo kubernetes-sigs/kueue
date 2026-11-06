@@ -19,13 +19,16 @@
 # - pull-kueue-test-unit-coverage-main (presubmit): starts together with the
 #   shards, so it has the same refs. It waits until every shard build on
 #   exactly these refs has finished, then merges the newest successful build
-#   of each shard.
+#   of each shard. It skips green when a shard never ran on its refs, and
+#   fails when one ran and failed.
 # - post-kueue-test-unit-coverage-main (postsubmit on main): for the pushed
 #   squash commit M it picks the shard builds whose tested tree equals M's
 #   tree (the PR's own runs on M^, or a Tide batch build). It reads the
 #   shards' batch builds. Tide merges only after the shards passed, so
 #   nothing waits. A commit is skipped only when no build tested its tree,
-#   for example a batch member whose prefix no batch build tested.
+#   for example a batch member whose prefix no batch build tested. During a
+#   shard-count change, a commit whose builds ran on the old count fails
+#   red, while a matching batch at the new count still merges.
 #
 # Outputs, for the Spyglass coverage lens, TestGrid and the Codecov workflow:
 #   $ARTIFACTS/filtered.cov          merged profile of the shards' filtered.cov
@@ -41,14 +44,19 @@ set -o errexit -o nounset -o pipefail
 GOPHERAGE=${GOPHERAGE:-gopherage}
 JQ=${JQ:-jq}
 REPO_DIR=${REPO_DIR:-.}
-UNIT_TOTAL_SHARDS=${UNIT_TOTAL_SHARDS:-2}
+# Must equal the test-infra shard jobs' UNIT_TOTAL_SHARDS; checked against
+# each shard build. The count lives in this script. The makefile does not
+# pass it, because setting UNIT_TOTAL_SHARDS aborts the build at parse time.
+UNIT_COVERAGE_SHARDS=${UNIT_COVERAGE_SHARDS:-2}
 SHARD_JOB_TEMPLATE=${SHARD_JOB_TEMPLATE:-pull-kueue-test-unit-shard-%d-main}
 POLL_SECONDS=${POLL_SECONDS:-30}
 # A shard of the same trigger can stay unscheduled for up to its
 # pod_unscheduled_timeout (18m) and then run for up to its timeout (1h).
 WAIT_SECONDS=${WAIT_SECONDS:-5100}
-# Give up early if no shard build with our refs shows up at all (for example
-# after `/test pull-kueue-test-unit-coverage-main` alone on a new base).
+# The presubmit skips green when a shard never ran on its refs, and fails
+# when one ran and failed. The bucket cannot tell "not started" from "will
+# never start", and a shard can sit unscheduled until pod_unscheduled_timeout
+# (18m) before its directory exists, so this stays at 20m.
 APPEAR_SECONDS=${APPEAR_SECONDS:-1200}
 LOOKBACK=${LOOKBACK:-40}
 # Tide sets no batch size limit for kueue; recent batches had up to 8 pulls.
@@ -59,6 +67,28 @@ GCS_API="https://storage.googleapis.com/storage/v1/b/${BUCKET}/o"
 
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
+
+# check_shard_count PATH...: each build's prowjob.json records the shard count
+# that job ran with. It must equal UNIT_COVERAGE_SHARDS. A missing or
+# non-numeric value dies as unset. An unreadable prowjob.json dies on its
+# own, so a transport error is not reported as a count mismatch.
+check_shard_count() {
+  local path pj value
+  for path in "$@"; do
+    [[ -n "${path}" ]] || continue
+    if ! pj=$(curl -sSf --retry 3 "${GCS}/${path}/prowjob.json" 2>/dev/null); then
+      die "${path} prowjob.json unreadable"
+    fi
+    # jq -r. A jq error is the same as a missing value.
+    value=$("${JQ}" -r '[.spec.pod_spec.containers[]?.env[]? | select(.name=="UNIT_TOTAL_SHARDS") | .value][0] // empty' <<<"${pj}") || value=""
+    if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+      die "${path} ran with UNIT_TOTAL_SHARDS=unset, but UNIT_COVERAGE_SHARDS=${UNIT_COVERAGE_SHARDS} (merge-unit-coverage.sh)"
+    fi
+    if ((10#${value} != 10#${UNIT_COVERAGE_SHARDS})); then
+      die "${path} ran with UNIT_TOTAL_SHARDS=${value}, but UNIT_COVERAGE_SHARDS=${UNIT_COVERAGE_SHARDS} (merge-unit-coverage.sh)"
+    fi
+  done
+}
 
 shard_job() {
   # shellcheck disable=SC2059
@@ -111,6 +141,8 @@ scan() {
 merge_builds() {
   local commit=$1 refs=$2 work i p inputs=()
   shift 2
+  # Before any download or any write to filtered.cov.
+  check_shard_count "$@"
   work=$(mktemp -d)
   # shellcheck disable=SC2064 # expand now
   trap "rm -rf '${work}'" EXIT
@@ -153,17 +185,17 @@ skip() {
 # shards' batch builds.
 merge_same_refs() {
   local want pr prefix i job scanned builds ok running elapsed start picked=() retest
-  local unknown seen since
+  local unknown seen since absent=() sha
   # shellcheck disable=SC2016 # jq expressions
   want=$("${JQ}" -c '{type: .type, base: .refs.base_sha,
     pulls: [.refs.pulls[] | {number, sha}]}' <<<"${JOB_SPEC}")
   pr=$("${JQ}" -r '.refs.pulls[0].number' <<<"${JOB_SPEC}")
   # One comment with every /test line is one trigger, so one base for all.
-  retest=$(for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do printf '/test %s\n' "$(shard_job "${i}")"; done
+  retest=$(for ((i = 0; i < UNIT_COVERAGE_SHARDS; i++)); do printf '/test %s\n' "$(shard_job "${i}")"; done
     printf '/test %s' "${JOB_NAME:-pull-kueue-test-unit-coverage-main}")
   log "Waiting for the unit shards on ${want}"
   start=$(date +%s)
-  for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do
+  for ((i = 0; i < UNIT_COVERAGE_SHARDS; i++)); do
     job=$(shard_job "${i}")
     prefix="pr-logs/pull/${ORG_REPO}/${pr}/${job}/"
     seen=""
@@ -188,14 +220,27 @@ merge_same_refs() {
         picked+=("${ok}") && log "${job}: ${ok}" && break
       elif [[ -n "${builds}" ]]; then
         die "${job} did not succeed on these refs; merged coverage needs every shard"
-      else
-        ((elapsed < APPEAR_SECONDS)) \
-          || die "no ${job} build on these refs. To run the shards and this job on one base, comment:"$'\n'"${retest}"
+      elif ((${#absent[@]} > 0)) || ((elapsed >= APPEAR_SECONDS)); then
+        # Recorded at once, with no further wait. A shard already found absent
+        # means APPEAR_SECONDS has passed, so a later missing shard is absent
+        # immediately and the loop goes on. skip runs only after the loop.
+        absent+=("${job}")
+        log "no ${job} build on these refs"
+        break
       fi
       sleep "${POLL_SECONDS}"
     done
   done
-  merge_builds "$("${JQ}" -r '.refs.pulls[0].sha' <<<"${JOB_SPEC}")" "${want}" "${picked[@]}"
+  sha=$("${JQ}" -r '.refs.pulls[0].sha' <<<"${JOB_SPEC}")
+  # Skip only when every shard succeeded or is absent, and at least one is
+  # absent. A too-high count on a shard that did run fails instead of skipping.
+  if ((${#absent[@]} > 0)); then
+    if ((${#picked[@]} > 0)); then
+      check_shard_count "${picked[@]}"
+    fi
+    skip "no ${absent[0]} build on these refs. To run the shards and this job on one base, comment:"$'\n'"${retest}" "${sha}"
+  fi
+  merge_builds "${sha}" "${want}" "${picked[@]}"
 }
 
 # tested_tree REFS_JSON: the tree clonerefs builds for these refs (git merge
@@ -249,11 +294,11 @@ pick_exact() {
     t=$(tested_tree "${refs}") || { failed=1; continue; }
     [[ "${t}" == "${tree}" ]] || continue
     echo "${refs}"
-    for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do
+    for ((i = 0; i < UNIT_COVERAGE_SHARDS; i++)); do
       awk -v i="${i}" -v r="${refs}" '$1 == i && $2 == "success" && $4 == r { print $3; exit }' <<<"${lines}"
     done
     return 0
-  done < <(awk -v n="${UNIT_TOTAL_SHARDS}" '$2 == "success" && !seen[$4 " " $1]++ {
+  done < <(awk -v n="${UNIT_COVERAGE_SHARDS}" '$2 == "success" && !seen[$4 " " $1]++ {
       c[$4]++; if (!($4 in order)) { order[$4] = ++k; refs[k] = $4 } }
     END { for (j = 1; j <= k; j++) if (c[refs[j]] == n) print refs[j] }' <<<"${lines}")
   return $((failed ? 2 : 1))
@@ -273,7 +318,7 @@ merge_picked() {
 # tested exactly its prefix). The tree comparison is what decides; refs alone
 # are only a filter.
 merge_postsubmit() {
-  local m p1 tree pr i job lines bases picked rc unfetched=0
+  local m p1 tree pr i job pr_lines="" lines="" bases picked rc unfetched=0 candidate=""
   m=$("${JQ}" -r .refs.base_sha <<<"${JOB_SPEC}")
   [[ "$(git -C "${REPO_DIR}" rev-parse HEAD)" == "${m}" ]] || die "REPO_DIR is not at ${m}"
   # A depth-1 clone has no parent, so the single-parent check below would skip
@@ -282,6 +327,8 @@ merge_postsubmit() {
   # clone_depth is set.
   [[ "$(git -C "${REPO_DIR}" rev-parse --is-shallow-repository)" == true ]] \
     && die "shallow clone; rev-list and merge-tree need the full history of ${m}"
+  # Merge commits skip here, before any shard-count guard: more than one
+  # parent means this is not a squash the job can attribute.
   [[ "$(git -C "${REPO_DIR}" rev-list --parents -n 1 "${m}" | wc -w)" -eq 2 ]] \
     || skip "${m} is not a single-parent (squash) commit" "${m}"
   p1=$(git -C "${REPO_DIR}" rev-parse "${m}^")
@@ -289,14 +336,13 @@ merge_postsubmit() {
   pr=$(git -C "${REPO_DIR}" log -1 --format=%s "${m}" | sed -nE 's/.*\(#([0-9]+)\)$/\1/p')
 
   if [[ -n "${pr}" ]]; then
-    lines=""
-    for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do
+    for ((i = 0; i < UNIT_COVERAGE_SHARDS; i++)); do
       job=$(shard_job "${i}")
-      lines+=$(scan "${job}" "pr-logs/pull/${ORG_REPO}/${pr}/${job}/" \
+      pr_lines+=$(scan "${job}" "pr-logs/pull/${ORG_REPO}/${pr}/${job}/" \
         | awk -v i="${i}" -v b="${p1}" 'index($3, "\"type\":\"presubmit\"") && index($3, "\"base\":\"" b "\"") { print i, $0 }')$'\n' \
         || die "cannot list ${job}"
     done
-    rc=0 && picked=$(pick_exact "${tree}" "${lines}") || rc=$?
+    rc=0 && picked=$(pick_exact "${tree}" "${pr_lines}") || rc=$?
     if ((rc == 0)); then
       log "PR ${pr} tested the tree of ${m} on ${p1}"
       merge_picked "${m}" "${picked}"
@@ -307,7 +353,7 @@ merge_postsubmit() {
 
   bases=$(git -C "${REPO_DIR}" rev-list --first-parent -n "$((MAX_BATCH + 1))" "${m}" | tail -n +2)
   lines=""
-  for ((i = 0; i < UNIT_TOTAL_SHARDS; i++)); do
+  for ((i = 0; i < UNIT_COVERAGE_SHARDS; i++)); do
     job=$(shard_job "${i}")
     lines+=$(scan "${job}" "pr-logs/pull/batch/${job}/" \
       | awk -v i="${i}" -v bases="${bases//$'\n'/ }" 'BEGIN { split(bases, a, " "); for (k in a) ok[a[k]] = 1 }
@@ -323,6 +369,14 @@ merge_postsubmit() {
   # A commit that could not be fetched or merged may be the match; fail so
   # that a rerun can find it, instead of skipping the commit for good.
   ((rc == 1 && !unfetched)) || die "no match for ${m}, and a candidate's commits could not be fetched or merged"
+  # During a shard-count change, a commit whose builds ran on the old count
+  # fails red instead of skipping. A matching batch at the new count still
+  # merges above, because merge_builds checks every path. A candidate here is
+  # any successful shard build from either scan, not a full set. PR lines
+  # first. If neither scan found a success, the commit skips as before.
+  candidate=$(awk '$2 == "success" { print $3; exit }' <<<"${pr_lines}")
+  [[ -n "${candidate}" ]] || candidate=$(awk '$2 == "success" { print $3; exit }' <<<"${lines}")
+  [[ -z "${candidate}" ]] || check_shard_count "${candidate}"
   skip "no unit shard build tested the tree of ${m} (for example a batch member whose prefix no batch build tested, or unit jobs skipped)" "${m}"
 }
 

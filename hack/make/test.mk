@@ -132,9 +132,10 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 
 # Run by the Prow jobs pull-kueue-test-unit-coverage-main and
 # post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+# The shard count lives in that script (UNIT_COVERAGE_SHARDS).
 .PHONY: test-unit-coverage-merge
 test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
-	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) UNIT_TOTAL_SHARDS=$(or $(UNIT_TOTAL_SHARDS),2) \
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) \
 		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
