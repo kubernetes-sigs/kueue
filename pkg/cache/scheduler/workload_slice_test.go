@@ -91,6 +91,8 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj()).Obj()).Obj(), now).
 		Obj()
+	shrinkingNew := small.Clone().Name("new").UID("new").Creation(now.Add(-2*time.Second)).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old").Obj()
 	unownedOld := oldSlice.DeepCopy()
 	unownedOld.OwnerReferences = nil
 	unownedNew := newSlice.DeepCopy()
@@ -174,6 +176,13 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		"a Workload naming itself is charged": {
 			steps: []step{
 				{add: selfReplacing, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/self"}},
+			},
+		},
+		"a replacement that shrinks does not uncharge the slice it replaces": {
+			steps: []step{
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+				{add: shrinkingNew, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
+				{finish: oldSliceFinished, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/new"}},
 			},
 		},
 		"TAS slices are both charged": {

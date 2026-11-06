@@ -49,7 +49,8 @@ import (
 //   - in event orders the controllers produce, at most one slice of the chain is charged.
 //
 // In a quarter of the sequences all slices are created in the same second, so their order is
-// unknown to the cache; it may then charge more than one slice, but never too little.
+// unknown to the cache, and in half of them the chain shrinks, so a newer slice does not cover an
+// older one. The cache may then charge more than one slice, but never too little.
 func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 	const (
 		steps    = 40
@@ -79,28 +80,38 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 	entities = append(entities,
 		entity{name: "x", key: "ns/x", uid: "x", owner: "other", cpu: 7, slice: -1},
 		entity{name: "s0", key: "ns/s0", uid: "r", owner: "reuse", cpu: 11, slice: -1})
-	// objects[i][sameSecond][finished] is the reserved Workload of entity i. Every slice of a chain
-	// carries the chain's slice name, and every Workload here has its job as controller.
+	// objects[i][sameSecond][shrinks][finished] is the reserved Workload of entity i. Every slice of a
+	// chain carries the chain's slice name, and every Workload here has its job as controller. In a
+	// shrinking chain, slice s0 requests 4 cpu and s3 1.
 	base := utiltestingapi.MakeWorkload("", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "s0")
-	objects := make([][2][2]*kueue.Workload, len(entities))
+	objects := make([][2][2][2]*kueue.Workload, len(entities))
+	cpuOf := make([][2]int, len(entities))
 	for i, e := range entities {
+		cpuOf[i] = [2]int{e.cpu, e.cpu}
+		if e.slice >= 0 {
+			cpuOf[i][1] = chainLen - e.slice
+		}
 		for sameSecond := range 2 {
-			w := base.Clone().Name(e.name).UID(types.UID(e.uid)).
-				Creation(now.Add(-time.Duration((chainLen-e.slice)*(1-sameSecond))*time.Second)).
-				Request(corev1.ResourceCPU, strconv.Itoa(e.cpu)).
-				ControllerReference(jobGVK, e.owner, e.owner+"-uid").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", strconv.Itoa(e.cpu)).Obj()).Obj(), now)
-			if e.slice > 0 {
-				w = w.Annotation(constants.WorkloadSliceReplacementForAnnotation, fmt.Sprintf("ns/s%d", e.slice-1))
+			for shrinks := range 2 {
+				q := strconv.Itoa(cpuOf[i][shrinks])
+				w := base.Clone().Name(e.name).UID(types.UID(e.uid)).
+					Creation(now.Add(-time.Duration((chainLen-e.slice)*(1-sameSecond))*time.Second)).
+					Request(corev1.ResourceCPU, q).
+					ControllerReference(jobGVK, e.owner, e.owner+"-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", q).Obj()).Obj(), now)
+				if e.slice > 0 {
+					w = w.Annotation(constants.WorkloadSliceReplacementForAnnotation, fmt.Sprintf("ns/s%d", e.slice-1))
+				}
+				objects[i][sameSecond][shrinks] = [2]*kueue.Workload{w.Clone().Obj(), w.Clone().Finished().Obj()}
 			}
-			objects[i][sameSecond] = [2]*kueue.Workload{w.Clone().Obj(), w.Clone().Finished().Obj()}
 		}
 	}
 
 	for seed := range uint64(sequences) {
 		rng := rand.New(rand.NewPCG(seed, 0))
 		sameSecond := rng.IntN(4) / 3 // 1 in a quarter of the sequences
+		shrinks := rng.IntN(2)
 		ctx, log := utiltesting.ContextWithLog(t)
 		cache := New(utiltesting.NewFakeClient())
 		cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
@@ -140,18 +151,18 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 						realistic = false
 					}
 				}
-				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][0].DeepCopy())
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][shrinks][0].DeepCopy())
 				present[i] = true
 				history = append(history, "add "+e.uid)
 			case op == 1 && present[i]:
-				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][0].DeepCopy())
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][shrinks][0].DeepCopy())
 				history = append(history, "update "+e.uid)
 			case op == 2 && present[i]:
 				// A slice finishes once its replacement is admitted, or when the job finishes.
 				if e.slice >= 0 && !slices.Contains(present[i+1:chainLen], true) {
 					jobFinished = true
 				}
-				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][1].DeepCopy())
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][shrinks][1].DeepCopy())
 				present[i], finished[i] = false, true
 				history = append(history, "finish "+e.uid)
 			case op == 3 && present[i]:
@@ -211,10 +222,11 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 					charged++
 					continue
 				}
-				// A replaced slice is covered by a later slice of its chain that is charged.
+				// A replaced slice is covered by a later slice of its chain that is charged, and charges
+				// at least as much.
 				covered := false
 				for k := j + 1; k < chainLen; k++ {
-					if _, ok := c.Workloads[workload.Reference(entities[k].key)]; ok && present[k] {
+					if _, ok := c.Workloads[workload.Reference(entities[k].key)]; ok && present[k] && cpuOf[k][shrinks] >= cpuOf[j][shrinks] {
 						covered = true
 					}
 				}
@@ -222,7 +234,7 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 					fail("%s is replaced, but no later slice is charged", e.uid)
 				}
 			}
-			if realistic && sameSecond == 0 && charged > 1 {
+			if realistic && sameSecond == 0 && shrinks == 0 && charged > 1 {
 				fail("%d slices of the chain are charged", charged)
 			}
 		}

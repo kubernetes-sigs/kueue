@@ -532,7 +532,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	}
 	chain := sliceChain(wi)
 	for other := range c.chargedSlices[chain] {
-		if newerSlice(c.Workloads[other].Obj, w) {
+		if covers(c.Workloads[other], wi) {
 			c.replacedSlices[k] = wi
 			return
 		}
@@ -554,7 +554,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	}
 	c.chargedSlices[chain].Insert(k)
 	for other := range c.chargedSlices[chain] {
-		if old := c.Workloads[other]; newerSlice(w, old.Obj) {
+		if old := c.Workloads[other]; covers(wi, old) {
 			c.deleteWorkload(log, other)
 			c.replacedSlices[other] = old
 		}
@@ -572,9 +572,19 @@ func sliceChain(wi *workload.Info) string {
 	return wi.Obj.Namespace + "/" + string(owner.UID) + "/" + name
 }
 
-// newerSlice reports whether a was created after b. Slices created in the same second stay charged.
-func newerSlice(a, b *kueue.Workload) bool {
-	return a.CreationTimestamp.After(b.CreationTimestamp.Time)
+// covers reports whether slice a covers slice b: a was created after b and charges at least b's
+// usage. Slices created in the same second, and a replacement that shrinks, stay charged.
+func covers(a, b *workload.Info) bool {
+	if !a.Obj.CreationTimestamp.After(b.Obj.CreationTimestamp.Time) {
+		return false
+	}
+	usage := a.ResourceUsage().Assigned
+	for fr, q := range b.ResourceUsage().Assigned {
+		if usage[fr].Cmp(q) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
