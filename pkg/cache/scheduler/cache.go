@@ -942,7 +942,7 @@ func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *
 		return nil
 	}
 	cached, found := cq.Workloads[wlKey]
-	if !found {
+	if !found && features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		cached, found = cq.sliceTracker.coveredSlice(wlKey)
 	}
 	if !found {

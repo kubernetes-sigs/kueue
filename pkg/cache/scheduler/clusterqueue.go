@@ -525,11 +525,17 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
-	c.sliceTracker.forget(k)
+	var (
+		chain   sliceChainKey
+		isSlice bool
+	)
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		c.sliceTracker.forget(k)
+		chain, isSlice = sliceChainOf(wi)
+	}
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	chain, isSlice := sliceChainOf(wi)
 	if isSlice && c.coveredByChargedSlice(chain, wi) {
 		c.sliceTracker.cover(k, wi)
 		return
@@ -589,12 +595,17 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
-	c.sliceTracker.forget(wlKey)
+	sliceTracking := features.Enabled(features.ElasticJobsViaWorkloadSlices)
+	if sliceTracking {
+		c.sliceTracker.forget(wlKey)
+	}
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
 	}
-	defer c.untrackChargedSlice(log, wlKey, wi)()
+	if sliceTracking {
+		defer c.untrackChargedSlice(log, wlKey, wi)()
+	}
 	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking {
 		c.WorkloadsNotReady.Delete(wlKey)

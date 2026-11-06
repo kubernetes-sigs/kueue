@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,7 +40,7 @@ type sliceChainKey struct {
 func sliceChainOf(wi *workload.Info) (sliceChainKey, bool) {
 	owner := metav1.GetControllerOfNoCopy(wi.Obj)
 	name := wi.Obj.Annotations[kueue.WorkloadSliceNameAnnotation]
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || owner == nil || name == "" || wi.IsUsingTAS() {
+	if owner == nil || name == "" || wi.IsUsingTAS() {
 		return sliceChainKey{}, false
 	}
 	return sliceChainKey{namespace: wi.Obj.Namespace, controller: owner.UID, sliceName: name}, true
