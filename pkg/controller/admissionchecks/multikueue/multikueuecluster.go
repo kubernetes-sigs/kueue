@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -42,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	apiwait "k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -56,6 +58,7 @@ import (
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -94,8 +97,9 @@ const (
 )
 
 var (
-	errWatchEstablishTimeout    = errors.New("watch establishment timed out")
-	errWatchEstablishInProgress = errors.New("watch establishment is already in progress")
+	errWatchEstablishTimeout      = errors.New("watch establishment timed out")
+	errWatchEstablishInProgress   = errors.New("watch establishment is already in progress")
+	errClusterProfileAPINotServed = errors.New("the ClusterProfile API is not served")
 
 	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
@@ -869,15 +873,23 @@ type clustersReconciler struct {
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
-	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed.
-	// The ClusterProfile watch is only registered when both the feature gate is
-	// enabled and the CRD exists.
+	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed at startup.
+	// When it is not, the ClusterProfile watch is added once the CRD is served.
 	clusterProfileCRDPresent bool
+
+	// clusterProfileReader reads ClusterProfiles. It is nil until they can be read:
+	// from the start when the CRD is present at startup, or once a CRD installed
+	// later is served.
+	clusterProfileReader atomic.Pointer[clusterProfileReader]
 
 	logName     string
 	roleTracker *roletracker.RoleTracker
 
 	clientConnection *configapi.ClientConnection
+}
+
+type clusterProfileReader struct {
+	client.Reader
 }
 
 type clusterProfileAccessProvider interface {
@@ -1167,8 +1179,12 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 }
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
+	reader := c.clusterProfileReader.Load()
+	if reader == nil {
+		return nil, errClusterProfileAPINotServed
+	}
 	cp := &inventoryv1alpha2.ClusterProfile{}
-	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
+	if err := reader.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, err
 	}
 
@@ -1404,7 +1420,7 @@ func newClustersReconciler(
 	if options.clusterProfileAccessProvider == nil {
 		options.clusterProfileAccessProvider = &NoOpClusterProfileAccessProvider{}
 	}
-	return &clustersReconciler{
+	r := &clustersReconciler{
 		localClient:                  c,
 		configNamespace:              namespace,
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
@@ -1423,6 +1439,10 @@ func newClustersReconciler(
 		roleTracker:                  options.roleTracker,
 		clientConnection:             options.clientConnection,
 	}
+	if options.clusterProfileCRDPresent {
+		r.clusterProfileReader.Store(&clusterProfileReader{Reader: c})
+	}
+	return r
 }
 
 func (c *clustersReconciler) logger() logr.Logger {
@@ -1469,7 +1489,76 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			Watches(&inventoryv1alpha2.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
-	return controllerBuilder.Complete(c)
+	mkcController, err := controllerBuilder.Build(c)
+	if err != nil {
+		return err
+	}
+
+	if features.Enabled(features.MultiKueueClusterProfile) && !c.clusterProfileCRDPresent {
+		// The ClusterProfile CRD may be installed after Kueue starts. The manager cache has no
+		// namespaced entry for ClusterProfiles in that case, and the RBAC only allows reading them
+		// in the Kueue namespace, so the watch uses a dedicated cache scoped to that namespace.
+		return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			log := c.logger()
+			gvk := inventoryv1alpha2.GroupVersion.WithKind("ClusterProfile")
+			jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
+				if err := c.watchClusterProfiles(ctx, log, mgr, mkcController); err != nil {
+					log.Error(err, "Unable to watch ClusterProfiles")
+					return
+				}
+				log.Info("Watching ClusterProfiles as the ClusterProfile API is now served")
+			})
+			return nil
+		}))
+	}
+	return nil
+}
+
+// watchClusterProfiles starts watching and reading ClusterProfiles through a cache scoped to
+// the Kueue namespace.
+func (c *clustersReconciler) watchClusterProfiles(ctx context.Context, log logr.Logger, mgr ctrl.Manager, mkcController controller.Controller) error {
+	cpCache, err := c.newClusterProfileCache(ctx, log, mgr)
+	if err != nil {
+		return err
+	}
+	if err := mgr.Add(cpCache); err != nil {
+		return fmt.Errorf("failed to add the ClusterProfile cache: %w", err)
+	}
+	if _, err := cpCache.GetInformer(ctx, &inventoryv1alpha2.ClusterProfile{}); err != nil {
+		return fmt.Errorf("failed to get the ClusterProfile informer: %w", err)
+	}
+	// Publish the reader once the cache is synced and before adding the watch, so the
+	// reconciles triggered by the initial ClusterProfile events can read ClusterProfiles.
+	if !cpCache.WaitForCacheSync(ctx) {
+		return errors.New("failed to sync the ClusterProfile cache")
+	}
+	c.clusterProfileReader.Store(&clusterProfileReader{Reader: cpCache})
+	if err := mkcController.Watch(source.Kind[client.Object](cpCache, &inventoryv1alpha2.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, c)); err != nil {
+		return fmt.Errorf("failed to watch ClusterProfiles: %w", err)
+	}
+	return nil
+}
+
+// newClusterProfileCache creates the ClusterProfile cache, retrying with backoff, since
+// WaitForAPI does not call watchClusterProfiles again after a failure.
+func (c *clustersReconciler) newClusterProfileCache(ctx context.Context, log logr.Logger, mgr ctrl.Manager) (ctrlcache.Cache, error) {
+	backoff := apiwait.Backoff{Duration: time.Second, Factor: 2, Cap: 2 * time.Minute, Steps: math.MaxInt32}
+	for {
+		cpCache, err := ctrlcache.New(mgr.GetConfig(), ctrlcache.Options{
+			Scheme:            mgr.GetScheme(),
+			Mapper:            mgr.GetRESTMapper(),
+			DefaultNamespaces: map[string]ctrlcache.Config{c.configNamespace: {}},
+		})
+		if err == nil {
+			return cpCache, nil
+		}
+		log.Error(err, "Unable to create the ClusterProfile cache, retrying")
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("failed to create the ClusterProfile cache: %w", ctx.Err())
+		case <-time.After(backoff.Step()):
+		}
+	}
 }
 
 // shouldWatchClusterProfiles reports whether the ClusterProfile watch should be
