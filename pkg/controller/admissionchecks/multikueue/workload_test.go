@@ -3143,6 +3143,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		name                      string
 		dispatcherMode            string
 		remotes                   map[string]*kueue.Workload
+		unavailableClusters       []string
 		nominatedWorkers          []string
 		localClusterName          *string
 		cond                      *metav1.Condition
@@ -3179,6 +3180,22 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			nominatedWorkers:          []string{remoteNames[1], remoteNames[0]}, // reversed (not sorted)
 			wantCreated:               nil,
 			wantNominatedClusterNames: []string{remoteNames[1], remoteNames[0]}, // unchanged: set is equal, so no patch
+		},
+		{
+			name:                "AllClusters: retry while no cluster is connected",
+			dispatcherMode:      config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:             map[string]*kueue.Workload{},
+			unavailableClusters: []string{remoteNames[0]},
+			wantCreated:         nil,
+			wantErr:             true,
+		},
+		{
+			name:                      "AllClusters: nominate only the connected clusters when some are connected",
+			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:                   map[string]*kueue.Workload{remoteNames[1]: nil},
+			unavailableClusters:       []string{remoteNames[0]},
+			wantCreated:               []string{remoteNames[1]},
+			wantNominatedClusterNames: []string{remoteNames[1]},
 		},
 		// Incremental dispatcher tests were moved to a separate file.
 		{
@@ -3256,10 +3273,11 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				local.Status.Conditions = append(local.Status.Conditions, *tt.cond)
 			}
 			group := &wlGroup{
-				local:         local,
-				remotes:       tt.remotes,
-				remoteClients: remoteClients,
-				acName:        "ac1",
+				local:               local,
+				remotes:             tt.remotes,
+				remoteClients:       remoteClients,
+				unavailableClusters: tt.unavailableClusters,
+				acName:              "ac1",
 			}
 
 			wlRec := &wlReconciler{
