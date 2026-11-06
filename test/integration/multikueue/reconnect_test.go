@@ -259,4 +259,45 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 			}, reconnectResyncTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should dispatch a workload whose first nomination ran while no worker was connected", func() {
+		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
+		// The fixture recreates the clusters for every spec, so worker2 is not restored.
+		behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, managersConfigNamespace.Name)
+
+		job := testingjob.MakeJob("no-connected-worker-job", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("reserving quota on the manager while no worker is connected", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("verifying the workload is not nominated while no worker is connected", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.BeEmpty())
+			}, behavioral.ShortTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("restoring connection to worker1", func() {
+			restoreConnectionToWorker1()
+		})
+
+		ginkgo.By("verifying the workload is dispatched to worker1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.Equal([]string{f.workerCluster1.Name}))
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
