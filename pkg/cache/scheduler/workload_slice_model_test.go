@@ -66,21 +66,6 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 		Obj()
 	cpu := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
-	reserved := func(name, uid, owner string, cpu int, age time.Duration, finished bool) *kueue.Workload {
-		w := utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(uid)).
-			Creation(now.Add(-age)).
-			Request(corev1.ResourceCPU, strconv.Itoa(cpu)).
-			ControllerReference(jobGVK, owner, owner+"-uid").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", strconv.Itoa(cpu)).Obj()).
-				Obj(), now)
-		if finished {
-			w = w.Finished()
-		}
-		return w.Obj()
-	}
-
 	// The entities: slices s0 <- s1 <- s2 <- s3 of one job, x of another job, and r of another
 	// job, which reuses s0's key.
 	type entity struct {
@@ -94,22 +79,28 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 	entities = append(entities,
 		entity{name: "x", key: "ns/x", uid: "x", owner: "other", cpu: 7, slice: -1},
 		entity{name: "s0", key: "ns/s0", uid: "r", owner: "reuse", cpu: 11, slice: -1})
-	object := func(e entity, finished, sameSecond bool) *kueue.Workload {
-		age := time.Duration(chainLen-e.slice) * time.Second
-		if sameSecond {
-			age = 0
+	// objects[i][sameSecond][finished] is the reserved Workload of entity i. Every slice of a chain
+	// carries the chain's slice name, and every Workload here has its job as controller.
+	base := utiltestingapi.MakeWorkload("", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "s0")
+	objects := make([][2][2]*kueue.Workload, len(entities))
+	for i, e := range entities {
+		for sameSecond := range 2 {
+			w := base.Clone().Name(e.name).UID(types.UID(e.uid)).
+				Creation(now.Add(-time.Duration((chainLen-e.slice)*(1-sameSecond))*time.Second)).
+				Request(corev1.ResourceCPU, strconv.Itoa(e.cpu)).
+				ControllerReference(jobGVK, e.owner, e.owner+"-uid").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", strconv.Itoa(e.cpu)).Obj()).Obj(), now)
+			if e.slice > 0 {
+				w = w.Annotation(constants.WorkloadSliceReplacementForAnnotation, fmt.Sprintf("ns/s%d", e.slice-1))
+			}
+			objects[i][sameSecond] = [2]*kueue.Workload{w.Clone().Obj(), w.Clone().Finished().Obj()}
 		}
-		w := reserved(e.name, e.uid, e.owner, e.cpu, age, finished)
-		w.Annotations = map[string]string{kueue.WorkloadSliceNameAnnotation: "s0"}
-		if e.slice > 0 {
-			w.Annotations[constants.WorkloadSliceReplacementForAnnotation] = fmt.Sprintf("ns/s%d", e.slice-1)
-		}
-		return w
 	}
 
 	for seed := range uint64(sequences) {
 		rng := rand.New(rand.NewPCG(seed, 0))
-		sameSecond := rng.IntN(4) == 0
+		sameSecond := rng.IntN(4) / 3 // 1 in a quarter of the sequences
 		ctx, log := utiltesting.ContextWithLog(t)
 		cache := New(utiltesting.NewFakeClient())
 		cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
@@ -149,18 +140,18 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 						realistic = false
 					}
 				}
-				cache.AddOrUpdateWorkload(ctx, log, object(e, false, sameSecond))
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][0].DeepCopy())
 				present[i] = true
 				history = append(history, "add "+e.uid)
 			case op == 1 && present[i]:
-				cache.AddOrUpdateWorkload(ctx, log, object(e, false, sameSecond))
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][0].DeepCopy())
 				history = append(history, "update "+e.uid)
 			case op == 2 && present[i]:
 				// A slice finishes once its replacement is admitted, or when the job finishes.
 				if e.slice >= 0 && !slices.Contains(present[i+1:chainLen], true) {
 					jobFinished = true
 				}
-				cache.AddOrUpdateWorkload(ctx, log, object(e, true, sameSecond))
+				cache.AddOrUpdateWorkload(ctx, log, objects[i][sameSecond][1].DeepCopy())
 				present[i], finished[i] = false, true
 				history = append(history, "finish "+e.uid)
 			case op == 3 && present[i]:
@@ -231,7 +222,7 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 					fail("%s is replaced, but no later slice is charged", e.uid)
 				}
 			}
-			if realistic && !sameSecond && charged > 1 {
+			if realistic && sameSecond == 0 && charged > 1 {
 				fail("%d slices of the chain are charged", charged)
 			}
 		}

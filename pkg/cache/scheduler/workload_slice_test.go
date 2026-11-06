@@ -42,35 +42,43 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
 		Obj()
 	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
-	// Every slice of a chain carries the chain's slice name.
-	unowned := func(name, cpu string, age time.Duration) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, "ns").
-			Annotation(kueue.WorkloadSliceNameAnnotation, "old").
-			Creation(now.Add(-age)).
-			Request(corev1.ResourceCPU, cpu).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", cpu).Obj()).
-				Obj(), now)
-	}
-	slice := func(name, cpu string, age time.Duration) *utiltestingapi.WorkloadWrapper {
-		return unowned(name, cpu, age).ControllerReference(jobGVK, "job", "job-uid")
-	}
-	replaces := func(key string) map[string]string {
-		return map[string]string{constants.WorkloadSliceReplacementForAnnotation: key, kueue.WorkloadSliceNameAnnotation: "old"}
-	}
-	oldSlice := slice("old", "2", 3*time.Second).UID("old").Obj()
-	oldSliceFinished := slice("old", "2", 3*time.Second).UID("old").Finished().Obj()
-	newSlice := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Obj()
-	newSliceFinished := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Finished().Obj()
-	newestSlice := slice("newest", "4", time.Second).UID("newest").Annotations(replaces("ns/new")).Obj()
-	otherAtOldKey := unowned("old", "1", 0).UID("other").ControllerReference(jobGVK, "other-job", "other-job-uid").Obj()
-	otherNamespace := slice("old", "1", 3*time.Second).UID("other-ns").Obj()
+	// Every slice of a chain carries the chain's slice name; slices of a job also have it as controller.
+	base := utiltestingapi.MakeWorkload("", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		ControllerReference(jobGVK, "job", "job-uid")
+	old := base.Clone().Name("old").UID("old").Creation(now.Add(-3*time.Second)).
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now)
+	replacement := base.Clone().Name("new").UID("new").Creation(now.Add(-2*time.Second)).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old").
+		Request(corev1.ResourceCPU, "3").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now)
+	small := base.Clone().Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now)
+
+	oldSlice := old.Clone().Obj()
+	oldSliceFinished := old.Clone().Finished().Obj()
+	newSlice := replacement.Clone().Obj()
+	newSliceFinished := replacement.Clone().Finished().Obj()
+	newestSlice := base.Clone().Name("newest").UID("newest").Creation(now.Add(-time.Second)).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/new").
+		Request(corev1.ResourceCPU, "4").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+		Obj()
+	otherAtOldKey := small.Clone().Name("old").UID("other").Creation(now).Obj()
+	otherAtOldKey.OwnerReferences[0].Name, otherAtOldKey.OwnerReferences[0].UID = "other-job", "other-job-uid"
+	otherNamespace := small.Clone().Name("old").UID("other-ns").Creation(now.Add(-3 * time.Second)).Obj()
 	otherNamespace.Namespace = "other-ns"
-	replacesOtherNamespace := slice("new", "3", 2*time.Second).UID("new").Annotations(replaces("other-ns/old")).Obj()
-	selfReplacing := slice("self", "1", 0).UID("self").Annotations(replaces("ns/self")).Obj()
-	unownedOld := unowned("old", "2", 3*time.Second).UID("old").Obj()
-	unownedNew := unowned("new", "3", 2*time.Second).UID("new").Annotations(replaces("ns/old")).Obj()
+	replacesOtherNamespace := replacement.Clone().Annotation(constants.WorkloadSliceReplacementForAnnotation, "other-ns/old").Obj()
+	selfReplacing := small.Clone().Name("self").UID("self").Creation(now).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/self").Obj()
+	unownedOld := oldSlice.DeepCopy()
+	unownedOld.OwnerReferences = nil
+	unownedNew := newSlice.DeepCopy()
+	unownedNew.OwnerReferences = nil
 
 	type step struct {
 		add, finish, del *kueue.Workload // finish is a Finished copy of a cached workload
