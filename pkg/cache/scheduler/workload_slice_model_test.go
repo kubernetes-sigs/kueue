@@ -186,7 +186,7 @@ func TestReplacedWorkloadSliceUsageModel(t *testing.T) {
 			for k, wi := range c.Workloads {
 				got[k] = string(wi.Obj.UID)
 			}
-			for k, wi := range c.replacedSlices {
+			for k, wi := range c.sliceTracker.covered {
 				if _, dup := got[k]; dup {
 					fail("%s is both charged and replaced", k)
 				}

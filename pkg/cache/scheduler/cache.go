@@ -223,8 +223,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
-		replacedSlices:      make(map[workload.Reference]*workload.Info),
-		chargedSlices:       make(map[string]sets.Set[workload.Reference]),
+		sliceTracker:        newWorkloadSliceTracker(),
 		WorkloadsNotReady:   sets.New[workload.Reference](),
 		NamespaceSelector:   labels.Nothing(),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
@@ -944,7 +943,7 @@ func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *
 	}
 	cached, found := cq.Workloads[wlKey]
 	if !found {
-		cached, found = cq.replacedSlices[wlKey]
+		cached, found = cq.sliceTracker.coveredSlice(wlKey)
 	}
 	if !found {
 		log.V(3).Info("Skipping cache operation as the workload is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
