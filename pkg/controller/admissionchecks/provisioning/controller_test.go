@@ -481,22 +481,33 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 		workload    *kueue.Workload
 		mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy
 		wantNames   []kueue.PodSetReference
+		wantGroups  [][]kueue.PodSetReference
 		wantCounts  []int32
 	}{
 		"zero spec count": {
 			workload:   makeWorkload([]int32{0, 2}, []int32{0, 2}),
 			wantNames:  []kueue.PodSetReference{"ps1"},
+			wantGroups: [][]kueue.PodSetReference{{"ps1"}},
 			wantCounts: []int32{2},
 		},
 		"zero admission count override": {
 			workload:   makeWorkload([]int32{1, 2}, []int32{0, 2}),
 			wantNames:  []kueue.PodSetReference{"ps1"},
+			wantGroups: [][]kueue.PodSetReference{{"ps1"}},
 			wantCounts: []int32{2},
 		},
 		"zero count does not block compatible merging": {
 			workload:    makeWorkload([]int32{1, 2, 3}, []int32{0, 2, 3}),
 			mergePolicy: new(kueue.IdenticalPodTemplates),
 			wantNames:   []kueue.PodSetReference{"ps1"},
+			wantGroups:  [][]kueue.PodSetReference{{"ps1", "ps2"}},
+			wantCounts:  []int32{5},
+		},
+		"zero count between compatible podSets is not a group member": {
+			workload:    makeWorkload([]int32{2, 1, 3}, []int32{2, 0, 3}),
+			mergePolicy: new(kueue.IdenticalPodTemplates),
+			wantNames:   []kueue.PodSetReference{"ps0"},
+			wantGroups:  [][]kueue.PodSetReference{{"ps0", "ps2"}},
 			wantCounts:  []int32{5},
 		},
 	}
@@ -510,16 +521,122 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 				t.Fatalf("mergePodSets() error = %v", err)
 			}
 			gotNames := make([]kueue.PodSetReference, len(got))
+			gotGroups := make([][]kueue.PodSetReference, len(got))
 			gotCounts := make([]int32, len(got))
 			for i := range got {
 				gotNames[i] = got[i].Name
+				gotGroups[i] = got[i].Names
 				gotCounts[i] = got[i].Count
 			}
 			if diff := cmp.Diff(tc.wantNames, gotNames); diff != "" {
 				t.Errorf("unexpected PodSet names (-want/+got):\n%s", diff)
 			}
+			if diff := cmp.Diff(tc.wantGroups, gotGroups); diff != "" {
+				t.Errorf("unexpected PodSet groups (-want/+got):\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.wantCounts, gotCounts); diff != "" {
 				t.Errorf("unexpected PodSet counts (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodSetUpdates(t *testing.T) {
+	refA := getProvisioningRequestPodTemplateName("pr", "worker-a")
+	refB := getProvisioningRequestPodTemplateName("pr", "worker-b")
+	refC := getProvisioningRequestPodTemplateName("pr", "worker-c")
+	annotations := map[string]string{
+		autoscaling.ProvisioningRequestPodAnnotationKey: "pr",
+		autoscaling.ProvisioningClassPodAnnotationKey:   "class",
+	}
+
+	cases := map[string]struct {
+		// groups is the recorded annotation; empty means the request predates it.
+		groups  string
+		refs    []string
+		want    []kueue.PodSetUpdate
+		wantErr error
+	}{
+		"one podSet each": {
+			groups: `{"` + refA + `":["worker-a"],"` + refB + `":["worker-b"]}`,
+			refs:   []string{refA, refB},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"both members of a merged group": {
+			groups: `{"` + refA + `":["worker-a","worker-b"]}`,
+			refs:   []string{refA},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"a merged group beside a podSet of its own": {
+			groups: `{"` + refA + `":["worker-a","worker-b"],"` + refC + `":["worker-c"]}`,
+			refs:   []string{refA, refC},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+				{Name: "worker-c", Annotations: annotations},
+			},
+		},
+		"nothing recorded reads one podSet per podTemplate": {
+			refs: []string{refA},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+			},
+		},
+		"a podTemplate the grouping does not know": {
+			groups:  `{"` + refB + `":["worker-b"]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a recorded group with no podSets": {
+			groups:  `{"` + refA + `":[]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a podSet claimed twice": {
+			groups:  `{"` + refA + `":["worker-a"],"` + refB + `":["worker-a"]}`,
+			refs:    []string{refA, refB},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a grouping that cannot be read": {
+			groups:  "not json",
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker-a", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("worker-b", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("worker-c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				Obj()
+
+			prw := utiltestingapi.MakeProvisioningRequest("pr", TestNamespace).ProvisioningClass("class")
+			for _, ref := range tc.refs {
+				prw.PodSet(ref, 1)
+			}
+			if tc.groups != "" {
+				prw.Annotation(podSetGroupsAnnotation, tc.groups)
+			}
+			pr := prw.Obj()
+			prc := utiltestingapi.MakeProvisioningRequestConfig("config").Obj()
+
+			got, err := podSetUpdates(log, wl, pr, prc)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected podSetUpdates (-want/+got):\n%s", diff)
 			}
 		})
 	}
@@ -1916,6 +2033,22 @@ func TestReconcile(t *testing.T) {
 					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
 				},
+			},
+		},
+		"when request is provisioned but its recorded groups give a podSet to two podTemplates": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition((&utiltestingapi.ProvisioningRequestWrapper{ProvisioningRequest: *baseRequest.DeepCopy()}).
+					Annotation(podSetGroupsAnnotation, `{"ppt-wl-check1-1-ps1":["ps1"],"ppt-wl-check1-1-ps2":["ps1"]}`).
+					Obj(), autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			templates:          []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantReconcileError: errInconsistentPodSetGroups,
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
 			},
 		},
 		"when no request is needed": {
