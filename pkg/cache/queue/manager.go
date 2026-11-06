@@ -101,6 +101,14 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithServerVersionFetcher sets the fetcher used to determine the API server
+// version the effective workload resources mirror.
+func WithServerVersionFetcher(f workload.ServerVersionFetcher) Option {
+	return func(m *Manager) {
+		m.workloadInfoOptions = append(m.workloadInfoOptions, workload.WithServerVersionFetcher(f))
+	}
+}
+
 // WithRoleTracker sets the roleTracker for HA metrics.
 func WithRoleTracker(tracker *roletracker.RoleTracker) Option {
 	return func(m *Manager) {
