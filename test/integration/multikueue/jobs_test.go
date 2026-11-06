@@ -561,6 +561,104 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should remove the worker's workload and job when the manager's job is deleted with orphan propagation policy", func() {
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		jobLookupKey := client.ObjectKeyFromObject(job)
+		createdJob := &batchv1.Job{}
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("setting workload reservation in the management cluster", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("checking the workload creation in the worker clusters", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting workload reservation in worker1, the job is created in worker1 and unsuspended on the manager", func() {
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+
+			behavioral.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker1"`,
+			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, createdJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, jobLookupKey, managerJob)).To(gomega.Succeed())
+				g.Expect(managerJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("deleting the manager's job with PropagationPolicy=DeletePropagationOrphan", func() {
+			gomega.Expect(managerTestCluster.client.Delete(managerTestCluster.ctx, job, client.PropagationPolicy(metav1.DeletePropagationOrphan))).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, jobLookupKey, managerJob)).To(gomega.Succeed())
+				g.Expect(managerJob.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+				g.Expect(managerJob.Finalizers).To(gomega.ContainElement(metav1.FinalizerOrphanDependents))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// kube-controller-manager's garbage collector does not run in envtest, so perform
+			// its two orphan steps explicitly: strip ownerReferences on the dependent Workload,
+			// then drop the orphan finalizer from the deleting Job.
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				managerWl.OwnerReferences = nil
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, jobLookupKey, managerJob)).To(gomega.Succeed())
+				if controllerutil.RemoveFinalizer(managerJob, metav1.FinalizerOrphanDependents) {
+					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerJob)).To(gomega.Succeed())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the orphaned manager workload is finished", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOwnerNotFound))
+				g.Expect(managerWl.Finalizers).NotTo(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// HERE IS THE STAGE THAT FAILS!
+		ginkgo.By("the worker1 wl and job are removed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, createdJob)).To(utiltesting.BeNotFoundError())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should clean up the remote workload on a reconnected worker after the job finishes", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).
