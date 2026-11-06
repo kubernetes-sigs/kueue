@@ -96,10 +96,7 @@ var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
 
 func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
-	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
-		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
-	}
-	return nil
+	return raycluster.EquivalenceOptions()
 }
 
 func (j *RayJob) Object() client.Object {
@@ -273,7 +270,7 @@ func defaultSubmitterResources() corev1.ResourceRequirements {
 	}
 }
 
-// getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
+// getSubmitterTemplate returns the PodTemplateSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
 func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 	if rayJob.Spec.SubmitterPodTemplate != nil {
 		return rayJob.Spec.SubmitterPodTemplate
@@ -343,9 +340,7 @@ func (j *RayJob) addSidecarSubmitterToHeadPodSet(podSets []kueue.PodSet) {
 }
 
 func (j *RayJob) CanDefaultManagedBy() bool {
-	jobSpecManagedBy := j.Spec.ManagedBy
-	return features.Enabled(features.MultiKueue) &&
-		(jobSpecManagedBy == nil || *jobSpecManagedBy == rayutils.KubeRayController)
+	return raycluster.CanDefaultManagedBy(j.Spec.ManagedBy)
 }
 
 func (j *RayJob) ManagedBy() *string {

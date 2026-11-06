@@ -3,6 +3,7 @@
 # Use default settings as a base.
 resources:
 - ../default
+- ../components/crd/alpha
 
 patches:
 # Modify feature gates to enable AllAlpha=true

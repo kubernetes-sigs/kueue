@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
@@ -191,7 +192,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			continue
 		}
 
-		wlKey := client.ObjectKeyFromObject(wl)
+		wlKey := workload.Key(wl)
 		tracker.RemoveWorkload(wlKey)
 
 		for _, vPod := range vPods {

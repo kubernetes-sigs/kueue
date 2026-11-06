@@ -347,6 +347,12 @@ find enough devices matching the `deviceSelector` CEL expression. This can
 happen if `ResourceSlice` objects are not yet populated (e.g., during driver
 startup or node registration). Verify that ResourceSlices exist and contain
 devices matching your selector.
+Like the DRA allocator, Kueue only counts devices from pools that are complete
+and valid at their latest generation. A pool is invalid when two of its
+devices have the same name, two counter sets have the same name, or a device
+consumes a counter set or counter that no slice of the pool publishes in
+`sharedCounters`. Raise the Kueue log verbosity to 4 to see which pools are
+skipped and why.
 
 **Workload rejected with "no consumesCounters entry for counter"**: The
 devices in `ResourceSlice` objects do not have a `consumesCounters` entry
@@ -359,7 +365,7 @@ CEL expression has a syntax or type error. Check the expression against the
 
 ## Set up capacity-based quota (consumable capacity)
 
-{{< feature-state state="alpha" for_version="v0.19" >}}
+{{< feature-state state="beta" for_version="v0.21" >}}
 
 Use this when your cluster has devices that allow multiple allocations
 (e.g., GPU time-slicing or MPS) and you want quota to reflect consumed
@@ -368,12 +374,8 @@ capacity rather than device count. This requires Kubernetes 1.36+ with the
 `Capacity` and `AllowMultipleAllocations` on devices in `ResourceSlice`
 objects.
 
-Enable the feature gate in Kueue Configuration:
-
-```yaml
-featureGates:
-  KueueDRAIntegrationConsumableCapacity: true
-```
+The `KueueDRAIntegrationConsumableCapacity` feature gate is enabled by default
+since v0.21.
 
 ### 1. Configure capacity sources
 
@@ -383,8 +385,6 @@ Configure a `capacity` source entry in `deviceClassMappings`. Follow the
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-featureGates:
-  KueueDRAIntegrationConsumableCapacity: true
 resources:
   deviceClassMappings:
   - name: gpu.memory                   # Logical resource name for quota
@@ -455,6 +455,11 @@ Kueue rounds capacity requests according to the device's `RequestPolicy`:
 
 If the rounded value exceeds `Max` or all valid values, the workload is
 marked inadmissible.
+
+If the Kubernetes `DRAFractionalCapacityRange` feature gate is enabled,
+kube-scheduler aligns a fractional `ValidRange` in milli units, while Kueue
+rounds `Min` and `Step` to whole units first. The quota Kueue charges can then
+be higher or lower than what the device consumes.
 
 ### Troubleshooting capacity-based quota
 

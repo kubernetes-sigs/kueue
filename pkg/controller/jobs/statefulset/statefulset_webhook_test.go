@@ -151,6 +151,37 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 		},
+		"update of a not ready statefulset sets the default LocalQueue": {
+			defaultLqExist: true,
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
+				Queue("default").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"update of a ready statefulset without the queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready statefulset that drops a non-default queue-name label does not set the default LocalQueue": {
+			defaultLqExist: true,
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").Queue("foo").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready statefulset that drops the default queue-name label sets the default LocalQueue": {
+			defaultLqExist: true,
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "default").Queue("default").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "default").ReadyReplicas(1).Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "default").
+				Queue("default").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				ReadyReplicas(1).
+				Obj(),
+		},
 		"create sets the default WorkloadPriorityClass": {
 			initObjs:    []client.Object{defaultWPC},
 			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
@@ -527,7 +558,10 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in queue label with quota reserved in legacy workload": {
+		"change in queue label with quota reserved in legacy workload when fallback enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableStatefulSetWorkloadNameFallback: false,
+			},
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
 					Queue("test-queue").
@@ -552,6 +586,26 @@ func TestValidateUpdate(t *testing.T) {
 					Field: queueNameLabelPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"change in queue label with quota reserved in legacy workload when fallback disabled (default)": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Admission(&kueue.Admission{ClusterQueue: "cluster-queue"}).
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Obj(),
 		},
 		"change in queue label after quota released": {
 			objs: []runtime.Object{

@@ -30,9 +30,10 @@ KUBEBUILDER_ASSETS = $(or \
 TEST_LOG_LEVEL ?= -3
 
 # Number of processes to use during integration tests to run specs within a
-# suite in parallel. Suites still run sequentially. User may set this value to 1
-# to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+# suite in parallel. Five workers limit concurrent API server initialization to
+# reduce OOM risk in the seven-CPU CI jobs. Suites still run sequentially. User may
+# set this value to 1 to run without parallelism.
+INTEGRATION_NPROCS ?= 5
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
 ifdef INTEGRATION_TOTAL_SHARDS
@@ -128,7 +129,7 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
 
 # Time budget for fuzzing each individual fuzz target.
-# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
 FUZZTIME ?= 1000x
 
 .PHONY: test-fuzz
@@ -743,9 +744,11 @@ test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
 	@echo "Fetching latest Kubernetes CI build version..."
-	$(eval K8S_CI_VERSION := $(shell curl -sL https://dl.k8s.io/ci/latest.txt))
+	$(eval K8S_CI_VERSION := $(or \
+		$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential -- curl -fsSL https://dl.k8s.io/ci/latest.txt), \
+		$(error failed to fetch latest Kubernetes CI version)))
 	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
-	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
+	$(NETWORK_RETRY) $(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
 .PHONY: run-test-e2e-k8s-main-was

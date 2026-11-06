@@ -455,7 +455,9 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
-		success = succeededCount == groupTotalCount
+		if features.Enabled(features.DeclareWorkloadFailureOnUnretriablePodGroups) {
+			success = succeededCount == groupTotalCount
+		}
 	} else {
 		return message, success, false
 	}
@@ -1292,20 +1294,17 @@ func sortActivePods(activePods []corev1.Pod) {
 	})
 }
 
+// removePodFinalizers removes the Kueue finalizer from the Pod. It returns true if the Pod had this finalizer.
+//
+// The patch includes the resourceVersion of the Pod, so it cannot delete finalizers that another client
+// added after Kueue read the Pod. If the API server rejects the patch with a conflict, the function gets
+// the latest Pod and tries again, up to a limited number of times.
 func removePodFinalizers(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
 	var removed bool
-	patchOptions := make([]clientutil.PatchOption, 0, 1)
-
-	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
-		patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
-	} else {
-		patchOptions = append(patchOptions, clientutil.WithLoose())
-	}
-
 	err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
 		removed = controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 		return removed, nil
-	}, patchOptions...)
+	}, clientutil.WithRetryOnConflict())
 
 	return removed, err
 }

@@ -100,6 +100,7 @@ type WorkloadRetentionPolicy struct {
 type JobReconciler struct {
 	workloadSlices               *workloadslicing.Manager
 	integrationManager           *IntegrationManager
+	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -346,6 +347,7 @@ func NewReconciler(
 			RoleTracker:  options.RoleTracker,
 		},
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -1513,7 +1515,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 		wl.Spec.Priority = new(priority)
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
+			return fmt.Errorf("updating priority of workload %s: %w", klog.KObj(wl), err)
 		}
 		r.Eventf(obj,
 			nil,
@@ -2214,9 +2216,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			info.Labels[kueue.MultiKueueWorkerWorkloadPodLabel] = kueue.MultiKueueWorkerWorkloadPodValue
 		}
 
-		if features.Enabled(features.AssignQueueLabelsForPods) {
-			assignQueueLabels(ctx, info.Labels, w)
-		}
+		assignQueueLabels(ctx, info.Labels, w)
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
@@ -2301,7 +2301,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 
-	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.customLabels, r.RoleTracker())
+	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.queues, r.customLabels, r.RoleTracker())
 
 	return nil
 }

@@ -182,3 +182,50 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldExposeLocalQueueMetrics(t *testing.T) {
+	cases := map[string]struct {
+		disableLQMetrics bool
+		lqMetrics        *metrics.LocalQueueMetricsConfig
+		localQueue       *kueue.LocalQueue
+		want             bool
+	}{
+		"known LocalQueue": {
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+			want:       true,
+		},
+		"unknown LocalQueue": {},
+		"LocalQueue matched by localQueueSelector": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "true"})},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Label("metrics", "true").Obj(),
+			want:       true,
+		},
+		"LocalQueue not matched by localQueueSelector": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.SelectorFromSet(labels.Set{"metrics": "true"})},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+		"LocalQueue metrics disabled in the configuration": {
+			lqMetrics:  &metrics.LocalQueueMetricsConfig{},
+			localQueue: utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+		"LocalQueueMetrics feature gate disabled": {
+			disableLQMetrics: true,
+			localQueue:       utiltestingapi.MakeLocalQueue("lq", "ns").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, !tc.disableLQMetrics)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			manager := NewManagerForUnitTests(utiltesting.NewClientBuilder().Build(), nil, WithLocalQueueMetrics(tc.lqMetrics))
+			if tc.localQueue != nil {
+				if err := manager.AddLocalQueue(ctx, tc.localQueue); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := manager.ShouldExposeLocalQueueMetrics("ns/lq"); got != tc.want {
+				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

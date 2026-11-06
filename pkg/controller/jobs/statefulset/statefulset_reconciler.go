@@ -25,7 +25,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -43,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -73,6 +73,7 @@ var (
 
 type Reconciler struct {
 	integrationManager           *jobframework.IntegrationManager
+	queues                       *qcache.Manager
 	client                       client.Client
 	record                       events.EventRecorder
 	logName                      string
@@ -247,10 +248,11 @@ func (r *Reconciler) setDefault(sts *appsv1.StatefulSet, wlName string, pod *cor
 	return true
 }
 
-// findWorkload returns the workload name and object for the given StatefulSet,
-// falling back to the legacy name (without UID) if no workload exists under the new name.
+// findWorkload returns the workload name and object for the given StatefulSet.
+// When DisableStatefulSetWorkloadNameFallback is disabled, it falls back to the legacy name (without UID)
+// if no workload exists under the new name.
 // If no workload exists under either name, it returns the default workload name and a nil workload.
-// TODO(#9497, v0.20): Remove legacy fallback.
+// TODO(#17936): Remove legacy fallback when DisableStatefulSetWorkloadNameFallback is GAed.
 func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, *kueue.Workload, error) {
 	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
 	wl := &kueue.Workload{}
@@ -261,12 +263,14 @@ func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet)
 	if err == nil {
 		return wlName, wl, nil
 	}
-	legacyName := GetWorkloadName("", sts.Name)
-	if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
-		ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
-		return legacyName, wl, nil
-	} else if !apierrors.IsNotFound(err) {
-		return wlName, nil, err
+	if !features.Enabled(features.DisableStatefulSetWorkloadNameFallback) {
+		legacyName := GetWorkloadName("", sts.Name)
+		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
+			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+			return legacyName, wl, nil
+		} else if client.IgnoreNotFound(err) != nil {
+			return wlName, nil, err
+		}
 	}
 	return wlName, nil, nil
 }
@@ -463,7 +467,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
-	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.queues, r.customLabels, r.roleTracker)
 
 	return nil
 }
@@ -535,6 +539,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		client:                       client,
 		record:                       eventRecorder,
 		logName:                      "statefulset-reconciler",

@@ -244,7 +244,7 @@ type TASFlavorSnapshot struct {
 	// domainFreeCapacities caches the summed free capacity of each usage
 	// domain's leaves. It is filled on first read and never invalidated, which
 	// holds because addNonTASUsage is the only writer of leaf free capacity and
-	// snapshot() calls it before the snapshot is used.
+	// Cache.Snapshot calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
@@ -373,6 +373,21 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
 }
 
+// adjustNonTASUsage is used only by a temporary scheduling probe, after the
+// initial snapshot has been built. Cached capacities must be invalidated on
+// both the release and its restoration.
+func (s *TASFlavorSnapshot) adjustNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, release bool) {
+	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
+	if release {
+		leafCapacity.freeCapacity.Add(usage)
+	} else {
+		leafCapacity.freeCapacity.Sub(usage)
+	}
+	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+	s.domainFreeCapacities = make(map[utiltas.TopologyDomainID]resources.Requests)
+	s.forgetMatchingLeaves()
+}
+
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(count)}))
@@ -422,8 +437,8 @@ func (s *TASFlavorSnapshot) usageDomain(domainID utiltas.TopologyDomainID) *doma
 }
 
 // addTASUsageForHeldDomains adds usage only for the usage domains this snapshot
-// holds. With TASHandleOverlappingFlavors, usages can cover far more domains
-// than the flavor selects, so it walks whichever side is smaller.
+// holds. Cross-flavor aggregation can cover far more domains than the flavor
+// selects, so it walks whichever side is smaller.
 func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
 	if len(s.usageDomains()) < len(usages) {
 		for domainID := range s.usageDomains() {
@@ -615,56 +630,6 @@ type TASPodSetRequests struct {
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
-}
-
-type FailureInfo struct {
-	// PodSetName indicates the name of the PodSet for which computing the
-	// TAS assignment failed.
-	PodSetName kueue.PodSetReference
-
-	// Reason indicates the reason why computing the TAS assignment failed.
-	Reason string
-
-	// Flavor indicates the resource flavor associated with the failure.
-	Flavor kueue.ResourceFlavorReference
-}
-
-type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
-
-// Failure returns the failure of the first failed PodSet by name. Sorting keeps
-// the reported PodSet stable across scheduling cycles, as several PodSets can
-// fail at once, e.g. a leader and its workers, or PodSets in different flavors.
-func (r TASAssignmentsResult) Failure() *FailureInfo {
-	for _, psName := range slices.Sorted(maps.Keys(r)) {
-		psAssignment := r[psName]
-		if psAssignment.FailureReason != "" {
-			return &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			}
-		}
-	}
-	return nil
-}
-
-func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
-	for psName, psAssignment := range r {
-		if psAssignment.FailureReason != "" {
-			failures = append(failures, &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			})
-		}
-	}
-	return
-}
-
-type tasPodSetAssignmentResult struct {
-	TopologyAssignment *utiltas.TopologyAssignment
-	FailureReason      string
-	Flavor             kueue.ResourceFlavorReference
 }
 
 type FlavorTASRequests []TASPodSetRequests
@@ -913,11 +878,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	var sharedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		sharedDomainUsages = opts.aggregatedDomainUsages
-	}
-	assumedUsage := newAssumedUsage(sharedDomainUsages)
+	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
 
 	// opts.workload is unset on some call paths (e.g. simulateEmpty probing).
 	var wlObj *kueue.Workload
@@ -1259,9 +1220,9 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 // TopologyAssignment names; a node named after a domain would otherwise share
 // its entry.
 type assumedUsage struct {
-	// perDomain is keyed the way TopologyAssignment values are. With
-	// TASHandleOverlappingFlavors it is shared with the sibling flavors, see
-	// WithAggregatedDomainUsages.
+	// perDomain is keyed the way TopologyAssignment values are, and is shared
+	// with the sibling flavors when cross-flavor aggregation is active (see
+	// WithAggregatedDomainUsages).
 	perDomain map[utiltas.TopologyDomainID]resources.Requests
 
 	// perLeaf is keyed by leaf, and is filled only when the hostname level is
@@ -2256,7 +2217,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return unconstrained && features.Enabled(features.TASProfileMixed)
+	return unconstrained
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned

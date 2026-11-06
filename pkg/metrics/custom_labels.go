@@ -168,6 +168,9 @@ func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, ann
 }
 
 func (cl *CustomLabels) Get(kind configapi.SourceKind, ref string) []string {
+	if !cl.enabled() {
+		return nil
+	}
 	return cl.GetFor(map[configapi.SourceKind]string{kind: ref})
 }
 

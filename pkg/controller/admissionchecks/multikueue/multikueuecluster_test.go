@@ -66,6 +66,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -2214,5 +2215,85 @@ func TestReconnectResyncIsLowPriority(t *testing.T) {
 				t.Errorf("unexpected dequeued workloads (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := metav1.Now()
+	finished := func(reason string) metav1.Condition {
+		return metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			LastTransitionTime: now,
+		}
+	}
+	workloads := []kueue.Workload{
+		*utiltestingapi.MakeWorkload("running", TestNamespace).ClusterName("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("nominated", TestNamespace).NominatedClusterNames("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("on-other-cluster", TestNamespace).ClusterName("worker2").Obj(),
+		*utiltestingapi.MakeWorkload("finished", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
+			Obj(),
+		*utiltestingapi.MakeWorkload("finished-deleting", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			DeletionTimestamp(now.Time).
+			Obj(),
+		*utiltestingapi.MakeWorkload("replaced-slice", TestNamespace).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadSliceReplaced)).
+			Obj(),
+	}
+	kubeconfig := testKubeconfig("worker1")
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+	c := getClientBuilder(ctx).
+		WithObjects(cluster, &secret).
+		WithLists(&kueue.WorkloadList{Items: workloads}).
+		WithStatusSubresource(&kueue.MultiKueueCluster{}).
+		Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(c, TestNamespace,
+		withAdapters(adapters),
+		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
+	)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = fakeClientBuilder(ctx)
+
+	// A worker that was connected with the same kubeconfig and lost its connection:
+	// a non-nil client means it was connected before, the unchanged config means this
+	// is not a config change, and a new remoteClient starts disconnected.
+	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.wlResyncCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+	rc.builderOverride = reconciler.builderOverride
+	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
+	reconciler.remoteClients["worker1"] = rc
+	t.Cleanup(rc.StopWatchers)
+
+	// Reconnect: the reconcile re-establishes the watchers of the disconnected worker,
+	// which triggers the resync.
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if !rc.connState.isConnected() {
+		t.Fatal("expected the worker to be reconnected")
+	}
+
+	var gotEnqueued []string
+	for len(reconciler.wlResyncCh) > 0 {
+		gotEnqueued = append(gotEnqueued, (<-reconciler.wlResyncCh).Object.GetName())
+	}
+	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
+	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 	}
 }
