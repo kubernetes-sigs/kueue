@@ -218,6 +218,9 @@ func (pf *PreemptionFilter) MayFit() bool {
 	}
 
 	cq := pf.manager.ClusterQueue(pf.preemptor.ClusterQueue)
+	if cq == nil {
+		return false
+	}
 	for fr, v := range pf.usage.Quota.Assigned {
 		if !pf.allowBorrowing && cq.BorrowingWith(fr, v) {
 			return false

@@ -62,5 +62,5 @@ func (p PreemptedWorkloads) Workloads() []*workload.Info {
 }
 
 func (p PreemptedWorkloads) References() []workload.Reference {
-	return slices.Collect(maps.Keys(p))
+	return slices.Sorted(maps.Keys(p))
 }
