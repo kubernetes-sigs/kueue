@@ -1365,7 +1365,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	// RequeueWorkload resets e.ClusterQueue for non-admitted workloads.
 	cqName := e.ClusterQueue
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
-	if (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit) && e.retryAt != nil {
+	if added && (e.requeueReason == qcache.RequeueReasonPreemptionNoCandidates || e.requeueReason == qcache.RequeueReasonNoFit) && e.retryAt != nil {
 		qcache.NotifyRetryInadmissibleAfter(s.queues, sets.New(cqName), e.retryAt.Sub(s.clock.Now()))
 	}
 	log.V(3).

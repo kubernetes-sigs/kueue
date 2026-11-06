@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -41,6 +43,7 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 		cohortName             kueue.CohortReference
 		requeueReason          qcache.RequeueReason
 		retryAt                *time.Time
+		beforeRequeue          func(context.Context, client.Client, *kueue.Workload) error
 		wantMoved              int
 		wantClusterQueueDelays map[kueue.ClusterQueueReference]time.Duration
 		wantCohortDelays       map[kueue.CohortReference]time.Duration
@@ -75,6 +78,13 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 		"PendingPreemption with retryAt arms no delay": {
 			requeueReason: qcache.RequeueReasonPendingPreemption,
 			retryAt:       new(now.Add(10 * time.Second)),
+		},
+		"deleted workload with retryAt arms no delay": {
+			requeueReason: qcache.RequeueReasonPreemptionNoCandidates,
+			retryAt:       new(now.Add(10 * time.Second)),
+			beforeRequeue: func(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+				return cl.Delete(ctx, wl)
+			},
 		},
 	}
 
@@ -129,6 +139,11 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 				requeueReason: tc.requeueReason,
 			}
 			e.recordAssignment(flavorassigner.Assignment{}, nil, tc.retryAt)
+			if tc.beforeRequeue != nil {
+				if err := tc.beforeRequeue(ctx, cl, wl); err != nil {
+					t.Fatalf("beforeRequeue(): %v", err)
+				}
+			}
 			scheduler.requeueAndUpdate(ctx, e)
 
 			if diff := cmp.Diff(tc.wantClusterQueueDelays, requeuer.ClusterQueueDelays(), cmpopts.EquateEmpty()); diff != "" {
