@@ -112,6 +112,7 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{add: newSlice, wantCPU: "3", wantWorkloads: []workload.Reference{"ns/new"}},
 				{add: newestSlice, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
 				{finish: newSliceFinished, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
+				{add: newestSlice, wantCPU: "4", wantWorkloads: []workload.Reference{"ns/newest"}},
 				{del: newestSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 			},
 		},

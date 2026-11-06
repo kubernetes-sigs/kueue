@@ -537,7 +537,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		delete(c.replacedSlices, k)
 	}
 	if _, exist := c.Workloads[k]; exist {
-		c.deleteWorkload(log, k)
+		c.removeWorkload(log, k, false)
 	}
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
@@ -558,7 +558,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 			break
 		}
 		seen.Insert(oldKey)
-		c.deleteWorkload(log, oldKey) // may hand the usage back to the slice old replaces
+		c.removeWorkload(log, oldKey, false)
 		c.replacedSlices[oldKey] = old
 		oldKey = replacedSliceKey(old.Obj)
 	}
@@ -584,16 +584,21 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
+	c.removeWorkload(log, wlKey, true)
+}
+
+// removeWorkload removes wlKey from the ClusterQueue. With restoreReplaced, a replacement leaving
+// before the slices it replaces, e.g. on a failed admission, hands the usage back to them. They
+// are added back oldest first, so each one still covered by a later one is uncharged again. An
+// update of the replacement, or its own replacement, keeps them uncharged.
+func (c *clusterQueue) removeWorkload(log logr.Logger, wlKey workload.Reference, restoreReplaced bool) {
 	delete(c.replacedSlices, wlKey)
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
 	}
-	// A replacement leaving before the slices it replaces, e.g. on a failed admission, hands
-	// the usage back to them. They are added back oldest first, so each one still covered by a
-	// later one is uncharged again.
 	defer func() {
-		if replacedSliceKey(wi.Obj) == "" {
+		if !restoreReplaced || replacedSliceKey(wi.Obj) == "" {
 			return
 		}
 		var chain []*workload.Info
