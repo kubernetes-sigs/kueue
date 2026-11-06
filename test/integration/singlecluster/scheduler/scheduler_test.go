@@ -4564,13 +4564,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 4, behavioral.Timeout)
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
 			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
@@ -4593,13 +4587,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota after scale-up (should be 8 CPU)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 8, behavioral.Timeout)
 
 			ginkgo.By("Test in-place scale-down: update workload slice to reduce coordinator from 3 to 2 (8 -> 6 CPU)")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -4610,13 +4598,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota after in-place scale-down (should be 6 CPU: 2 workers @ 1 + 2 coordinators @ 2)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("6")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 6, behavioral.Timeout)
 		})
 
 		ginkgo.It("should not double-count quota for unchanged podSets during workload slicing", func() {
@@ -4634,13 +4616,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 4, behavioral.Timeout)
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
 			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
@@ -4663,13 +4639,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota is NOT double-counted (should be 8 CPU, not 12)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 8, behavioral.Timeout)
 
 			ginkgo.By("Create additional workloads to verify quota enforcement prevents over-admission")
 			wl2 := utiltestingapi.MakeWorkload("multi-podset-wl-slice-2", ns.Name).
@@ -4685,11 +4655,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify first workload is admitted (8+2=10, at quota limit)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("10")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 10, behavioral.Timeout)
 
 			ginkgo.By("Verify second workload remains pending (10+2=12 exceeds quota limit of 10)")
 			createdWl := &kueue.Workload{}
