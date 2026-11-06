@@ -269,6 +269,45 @@ func TestFindTopologyAssignmentsIndexedReplacement(t *testing.T) {
 			},
 			wantFailure: "cannot replace the node node-f without splitting a PodSet slice",
 		},
+		"replacement merges with the following surviving run": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+				{Values: []string{"node-c"}, Count: 1},
+			},
+			capacity: map[string]int32{"node-a": 1, "node-b": 1, "node-c": 2},
+			failures: [][]string{{"node-b"}},
+			want: [][]tas.TopologyDomainAssignment{{
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-c"}, Count: 2},
+			}},
+		},
+		"replacement merges with the preceding surviving run": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+				{Values: []string{"node-c"}, Count: 1},
+			},
+			capacity: map[string]int32{"node-a": 2, "node-b": 1, "node-c": 1},
+			failures: [][]string{{"node-b"}},
+			want: [][]tas.TopologyDomainAssignment{{
+				{Values: []string{"node-a"}, Count: 2},
+				{Values: []string{"node-c"}, Count: 1},
+			}},
+		},
+		"replacement joins adjacent runs and can be replaced again": {
+			original: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 1},
+				{Values: []string{"node-b"}, Count: 1},
+				{Values: []string{"node-a"}, Count: 1},
+			},
+			capacity: map[string]int32{"node-a": 3, "node-b": 1, "node-z": 3},
+			failures: [][]string{{"node-b"}, {"node-a"}},
+			want: [][]tas.TopologyDomainAssignment{
+				{{Values: []string{"node-a"}, Count: 3}},
+				{{Values: []string{"node-z"}, Count: 3}},
+			},
+		},
 		"reusing a surviving node does not move its existing rank": {
 			original: []tas.TopologyDomainAssignment{
 				{Values: []string{"node-a"}, Count: 1},
