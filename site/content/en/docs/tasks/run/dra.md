@@ -108,7 +108,7 @@ ResourceClaimTemplate path above.
 
 {{% alert title="Note" color="info" %}}
 This feature requires the `KueueDRAIntegrationConsumableCapacity` feature gate,
-which is disabled by default in v0.19.
+which is enabled by default since v0.21.
 {{% /alert %}}
 
 If your administrator has configured

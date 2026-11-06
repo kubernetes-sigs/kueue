@@ -715,21 +715,6 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 		}
 	}
 
-	TASProfilesEnabled := []bool{features.Enabled(features.TASProfileMixed)}
-	enabledProfilesCount := 0
-	for _, enabled := range TASProfilesEnabled {
-		if enabled {
-			enabledProfilesCount++
-		}
-	}
-	// Currently dead code but leaving in if more TASProfiles are added
-	if enabledProfilesCount > 1 {
-		allErrs = append(allErrs, field.Invalid(featureGatesPath, TASProfilesEnabled, "cannot use more than one TAS profiles"))
-	}
-	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
-		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
-	}
-
 	return allErrs
 }
 

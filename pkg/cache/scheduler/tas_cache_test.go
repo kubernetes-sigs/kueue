@@ -2222,7 +2222,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
-		"unconstrained; a single pod fits into each host; BestFit": {
+		"unconstrained; a single pod fits into each host; LeastFreeCapacity": {
 			nodes:  defaultNodes,
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
@@ -2245,31 +2245,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-		},
-		"unconstrained; a single pod fits into each host; LeastFreeCapacity; TASProfileMixed": {
-			nodes:  defaultNodes,
-			levels: defaultThreeLevels,
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Unconstrained: new(true),
-				},
-				requests: map[corev1.ResourceName]int64{
-					corev1.ResourceCPU: 1000,
-				},
-				count: 1,
-				wantAssignment: &tas.TopologyAssignment{
-					Levels: defaultOneLevel,
-					Domains: []tas.TopologyDomainAssignment{
-						{
-							Count: 1,
-							Values: []string{
-								"x3",
-							},
-						},
-					},
-				},
-			}},
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
 		},
 		"block required; 4 pods fit into one host each; BestFit": {
 			nodes:  binaryTreesNodes,
@@ -2337,7 +2312,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
-		"host required; single Pod fits in the host; BestFit; TASProfileMixed": {
+		"host preferred; single Pod fits in the host; BestFit": {
 			nodes:  defaultNodes,
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
@@ -2360,32 +2335,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
-		},
-		"host preferred; single Pod fits in the host; BestFit; TASProfileMixed": {
-			nodes:  defaultNodes,
-			levels: defaultThreeLevels,
-			podSets: []PodSetTestCase{{
-				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: new(corev1.LabelHostname),
-				},
-				requests: map[corev1.ResourceName]int64{
-					corev1.ResourceCPU: 1000,
-				},
-				count: 1,
-				wantAssignment: &tas.TopologyAssignment{
-					Levels: defaultOneLevel,
-					Domains: []tas.TopologyDomainAssignment{
-						{
-							Count: 1,
-							Values: []string{
-								"x3",
-							},
-						},
-					},
-				},
-			}},
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
 		},
 		"rack required; single Pod fits in a rack; BestFit": {
 			nodes:  defaultNodes,
@@ -6772,8 +6721,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"find topology assignment for unconstrained grouped podsets spreads leader and worker across domains with TASProfileMixed": {
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
+		"find topology assignment for unconstrained grouped podsets spreads leader and worker across domains": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("h1").
 					Label(corev1.LabelHostname, "h1").
@@ -7829,10 +7777,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
-		"multiple podsets: block required for one, unconstrained for another; TASProfileMixed": {
-			nodes:        multipodNodeset,
-			levels:       defaultThreeLevels,
-			featureGates: map[featuregate.Feature]bool{features.TASProfileMixed: true},
+		"multiple podsets: block required for one, unconstrained for another": {
+			nodes:  multipodNodeset,
+			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{
 				{
 					podSetName: "podset1",
@@ -9458,7 +9405,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		"flat topology, unconstrained mode, size 5 pods x 1": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASRespectNodeAffinityPreferred: true,
-				features.TASProfileMixed:                 true,
 			},
 			levels: []string{"kubernetes.io/hostname"},
 			nodes: []corev1.Node{
@@ -9595,7 +9541,6 @@ func TestFindTopologyAssignments(t *testing.T) {
 		"flat topology, unconstrained mode, size 2 pods x 2": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASRespectNodeAffinityPreferred: true,
-				features.TASProfileMixed:                 true,
 			},
 			levels: []string{"kubernetes.io/hostname"},
 			nodes: []corev1.Node{
@@ -9871,10 +9816,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"non-hostname-leaf topology: prior c.usage must be applied even when aggregatedDomainUsages is non-nil empty": {
-			// Reproduces the integration regression: with TASHandleOverlappingFlavors on,
-			// Cache.Snapshot allocates aggregatedDomainUsages as a non-nil empty map and
-			// snapshotTopologyDomainUsages returns early for non-hostname-leaf flavors,
-			// leaving the map empty. snapshot() must still apply c.usage in this case.
+			// Reproduces the integration regression: Cache.Snapshot allocates
+			// aggregatedDomainUsages as a non-nil empty map and snapshotTopologyDomainUsages
+			// returns early for non-hostname-leaf flavors, leaving the map empty.
+			// snapshot() must still apply c.usage in this case.
 			//
 			//      b1            b2
 			//     /  \          /  \
@@ -12310,22 +12255,20 @@ func TestFindTopologyAssignments(t *testing.T) {
 					tasFlavorCache.addUsage(log, "prior-wl", tc.priorOwnUsage)
 				}
 
-				if features.Enabled(features.TASHandleOverlappingFlavors) {
-					siblingCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
-					if len(tc.priorFlavorUsage) > 0 {
-						siblingCache.addUsage(log, "prior-wl", tc.priorFlavorUsage)
-					}
-					tc.aggregatedDomainUsages = maps.Clone(tc.aggregatedDomainUsages)
-					if tc.aggregatedDomainUsages == nil {
-						tc.aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
-					}
-					for domainID, usage := range siblingCache.usage {
-						tc.aggregatedDomainUsages[domainID] = usage.Clone()
-					}
+				siblingCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
+				if len(tc.priorFlavorUsage) > 0 {
+					siblingCache.addUsage(log, "prior-wl", tc.priorFlavorUsage)
+				}
+				tc.aggregatedDomainUsages = maps.Clone(tc.aggregatedDomainUsages)
+				if tc.aggregatedDomainUsages == nil {
+					tc.aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
+				}
+				for domainID, usage := range siblingCache.usage {
+					tc.aggregatedDomainUsages[domainID] = usage.Clone()
 				}
 
 				var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
-				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
+				if tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
 				simulatorSnapshot := newDefaultSimulator()

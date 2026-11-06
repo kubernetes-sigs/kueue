@@ -32,12 +32,13 @@ type MultiKueueConfigSpecApplyConfiguration struct {
 	// following this order, so the most preferred clusters should be listed first.
 	//
 	Clusters []string `json:"clusters,omitempty"`
-	// quotaManagement specifies the management of ClusterQueue quotas
-	// in the manager cluster.
-	// Supported modes:
-	// - `Manual`: Quota automation is manual.
-	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
-	// If unspecified, defaults to `Manual`.
+	// quotaManagement is deprecated and ignored since v0.21.
+	// To sum the quotas of the worker ClusterQueues into the manager ClusterQueue,
+	// use a CapacityProvider with a MultiKueueCapacityProviderConfig.
+	// The field is removed in the next API version.
+	//
+	// Deprecated: Kueue ignores this field.
+	//
 	QuotaManagement *kueuev1beta2.MultiKueueConfigQuotaManagementMode `json:"quotaManagement,omitempty"`
 }
 

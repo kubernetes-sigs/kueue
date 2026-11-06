@@ -234,10 +234,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		option(opts)
 	}
 
-	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
-	}
+	aggregatedDomainUsages := make(map[utiltas.TopologyDomainID]resources.Requests)
 
 	result := make(TASAssignmentsResult)
 	var spreadCountsOpts []TopologySpreadCountsOption
@@ -261,7 +258,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// level, as only node names identify the same capacity across
 		// flavors. Aggregating at node granularity for virtual hostname
 		// topologies is left to a follow-up.
-		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.declaresHostnameLevel() {
+		if tasFlavorCache.declaresHostnameLevel() {
 			flvOpts = append(slices.Clone(flvOpts), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)

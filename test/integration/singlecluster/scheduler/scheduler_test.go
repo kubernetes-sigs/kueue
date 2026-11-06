@@ -705,6 +705,40 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
 		})
 
+		ginkgo.It("when PriorityBoost is enabled, boosting an admitted Workload without a WorkloadPriorityClass, re-evaluates pending Workloads", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+			wlAdmitted := utiltestingapi.MakeWorkload("wl-admitted-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlAdmitted)
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
+				if wl.Annotations == nil {
+					wl.Annotations = make(map[string]string)
+				}
+				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "-100"
+				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlAdmitted)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
+		})
+
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
 				lqsStopPolicy = new(kueue.Hold)
@@ -2672,6 +2706,55 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl, blockedWl)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, borrowingWl)
 		})
+	})
+
+	ginkgo.It("preserves assumed quota across a pending informer update", func() {
+		cq := createQueue(utiltestingapi.MakeClusterQueue("assumed-quota").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).Obj())
+		assumed := make(chan struct{})
+		release := make(chan struct{})
+		namespace := ns.Name
+		var signaled atomic.Bool
+		released := false
+		defer func() {
+			if !released {
+				close(release)
+			}
+			setFakeSubResourcePatchSpec(nil)
+		}()
+		setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
+			wl, ok := obj.(*kueue.Workload)
+			if ok && wl.Namespace == namespace && wl.Name == "assumed" && wl.Status.Admission != nil {
+				if signaled.CompareAndSwap(false, true) {
+					close(assumed)
+				}
+				<-release
+			}
+			return fallThrough, nil
+		})
+		first := utiltestingapi.MakeWorkload("assumed", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "2").Obj()
+		behavioral.MustCreate(ctx, k8sClient, first)
+		gomega.Eventually(assumed, behavioral.Timeout, behavioral.Interval).Should(gomega.BeClosed())
+
+		ginkgo.By("Updating the informer object while its admission write is blocked")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(first), first)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(first)).To(gomega.BeFalse())
+			first.Annotations = map[string]string{"test.kueue.x-k8s.io/pending-update": "observed"}
+			g.Expect(k8sClient.Update(ctx, first)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		second := utiltestingapi.MakeWorkload("competitor", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, second)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), second)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(second)).To(gomega.BeFalse())
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		close(release)
+		released = true
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
 	})
 
 	ginkgo.When("Deleting clusterQueues", func() {

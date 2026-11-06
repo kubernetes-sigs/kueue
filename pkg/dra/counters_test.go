@@ -59,21 +59,6 @@ func makeDeviceWithMultipleCounters(name string, profile string, memory string, 
 	return dev
 }
 
-func makeResourceSlice(name, driver, poolName string, gen int64, sliceCount int64, devices []resourcev1.Device) resourcev1.ResourceSlice {
-	return resourcev1.ResourceSlice{
-		Name: name,
-		Spec: resourcev1.ResourceSliceSpec{
-			Driver: driver,
-			Pool: resourcev1.ResourcePool{
-				Name:               poolName,
-				Generation:         gen,
-				ResourceSliceCount: sliceCount,
-			},
-			Devices: devices,
-		},
-	}
-}
-
 func TestComputeCounterCharges(t *testing.T) {
 	defaultCC := &deviceClassCounterConfig{
 		driver:      "gpu.nvidia.com",
@@ -334,122 +319,6 @@ func TestComputeCounterChargesLogsNegativeCounter(t *testing.T) {
 	}
 }
 
-func TestGroupSlicesByPool(t *testing.T) {
-	tests := []struct {
-		name           string
-		slices         []resourcev1.ResourceSlice
-		driver         string
-		wantPools      int
-		wantComplete   map[string]bool
-		wantGeneration map[string]int64
-	}{
-		{
-			name: "single pool, complete",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice2", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-			},
-			driver:         "gpu.nvidia.com",
-			wantPools:      1,
-			wantComplete:   map[string]bool{"node1-gpu0": true},
-			wantGeneration: map[string]int64{"node1-gpu0": 1},
-		},
-		{
-			name: "single pool, incomplete",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-			},
-			driver:         "gpu.nvidia.com",
-			wantPools:      1,
-			wantComplete:   map[string]bool{"node1-gpu0": false},
-			wantGeneration: map[string]int64{"node1-gpu0": 1},
-		},
-		{
-			name: "two pools",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice2", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice3", "gpu.nvidia.com", "node1-gpu1", 1, 2, nil),
-				makeResourceSlice("slice4", "gpu.nvidia.com", "node1-gpu1", 1, 2, nil),
-			},
-			driver:    "gpu.nvidia.com",
-			wantPools: 2,
-			wantComplete: map[string]bool{
-				"node1-gpu0": true,
-				"node1-gpu1": true,
-			},
-			wantGeneration: map[string]int64{
-				"node1-gpu0": 1,
-				"node1-gpu1": 1,
-			},
-		},
-		{
-			name: "filter by driver",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1", "gpu.nvidia.com", "node1-gpu0", 1, 1, nil),
-				makeResourceSlice("slice2", "net.example.com", "node1-net0", 1, 1, nil),
-			},
-			driver:         "gpu.nvidia.com",
-			wantPools:      1,
-			wantComplete:   map[string]bool{"node1-gpu0": true},
-			wantGeneration: map[string]int64{"node1-gpu0": 1},
-		},
-		{
-			name: "higher generation replaces older",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1-old", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice2-old", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice1-new", "gpu.nvidia.com", "node1-gpu0", 2, 2, nil),
-				makeResourceSlice("slice2-new", "gpu.nvidia.com", "node1-gpu0", 2, 2, nil),
-			},
-			driver:         "gpu.nvidia.com",
-			wantPools:      1,
-			wantComplete:   map[string]bool{"node1-gpu0": true},
-			wantGeneration: map[string]int64{"node1-gpu0": 2},
-		},
-		{
-			name: "mixed generation, incomplete new",
-			slices: []resourcev1.ResourceSlice{
-				makeResourceSlice("slice1-old", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice2-old", "gpu.nvidia.com", "node1-gpu0", 1, 2, nil),
-				makeResourceSlice("slice1-new", "gpu.nvidia.com", "node1-gpu0", 2, 2, nil),
-			},
-			driver:         "gpu.nvidia.com",
-			wantPools:      1,
-			wantComplete:   map[string]bool{"node1-gpu0": false},
-			wantGeneration: map[string]int64{"node1-gpu0": 2},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			pools := groupSlicesByPool(tc.slices, tc.driver)
-			if len(pools) != tc.wantPools {
-				t.Errorf("got %d pools, want %d", len(pools), tc.wantPools)
-			}
-			for name, wantComplete := range tc.wantComplete {
-				pool, ok := pools[name]
-				if !ok {
-					t.Errorf("pool %s not found", name)
-					continue
-				}
-				if pool.isComplete() != wantComplete {
-					t.Errorf("pool %s: isComplete()=%v, want %v", name, pool.isComplete(), wantComplete)
-				}
-			}
-			for name, wantGen := range tc.wantGeneration {
-				pool, ok := pools[name]
-				if !ok {
-					continue
-				}
-				if pool.generation != wantGen {
-					t.Errorf("pool %s: generation=%d, want %d", name, pool.generation, wantGen)
-				}
-			}
-		})
-	}
-}
-
 func TestSelectorErrorPaths(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithObjects(testingdra.MakeDeviceClass("valid-device-class").Obj()).Build()
@@ -462,27 +331,14 @@ func TestSelectorErrorPaths(t *testing.T) {
 		t.Fatalf("CEL compilation failed: %v", validSelector.Error)
 	}
 
-	newPools := func() map[string]*poolInfo {
-		return map[string]*poolInfo{
-			"pool1": {
-				name:               "pool1",
-				generation:         1,
-				resourceSliceCount: 1,
-				slices: []resourcev1.ResourceSlice{{
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "gpu.example.com",
-						Pool:   resourcev1.ResourcePool{Name: "pool1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{{
-							Name: "gpu-0",
-							Attributes: map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
-								"gpu.example.com/type": {},
-							},
-						}},
-					},
-				}},
-			},
-		}
+	slices := []*resourcev1.ResourceSlice{
+		testingdra.MakeResourceSlice("slice-1", "gpu.example.com").
+			Pool("pool1", 1, 1).
+			Device("gpu-0").
+			Obj(),
 	}
+	// An attribute without a value makes the CEL evaluation fail.
+	slices[0].Spec.Devices[0].Attributes["gpu.example.com/type"] = resourcev1.DeviceAttribute{}
 
 	tests := []struct {
 		name       string
@@ -517,7 +373,7 @@ func TestSelectorErrorPaths(t *testing.T) {
 		{
 			name: "request selector evaluation error",
 			run: func() field.ErrorList {
-				_, errs := matchDevicesWithSelectors(ctx, newPools(), "gpu.example.com", []dracel.CompilationResult{validSelector}, nil, nil, reqPath)
+				_, errs := matchDevicesWithSelectors(ctx, slices, []dracel.CompilationResult{validSelector}, nil, nil, reqPath)
 				return errs
 			},
 			wantField:  reqPath.String(),

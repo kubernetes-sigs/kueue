@@ -56,6 +56,7 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID).
 		WithIndex(&kueuealpha.DynamicQuotaOrchestrator{}, indexer.DynamicQuotaOrchestratorCapacityProviderKey, indexer.IndexDynamicQuotaOrchestratorCapacityProvider).
 		WithIndex(&kueuealpha.DynamicQuotaOrchestrator{}, indexer.DynamicQuotaOrchestratorIsDistributingKey, indexer.IndexDynamicQuotaOrchestratorIsDistributing).
+		WithIndex(&kueuealpha.CapacityProvider{}, indexer.CapacityProviderControllerNameKey, indexer.IndexCapacityProviderControllerName).
 		WithIndex(&kueue.ClusterQueue{}, indexer.ClusterQueueCohortKey, indexer.IndexClusterQueueCohort).
 		WithIndex(&kueue.Cohort{}, indexer.CohortParentKey, indexer.IndexCohortParent)
 }

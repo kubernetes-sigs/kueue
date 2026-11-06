@@ -2,3 +2,5 @@
 
 approvers:
 - test-approvers
+reviewers:
+- test-reviewers

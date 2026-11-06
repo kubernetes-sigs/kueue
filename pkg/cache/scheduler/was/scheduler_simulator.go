@@ -29,12 +29,14 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const FailedReasonSkipped = "skipped"
@@ -157,7 +159,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
@@ -166,6 +168,23 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
 
+	return func() error {
+		_, err := s.wasSnapshot.Unpreempt(unpreempt)
+		return err
+	}, nil
+}
+
+func (s *wasSimulator) PreemptPods(ctx context.Context, podRefs []simulator.PodRef) (func() error, error) {
+	pods := make([]*corev1.Pod, 0, len(podRefs))
+	for _, ref := range podRefs {
+		if pod := s.pods.Pod(ref.Key); pod != nil && pod.UID == ref.UID {
+			pods = append(pods, pod)
+		}
+	}
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, pods)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preempt residual Pods from WAS snapshot: %w", err)
+	}
 	return func() error {
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err
@@ -185,6 +204,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
+
 	cluster, err := s.clusterForSchedule(ctx, scheduleOpts)
 	if err != nil {
 		return simulator.SchedulingResult{Error: err}
@@ -194,27 +214,25 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	return toSchedulingResult(workloadPods, wasResult)
 }
 
-func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
+func (s *wasSimulator) clusterForSchedule(ctx context.Context, scheduleOpts *simulator.ScheduleOptions) (*schedlib.ClusterSnapshot, error) {
 	if scheduleOpts.SimulateEmpty {
 		return s.getEmptyCluster(ctx)
 	}
 	return s.wasSnapshot, nil
 }
 
-func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
-	var schedlibFilter schedlib.PreemptionFilter
+func (s *wasSimulator) buildScheduleWorkloadOptions(scheduleOpts *simulator.ScheduleOptions) schedlib.ScheduleWorkloadOptions {
+	libOpts := schedlib.ScheduleWorkloadOptions{
+		DryRun: true,
+	}
 	if scheduleOpts.PreemptionFilter != nil {
-		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
+		libOpts.PreemptionFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
 	}
-	var potentialVictims iter.Seq[schedlib.PreemptionVictim]
 	if !scheduleOpts.SimulateEmpty {
-		potentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates)
+		libOpts.PotentialVictims = s.potentialVictims(scheduleOpts.PreemptionCandidates, sets.New(scheduleOpts.CommittedPreemptionVictims...))
+		libOpts.CommittedVictims = s.committedVictims(scheduleOpts.CommittedPreemptionVictims)
 	}
-	return schedlib.ScheduleWorkloadOptions{
-		DryRun:           true,
-		PotentialVictims: potentialVictims,
-		PreemptionFilter: schedlibFilter,
-	}
+	return libOpts
 }
 
 func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadSchedulingResult) simulator.SchedulingResult {

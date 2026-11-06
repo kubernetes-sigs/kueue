@@ -67,6 +67,14 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	return nil
 }
 
+// CanApplyDefaultLocalQueue reports whether the default LocalQueue can be set
+// on an update. ValidateUpdate rejects adding the queue-name label to a
+// non-suspended (running) workload, so on a running workload the default is
+// only applied to restore a dropped "default" label.
+func CanApplyDefaultLocalQueue(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || QueueNameForObject(oldObj) == constants.DefaultLocalQueueName
+}
+
 func (m *IntegrationManager) defaultLocalQueueApplies(jobObj client.Object, defaultQueueExist func(string) bool) bool {
 	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return false

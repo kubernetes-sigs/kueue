@@ -2569,8 +2569,8 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	})
 
 	for _, leaf := range snapshot.leaves {
-		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 14 {
-			t.Errorf("leaf %s affinity score = %d, want 14 (the workers' score, scored once and added once)", leaf.id, got)
+		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 7 {
+			t.Errorf("leaf %s affinity score = %d, want 7 (the workers' score, counted once)", leaf.id, got)
 		}
 	}
 }
@@ -3004,19 +3004,28 @@ func TestValidateSpreadingLevels(t *testing.T) {
 func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
 	const (
 		blockLabel = "cloud.provider.com/topology-block"
 		rackLabel  = "cloud.provider.com/topology-rack"
+		tierLabel  = "example.com/tier"
 	)
 
 	cases := map[string]struct {
-		required    string
-		workerPool  string
-		leaderPool  string
-		workers     int32
-		wantWorkers []string
-		wantLeader  []string
+		required         string
+		workerPool       string
+		leaderPool       string
+		workersPreferred []corev1.PreferredSchedulingTerm
+		workers          int32
+		wantWorkers      []string
+		wantLeader       []string
 	}{
+		// Only the preference separates n3 and n4, and n3 wins by name if it is lost.
+		"workers' preferred node affinity decides the node": {
+			required: blockLabel, workerPool: "preferred", leaderPool: "preferred", workers: 2,
+			workersPreferred: utiltesting.MakePreferredSchedulingTerms().Term(10, tierLabel, corev1.NodeSelectorOpIn, "fast").Obj(),
+			wantWorkers:      []string{"n4"}, wantLeader: []string{"n4"},
+		},
 		"leader and workers want different nodes": {
 			required: blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
 			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
@@ -3053,6 +3062,10 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						Label(corev1.LabelHostname, "n1").Label("pool", "workers").Obj(),
 					rackNode.Clone().Name("n2").Label(blockLabel, "b1").Label(rackLabel, "r1").
 						Label(corev1.LabelHostname, "n2").Label("pool", "leader").Obj(),
+					rackNode.Clone().Name("n3").Label(blockLabel, "b1").Label(rackLabel, "r1").
+						Label(corev1.LabelHostname, "n3").Label("pool", "preferred").Obj(),
+					rackNode.Clone().Name("n4").Label(blockLabel, "b1").Label(rackLabel, "r1").
+						Label(corev1.LabelHostname, "n4").Label("pool", "preferred").Label(tierLabel, "fast").Obj(),
 				}
 				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
 				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
@@ -3065,7 +3078,8 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSet: utiltestingapi.MakePodSet("workers", int(tc.workers)).
 							RequiredTopologyRequest(tc.required).
 							PodSetGroup(groupName).
-							NodeSelector(map[string]string{"pool": tc.workerPool}).Obj(),
+							NodeSelector(map[string]string{"pool": tc.workerPool}).
+							PreferredDuringSchedulingIgnoredDuringExecution(tc.workersPreferred).Obj(),
 						SinglePodRequests: oneCPU,
 						Count:             tc.workers,
 						PodSetGroupName:   new(groupName),
@@ -3697,44 +3711,5 @@ func TestFits(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestTASAssignmentsResultFailure(t *testing.T) {
-	cases := map[string]struct {
-		result TASAssignmentsResult
-		want   *FailureInfo
-	}{
-		"no PodSet failed": {
-			result: TASAssignmentsResult{
-				"leader":  {Flavor: "tas"},
-				"workers": {Flavor: "tas"},
-			},
-		},
-		"leader and workers fail with the same reason": {
-			result: TASAssignmentsResult{
-				"workers": {FailureReason: "does not fit", Flavor: "tas"},
-				"leader":  {FailureReason: "does not fit", Flavor: "tas"},
-			},
-			want: &FailureInfo{PodSetName: "leader", Reason: "does not fit", Flavor: "tas"},
-		},
-		"PodSets fail in different flavors": {
-			result: TASAssignmentsResult{
-				"ps-c": {FailureReason: "no fit in tas-a", Flavor: "tas-a"},
-				"ps-b": {FailureReason: "no fit in tas-b", Flavor: "tas-b"},
-				"ps-a": {Flavor: "tas-a"},
-			},
-			want: &FailureInfo{PodSetName: "ps-b", Reason: "no fit in tas-b", Flavor: "tas-b"},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			// Map iteration order is random, so ask several times to catch an unstable pick.
-			for range 20 {
-				if diff := cmp.Diff(tc.want, tc.result.Failure()); diff != "" {
-					t.Fatalf("Failure() (-want,+got):\n%s", diff)
-				}
-			}
-		})
 	}
 }

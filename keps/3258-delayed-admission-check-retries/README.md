@@ -67,7 +67,7 @@ Currently, there's a shared `.status.requeueState` field used by both the [provi
 
 Add new fields to the `AdmissionCheckState` status to support per-admission-check retry delays:
 
-- `requeueAfterSeconds`: A duration, based on eviction time, indicating when this admission check should be retried
+- `requeueAfterSeconds`: A duration in seconds, counted from the check's `lastTransitionTime`, indicating when this admission check should be retried
 - `retryCount`: A counter tracking how many times this admission check has been retried so far
 
 When multiple admission checks are in the `Retry` state with different delays, Kueue will use the maximum delay across all checks and save it into `requeueState.requeueAt`.
@@ -83,7 +83,7 @@ When my controller detects that required cloud resources are not available, it c
 
 1. Set the admission check state to `Retry`
 2. Calculate an appropriate backoff delay (e.g., 30s, 1m, 2m, 4m)
-3. Set `requeueAfterSeconds` to the calculated future timestamp
+3. Set `requeueAfterSeconds` to the calculated delay in seconds
 4. Track retry attempts using `retryCount`
 
 #### Story 2: Control Plane Load Management
@@ -272,7 +272,8 @@ type AdmissionCheckState struct {
     //   lastTransitionTime + RequeueAfterSeconds
     //
     // +optional
-    RequeueAfterSeconds *metav1.Duration `json:"requeueAfterSeconds,omitempty"`
+    // +kubebuilder:validation:Minimum=0
+    RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
 
     // RetryCount tracks retry attempts for this admission check.
     // Kueue automatically increments this when transitioning from
@@ -416,30 +417,44 @@ To ensure proper implementation of admission check controllers, the following do
 
 ### Graduation Criteria
 
-**Alpha:**
+The feature was released in v0.15 without a feature gate and is enabled for all users,
+so v0.15 covers both Alpha and Beta.
+Both new fields are optional, and Kueue only delays a retry when an admission check controller sets `requeueAfterSeconds`.
+A controller that does not set it keeps the previous behavior, where the Workload is requeued without a delay.
+There is no Configuration API setting for the feature.
 
-- `ACRequeueAfter` feature gate (disabled by default in alpha)
+**Alpha (v0.15):**
+
 - rework delaying mechanism to support multiple updates to `requeueState.requeueAt`
-- add new fields (`RequeueAfterSeconds` and `RetryCount`) to admission check state
-- update kueue logic to take new admission check state filed into account
-- first iteration of admission check documentation
+- add new fields (`requeueAfterSeconds` and `retryCount`) to admission check state
+- update kueue logic to take new admission check state fields into account
 
-**Beta:**
+**Beta (v0.15):**
 
-- `ACRequeueAfter` feature gate in beta (enabled by default)
-- fix all reported bugs
-- enhance admission check documentation based on community feedback
-- re-evaluate the migration of the `ProvisioningRequest` to the new API
-- add metrics to track retry behavior
+- re-evaluate the migration of the `ProvisioningRequest` to the new API:
+  the ProvisioningRequest admission check sets `requeueAfterSeconds` from its retry strategy
+  and uses `retryCount` to count attempts
 
 **GA:**
 
-- `ACRequeueAfter` feature gate in stable (locked and enabled by default)
-- fix all reported bugs
+These items were planned for Alpha or Beta and were not done in v0.15:
+
+- admission check documentation, including best practices for setting retry delays,
+  enhanced based on community feedback
+- add metrics to track retry behavior
+
+Also required for GA:
+
+- fix all reported bugs, including that a Workload keeps its quota reservation while it waits
+  for the retry delay ([#18116](https://github.com/kubernetes-sigs/kueue/pull/18116))
 
 ## Implementation History
 
 - 2025-07-21: Initial KEP proposal
+- 2025-10-31: KEP merged as provisional ([#6210](https://github.com/kubernetes-sigs/kueue/pull/6210))
+- 2025-11-17: Implementation merged ([#7620](https://github.com/kubernetes-sigs/kueue/pull/7620)),
+  including the move of the ProvisioningRequest admission check to the new fields
+- 2025-11-28: Released in v0.15.0 as Beta (enabled by default), without a feature gate
 
 ## Drawbacks
 
