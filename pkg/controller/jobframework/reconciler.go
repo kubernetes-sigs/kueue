@@ -863,8 +863,7 @@ func (r *JobReconciler) updateWorkloadPriorityAndQueueName(ctx context.Context, 
 		// A reserved workload can still change its WorkloadPriorityClass, but
 		// cannot move queues. Do not let an illegal queue change block priority.
 		if !job.IsSuspended() || workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl) ||
-			workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() ||
-			apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+			workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
 			return
 		}
 		if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {

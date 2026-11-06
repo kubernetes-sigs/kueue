@@ -87,6 +87,7 @@ func TestReconcileGenericJobQueueAndPriority(t *testing.T) {
 		running                bool
 		reserved               bool
 		admitted               bool
+		evicted                bool
 		slicing                bool
 		retainedSlice          bool
 		retainedCurrentClass   bool
@@ -141,6 +142,13 @@ func TestReconcileGenericJobQueueAndPriority(t *testing.T) {
 			queue: "new-queue", class: "high", reserved: true,
 			wantQueue: "old-queue", wantWrites: 1, wantErr: apierrors.IsInvalid,
 		},
+		"preempted workload without quota moves queue with priority": {
+			queue: "new-queue", class: "high", evicted: true, wantWrites: 1,
+		},
+		"preempted workload that holds quota keeps its queue": {
+			queue: "new-queue", class: "high", evicted: true, reserved: true,
+			wantQueue: "old-queue", wantWrites: 1,
+		},
 		"compatible workload slice co-writes queue and priority": {
 			queue: "new-queue", class: "high", slicing: true, wantWrites: 1,
 		},
@@ -182,6 +190,21 @@ func TestReconcileGenericJobQueueAndPriority(t *testing.T) {
 			}
 			if tc.admitted {
 				wlWrapper.AdmittedAt(true, time.Now())
+			}
+			if tc.evicted {
+				wlWrapper.Condition(metav1.Condition{
+					Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByPreemption,
+				})
+				if !tc.reserved {
+					wlWrapper.Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					}).Condition(metav1.Condition{
+						Type: kueue.WorkloadRequeued, Status: metav1.ConditionTrue,
+						Reason: kueue.WorkloadEvictedByPreemption,
+					})
+				}
 			}
 			wl := wlWrapper.Obj()
 			var retained *kueue.Workload
