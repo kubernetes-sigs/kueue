@@ -132,6 +132,8 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
 		var opts []simulator.ScheduleOption
 		if len(committedVictims) > 0 {
+			// The borrowing param holds no meaning here
+			// as the workload will not be preempting anything on this call.
 			p.filter.Initialize(assignment, true)
 			opts = append(opts, simulator.WithCommittedPreemptionVictims(committedVictims.References()))
 			opts = append(opts, simulator.WithPreemptionFilter(p.filter))
