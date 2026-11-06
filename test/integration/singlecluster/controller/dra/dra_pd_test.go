@@ -36,8 +36,9 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
+var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
+	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
@@ -57,10 +58,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				},
 			)
 		}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Partitionable devices are configured", func() {
