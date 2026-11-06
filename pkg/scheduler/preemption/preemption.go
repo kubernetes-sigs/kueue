@@ -214,15 +214,7 @@ func (pf *PreemptionFilter) MayFit() bool {
 	if cq == nil {
 		return false
 	}
-	for fr, v := range pf.usage.Quota.Assigned {
-		if !pf.allowBorrowing && cq.BorrowingWith(fr, v) {
-			return false
-		}
-		if v.Cmp(cq.Available(fr)) > 0 {
-			return false
-		}
-	}
-	return true
+	return usageFits(pf.usage, cq, pf.allowBorrowing)
 }
 
 func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
@@ -778,11 +770,15 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 // workloadQuotaFits determines if the quota requested by the workload is available in
 // the ClusterQueue and its cohort, if it belongs to one.
 func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
-	for fr, v := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
+	return usageFits(preemptionCtx.workloadUsage, preemptionCtx.preemptorCQ, allowBorrowing)
+}
+
+func usageFits(usage workload.Usage, cq *schdcache.ClusterQueueSnapshot, allowBorrowing bool) bool {
+	for fr, v := range usage.Quota.Assigned {
+		if !allowBorrowing && cq.BorrowingWith(fr, v) {
 			return false
 		}
-		if v.Cmp(preemptionCtx.preemptorCQ.Available(fr)) > 0 {
+		if v.Cmp(cq.Available(fr)) > 0 {
 			return false
 		}
 	}
