@@ -2201,7 +2201,7 @@ func TestReconnectResyncIsLowPriority(t *testing.T) {
 				resync.Generic(ctx, <-cRec.wlResyncCh, q)
 			}
 			for _, wlName := range tc.eventWorkloads {
-				q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: wlName, Namespace: TestNamespace}})
+				q.Add(reconcile.Request{Name: wlName, Namespace: TestNamespace})
 			}
 
 			var gotItems []item
