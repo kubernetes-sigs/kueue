@@ -2190,180 +2190,196 @@ func TestWlReconcile(t *testing.T) {
 
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
-				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
-				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			for _, useRemoteWorkloadCache := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t and the MultiKueueRemoteWorkloadCache feature is %t",
+					name, useMergePatch, useRemoteWorkloadCache), func(t *testing.T) {
+					features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+					features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteWorkloadCache, useRemoteWorkloadCache)
+					features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-				ctx, _ := utiltesting.ContextWithLog(t)
-				managerBuilder := getClientBuilder(ctx)
-				managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				})
+					// With the cache enabled, a synced cache backed by the worker's client must
+					// produce the same outcome as reading the worker directly.
+					useCache := func(rc *remoteClient, c SelectivelyCachingClient) {
+						if useRemoteWorkloadCache {
+							wlCache := newRemoteWorkloadCache(c, func() bool { return true }, fakeClock)
+							rc.client = &workloadWriteRecordingClient{SelectivelyCachingClient: c, cache: wlCache}
+							rc.wlCache = wlCache
+						}
+					}
 
-				workerClusters := []string{"worker1"}
-				if tc.useSecondWorker {
-					workerClusters = append(workerClusters, "worker2")
-				}
-				managerBuilder = managerBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
-				managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
-				managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
-				managerBuilder = managerBuilder.WithObjects(
-					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
-					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
-						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
-						Obj(),
-				)
-
-				managerClient := managerBuilder.Build()
-				adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-				recorder := &utiltesting.EventRecorder{}
-				cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters), withEventRecorder(recorder))
-
-				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
-					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
-					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{
+					ctx, _ := utiltesting.ContextWithLog(t)
+					managerBuilder := getClientBuilder(ctx)
+					managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-					}).
-					Build())
-
-				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
-				w1remoteClient.client = worker1Client
-				w1remoteClient.connState.connected = !tc.worker1Reconnecting
-				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
-				cRec.remoteClients["worker1"] = w1remoteClient
-
-				var worker2Client SelectivelyCachingClient
-				if tc.useSecondWorker {
-					worker2Builder := getClientBuilder(ctx)
-					worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
-					worker2Builder = worker2Builder.WithStatusSubresource(&kueue.Workload{})
-					worker2Builder = worker2Builder.WithInterceptorFuncs(interceptor.Funcs{
-						Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-							if tc.worker2OnGetError != nil {
-								return tc.worker2OnGetError
-							}
-							return c.Get(ctx, key, obj, opts...)
-						},
-						Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-							if tc.worker2OnCreateError != nil {
-								return tc.worker2OnCreateError
-							}
-							return c.Create(ctx, obj, opts...)
-						},
-						Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
-							if tc.worker2OnDeleteError != nil {
-								return tc.worker2OnDeleteError
-							}
-							return c.Delete(ctx, obj, opts...)
-						},
 					})
-					worker2Client = NewNeverCachingClient(worker2Builder.Build())
-					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
-					w2remoteClient.client = worker2Client
-					w2remoteClient.connState.connected = !tc.worker2Reconnecting
-					w2remoteClient.connState.disconnectedSince = tc.worker2DisconnectedSince
-					cRec.remoteClients["worker2"] = w2remoteClient
-				}
 
-				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
-				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
-
-				for _, val := range tc.managersDeletedWorkloads {
-					reconciler.Delete(event.DeleteEvent{
-						Object: val,
-					})
-				}
-
-				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor, Namespace: TestNamespace})
-				if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
-					t.Errorf("unexpected error (-want/+got):\n%s", diff)
-				}
-				if tc.wantResult != nil {
-					if diff := cmp.Diff(*tc.wantResult, gotResult); diff != "" {
-						t.Errorf("unexpected result (-want/+got):\n%s", diff)
+					workerClusters := []string{"worker1"}
+					if tc.useSecondWorker {
+						workerClusters = append(workerClusters, "worker2")
 					}
-				}
+					managerBuilder = managerBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
+					managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
+					managerBuilder = managerBuilder.WithStatusSubresource(utilslices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
+					managerBuilder = managerBuilder.WithObjects(
+						utiltestingapi.MakeMultiKueueConfig("config1").Clusters(workerClusters...).Obj(),
+						utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+							Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+							Obj(),
+					)
 
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
-					t.Errorf("unexpected events (-want/+got):\n%s", diff)
-				}
+					managerClient := managerBuilder.Build()
+					adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+					recorder := &utiltesting.EventRecorder{}
+					cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters), withEventRecorder(recorder))
 
-				// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
-				// However, other important Status fields (e.g. Conditions) still reflect the change,
-				// so we deliberately ignore the Admission field here.
-				if features.Enabled(features.WorkloadRequestUseMergePatch) {
-					objCheckOpts = append(objCheckOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission", "ClusterName"))
-				}
+					worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
+						WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
+						WithStatusSubresource(&kueue.Workload{}).
+						WithInterceptorFuncs(interceptor.Funcs{
+							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+						}).
+						Build())
 
-				gotManagersWorkloads := &kueue.WorkloadList{}
-				if err := managerClient.List(ctx, gotManagersWorkloads); err != nil {
-					t.Errorf("unexpected list manager's workloads error: %s", err)
-				} else {
-					// ensure deterministic comparison
-					for i := range gotManagersWorkloads.Items {
-						slices.Sort(gotManagersWorkloads.Items[i].Status.NominatedClusterNames)
+					w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+					w1remoteClient.client = worker1Client
+					useCache(w1remoteClient, worker1Client)
+					w1remoteClient.connState.connected = !tc.worker1Reconnecting
+					w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
+					cRec.remoteClients["worker1"] = w1remoteClient
+
+					var worker2Client SelectivelyCachingClient
+					if tc.useSecondWorker {
+						worker2Builder := getClientBuilder(ctx)
+						worker2Builder = worker2Builder.WithLists(&kueue.WorkloadList{Items: tc.worker2Workloads}, &batchv1.JobList{Items: tc.worker2Jobs})
+						worker2Builder = worker2Builder.WithStatusSubresource(&kueue.Workload{})
+						worker2Builder = worker2Builder.WithInterceptorFuncs(interceptor.Funcs{
+							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+								if tc.worker2OnGetError != nil {
+									return tc.worker2OnGetError
+								}
+								return c.Get(ctx, key, obj, opts...)
+							},
+							Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+								if tc.worker2OnCreateError != nil {
+									return tc.worker2OnCreateError
+								}
+								return c.Create(ctx, obj, opts...)
+							},
+							Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+								if tc.worker2OnDeleteError != nil {
+									return tc.worker2OnDeleteError
+								}
+								return c.Delete(ctx, obj, opts...)
+							},
+						})
+						worker2Client = NewNeverCachingClient(worker2Builder.Build())
+						w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+						w2remoteClient.client = worker2Client
+						useCache(w2remoteClient, worker2Client)
+						w2remoteClient.connState.connected = !tc.worker2Reconnecting
+						w2remoteClient.connState.disconnectedSince = tc.worker2DisconnectedSince
+						cRec.remoteClients["worker2"] = w2remoteClient
 					}
-					for i := range tc.wantManagersWorkloads {
-						slices.Sort(tc.wantManagersWorkloads[i].Status.NominatedClusterNames)
-					}
-					if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
-						t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
-					}
-				}
 
-				gotWorker1Workloads := &kueue.WorkloadList{}
-				if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
-					t.Errorf("unexpected list worker's workloads error: %s", err)
-				} else {
-					if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
-						t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
-					}
-				}
+					helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+					mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
+					reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
 
-				gotManagersJobs := &batchv1.JobList{}
-				if err := managerClient.List(ctx, gotManagersJobs); err != nil {
-					t.Errorf("unexpected list manager's jobs error %s", err)
-				} else {
-					if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
-						t.Errorf("unexpected manager's jobs (-want/+got):\n%s", diff)
+					for _, val := range tc.managersDeletedWorkloads {
+						reconciler.Delete(event.DeleteEvent{
+							Object: val,
+						})
 					}
-				}
 
-				gotWorker1Jobs := &batchv1.JobList{}
-				if err := worker1Client.List(ctx, gotWorker1Jobs); err != nil {
-					t.Error("unexpected list worker's jobs error")
-				} else {
-					if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Jobs.Items, objCheckOpts...); diff != "" {
-						t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
+					gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor, Namespace: TestNamespace})
+					if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+						t.Errorf("unexpected error (-want/+got):\n%s", diff)
 					}
-				}
-
-				if tc.useSecondWorker {
-					gotWorker2Workloads := &kueue.WorkloadList{}
-					if err := worker2Client.List(ctx, gotWorker2Workloads); err != nil {
-						t.Errorf("unexpected list worker2 workloads error: %s", err)
-					} else {
-						if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Workloads.Items, objCheckOpts...); diff != "" {
-							t.Errorf("unexpected worker2 workloads (-want/+got):\n%s", diff)
+					if tc.wantResult != nil {
+						if diff := cmp.Diff(*tc.wantResult, gotResult); diff != "" {
+							t.Errorf("unexpected result (-want/+got):\n%s", diff)
 						}
 					}
 
-					gotWorker2Jobs := &batchv1.JobList{}
-					if err := worker2Client.List(ctx, gotWorker2Jobs); err != nil {
-						t.Errorf("unexpected list worker2 jobs error: %s", err)
+					if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+						t.Errorf("unexpected events (-want/+got):\n%s", diff)
+					}
+
+					// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
+					// However, other important Status fields (e.g. Conditions) still reflect the change,
+					// so we deliberately ignore the Admission field here.
+					if features.Enabled(features.WorkloadRequestUseMergePatch) {
+						objCheckOpts = append(objCheckOpts, cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission", "ClusterName"))
+					}
+
+					gotManagersWorkloads := &kueue.WorkloadList{}
+					if err := managerClient.List(ctx, gotManagersWorkloads); err != nil {
+						t.Errorf("unexpected list manager's workloads error: %s", err)
 					} else {
-						if diff := cmp.Diff(tc.wantWorker2Jobs, gotWorker2Jobs.Items, objCheckOpts...); diff != "" {
-							t.Errorf("unexpected worker2 jobs (-want/+got):\n%s", diff)
+						// ensure deterministic comparison
+						for i := range gotManagersWorkloads.Items {
+							slices.Sort(gotManagersWorkloads.Items[i].Status.NominatedClusterNames)
+						}
+						for i := range tc.wantManagersWorkloads {
+							slices.Sort(tc.wantManagersWorkloads[i].Status.NominatedClusterNames)
+						}
+						if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWorkloads.Items, objCheckOpts...); diff != "" {
+							t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
 						}
 					}
-				}
 
-				if l := reconciler.deletedWlCache.Len(); l > 0 {
-					t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
-				}
-			})
+					gotWorker1Workloads := &kueue.WorkloadList{}
+					if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
+						t.Errorf("unexpected list worker's workloads error: %s", err)
+					} else {
+						if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Workloads.Items, objCheckOpts...); diff != "" {
+							t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
+						}
+					}
+
+					gotManagersJobs := &batchv1.JobList{}
+					if err := managerClient.List(ctx, gotManagersJobs); err != nil {
+						t.Errorf("unexpected list manager's jobs error %s", err)
+					} else {
+						if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
+							t.Errorf("unexpected manager's jobs (-want/+got):\n%s", diff)
+						}
+					}
+
+					gotWorker1Jobs := &batchv1.JobList{}
+					if err := worker1Client.List(ctx, gotWorker1Jobs); err != nil {
+						t.Error("unexpected list worker's jobs error")
+					} else {
+						if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Jobs.Items, objCheckOpts...); diff != "" {
+							t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
+						}
+					}
+
+					if tc.useSecondWorker {
+						gotWorker2Workloads := &kueue.WorkloadList{}
+						if err := worker2Client.List(ctx, gotWorker2Workloads); err != nil {
+							t.Errorf("unexpected list worker2 workloads error: %s", err)
+						} else {
+							if diff := cmp.Diff(tc.wantWorker2Workloads, gotWorker2Workloads.Items, objCheckOpts...); diff != "" {
+								t.Errorf("unexpected worker2 workloads (-want/+got):\n%s", diff)
+							}
+						}
+
+						gotWorker2Jobs := &batchv1.JobList{}
+						if err := worker2Client.List(ctx, gotWorker2Jobs); err != nil {
+							t.Errorf("unexpected list worker2 jobs error: %s", err)
+						} else {
+							if diff := cmp.Diff(tc.wantWorker2Jobs, gotWorker2Jobs.Items, objCheckOpts...); diff != "" {
+								t.Errorf("unexpected worker2 jobs (-want/+got):\n%s", diff)
+							}
+						}
+					}
+
+					if l := reconciler.deletedWlCache.Len(); l > 0 {
+						t.Errorf("unexpected deletedWlCache len %d expecting 0", l)
+					}
+				})
+			}
 		}
 	}
 }

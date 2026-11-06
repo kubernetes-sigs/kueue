@@ -121,6 +121,9 @@ type wlGroup struct {
 	jobAdapter          jobframework.MultiKueueAdapter
 	controllerKey       types.NamespacedName
 	unavailableClusters []string
+	// cachedRemotes holds the clusters whose remote workload was read from the remote
+	// workload cache, so it can lag behind the worker.
+	cachedRemotes sets.Set[string]
 }
 
 type Option func(reconciler *wlReconciler)
@@ -160,6 +163,57 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 		}
 	}
 	return bestMatchCond, bestMatchRemote
+}
+
+// readRemote reads the remote workload on cluster into g.remotes, from the remote workload
+// cache when live is false and the cache can serve the read.
+func (g *wlGroup) readRemote(ctx context.Context, cluster string, live bool) error {
+	rc := g.remoteClients[cluster]
+	key := client.ObjectKeyFromObject(g.local)
+	wl := &kueue.Workload{}
+	var err error
+	cached := false
+	if live {
+		err = rc.getClient().Get(ctx, key, wl)
+	} else {
+		cached, err = rc.getRemoteWorkload(ctx, key, wl)
+	}
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	if err != nil {
+		wl = nil
+	}
+	g.remotes[cluster] = wl
+	if cached {
+		g.cachedRemotes.Insert(cluster)
+	} else {
+		g.cachedRemotes.Delete(cluster)
+	}
+	return nil
+}
+
+// confirmLive re-reads the remote workload on cluster from the API server when it was read
+// from the cache. A decision that changes the local admission state, or removes a remote,
+// is confirmed this way, so a lagging cache can only delay it, never cause it.
+func (g *wlGroup) confirmLive(ctx context.Context, cluster string) (bool, error) {
+	if !g.cachedRemotes.Has(cluster) {
+		return false, nil
+	}
+	return true, g.readRemote(ctx, cluster, true)
+}
+
+// confirmedBestMatchByCondition is bestMatchByCondition with the match confirmed by confirmLive.
+func (g *wlGroup) confirmedBestMatchByCondition(ctx context.Context, conditionType string) (*metav1.Condition, string, error) {
+	for {
+		cond, remote := g.bestMatchByCondition(conditionType)
+		if cond == nil {
+			return nil, "", nil
+		}
+		if reread, err := g.confirmLive(ctx, remote); err != nil || !reread {
+			return cond, remote, err
+		}
+	}
 }
 
 // jobHasMultipleWorkloads reports whether the job creates a workload per component,
@@ -497,18 +551,13 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 		jobAdapter:          adapter,
 		controllerKey:       types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
 		unavailableClusters: unavailable,
+		cachedRemotes:       sets.New[string](),
 	}
 
-	for remote, rClient := range rClients {
-		wl := &kueue.Workload{}
-		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
-		if client.IgnoreNotFound(err) != nil {
+	for remote := range rClients {
+		if err := grp.readRemote(ctx, remote, false); err != nil {
 			return nil, err
 		}
-		if err != nil {
-			wl = nil
-		}
-		grp.remotes[remote] = wl
 	}
 	return &grp, nil
 }
@@ -556,7 +605,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
-	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
+	remoteFinishedCond, remote, err := group.confirmedBestMatchByCondition(ctx, kueue.WorkloadFinished)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if remoteFinishedCond != nil {
 		// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
 		// reset to Retry to re-dispatch rather than finishing (which would strand the manager
 		// Job/Pod). Always return so it never falls through to Finish; patch only while still
@@ -604,7 +657,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 4. Handle workload eviction
-	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
+	remoteEvictCond, evictedRemote, err := group.confirmedBestMatchByCondition(ctx, kueue.WorkloadEvicted)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	if remoteEvictCond != nil {
 		remoteCl := group.remoteClients[evictedRemote].getClient()
 		remoteWl := group.remotes[evictedRemote]
@@ -660,6 +716,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - workloads for which workload priority has changed
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+			if reread, err := group.confirmLive(ctx, rem); err != nil {
+				return reconcile.Result{}, err
+			} else if reread {
+				remWl = group.remotes[rem]
+				if remWl == nil || !isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+					continue
+				}
+			}
 			var remotePreemptionGates []kueue.PreemptionGate
 			if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 				remotePreemptionGates = remWl.Spec.PreemptionGates
@@ -705,6 +769,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 6. Get the admitting remote.
 	conditionToCheck := kueue.WorkloadAdmitted
 	remoteCond, admittingRemote := group.bestMatchByCondition(conditionToCheck)
+	if remoteCond == nil && acs.State == kueue.CheckStateReady && group.cachedRemotes.Len() > 0 {
+		// Confirm that no remote is admitted before resetting the admission check below.
+		for rem := range group.remotes {
+			if _, err := group.confirmLive(ctx, rem); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+		remoteCond, admittingRemote = group.bestMatchByCondition(conditionToCheck)
+	}
 
 	// 6a. No admitted remote is visible while the admission check is still Ready. The
 	// reachability of the admitting worker decides the response:

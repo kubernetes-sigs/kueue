@@ -415,6 +415,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: MultiKueueRemoteWorkloadCache
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: MultiKueueReuseClientConnectionConfigForWorkers
   versionedSpecs:
   - default: true
