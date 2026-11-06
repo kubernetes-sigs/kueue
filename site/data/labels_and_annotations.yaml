@@ -43,7 +43,7 @@
     [Workload](/docs/concepts/workload/).
   description: |
     The label is set to `"true"` on a Workload that is a parent of variant workloads
-    when using the [Concurrent Admission](/docs/concepts/cluster_queue/#concurrent-admission) feature.
+    when using the [Concurrent Admission](/docs/concepts/concurrent_admission/) feature.
     It identifies parent workloads to coordinate variant creation and admission.
 
     This label is alpha-level for the `ConcurrentAdmission` feature gate.
