@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -553,7 +554,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	seen := sets.New(k)
 	for oldKey := replacedSliceKey(w); oldKey != "" && !seen.Has(oldKey); {
 		old, ok := c.Workloads[oldKey]
-		if !ok || old.IsUsingTAS() || wi.IsUsingTAS() {
+		if !ok || !sameJob(old.Obj, w) || old.IsUsingTAS() || wi.IsUsingTAS() {
 			break
 		}
 		seen.Insert(oldKey)
@@ -561,6 +562,11 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.replacedSlices[oldKey] = old
 		oldKey = replacedSliceKey(old.Obj)
 	}
+}
+
+// sameJob reports whether a and b are Workloads of the same job, as the slices of one chain are.
+func sameJob(a, b *kueue.Workload) bool {
+	return a.Namespace == b.Namespace && a.Labels[controllerconstants.JobUIDLabel] == b.Labels[controllerconstants.JobUIDLabel]
 }
 
 // replacedSliceKey is the key of the workload slice that w replaces, or "" when it replaces none.
