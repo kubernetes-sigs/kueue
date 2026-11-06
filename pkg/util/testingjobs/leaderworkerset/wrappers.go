@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
 
@@ -61,6 +62,12 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 			},
 		},
 	}}
+}
+
+// OwnerReferenceWithUID adds a controller ownerReference with a custom UID.
+func (w *LeaderWorkerSetWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *LeaderWorkerSetWrapper {
+	utiltesting.AppendOwnerReference(&w.LeaderWorkerSet, ownerGVK, ownerName, uid, new(true), new(true))
+	return w
 }
 
 // Obj returns the inner LeaderWorkerSet.

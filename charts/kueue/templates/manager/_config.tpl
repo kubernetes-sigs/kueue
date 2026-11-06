@@ -83,6 +83,7 @@ integrations:
   - "deployment"
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
+#  - "disaggregatedset.x-k8s.io/disaggregatedset"
 #  externalFrameworks:
 #  - "Foo.v1.example.com"
 #fairSharing:
