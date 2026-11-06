@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -68,7 +69,7 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 			Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
 		Obj()
-	otherAtOldKey := small.Clone().Name("old").UID("other").Creation(now).Obj()
+	otherAtOldKey := small.Clone().Name("old").UID("other").Creation(now.Add(-3 * time.Second)).Obj()
 	otherAtOldKey.OwnerReferences[0].Name, otherAtOldKey.OwnerReferences[0].UID = "other-job", "other-job-uid"
 	otherNamespace := small.Clone().Name("old").UID("other-ns").Creation(now.Add(-3 * time.Second)).Obj()
 	otherNamespace.Namespace = "other-ns"
@@ -104,9 +105,9 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		wantCPU          string
 		wantWorkloads    []workload.Reference
 	}
-	cases := map[string]struct {
-		gateOff bool
-		steps   []step
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		steps        []step
 	}{
 		"the old slice finishes first": {
 			steps: []step{
@@ -185,6 +186,12 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				{finish: oldSliceFinished, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/new"}},
 			},
 		},
+		"a replacement that shrinks arrives before the slice it replaces": {
+			steps: []step{
+				{add: shrinkingNew, wantCPU: "1", wantWorkloads: []workload.Reference{"ns/new"}},
+				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
+			},
+		},
 		"a replacement that shrinks and leaves first charges nothing more": {
 			steps: []step{
 				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
@@ -199,17 +206,17 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 			},
 		},
 		"gate off charges both": {
-			gateOff: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			steps: []step{
 				{add: oldSlice, wantCPU: "2", wantWorkloads: []workload.Reference{"ns/old"}},
 				{add: newSlice, wantCPU: "5", wantWorkloads: []workload.Reference{"ns/new", "ns/old"}},
 			},
 		},
 	}
-	for name, tc := range cases {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.gateOff {
-				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
