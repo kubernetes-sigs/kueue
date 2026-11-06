@@ -37,6 +37,8 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1428,4 +1430,71 @@ func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+}
+
+func TestExecutorPodPredicate(t *testing.T) {
+	testCases := map[string]struct {
+		invoke func(p predicate.Predicate) bool
+		want   bool
+	}{
+		"create pod event triggers reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Create(event.CreateEvent{
+					Object: testingpod.MakePod("exec-pod", "default").Obj(),
+				})
+			},
+			want: true,
+		},
+		"delete pod event triggers reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Delete(event.DeleteEvent{
+					Object: testingpod.MakePod("exec-pod", "default").Obj(),
+				})
+			},
+			want: true,
+		},
+		"generic pod event triggers reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Generic(event.GenericEvent{
+					Object: testingpod.MakePod("exec-pod", "default").Obj(),
+				})
+			},
+			want: true,
+		},
+		"update pod event with phase change triggers reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: testingpod.MakePod("exec-pod", "default").StatusPhase(corev1.PodPending).Obj(),
+					ObjectNew: testingpod.MakePod("exec-pod", "default").StatusPhase(corev1.PodRunning).Obj(),
+				})
+			},
+			want: true,
+		},
+		"update pod event without phase change skips reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: testingpod.MakePod("exec-pod", "default").StatusPhase(corev1.PodRunning).Obj(),
+					ObjectNew: testingpod.MakePod("exec-pod", "default").StatusPhase(corev1.PodRunning).Obj(),
+				})
+			},
+			want: false,
+		},
+		"update event on non-pod object triggers reconciliation": {
+			invoke: func(p predicate.Predicate) bool {
+				return p.Update(event.UpdateEvent{
+					ObjectOld: &corev1.ConfigMap{},
+					ObjectNew: &corev1.ConfigMap{},
+				})
+			},
+			want: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.invoke(executorPodPredicate)
+			if got != tc.want {
+				t.Errorf("executorPodPredicate invocation returned %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

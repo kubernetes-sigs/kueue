@@ -88,15 +88,27 @@ func NewJob() jobframework.GenericJob {
 
 var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
 	func(b *builder.Builder, _ client.Client) *builder.Builder {
-		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) {
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 			return b
 		}
 		// An elastic job counts its executors from pods, and the Spark Operator does not
 		// report every executor in the SparkApplication status.
 		return b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(executorPodToSparkApplication),
-			builder.WithPredicates(predicate.Funcs{UpdateFunc: podPhaseChanged}))
+			builder.WithPredicates(executorPodPredicate))
 	},
 )
+
+// executorPodPredicate filters out Pod events that should not trigger
+// reconciliation of the SparkApplication.
+// By default, Create and Delete events are processed, while Update events
+// are only processed if the Pod's phase changed.
+var executorPodPredicate = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldPod, isOldPod := e.ObjectOld.(*corev1.Pod)
+		newPod, isNewPod := e.ObjectNew.(*corev1.Pod)
+		return !isOldPod || !isNewPod || oldPod.Status.Phase != newPod.Status.Phase
+	},
+}
 
 func executorPodToSparkApplication(_ context.Context, obj client.Object) []reconcile.Request {
 	labels := obj.GetLabels()
@@ -105,12 +117,6 @@ func executorPodToSparkApplication(_ context.Context, obj client.Object) []recon
 		return nil
 	}
 	return []reconcile.Request{{Namespace: obj.GetNamespace(), Name: appName}}
-}
-
-func podPhaseChanged(e event.UpdateEvent) bool {
-	oldPod, isOldPod := e.ObjectOld.(*corev1.Pod)
-	newPod, isNewPod := e.ObjectNew.(*corev1.Pod)
-	return !isOldPod || !isNewPod || oldPod.Status.Phase != newPod.Status.Phase
 }
 
 type SparkApplication sparkv1beta2.SparkApplication
