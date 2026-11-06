@@ -19,13 +19,19 @@ package baseline
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
@@ -268,6 +274,217 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 
 			ginkgo.By("checking that default metrics are not available", func() {
 				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+			})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("WorkloadMetrics", ginkgo.Label("feature:workloadmetrics"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+
+		metricsReaderClusterRoleBinding *rbacv1.ClusterRoleBinding
+		curlContainerName               string
+		curlPod                         *corev1.Pod
+	)
+
+	ginkgo.BeforeAll(func() {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			if cfg.FeatureGates == nil {
+				cfg.FeatureGates = make(map[string]bool)
+			}
+			cfg.FeatureGates[string(features.WorkloadMetrics)] = true
+		})
+	})
+
+	ginkgo.AfterAll(func() {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-workload-metrics-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor-" + ns.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
+			Name: "wm-metrics-reader-rolebinding-" + ns.Name,
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      "ServiceAccount",
+					Name:      serviceAccountName,
+					Namespace: kueueNS,
+				},
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "ClusterRole",
+				Name:     metricsReaderClusterRoleName,
+			},
+		}
+		behavioral.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+
+		curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
+			ServiceAccountName(serviceAccountName).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, curlPod)
+
+		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+			e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
+		})
+
+		curlContainerName = curlPod.Spec.Containers[0].Name
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.When("workload is preempted", func() {
+		var (
+			clusterQueue1 *kueue.ClusterQueue
+			clusterQueue2 *kueue.ClusterQueue
+			localQueue1   *kueue.LocalQueue
+			localQueue2   *kueue.LocalQueue
+
+			highPriorityClass *schedulingv1.PriorityClass
+
+			lowerJob1 *batchv1.Job
+			lowerJob2 *batchv1.Job
+		)
+
+		ginkgo.BeforeEach(func() {
+			clusterQueue1 = utiltestingapi.MakeClusterQueue("").
+				GeneratedName("test-cq-1-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			clusterQueue2 = utiltestingapi.MakeClusterQueue("").
+				GeneratedName("test-cq-2-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
+
+			localQueue1 = utiltestingapi.MakeLocalQueue("", ns.Name).
+				GeneratedName("test-lq-1-").
+				ClusterQueue(clusterQueue1.Name).
+				Obj()
+			localQueue2 = utiltestingapi.MakeLocalQueue("", ns.Name).
+				GeneratedName("test-lq-2-").
+				ClusterQueue(clusterQueue2.Name).
+				Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
+
+			highPriorityClass = utiltesting.MakePriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+			behavioral.MustCreate(ctx, k8sClient, highPriorityClass)
+
+			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lowerJob1)
+
+			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lowerJob2)
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
+		})
+
+		ginkgo.It("should emit and clear kueue_workload_preemptions_total", func() {
+			lowerWorkload1 := utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(lowerJob1.Name, lowerJob1.UID), ns.Name).Obj()
+			lowerWorkload2 := utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(lowerJob2.Name, lowerJob2.UID), ns.Name).Obj()
+			ginkgo.By("waiting for both lower-priority workloads to be admitted", func() {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1, lowerWorkload2)
+			})
+
+			higherJob1 := testingjob.MakeJob("high-job-1", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue1.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				PriorityClass(highPriorityClass.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			higherJob2 := testingjob.MakeJob("high-job-2", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue2.Name)).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				PriorityClass(highPriorityClass.Name).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				TerminationGracePeriod(1).
+				Obj()
+			ginkgo.By("creating a higher-priority job in each ClusterQueue", func() {
+				behavioral.MustCreate(ctx, k8sClient, higherJob1)
+				behavioral.MustCreate(ctx, k8sClient, higherJob2)
+			})
+
+			ginkgo.By("waiting for both higher-priority workloads to be admitted", func() {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient,
+					utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID), ns.Name).Obj(),
+					utiltestingapi.MakeWorkload(job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID), ns.Name).Obj(),
+				)
+			})
+
+			preemptionMetrics := [][]string{
+				{
+					"kueue_workload_preemptions_total{",
+					`cluster_queue="` + clusterQueue1.Name + `"`,
+					`namespace="` + ns.Name + `"`,
+					`reason="InClusterQueue"`,
+					`workload="` + lowerWorkload1.Name + `"`,
+				},
+				{
+					"kueue_workload_preemptions_total{",
+					`cluster_queue="` + clusterQueue2.Name + `"`,
+					`namespace="` + ns.Name + `"`,
+					`reason="InClusterQueue"`,
+					`workload="` + lowerWorkload2.Name + `"`,
+				},
+			}
+
+			ginkgo.By("checking that kueue_workload_preemptions_total is available", func() {
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, preemptionMetrics)
+			})
+
+			ginkgo.By("deleting all jobs and waiting for the preempted workloads to be deleted", func() {
+				gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerWorkload1, false)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerWorkload2, false)
+			})
+
+			ginkgo.By("checking that kueue_workload_preemptions_total is not available", func() {
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, preemptionMetrics)
 			})
 		})
 	})

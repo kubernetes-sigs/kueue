@@ -101,6 +101,16 @@ The following metrics are available only if `LocalQueueMetrics` feature gate is 
 | `kueue_local_queue_workload_creation_latency_seconds` | Histogram | The time between a job was created until its workload was created, per 'local_queue'. Entries are only recorded for objects with generation 1 whose LocalQueue exists and is not stopped. | `name`: the name of the LocalQueue<br> `namespace`: the namespace of the LocalQueue<br> `job_kind`: the kind of the job<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: localqueue -->
 
+## Workload Status
+
+Use the following metrics to monitor individual workload preemption activity:
+
+<!-- BEGIN GENERATED TABLE: workload -->
+| Metric name | Type | Description | Labels |
+| --- | --- | --- | --- |
+| `kueue_workload_preemptions_total` | Counter | The number of times each workload has been preempted.<br>The label 'reason' can have the following values:<br>- "InClusterQueue" means that the workload was preempted by a workload in the same ClusterQueue.<br>- "InCohortReclamation" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota.<br>- "InCohortFairSharing" means that the workload was preempted by a workload in the same cohort Fair Sharing.<br>- "InCohortReclaimWhileBorrowing" means that the workload was preempted by a workload in the same cohort due to reclamation of nominal quota while borrowing.<br>- "ConfigurablePreemption" means that the workload was preempted by a PreemptionConfig rule.<br>This counter is deleted when the workload is completed or deleted. | `namespace`: the namespace of the preempted workload<br> `workload`: the name of the preempted workload<br> `cluster_queue`: the ClusterQueue of the preempted workload<br> `reason`: eviction or preemption reason<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
+<!-- END GENERATED TABLE: workload -->
+
 ## Cohort Status
 
 <!-- BEGIN GENERATED TABLE: cohort -->

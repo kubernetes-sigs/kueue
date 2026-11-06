@@ -636,6 +636,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				utiltestingapi.MakeCustomLabel("team").SourceKind(config.SourceKindClusterQueue).Obj(),
@@ -656,7 +657,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			metrics.InitMetricVectors(nil)
 		})
 
-		ginkgo.It("should include custom labels in PreemptedWorkloadsTotal", func() {
+		ginkgo.It("should use each ClusterQueue's custom labels for its preemption metric", func() {
 			victimCQ = utiltestingapi.MakeClusterQueue("cq-victim").
 				Label("team", "victim-team").
 				Cohort("preempt-cohort").
@@ -720,6 +721,19 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				v, err := testutil.GetCounterMetricValue(metric)
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(int(v)).To(gomega.Equal(1))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying WorkloadPreemptionsTotal uses the preempted workload's CQ labels")
+			gomega.Eventually(func(g gomega.Gomega) {
+				points := testingmetrics.CollectFilteredGaugeVec(metrics.WorkloadPreemptionsTotal, map[string]string{
+					"namespace":     ns.Name,
+					"workload":      lowWl.Name,
+					"cluster_queue": victimCQ.Name,
+					"reason":        kueue.InCohortReclamationReason,
+				})
+				g.Expect(points).To(gomega.HaveLen(1))
+				g.Expect(points[0].Labels["custom_team"]).To(gomega.Equal("victim-team"))
+				g.Expect(points[0].Value).To(gomega.Equal(float64(1)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
