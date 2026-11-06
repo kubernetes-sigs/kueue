@@ -2638,6 +2638,7 @@ func TestMutableCopy(t *testing.T) {
 	cqCache := New(cl)
 	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
 	if err := cqCache.AddOrUpdateCohort(utiltestingapi.MakeCohort("root").
+		FairWeight(resource.MustParse("0.5")).
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
 		Obj()); err != nil {
 		t.Fatalf("adding root cohort: %v", err)
@@ -2652,6 +2653,7 @@ func TestMutableCopy(t *testing.T) {
 	}
 	if err := cqCache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-a").
 		Cohort("child").
+		FairWeight(resource.MustParse("2")).
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
 			ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2").BorrowingLimit("4").LendingLimit("1").Append().
 			Obj()).
@@ -2663,6 +2665,13 @@ func TestMutableCopy(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
 		Obj()); err != nil {
 		t.Fatalf("adding cq-b: %v", err)
+	}
+	// ClusterQueue with zero workloads and an implicit cohort (no explicit Cohort object).
+	if err := cqCache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq-empty").
+		Cohort("implicit-cohort").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "3").Obj()).
+		Obj()); err != nil {
+		t.Fatalf("adding cq-empty: %v", err)
 	}
 
 	snap, err := cqCache.Snapshot(ctx)
@@ -2734,5 +2743,32 @@ func TestMutableCopy(t *testing.T) {
 	}
 	if got := copyMgr.Cohort("root").ResourceNode.Usage[cpu]; got.CmpInt64(2_000) != 0 {
 		t.Errorf("copyMgr root usage after AddWorkload = %v, want 2000", got)
+	}
+
+	// Verify FairWeight and implicit cohorts, and AddWorkload on an initially empty ClusterQueue.
+	if got, want := copyMgr.Cohort("root").FairWeight, snap.Cohort("root").FairWeight; got != want {
+		t.Errorf("copyMgr root FairWeight = %v, want %v", got, want)
+	}
+	if got, want := copyMgr.ClusterQueue("cq-a").FairWeight, snap.ClusterQueue("cq-a").FairWeight; got != want {
+		t.Errorf("copyMgr cq-a FairWeight = %v, want %v", got, want)
+	}
+	if copyMgr.Cohort("implicit-cohort") == nil {
+		t.Fatal("expected implicit-cohort to exist in copyMgr")
+	}
+	newOnEmpty := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl-new", "").
+		UID("new-uid").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-empty").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Obj()).
+			Obj(), now).
+		Obj())
+	copyMgr.AddWorkload(newOnEmpty)
+	if got := copyMgr.ClusterQueue("cq-empty").ResourceNode.Usage[cpu]; got.CmpInt64(1_000) != 0 {
+		t.Errorf("copyMgr cq-empty usage after AddWorkload = %v, want 1000", got)
+	}
+	if got := snap.ClusterQueue("cq-empty").ResourceNode.Usage[cpu]; got.CmpInt64(0) != 0 {
+		t.Errorf("copyMgr.AddWorkload on cq-empty mutated Snapshot usage: got %v, want 0", got)
 	}
 }
