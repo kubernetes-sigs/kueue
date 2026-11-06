@@ -45,7 +45,7 @@ import (
 )
 
 // A second-pass admission write fails with Conflict if the workload changed after the pass read it.
-var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission write", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission write", func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -71,17 +71,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 			Obj()
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerSetupWithClientTransform(&config.Configuration{}, func(c client.Client) client.Client {
 			return &secondPassBumpClient{Client: c, plain: k8sClient, wlKey: &wlKey, fired: &fired}
 		}))
-	})
 
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-fence-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
 		behavioral.MustCreate(ctx, k8sClient, topology)
