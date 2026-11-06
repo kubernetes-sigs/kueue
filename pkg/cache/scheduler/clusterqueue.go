@@ -17,7 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -38,7 +37,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -65,9 +63,9 @@ type clusterQueue struct {
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
-	// replacedSlices holds the workload slices whose replacement is in Workloads. They are
-	// not charged, since the replacement's usage covers their Pods, unless the replacement
-	// leaves the cache before them.
+	// Only the newest slice of a chain (see sliceChain) is charged: its usage covers the older
+	// slices' Pods. chargedSlices indexes the charged slices by chain, replacedSlices holds the rest.
+	chargedSlices     map[string]sets.Set[workload.Reference]
 	replacedSlices    map[workload.Reference]*workload.Info
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
@@ -528,16 +526,16 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
-	if old, replaced := c.replacedSlices[k]; replaced {
-		if old.Obj.UID == w.UID {
+	delete(c.replacedSlices, k)
+	if _, exist := c.Workloads[k]; exist {
+		c.deleteWorkload(log, k)
+	}
+	chain := sliceChain(wi)
+	for other := range c.chargedSlices[chain] {
+		if newerSlice(c.Workloads[other].Obj, w) {
 			c.replacedSlices[k] = wi
 			return
 		}
-		// Another Workload under the same key: the replaced one is gone.
-		delete(c.replacedSlices, k)
-	}
-	if _, exist := c.Workloads[k]; exist {
-		c.removeWorkload(log, k, false)
 	}
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
@@ -548,35 +546,35 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
-	// The replacement's usage also covers the earlier slices of the chain that are still cached.
-	// TAS slices keep today's accounting: a replacement may be placed on other nodes than the
-	// Pods of the slice it replaces, which hold their nodes until they stop.
-	seen := sets.New(k)
-	for oldKey := replacedSliceKey(w); oldKey != "" && !seen.Has(oldKey); {
-		old, ok := c.Workloads[oldKey]
-		if !ok || !sameJob(old.Obj, w) || old.IsUsingTAS() || wi.IsUsingTAS() {
-			break
+	if chain == "" {
+		return
+	}
+	if c.chargedSlices[chain] == nil {
+		c.chargedSlices[chain] = sets.New[workload.Reference]()
+	}
+	c.chargedSlices[chain].Insert(k)
+	for other := range c.chargedSlices[chain] {
+		if old := c.Workloads[other]; newerSlice(w, old.Obj) {
+			c.deleteWorkload(log, other)
+			c.replacedSlices[other] = old
 		}
-		seen.Insert(oldKey)
-		c.removeWorkload(log, oldKey, false)
-		c.replacedSlices[oldKey] = old
-		oldKey = replacedSliceKey(old.Obj)
 	}
 }
 
-// sameJob reports whether a and b are Workloads of the same job, as the slices of one chain are:
-// they are in the same namespace and have the same controller.
-func sameJob(a, b *kueue.Workload) bool {
-	ownerA, ownerB := metav1.GetControllerOfNoCopy(a), metav1.GetControllerOfNoCopy(b)
-	return a.Namespace == b.Namespace && ownerA != nil && ownerB != nil && ownerA.UID == ownerB.UID
-}
-
-// replacedSliceKey is the key of the workload slice that w replaces, or "" when it replaces none.
-func replacedSliceKey(w *kueue.Workload) workload.Reference {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+// sliceChain is the namespace, controller and slice name of a workload slice, or "" for other
+// Workloads and TAS slices, whose Pods a newer slice may not cover on the same nodes.
+func sliceChain(wi *workload.Info) string {
+	owner := metav1.GetControllerOfNoCopy(wi.Obj)
+	name := wi.Obj.Annotations[kueue.WorkloadSliceNameAnnotation]
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || owner == nil || name == "" || wi.IsUsingTAS() {
 		return ""
 	}
-	return workload.Reference(w.Annotations[constants.WorkloadSliceReplacementForAnnotation])
+	return wi.Obj.Namespace + "/" + string(owner.UID) + "/" + name
+}
+
+// newerSlice reports whether a was created after b. Slices created in the same second stay charged.
+func newerSlice(a, b *kueue.Workload) bool {
+	return a.CreationTimestamp.After(b.CreationTimestamp.Time)
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -584,37 +582,25 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
-	c.removeWorkload(log, wlKey, true)
-}
-
-// removeWorkload removes wlKey from the ClusterQueue. With restoreReplaced, a replacement leaving
-// before the slices it replaces, e.g. on a failed admission, hands the usage back to them. They
-// are added back oldest first, so each one still covered by a later one is uncharged again. An
-// update of the replacement, or its own replacement, keeps them uncharged.
-func (c *clusterQueue) removeWorkload(log logr.Logger, wlKey workload.Reference, restoreReplaced bool) {
 	delete(c.replacedSlices, wlKey)
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
 	}
-	defer func() {
-		if !restoreReplaced || replacedSliceKey(wi.Obj) == "" {
-			return
+	if chain := sliceChain(wi); chain != "" {
+		c.chargedSlices[chain].Delete(wlKey)
+		if c.chargedSlices[chain].Len() == 0 {
+			delete(c.chargedSlices, chain)
 		}
-		var chain []*workload.Info
-		for key, old := range c.replacedSlices {
-			if sameJob(old.Obj, wi.Obj) {
-				chain = append(chain, old)
-				delete(c.replacedSlices, key)
+		// Adding back the replaced slices of the chain charges the newest of them.
+		defer func() {
+			for _, old := range slices.Collect(maps.Values(c.replacedSlices)) {
+				if sliceChain(old) == chain {
+					c.addOrUpdateWorkload(log, old)
+				}
 			}
-		}
-		slices.SortFunc(chain, func(a, b *workload.Info) int {
-			return cmp.Or(a.Obj.CreationTimestamp.Compare(b.Obj.CreationTimestamp.Time), cmp.Compare(a.Obj.Name, b.Obj.Name))
-		})
-		for _, old := range chain {
-			c.addOrUpdateWorkload(log, old)
-		}
-	}()
+		}()
+	}
 	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking {
 		c.WorkloadsNotReady.Delete(wlKey)

@@ -42,8 +42,10 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
 		Obj()
 	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+	// Every slice of a chain carries the chain's slice name.
 	unowned := func(name, cpu string, age time.Duration) *utiltestingapi.WorkloadWrapper {
 		return utiltestingapi.MakeWorkload(name, "ns").
+			Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 			Creation(now.Add(-age)).
 			Request(corev1.ResourceCPU, cpu).
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -55,7 +57,7 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 		return unowned(name, cpu, age).ControllerReference(jobGVK, "job", "job-uid")
 	}
 	replaces := func(key string) map[string]string {
-		return map[string]string{constants.WorkloadSliceReplacementForAnnotation: key}
+		return map[string]string{constants.WorkloadSliceReplacementForAnnotation: key, kueue.WorkloadSliceNameAnnotation: "old"}
 	}
 	oldSlice := slice("old", "2", 3*time.Second).UID("old").Obj()
 	oldSliceFinished := slice("old", "2", 3*time.Second).UID("old").Finished().Obj()
