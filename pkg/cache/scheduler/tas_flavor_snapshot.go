@@ -302,7 +302,11 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
-	stats  *tasExclusionStats
+	// affinityScores are the scores of leaves, by index. The leaves read their score
+	// from domain state, which every pass clears. The leader's entry has none, because
+	// only its leaves are read.
+	affinityScores []int64
+	stats          *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -2644,9 +2648,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
@@ -2658,9 +2660,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
@@ -2821,7 +2821,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
 	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
 	}
 	return nil
 }
@@ -2899,6 +2899,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
+			for i, leaf := range cached.leaves {
+				leaf.SetAffinityScore(cached.affinityScores[i])
+			}
 			return cached.leaves, cached.stats, nil
 		}
 	}
@@ -2910,18 +2913,26 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+}
+
+func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
+	scores := make([]int64, len(leaves))
+	for i, leaf := range leaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	return scores
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
