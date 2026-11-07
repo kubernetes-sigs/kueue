@@ -202,16 +202,51 @@ func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.
 	ret := make([]kueue.ReclaimablePod, 0, len(j.Spec.ReplicatedJobs))
 	statuses := slices.ToRefMap(j.Status.ReplicatedJobsStatus, func(js *jobsetapi.ReplicatedJobStatus) string { return js.Name })
 
+	allSucceeded := true
 	for i := range j.Spec.ReplicatedJobs {
 		spec := &j.Spec.ReplicatedJobs[i]
-		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
+		status, found := statuses[spec.Name]
+		if !found || status.Succeeded < spec.Replicas {
+			allSucceeded = false
+		}
+		if found && status.Succeeded > 0 && status.Succeeded <= spec.Replicas {
 			ret = append(ret, kueue.ReclaimablePod{
 				Name:  kueue.NewPodSetReference(spec.Name),
 				Count: status.Succeeded * PodsCountPerReplica(spec),
 			})
 		}
 	}
+	// RestartJobSet recreates already-succeeded child Jobs, violating monotonic ReclaimablePods.
+	if _, _, finished := j.Finished(ctx); !finished && !allSucceeded && j.canRestartJobSet() {
+		return nil, nil
+	}
 	return ret, nil
+}
+
+func (j *JobSet) canRestartJobSet() bool {
+	fp := j.Spec.FailurePolicy
+	if fp == nil {
+		return false
+	}
+	budgetRemaining := max(j.Status.RestartsCountTowardsMax, j.Status.Restarts) < fp.MaxRestarts
+	for i := range fp.Rules {
+		rule := &fp.Rules[i]
+		switch rule.Action {
+		case jobsetapi.RestartJobSetAndIgnoreMaxRestarts:
+			return true
+		case jobsetapi.RestartJobSet:
+			if budgetRemaining {
+				return true
+			}
+		}
+		// An unconditional rule matches every failure, shadowing later rules and the default RestartJobSet.
+		if len(rule.OnJobFailureReasons) == 0 &&
+			len(rule.OnJobFailureMessagePatterns) == 0 &&
+			len(rule.TargetReplicatedJobs) == 0 {
+			return false
+		}
+	}
+	return budgetRemaining
 }
 
 func (j *JobSet) CanDefaultManagedBy() bool {
