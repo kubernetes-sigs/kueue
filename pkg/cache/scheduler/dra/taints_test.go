@@ -116,18 +116,31 @@ func TestDeviceTaintsMatchUpstreamTracker(t *testing.T) {
 				objects = append(objects, rule.DeepCopy())
 			}
 			ctx := t.Context()
-			factory := informers.NewSharedInformerFactory(k8sfake.NewClientset(objects...), 0)
+			clientset := k8sfake.NewClientset(objects...)
+			sliceFactory := informers.NewSharedInformerFactory(clientset, 0)
+			ruleFactory := informers.NewSharedInformerFactory(clientset, 0)
 			tracker, err := resourceslicetracker.StartTracker(ctx, resourceslicetracker.Options{
 				EnableDeviceTaintRules: true,
-				SliceInformer:          factory.Resource().V1().ResourceSlices(),
-				TaintInformer:          factory.Resource().V1().DeviceTaintRules(),
+				SliceInformer:          sliceFactory.Resource().V1().ResourceSlices(),
+				TaintInformer:          ruleFactory.Resource().V1().DeviceTaintRules(),
 			})
 			if err != nil {
 				t.Fatalf("starting the upstream tracker: %v", err)
 			}
 			t.Cleanup(tracker.Stop)
-			factory.Start(ctx.Done())
-			factory.WaitForCacheSync(ctx.Done())
+
+			sliceFactory.Start(ctx.Done())
+			sliceFactory.WaitForCacheSync(ctx.Done())
+			if err := wait.PollUntilContextTimeout(ctx, time.Millisecond, 10*time.Second, true,
+				func(context.Context) (bool, error) {
+					patched, err := tracker.ListPatchedResourceSlices()
+					return err == nil && len(patched) == len(deviceSlices), nil
+				}); err != nil {
+				t.Fatalf("waiting for the upstream tracker to process the slices: %v", err)
+			}
+
+			ruleFactory.Start(ctx.Done())
+			ruleFactory.WaitForCacheSync(ctx.Done())
 			if err := wait.PollUntilContextTimeout(ctx, time.Millisecond, 10*time.Second, true,
 				func(context.Context) (bool, error) { return tracker.HasSynced(), nil }); err != nil {
 				t.Fatalf("waiting for the upstream tracker to sync: %v", err)
