@@ -45,6 +45,43 @@ class WorkflowTest(unittest.TestCase):
                     mark_done = str(step.get("with", {}).get("mark-done", "false")).lower() == "true"
                     self.assertEqual(mark_done, step["name"] == "Report Success")
 
+    def job_steps(self, job_name: str) -> dict[str, dict]:
+        job = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"][job_name]
+        return {step["name"]: step for step in job["steps"]}
+
+    def test_create_draft_release_failure_names_the_failed_step(self) -> None:
+        steps = self.job_steps("create-draft-release")
+        self.assertEqual(steps["Generate OpenVEX"].get("id"), "openvex")
+        self.assertEqual(steps["Generate SBOM"].get("id"), "sbom")
+        self.assertIn("steps.draft.outputs.message", steps["Report Success"]["with"]["message"])
+
+        failure = steps["Report Failure"]
+        self.assertEqual(failure["if"], "${{ failure() }}")
+        message = failure["with"]["message"]
+        self.assertLess(message.index("steps.sbom.outcome == 'failure'"), message.index("steps.openvex.outcome == 'failure'"))
+        self.assertLess(message.index("steps.openvex.outcome == 'failure'"), message.index("steps.draft.outcome == 'failure'"))
+        for want in ("Failed to generate or upload SBOM", "Failed to generate or upload OpenVEX", "actions/runs", "github.run_id"):
+            self.assertIn(want, message)
+        self.assertNotIn("steps.draft.outputs.message ||", message)
+
+    def test_create_release_candidate_failure_uses_the_failed_step(self) -> None:
+        message = self.job_steps("create-release-candidate")["Report Failure"]["with"]["message"]
+        self.assertLess(message.index("steps.publish.outcome == 'failure'"), message.index("steps.draft.outcome == 'failure'"))
+        self.assertLess(message.index("steps.draft.outcome == 'failure'"), message.index("steps.tag.outcome == 'failure'"))
+        for step_id in ("publish", "draft", "tag"):
+            self.assertIn(f"steps.{step_id}.outputs.message", message)
+        self.assertIn("❌ Failed to create release candidate.", message)
+        self.assertNotIn("steps.tag.outputs.message || steps.draft.outputs.message", message)
+        for step_id, wording in (
+            ("publish", "Failed to publish release candidate"),
+            ("draft", "Failed to create draft release"),
+            ("tag", "Failed to create and push tag"),
+        ):
+            with self.subTest(step=step_id):
+                # A failed step with no message still names itself and links the run.
+                self.assertIn(f"steps.{step_id}.outputs.message || format('❌ {wording}", message)
+        self.assertEqual(message.count("actions/runs/"), 5)
+
 
 class MainTest(unittest.TestCase):
     def run_main(self, env: dict[str,str]) -> str:

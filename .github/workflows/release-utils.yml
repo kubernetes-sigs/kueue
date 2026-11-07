@@ -359,7 +359,7 @@ jobs:
         uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.tag.outputs.message || steps.draft.outputs.message || steps.publish.outputs.message || '❌ Failed to create release candidate.' }}
+          message: ${{ (steps.publish.outcome == 'failure' && (steps.publish.outputs.message || format('❌ Failed to publish release candidate `{0}`. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', steps.rc-version.outputs.version, github.repository, github.run_id))) || (steps.draft.outcome == 'failure' && (steps.draft.outputs.message || format('❌ Failed to create draft release `{0}`. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', steps.rc-version.outputs.version, github.repository, github.run_id))) || (steps.tag.outcome == 'failure' && (steps.tag.outputs.message || format('❌ Failed to create and push tag `{0}`. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', steps.rc-version.outputs.version, github.repository, github.run_id))) || (steps.publish.outcome == 'success' && format('✅ Published release candidate `{0}`, but failed to report success. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', steps.rc-version.outputs.version, github.repository, github.run_id)) || format('❌ Failed to create release candidate. See the [failed workflow run](https://github.com/{0}/actions/runs/{1}) for details.', github.repository, github.run_id) }}
 
   create-release-branch:
     name: Create Release Branch
@@ -660,16 +660,19 @@ jobs:
           prerelease: false
 
       - name: Generate OpenVEX
+        id: openvex
         uses: ./.automation/.github/actions/generate-openvex
         with:
           tag: ${{ needs.authorize.outputs.version }}
 
       - name: Generate SBOM
+        id: sbom
         uses: ./.automation/.github/actions/generate-sbom
         with:
           tag: ${{ needs.authorize.outputs.version }}
 
       - name: Report Success
+        id: report-success
         if: ${{ success() }}
         uses: ./.automation/.github/actions/report-result
         with:
@@ -682,7 +685,7 @@ jobs:
         uses: ./.automation/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.draft.outputs.message || '❌ Failed to create draft release.' }}
+          message: ${{ (steps.sbom.outcome == 'failure' && format('❌ Failed to generate or upload SBOM for `{0}`. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', needs.authorize.outputs.version, github.repository, github.run_id)) || (steps.openvex.outcome == 'failure' && format('❌ Failed to generate or upload OpenVEX for `{0}`. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', needs.authorize.outputs.version, github.repository, github.run_id)) || (steps.draft.outcome == 'failure' && steps.draft.outputs.message && format('{0} See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', steps.draft.outputs.message, github.repository, github.run_id)) || (steps.report-success.outcome == 'failure' && format('✅ Created draft release `{0}`, but failed to report success. See the [failed workflow run](https://github.com/{1}/actions/runs/{2}) for details.', needs.authorize.outputs.version, github.repository, github.run_id)) || format('❌ Failed to create draft release. See the [failed workflow run](https://github.com/{0}/actions/runs/{1}) for details.', github.repository, github.run_id) }}
 
   publish-release:
     name: Publish Release
