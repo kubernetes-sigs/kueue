@@ -157,6 +157,13 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	log := ctrl.LoggerFrom(ctx)
 
 	wi := workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
+	if wi.AdjustmentErr != nil {
+		if errors.Is(wi.AdjustmentErr, workload.ErrInternal) {
+			return true, ctrl.Result{}, nil, wi.AdjustmentErr
+		}
+		fieldErrs := field.ErrorList{field.Invalid(field.NewPath("spec", "podSets"), field.OmitValueType{}, wi.AdjustmentErr.Error())}
+		return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to resolve effective resources for DRA workload")
+	}
 	if workload.HasResourceClaim(wl) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
 		message := "KueueDRAIntegration feature does not support use of resource claims"
@@ -596,7 +603,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		if !workload.HasQuotaReservation(&wl) {
 			reason, message, err := r.resolveUnadmittedQuotaReservedCondition(ctx, &wl, lqExists, lqActive, cq)
 			if err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
+				return ctrl.Result{}, err
 			}
 			if reason != "" {
 				if err := r.markUnadmitted(ctx, &wl, reason, message); err != nil {

@@ -404,7 +404,8 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
-			!draRequestsChanged(oldInfo, wInfo) {
+			!requestsChanged(oldInfo, wInfo) &&
+			!adjustmentErrResolved(oldInfo, wInfo) {
 			c.workloads.UpdateInadmissible(key, oldInfo, wInfo)
 			return
 		}
@@ -433,14 +434,16 @@ func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
 	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 }
 
-// draRequestsChanged returns true if DRA preprocessing changed TotalRequests.
-// DRA extended resources are resolved in Reconcile, which can modify TotalRequests
-// without changing the workload Spec.
-func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
-	if !features.Enabled(features.KueueDRAIntegration) {
-		return false
-	}
+// requestsChanged returns true if external preprocessing (such as DRA or
+// effective resource adjustment) changed TotalRequests without modifying Spec.
+func requestsChanged(oldInfo, newInfo *workload.Info) bool {
 	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+}
+
+// adjustmentErrResolved returns true if the previous workload info had an
+// adjustment error and the new workload info resolved it without error.
+func adjustmentErrResolved(oldInfo, newInfo *workload.Info) bool {
+	return oldInfo.AdjustmentErr != nil && newInfo.AdjustmentErr == nil
 }
 
 func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
