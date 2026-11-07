@@ -28,6 +28,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
@@ -41,12 +43,14 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -4571,112 +4575,225 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 	}
 }
 
-func TestIssuePreemptionsCountsFailures(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	ctx, log := utiltesting.ContextWithLog(t)
-	cqName := kueue.ClusterQueueReference("standalone")
-	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
-	cq := utiltestingapi.MakeClusterQueue(string(cqName)).
-		ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "6").
-				Obj(),
-		).
-		Preemption(kueue.ClusterQueuePreemption{
-			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-		}).
-		Obj()
-	targetWl := utiltestingapi.MakeWorkload("low", "").
-		UID("low-uid").
-		ResourceVersion("1").
-		Priority(-1).
-		Request(corev1.ResourceCPU, "2").
-		ReserveQuotaAt(
-			utiltestingapi.MakeAdmission(cqName).
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", "2000m").
-					Obj()).
-				Obj(),
-			now,
-		).
-		Obj()
-	incomingWl := utiltestingapi.MakeWorkload("in", "").
-		UID("wl-in").
-		ResourceVersion("1").
-		Label(controllerconstants.JobUIDLabel, "job-in").
-		Priority(1).
-		Request(corev1.ResourceCPU, "2").
-		Obj()
+func TestIssuePreemptionsStatusPatch(t *testing.T) {
+	errSimulated := errors.New("simulate API server error while preempting workload")
+	cases := map[string]struct {
+		mergePatch bool
+		// failPatch fails every status patch of the target.
+		failPatch bool
+		// releaseQuota releases the quota reservation of the target before its first
+		// status patch fails with a conflict.
+		releaseQuota bool
+		// staleRetryRead fails the first status patch with a conflict and gives the
+		// retry a copy of the target without its quota reservation, as a lagging
+		// informer cache can. The next cycle then has to preempt the target.
+		staleRetryRead bool
+		wantErr        error
+		wantPreempted  int
+		wantFailed     int
+	}{
+		"status patch fails": {
+			failPatch:  true,
+			wantErr:    errSimulated,
+			wantFailed: 1,
+		},
+		"target released its quota before the conflict retry": {
+			mergePatch:    true,
+			releaseQuota:  true,
+			wantPreempted: 1,
+		},
+		"target read without its quota reservation is preempted in the next cycle": {
+			mergePatch:     true,
+			staleRetryRead: true,
+			wantPreempted:  1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, tc.mergePatch)
+			now := time.Now().Truncate(time.Second)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cqName := kueue.ClusterQueueReference("standalone")
+			metrics.ClearClusterQueueMetrics(cqName)
+			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+			cq := utiltestingapi.MakeClusterQueue(string(cqName)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "6").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			targetWl := utiltestingapi.MakeWorkload("low", "").
+				UID("low-uid").
+				ResourceVersion("1").
+				Priority(-1).
+				Request(corev1.ResourceCPU, "2").
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission(cqName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "2000m").
+							Obj()).
+						Obj(),
+					now,
+				).
+				Obj()
+			incomingWl := utiltestingapi.MakeWorkload("in", "").
+				UID("wl-in").
+				ResourceVersion("1").
+				Label(controllerconstants.JobUIDLabel, "job-in").
+				Priority(1).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
 
-	var patchCount int
-	cl := utiltesting.NewClientBuilder().
-		WithObjects(targetWl).
-		WithStatusSubresource(&kueue.Workload{}).
-		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-				patchCount++
-				if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
-					return errors.New("simulate API server error while preempting workload")
-				}
-				return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
-			},
-			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-				patchCount++
-				if subResourceName == "status" {
-					return errors.New("simulate API server error while preempting workload")
-				}
-				return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
-			},
-		}).
-		Build()
+			var patchCount int
+			var staleServed bool
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(targetWl).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if err := c.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if wl, ok := obj.(*kueue.Workload); ok && tc.staleRetryRead && patchCount == 1 && !staleServed {
+							staleServed = true
+							wl.Status.Admission = nil
+							apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+						}
+						return nil
+					},
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						patchCount++
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+							if tc.failPatch {
+								return errSimulated
+							}
+							if tc.staleRetryRead && patchCount == 1 {
+								return apierrors.NewConflict(kueue.Resource("workloads"), obj.GetName(), errors.New("the object has been modified"))
+							}
+							if tc.releaseQuota && patchCount == 1 {
+								var stored kueue.Workload
+								if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &stored); err != nil {
+									return err
+								}
+								stored.Status.Admission = nil
+								apimeta.SetStatusCondition(&stored.Status.Conditions, metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: "Pending"})
+								if err := c.Status().Update(ctx, &stored); err != nil {
+									return err
+								}
+								return apierrors.NewConflict(kueue.Resource("workloads"), stored.Name, errors.New("the object has been modified"))
+							}
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						patchCount++
+						if subResourceName == "status" && tc.failPatch {
+							return errSimulated
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
+				}).
+				Build()
 
-	cqCache := schdcache.New(cl)
-	cqCache.AddOrUpdateResourceFlavor(log, rf)
-	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-		t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-	}
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+			}
 
-	recorder := &utiltesting.EventRecorder{}
-	store := preemptexpectations.New()
-	preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
+			recorder := &utiltesting.EventRecorder{}
+			store := preemptexpectations.New()
+			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, store, nil)
 
-	snapshot, err := cqCache.Snapshot(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error while building snapshot: %v", err)
-	}
-	wlInfo := workload.NewInfo(log, incomingWl)
-	wlInfo.ClusterQueue = cqName
-	targetInfo := workload.NewInfo(log, targetWl)
-	targetInfo.ClusterQueue = cqName
-	targets := []*Target{{
-		WorkloadInfo: targetInfo,
-		Reason:       kueue.InClusterQueueReason,
-		WorkloadCq:   snapshot.ClusterQueue(cqName),
-	}}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			wlInfo := workload.NewInfo(log, incomingWl)
+			wlInfo.ClusterQueue = cqName
+			targetInfo := workload.NewInfo(log, targetWl)
+			targetInfo.ClusterQueue = cqName
+			targets := []*Target{{
+				WorkloadInfo: targetInfo,
+				Reason:       kueue.InClusterQueueReason,
+				WorkloadCq:   snapshot.ClusterQueue(cqName),
+			}}
 
-	preempted, failedPreemptions, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(cqName))
-	if err == nil {
-		t.Fatal("Expected preemption error")
-	}
-	if preempted != 0 {
-		t.Errorf("Reported %d preemptions, want 0", preempted)
-	}
-	if failedPreemptions != 1 {
-		t.Errorf("Reported %d failed preemptions, want 1", failedPreemptions)
-	}
-	if patchCount != 1 {
-		t.Errorf("Observed %d status patches, want 1", patchCount)
-	}
+			preempted, failedPreemptions, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(cqName))
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("IssuePreemptions() error (-want,+got):\n%s", diff)
+			}
+			if preempted != tc.wantPreempted {
+				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted)
+			}
+			if failedPreemptions != tc.wantFailed {
+				t.Errorf("Reported %d failed preemptions, want %d", failedPreemptions, tc.wantFailed)
+			}
+			if patchCount != 1 {
+				t.Errorf("Observed %d status patches, want 1", patchCount)
+			}
+			if len(recorder.RecordedEvents) != 0 {
+				t.Errorf("Unexpected events: %v", recorder.RecordedEvents)
+			}
 
-	var gotTarget kueue.Workload
-	if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWl), &gotTarget); err != nil {
-		t.Fatalf("Failed getting target workload: %v", err)
-	}
-	if workloadevict.IsEvicted(&gotTarget) {
-		t.Error("Target workload should not be marked evicted after failed preemption patch")
-	}
-	if !store.Satisfied(log, client.ObjectKeyFromObject(targetWl)) {
-		t.Error("Preemption expectation should be released after failed preemption patch")
+			var gotTarget kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWl), &gotTarget); err != nil {
+				t.Fatalf("Failed getting target workload: %v", err)
+			}
+			if workloadevict.IsEvicted(&gotTarget) {
+				t.Error("Target workload should not be marked evicted")
+			}
+			if !store.Satisfied(log, client.ObjectKeyFromObject(targetWl)) {
+				t.Error("Preemption expectation should be released")
+			}
+			preemptedLabels := map[string]string{"preempting_cluster_queue": string(cqName)}
+			evictedLabels := map[string]string{"cluster_queue": string(cqName)}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.PreemptedWorkloadsTotal, preemptedLabels); len(got) != 0 {
+				t.Errorf("Preempted workloads series = %v, want none", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.EvictedWorkloadsTotal, evictedLabels); len(got) != 0 {
+				t.Errorf("Evicted workloads series = %v, want none", got)
+			}
+			if !tc.staleRetryRead {
+				return
+			}
+
+			// The target still holds its quota, so the next cycle evicts it.
+			preempted, failedPreemptions, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(cqName))
+			if err != nil {
+				t.Fatalf("IssuePreemptions() in the next cycle error = %v", err)
+			}
+			if preempted != 1 || failedPreemptions != 0 {
+				t.Errorf("IssuePreemptions() in the next cycle = (%d, %d), want (1, 0)", preempted, failedPreemptions)
+			}
+			if patchCount != 2 {
+				t.Errorf("Observed %d status patches after the next cycle, want 2", patchCount)
+			}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWl), &gotTarget); err != nil {
+				t.Fatalf("Failed getting target workload: %v", err)
+			}
+			if !workloadevict.IsEvicted(&gotTarget) {
+				t.Error("Target workload should be evicted in the next cycle")
+			}
+			wantEvents := []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("", "low", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("", "low", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("", "in", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+			}
+			if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents), cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+				t.Errorf("Events in the next cycle (-want,+got):\n%s", diff)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.PreemptedWorkloadsTotal, preemptedLabels); len(got) != 1 || got[0].Value != 1 {
+				t.Errorf("Preempted workloads series in the next cycle = %v, want one with value 1", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.EvictedWorkloadsTotal, evictedLabels); len(got) != 1 || got[0].Value != 1 {
+				t.Errorf("Evicted workloads series in the next cycle = %v, want one with value 1", got)
+			}
+		})
 	}
 }
 

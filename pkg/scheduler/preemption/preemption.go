@@ -419,6 +419,13 @@ func (p *Preemptor) IssuePreemptions(
 			preemptionErrors.Add(1)
 			return
 		}
+		if wlCopy.Status.Admission == nil {
+			// Evict retried and found the target without a quota reservation, so it did not evict it.
+			log.V(3).Info("Preemption skipped, the target has no quota reservation", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+			successfullyPreempted.Add(1)
+			p.preemptionExpectations.ObservedUID(log, targetKey, target.WorkloadInfo.Obj.UID)
+			return
+		}
 		preemptorEffPri, preemptorBase, preemptorBoost := priorityInfo(log, preemptor.Obj)
 		targetEffPri, targetBase, targetBoost := priorityInfo(log, target.WorkloadInfo.Obj)
 		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj), "preemptorUID", string(preemptor.Obj.UID),
