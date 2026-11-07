@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", func() {
 	var (
 		ns       *corev1.Namespace
 		topology *kueue.Topology
@@ -44,13 +44,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		cq       *kueue.ClusterQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("zero-count-group")
 		behavioral.MustCreate(ctx, k8sClient, topology)

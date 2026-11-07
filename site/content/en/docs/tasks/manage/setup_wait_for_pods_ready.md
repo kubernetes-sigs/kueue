@@ -163,12 +163,10 @@ waitForPodsReady:
 
 When the annotation is set, its `timeoutSeconds` and `recoveryTimeoutSeconds` values take
 priority over the cluster-wide `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout`
-for that workload. If the annotation is absent, the cluster-wide values apply. If the annotation
-is present without `recoveryTimeoutSeconds`, it defaults to the cluster-wide `waitForPodsReady.recoveryTimeout`.
+for that workload. Each omitted value falls back to its corresponding cluster-wide value.
 
-The `timeoutSeconds` field is required and must be a positive integer (greater than 0) less
-than or equal to `maxTimeoutOnWorkload`. The `recoveryTimeoutSeconds` field is optional; if
-set, it must also be a positive integer less than or equal to `maxTimeoutOnWorkload`.
+Both fields are optional, but at least one must be set. If set, each must be a positive
+integer (greater than 0) less than or equal to `maxTimeoutOnWorkload`.
 
 This feature cannot be used together with `DisableWaitForPodsReady`.
 

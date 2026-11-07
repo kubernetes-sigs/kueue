@@ -360,11 +360,11 @@ func NewLabelValsTracker() *LabelValsTracker {
 }
 
 func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
-	return NewLabelValsTracker().merge(a).merge(b)
+	return NewLabelValsTracker().Merge(a).Merge(b)
 }
 
 func Copy(t *LabelValsTracker) *LabelValsTracker {
-	return NewLabelValsTracker().merge(t)
+	return NewLabelValsTracker().Merge(t)
 }
 
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
@@ -409,7 +409,8 @@ func (c *LabelValsTracker) Total() int {
 	return c.total
 }
 
-func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
+// Merge adds the counts of other into c in place and returns c.
+func (c *LabelValsTracker) Merge(other *LabelValsTracker) *LabelValsTracker {
 	c.Lock()
 	defer c.Unlock()
 
@@ -428,6 +429,13 @@ func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
 
 func EmptyValsSet() labelValsSet {
 	return labelValsSet{}
+}
+
+// ValsSetFrom wraps a custom-label value list as a comparable set.
+func ValsSetFrom(vals []string) labelValsSet {
+	var ls labelValsSet
+	ls.size = copy(ls.vals[:], vals)
+	return ls
 }
 
 func (s *labelValsSet) OrderedList() []string {

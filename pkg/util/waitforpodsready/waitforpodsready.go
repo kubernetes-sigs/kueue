@@ -52,9 +52,10 @@ func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
 }
 
 // WorkloadLevelConfig holds the parsed content of the WaitForPodsReadyAnnotation,
-// with integer seconds already converted to time.Duration.
+// with integer seconds already converted to time.Duration. A nil timeout means
+// the corresponding field was omitted from the annotation.
 type WorkloadLevelConfig struct {
-	Timeout         time.Duration
+	Timeout         *time.Duration
 	RecoveryTimeout *time.Duration
 }
 
@@ -69,14 +70,15 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 		return nil, nil
 	}
 	var raw struct {
-		TimeoutSeconds         int64  `json:"timeoutSeconds"`
+		TimeoutSeconds         *int64 `json:"timeoutSeconds,omitempty"`
 		RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(value), &raw); err != nil {
 		return nil, err
 	}
-	cfg := &WorkloadLevelConfig{
-		Timeout: secondsToDuration(raw.TimeoutSeconds),
+	cfg := &WorkloadLevelConfig{}
+	if raw.TimeoutSeconds != nil {
+		cfg.Timeout = new(secondsToDuration(*raw.TimeoutSeconds))
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
 		cfg.RecoveryTimeout = new(secondsToDuration(*raw.RecoveryTimeoutSeconds))
@@ -106,8 +108,9 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 		return nil, err
 	}
 
-	result := &kueue.WaitForPodsReady{
-		TimeoutSeconds: int64(cfg.Timeout / time.Second),
+	result := &kueue.WaitForPodsReady{}
+	if cfg.Timeout != nil {
+		result.TimeoutSeconds = new(int64(*cfg.Timeout / time.Second))
 	}
 	if cfg.RecoveryTimeout != nil {
 		result.RecoveryTimeoutSeconds =

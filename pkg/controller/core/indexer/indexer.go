@@ -51,6 +51,7 @@ const (
 	DynamicQuotaOrchestratorIsDistributingKey   = "spec.capacityDistribution.isDistributing"
 	ClusterQueueCohortKey                       = "spec.cohortName"
 	CohortParentKey                             = "spec.parentName"
+	CapacityProviderControllerNameKey           = "spec.controllerName"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -293,6 +294,15 @@ func IndexDynamicQuotaOrchestratorCapacityProvider(obj client.Object) []string {
 	return providers
 }
 
+// IndexCapacityProviderControllerName indexes CapacityProviders by the controller that serves them.
+func IndexCapacityProviderControllerName(obj client.Object) []string {
+	cp, ok := obj.(*kueuealpha.CapacityProvider)
+	if !ok {
+		return nil
+	}
+	return []string{string(cp.Spec.ControllerName)}
+}
+
 // IndexDynamicQuotaOrchestratorIsDistributing indexes DynamicQuotaOrchestrator by whether it has capacity distribution configured.
 func IndexDynamicQuotaOrchestratorIsDistributing(obj client.Object) []string {
 	dqo, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
@@ -394,6 +404,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer, opts ...Option) err
 		}
 		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorIsDistributingKey, IndexDynamicQuotaOrchestratorIsDistributing); err != nil {
 			return fmt.Errorf("setting index on isDistributing for DynamicQuotaOrchestrator: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueuealpha.CapacityProvider{}, CapacityProviderControllerNameKey, IndexCapacityProviderControllerName); err != nil {
+			return fmt.Errorf("setting index on controllerName for CapacityProvider: %w", err)
 		}
 		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueCohortKey, IndexClusterQueueCohort); err != nil {
 			return fmt.Errorf("setting index on cohort for ClusterQueue: %w", err)

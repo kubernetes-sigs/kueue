@@ -32,6 +32,12 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
+var (
+	errWorkloadIsNil        = errors.New("workload must not be nil")
+	errSliceSizeNotDivisor  = errors.New("slice size must evenly divide parent size")
+	errNonPositiveSliceSize = errors.New("non-positive slice size")
+)
+
 // VirtualPodGroupName returns a collision-free name for a virtual pod group
 // representing the workload.
 func VirtualPodGroupName(wlName string) string {
@@ -132,7 +138,7 @@ func newVCPG(name, namespace, topology string, groupCount int32) *schedulingv1al
 // BuildVirtualPodGroups creates the virtual PodGroup hierarchy for a workload
 func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error) {
 	if wl == nil {
-		return nil, errors.New("workload must not be nil")
+		return nil, errWorkloadIsNil
 	}
 
 	totalPods, err := validateNonNegativePodCount(wl)
@@ -327,10 +333,11 @@ func (f *virtualPodGroupFactory) buildSlicedTrees(ps *kueue.PodSet, sliceConstra
 	// Slice sizes must be positive and each child size must evenly divide parent size
 	for i, constraint := range sliceConstraints {
 		if constraint.Size <= 0 {
-			return nil, fmt.Errorf("slice constraint %d has non-positive size %d", i, constraint.Size)
+			return nil, fmt.Errorf("%w: slice constraint %d has size %d", errNonPositiveSliceSize, i, constraint.Size)
 		}
 		if i > 0 && sliceConstraints[i-1].Size%constraint.Size != 0 {
-			return nil, fmt.Errorf("slice constraint size %d must evenly divide parent size %d", constraint.Size, sliceConstraints[i-1].Size)
+			return nil, fmt.Errorf("%w: slice constraint size %d, parent size %d",
+				errSliceSizeNotDivisor, constraint.Size, sliceConstraints[i-1].Size)
 		}
 	}
 

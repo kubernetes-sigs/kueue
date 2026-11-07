@@ -27,6 +27,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: AllowAddingPodTemplateTolerations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
@@ -101,6 +107,18 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DQOLocalCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
+- name: DQOMultiKueueCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: DynamicQuotaOrchestration
   versionedSpecs:
   - default: false
@@ -129,6 +147,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: ElasticJobsViaWorkloadSlicesForSparkApplication
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
   versionedSpecs:
   - default: false
@@ -387,12 +411,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
-- name: MultiKueueManagerQuotaAutomation
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
 - name: MultiKueueOrchestratedPreemption
   versionedSpecs:
   - default: false
@@ -523,6 +541,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: ReservedResourceNameValidation
   versionedSpecs:
   - default: true

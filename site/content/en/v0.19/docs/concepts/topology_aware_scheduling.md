@@ -66,7 +66,17 @@ domain (like a given rack) by:
   of only ready (with `Ready=True` condition) and schedulable (with `.spec.unschedulable=false`) Nodes,
 - subtracting the usage coming from all other admitted TAS workloads,
 - subtracting the usage coming from all other non-TAS Pods (owned mainly by
-  DaemonSets, but also including static Pods, Deployments, etc.).
+  DaemonSets, but also including static Pods, Deployments, etc.),
+- subtracting the physical usage of bound, non-terminal TAS Pods whose
+  Workload no longer has an active TAS reservation. Pods covered by an active
+  reservation are accounted for by that reservation instead, not twice.
+
+Residual TAS Pod accounting is controlled by `TASResidualPodAccounting`, an alpha
+feature disabled by default in v0.19. Enable it together with
+`TopologyAwareScheduling` to account for bound TAS Pods after their reservations
+end and defer admission when waiting for releasing Pods can avoid additional
+preemption. With the feature disabled, TAS uses reservation-only accounting;
+non-TAS Pods continue to consume physical capacity.
 
 ### Admin-facing APIs
 

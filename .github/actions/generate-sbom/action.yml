@@ -15,7 +15,9 @@ runs:
         check-latest: true
         cache: true
     - name: Install bom
-      uses: kubernetes-sigs/release-actions/setup-bom@c130b4494862d330a1aa4de320076c666d0708da # v0.4.4
+      uses: kubernetes-sigs/release-actions/setup-bom@3f8e1ebff5c0bf20a49a2a63d53feb12195548ab # main
+      with:
+        bom-release: '0.7.1'
     - name: Generate SBOM
       shell: bash
       env:

@@ -100,6 +100,7 @@ type WorkloadRetentionPolicy struct {
 type JobReconciler struct {
 	workloadSlices               *workloadslicing.Manager
 	integrationManager           *IntegrationManager
+	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -346,6 +347,7 @@ func NewReconciler(
 			RoleTracker:  options.RoleTracker,
 		},
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -855,6 +857,32 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 	return nil
 }
 
+// updateWorkloadPriorityAndQueueName includes eligible pending queue changes in
+// each priority write to prevent admission from observing a split state.
+// Lifecycle checks and custom handlers retain control over queue-change eligibility.
+func (r *JobReconciler) updateWorkloadPriorityAndQueueName(ctx context.Context, job GenericJob, wls ...*kueue.Workload) error {
+	prepareQueueNameChange := func(wl *kueue.Workload) {
+		// A reserved workload can still change its WorkloadPriorityClass, but
+		// cannot move queues. Do not let an illegal queue change block priority.
+		if !job.IsSuspended() || workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl) ||
+			workloadfinish.IsFinished(wl) || !wl.DeletionTimestamp.IsZero() {
+			return
+		}
+		if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {
+			return
+		}
+		if _, _, finished := job.Finished(ctx); finished {
+			return
+		}
+		if custom, ok := job.(JobWithCustomQueueNameChangePreparation); ok {
+			custom.PrepareQueueNameChange(wl)
+		} else if _, ok := job.(JobWithCustomQueueNameChange); !ok {
+			wl.Spec.QueueName = QueueName(job)
+		}
+	}
+	return updateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), prepareQueueNameChange, wls...)
+}
+
 func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {
 	if features.Enabled(features.SkipChildJobSuspension) {
 		return false, nil
@@ -1060,7 +1088,7 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	// The quota-reserved/no-priorityClassRef legality check lives in
 	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
 	// reach the shared helper without this caller's filtering, get the same guard.
-	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
+	return r.updateWorkloadPriorityAndQueueName(ctx, job, live...)
 }
 
 // workloadOwnedBy reports whether the workload is already associated with the
@@ -1299,7 +1327,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), match); err != nil {
+		if err := r.updateWorkloadPriorityAndQueueName(ctx, job, match); err != nil {
 			return nil, err
 		}
 
@@ -1458,13 +1486,17 @@ func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object
 			"Cleared workload WaitForPodsReady")
 	case WaitForPodsReadyEventUpdated:
 		cfg := wl.Spec.WaitForPodsReady
-		if cfg.RecoveryTimeoutSeconds != nil {
+		switch {
+		case cfg.TimeoutSeconds != nil && cfg.RecoveryTimeoutSeconds != nil:
 			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
 				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d, recoveryTimeoutSeconds=%d",
-				cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
-		} else {
+				*cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
+		case cfg.TimeoutSeconds != nil:
 			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", cfg.TimeoutSeconds)
+				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", *cfg.TimeoutSeconds)
+		case cfg.RecoveryTimeoutSeconds != nil:
+			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+				"Updated workload spec WaitForPodsReady to recoveryTimeoutSeconds=%d", *cfg.RecoveryTimeoutSeconds)
 		}
 	}
 }
@@ -1479,6 +1511,22 @@ func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object
 // stale value. The workloads are written one by one rather than atomically, and
 // a class edited once every workload already names it is not re-resolved here.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	return updateWorkloadPriority(ctx, c, r, obj, customPriorityClassFunc, nil, wls...)
+}
+
+// updateWorkloadPriority resolves one priority for the batch and repairs stale
+// same-class workloads before name-changing ones, preserving a retry marker.
+// The optional callback may prepare a queue mutation without an API write; it
+// runs only when priority changes, immediately before the combined update.
+func updateWorkloadPriority(
+	ctx context.Context,
+	c client.Client,
+	r events.EventRecorder,
+	obj client.Object,
+	customPriorityClassFunc func() string,
+	prepareQueueNameChange func(*kueue.Workload),
+	wls ...*kueue.Workload,
+) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
 	// Resolving only when at least one workload needs a transition keeps
@@ -1512,6 +1560,9 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		}
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 		wl.Spec.Priority = new(priority)
+		if prepareQueueNameChange != nil {
+			prepareQueueNameChange(wl)
+		}
 		if err := c.Update(ctx, wl); err != nil {
 			return fmt.Errorf("updating priority of workload %s: %w", klog.KObj(wl), err)
 		}
@@ -2299,7 +2350,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonCreatedWorkload, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 
-	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.customLabels, r.RoleTracker())
+	RecordWorkloadCreationLatency(ctx, job.Object(), job.GVK().Kind, wl, r.queues, r.customLabels, r.RoleTracker())
 
 	return nil
 }

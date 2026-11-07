@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair sharing refill", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair sharing refill", func() {
 	var (
 		ns           *corev1.Namespace
 		nodes        []corev1.Node
@@ -46,20 +46,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
-			FairSharing: &config.FairSharing{},
-		}))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingRefill, true)
+
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
+			FairSharing: &config.FairSharing{},
+		}))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-slice-refill-")
 

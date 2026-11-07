@@ -15,10 +15,17 @@ aliases:
     - sohankunkerkar
     - amy
     - j-skiba
+    - apullo777
   kueuectl-approvers:
     - mbobrovskyi
   kueuectl-reviewers:
     - henry3260
+  kueueviz-reviewers:
+    - akram
+    - danylott
+    - mykysha
+  concurrent-admission-reviewers:
+    - ivnovakov
   deployment-integration-approvers:
     - mbobrovskyi
   leaderworkerset-integration-approvers:
@@ -26,6 +33,8 @@ aliases:
   pod-integration-approvers:
     - mbobrovskyi
   statefulset-integration-approvers:
+    - mbobrovskyi
+  jobframework-implementation-approvers:
     - mbobrovskyi
   dependency-approvers:
     - mbobrovskyi
@@ -35,6 +44,11 @@ aliases:
     - mbobrovskyi
     - olekzabl
     - pbundyra
+  test-reviewers:
+    - ivnovakov
+    - mykysha
+    - reruno
+    - vladikkuzn
   agent-approvers:
     - amy
     - kannon92
