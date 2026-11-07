@@ -93,10 +93,12 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running LeaderWorkerSet that did not have them.
 	// It also rejects groupIdentity Hash when an update brings a LeaderWorkerSet
-	// under Kueue management, so defaulting the LocalQueue on update would make
-	// every update of an unmanaged Hash LeaderWorkerSet fail.
-	if oldLWSObj == nil || (oldLWSObj.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash &&
-		jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj)) {
+	// under Kueue management, so the default LocalQueue is not applied on updates
+	// of a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet that
+	// already has a queue name is handled like any other, so a dropped "default"
+	// label is restored.
+	if oldLWSObj == nil || (jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) &&
+		(oldLWSObj.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash || jobframework.QueueNameForObject(oldLWSObj) != "")) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}

@@ -236,6 +236,33 @@ func TestDefault(t *testing.T) {
 				ReadyReplicas(1).
 				Obj(),
 		},
+		"update of a ready groupIdentity Hash LeaderWorkerSet that drops the default queue-name label sets the default LocalQueue": {
+			defaultLqExist: true,
+			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Queue("default").
+				ReadyReplicas(1).
+				Obj(),
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				ReadyReplicas(1).
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Queue("default").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
+				ReadyReplicas(1).
+				Obj(),
+		},
 		"create sets the default WorkloadPriorityClass": {
 			defaultWPCExist: true,
 			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),

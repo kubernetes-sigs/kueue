@@ -124,11 +124,18 @@ without admission, while the worker Pods stay gated.
 
 Kueue rejects `spec.groupIdentity: Hash` when you create a LeaderWorkerSet that
 Kueue manages, or when an update brings a LeaderWorkerSet under Kueue management,
-for example by adding the `kueue.x-k8s.io/queue-name` label.
+for example by adding the `kueue.x-k8s.io/queue-name` label. In a namespace with
+a [default LocalQueue](/docs/tasks/manage/enforce_job_management/setup_default_local_queue/),
+this includes a LeaderWorkerSet created without the `kueue.x-k8s.io/queue-name`
+label, because Kueue sets the label to `default` on create.
 
-A LeaderWorkerSet with `spec.groupIdentity: Hash` that Kueue already manages,
-such as one created before Kueue added this validation, is not rejected on
-update and keeps running this way. Kueue still creates its Workloads by group
+A LeaderWorkerSet with `spec.groupIdentity: Hash` that Kueue already manages is
+not rejected on update and keeps running this way. This includes one created
+before Kueue added this validation, and one that Kueue started to manage without
+an update, for example when its namespace started to match
+`managedJobsNamespaceSelector` with
+[`manageJobsWithoutQueueName`](/docs/tasks/manage/enforce_job_management/manage_jobs_without_queue_name/)
+enabled. Kueue still creates its Workloads by group
 ordinal, so they can be admitted and reserve quota that no Pod uses. Kueue
 returns a warning when you update such a LeaderWorkerSet, for example with
 `kubectl apply`. `spec.groupIdentity` is immutable, so delete the
