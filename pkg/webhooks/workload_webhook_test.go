@@ -1863,12 +1863,14 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 
 func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 	testCases := map[string]struct {
-		oldMinCount        *int32
-		newCount           int32
-		newMinCount        *int32
-		disableElasticJobs bool
-		changeTemplate     bool
-		wantErr            bool
+		oldMinCount           *int32
+		newCount              int32
+		newMinCount           *int32
+		disableElasticJobs    bool
+		disablePartialScaleUp bool
+		pending               bool
+		changeTemplate        bool
+		wantErr               bool
 	}{
 		"cap minimum at the new count": {
 			oldMinCount: new(int32(4)),
@@ -1942,12 +1944,54 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 			disableElasticJobs: true,
 			wantErr:            true,
 		},
+		"cap a stored minimum with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              1,
+			newMinCount:           new(int32(1)),
+			disablePartialScaleUp: true,
+		},
+		"preserve a stored minimum with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              4,
+			newMinCount:           new(int32(4)),
+			disablePartialScaleUp: true,
+		},
+		"cap a pending minimum with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              1,
+			newMinCount:           new(int32(1)),
+			disablePartialScaleUp: true,
+			pending:               true,
+		},
+		"reject adding a pending minimum with partial scale-up disabled": {
+			newCount:              4,
+			newMinCount:           new(int32(4)),
+			disablePartialScaleUp: true,
+			pending:               true,
+			wantErr:               true,
+		},
+		"reject lowering a pending minimum beyond the cap with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              2,
+			newMinCount:           new(int32(1)),
+			disablePartialScaleUp: true,
+			pending:               true,
+			wantErr:               true,
+		},
+		"reject pending scale-up with partial scale-up disabled": {
+			oldMinCount:           new(int32(4)),
+			newCount:              5,
+			newMinCount:           new(int32(4)),
+			disablePartialScaleUp: true,
+			pending:               true,
+			wantErr:               true,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:                          !tc.disableElasticJobs,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disableElasticJobs,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disableElasticJobs && !tc.disablePartialScaleUp,
 			})
 			before := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -1956,6 +2000,9 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), time.Now()).
 				Obj()
 			before.Spec.PodSets[0].MinCount = tc.oldMinCount
+			if tc.pending {
+				before.Status = kueue.WorkloadStatus{}
+			}
 			after := before.DeepCopy()
 			after.Spec.PodSets[0].Count = tc.newCount
 			after.Spec.PodSets[0].MinCount = tc.newMinCount
