@@ -81,6 +81,19 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
+// canApplyDefaultLocalQueue reports whether Default can set the default LocalQueue
+// on an update of oldLWS. ValidateUpdate rejects groupIdentity Hash when an update
+// brings a LeaderWorkerSet under Kueue management, so the default LocalQueue is not
+// applied to a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet
+// that already has a queue name is handled like any other, so a dropped "default"
+// label is restored.
+func canApplyDefaultLocalQueue(oldLWS *leaderworkersetv1.LeaderWorkerSet) bool {
+	if oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
+		return false
+	}
+	return jobframework.CanApplyDefaultLocalQueue(oldLWS.Status.ReadyReplicas == 0, oldLWS)
+}
+
 func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
@@ -92,13 +105,7 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	}
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running LeaderWorkerSet that did not have them.
-	// It also rejects groupIdentity Hash when an update brings a LeaderWorkerSet
-	// under Kueue management, so the default LocalQueue is not applied on updates
-	// of a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet that
-	// already has a queue name is handled like any other, so a dropped "default"
-	// label is restored.
-	if oldLWSObj == nil || (jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) &&
-		(oldLWSObj.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash || jobframework.QueueNameForObject(oldLWSObj) != "")) {
+	if oldLWSObj == nil || canApplyDefaultLocalQueue(oldLWSObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}
@@ -324,24 +331,16 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return allErrs, nil
 }
 
+// Kueue does not support groupIdentity Hash. The controller of a Hash leader Pod
+// is a ReplicaSet rather than a StatefulSet, so the reconciler ungates it without
+// admission. A Hash group index is not an ordinal, so the worker Pods reference a
+// Workload that is never created and stay gated.
 const (
 	groupIdentityHashNotSupportedMsg = "groupIdentity Hash is not supported for LeaderWorkerSets managed by Kueue"
 	groupIdentityHashWarning         = groupIdentityHashNotSupportedMsg +
 		": leader Pods run without admission, worker Pods stay gated, and the Workloads can reserve quota with no Pods;" +
 		" delete the LeaderWorkerSet and create it again with groupIdentity Ordinal"
 )
-
-// validateGroupIdentity rejects groupIdentity Hash on a LeaderWorkerSet managed by
-// Kueue. The controller of a Hash leader Pod is a ReplicaSet rather than a
-// StatefulSet, so the reconciler ungates it without admission. A Hash group index
-// is not an ordinal, so the worker Pods reference a Workload that is never created
-// and stay gated.
-func validateGroupIdentity(lws *LeaderWorkerSet) field.ErrorList {
-	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
-		return nil
-	}
-	return field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}
-}
 
 // validateGroupIdentityOnCreate rejects groupIdentity Hash on a LeaderWorkerSet
 // created under Kueue management. groupIdentity is checked first, so that other
@@ -360,7 +359,7 @@ func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *Leade
 	if err != nil || !managed {
 		return nil, err
 	}
-	return validateGroupIdentity(lws), nil
+	return field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
 }
 
 // validateGroupIdentityOnUpdate rejects groupIdentity Hash unless oldLWS is already
@@ -387,7 +386,7 @@ func (wh *Webhook) validateGroupIdentityOnUpdate(ctx context.Context, oldLWS, ne
 	if wasManaged {
 		return admission.Warnings{groupIdentityHashWarning}, nil, nil
 	}
-	return nil, validateGroupIdentity(newLWS), nil
+	return nil, field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
 }
 
 func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
