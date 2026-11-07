@@ -1779,6 +1779,36 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"a workload with an unchanged reserved pods request can drop its finalizer": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"introducing a reserved pods request is refused": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourcePods, "1").
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
 		"changing a legacy negative request to another negative value is refused": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
 			before:       legacyNegativeRequestWorkload(),
