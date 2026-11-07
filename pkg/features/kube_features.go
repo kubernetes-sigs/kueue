@@ -970,6 +970,12 @@ const (
 	//   them to the Workloads of the LeaderWorkerSet and, in MultiKueue, to the
 	//   remote Workloads and LeaderWorkerSet.
 	AllowAddingPodTemplateTolerations featuregate.Feature = "AllowAddingPodTemplateTolerations"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
 )
 
 func init() {
@@ -1509,6 +1515,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	AllowAddingPodTemplateTolerations: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
