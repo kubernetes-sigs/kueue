@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install a pinned upstream release binary, reusing it until its version changes."""
+"""Install a pinned upstream release binary, reusing it until its identity changes."""
 
 import hashlib
 from http.client import HTTPException
@@ -95,6 +95,31 @@ def install_source(name, version, destination):
     if result.stdout:
         LOG.debug("Source build output for %s:\n%s", name, result.stdout.rstrip())
     result.check_returncode()
+
+
+def binary_digest(path):
+    """Return the SHA-256 digest of an installed executable."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as binary:
+        for chunk in iter(lambda: binary.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def marker_contents(identity, digest, source=False):
+    """Serialize an installation marker with its identity and binary digest."""
+    lines = [identity]
+    if source:
+        lines.append("source")
+    lines.append(digest)
+    return "\n".join(lines) + "\n"
+
+
+def marker_matches(marker, identity, digest, source=False):
+    """Check a marker, rejecting legacy markers without a binary digest."""
+    if not marker.is_file():
+        return False
+    return marker.read_text() == marker_contents(identity, digest, source)
 
 
 def download(url):
@@ -192,15 +217,17 @@ def install(name, version, destination):
     ).split()
     destination = Path(destination)
     marker = destination.with_name(destination.name + ".release-version")
-    identity = f"{version} {goos}/{goarch}\n"
+    identity = f"{version} {goos}/{goarch}"
     LOG.debug("Installing %s %s for %s/%s into %s", name, version, goos, goarch, destination)
-    if destination.is_file() and os.access(destination, os.X_OK) and marker.is_file():
-        if marker.read_text() == identity:
+    if destination.is_file() and os.access(destination, os.X_OK):
+        digest = binary_digest(destination)
+        if marker_matches(marker, identity, digest):
             LOG.info("Reusing %s %s for %s/%s", name, version, goos, goarch)
             return
-        if marker.read_text() == identity + "source\n":
+        if marker_matches(marker, identity, digest, source=True):
             LOG.debug("Checking cached source build for %s", name)
             install_source(name, version, destination)
+            marker.write_text(marker_contents(identity, binary_digest(destination), source=True))
             return
     LOG.info("Downloading %s %s for %s/%s", name, version, goos, goarch)
     try:
@@ -209,7 +236,7 @@ def install(name, version, destination):
         LOG.info("%s; using a source build", error)
         # Preserve unpublished releases and unsupported hosts without hiding integrity failures.
         install_source(name, version, destination)
-        marker.write_text(identity + "source\n")
+        marker.write_text(marker_contents(identity, binary_digest(destination), source=True))
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Only replace a working binary after the download and checksum succeed.
@@ -218,7 +245,7 @@ def install(name, version, destination):
         staged.write_bytes(binary)
         staged.chmod(0o755)
         shutil.move(staged, destination)
-    marker.write_text(identity)
+    marker.write_text(marker_contents(identity, binary_digest(destination)))
     LOG.info("Installed %s %s into %s", name, version, destination)
 
 
