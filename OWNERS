@@ -28,6 +28,8 @@ filters:
   "^Makefile$":
     approvers:
       - release-team
+    reviewers:
+      - infra-reviewers
 
   # Any directory depth: README.md or README.md.gotmpl
   "README\\.md(\\.gotmpl)?$":
