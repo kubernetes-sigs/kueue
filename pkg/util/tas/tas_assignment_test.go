@@ -27,7 +27,76 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
+
+// TestComputeUsagePerDomain checks that repeated rank runs retain all resource
+// and Pod-slot reservations without mutating per-Pod requests.
+func TestComputeUsagePerDomain(t *testing.T) {
+	cases := map[string]struct {
+		domains []TopologyDomainAssignment
+		want    map[TopologyDomainID]map[corev1.ResourceName]int64
+	}{
+		"empty assignment": {
+			want: map[TopologyDomainID]map[corev1.ResourceName]int64{},
+		},
+		"distinct domains": {
+			domains: []TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 2},
+				{Values: []string{"node-b"}, Count: 3},
+			},
+			want: map[TopologyDomainID]map[corev1.ResourceName]int64{
+				"node-a": {corev1.ResourceCPU: 2000, corev1.ResourcePods: 2},
+				"node-b": {corev1.ResourceCPU: 6000, corev1.ResourcePods: 3},
+			},
+		},
+		"separated runs of the same domain accumulate resources and pod slots": {
+			domains: []TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 2},
+				{Values: []string{"node-b"}, Count: 3},
+				{Values: []string{"node-a"}, Count: 4},
+			},
+			want: map[TopologyDomainID]map[corev1.ResourceName]int64{
+				"node-a": {corev1.ResourceCPU: 6000, corev1.ResourcePods: 6},
+				"node-b": {corev1.ResourceCPU: 6000, corev1.ResourcePods: 3},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			requests := map[TopologyDomainID]resources.Requests{
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+				"node-b": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000}),
+			}
+			original := map[TopologyDomainID]resources.Requests{
+				"node-a": requests["node-a"].Clone(),
+				"node-b": requests["node-b"].Clone(),
+			}
+			got := ComputeUsagePerDomain(&TopologyAssignment{
+				Levels: []string{corev1.LabelHostname}, Domains: tc.domains,
+			}, func(id TopologyDomainID) resources.Requests {
+				return requests[id]
+			})
+			want := make(map[TopologyDomainID]resources.Requests, len(tc.want))
+			for id, usage := range tc.want {
+				want[id] = resources.NewRequestsFromMap(usage)
+			}
+			for id, usage := range want {
+				if diff := cmp.Diff(resources.ToMap(usage), resources.ToMap(got[id])); diff != "" {
+					t.Errorf("domain %s: unexpected usage (-want,+got):\n%s", id, diff)
+				}
+			}
+			if len(got) != len(want) {
+				t.Errorf("got %d domains, want %d", len(got), len(want))
+			}
+			for id, request := range requests {
+				if diff := cmp.Diff(resources.ToMap(original[id]), resources.ToMap(request)); diff != "" {
+					t.Errorf("requestsFor result for %s was mutated (-want,+got):\n%s", id, diff)
+				}
+			}
+		})
+	}
+}
 
 type testCase struct {
 	name             string
