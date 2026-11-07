@@ -72,6 +72,15 @@ class WorkflowTest(unittest.TestCase):
             self.assertIn(f"steps.{step_id}.outputs.message", message)
         self.assertIn("❌ Failed to create release candidate.", message)
         self.assertNotIn("steps.tag.outputs.message || steps.draft.outputs.message", message)
+        for step_id, wording in (
+            ("publish", "Failed to publish release candidate"),
+            ("draft", "Failed to create draft release"),
+            ("tag", "Failed to create and push tag"),
+        ):
+            with self.subTest(step=step_id):
+                # A failed step with no message still names itself and links the run.
+                self.assertIn(f"steps.{step_id}.outputs.message || format('❌ {wording}", message)
+        self.assertEqual(message.count("actions/runs/"), 5)
 
 
 class MainTest(unittest.TestCase):
