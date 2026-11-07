@@ -116,6 +116,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 
 	variableCountPodSets := 0
+	compatibleElasticMinCounts := oldObj != nil && workloadslicing.Enabled(oldObj)
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
 		psPath := specPath.Child("podSets").Index(i)
@@ -133,21 +134,25 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
+			if oldPS == nil || oldPS.MinCount == nil || ps.Count > oldPS.Count ||
+				*ps.MinCount != min(*oldPS.MinCount, ps.Count) {
+				compatibleElasticMinCounts = false
+			}
 		}
 	}
 
 	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
 
-	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
-	// so both checks below are skipped for them.
-	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
-		workloadslicing.Enabled(obj)
+	// Gate-off updates may retain stored elastic minimums or cap them during
+	// scale-down, but must not introduce new partial scale-up behavior.
+	allowElasticMinCounts := workloadslicing.Enabled(obj) &&
+		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || compatibleElasticMinCounts)
 
-	if variableCountPodSets > 1 && !elasticPartialScaleUp {
+	if variableCountPodSets > 1 && !allowElasticMinCounts {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !allowElasticMinCounts && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -505,11 +510,14 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count
-// and added tolerations.
+// validateImmutablePodSet validates immutability except scale-down count and accompanying minCount
+// reductions, and added tolerations.
 func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
+		if new.MinCount != nil && old.MinCount != nil && *new.MinCount == min(*old.MinCount, new.Count) {
+			new.MinCount = old.MinCount
+		}
 		new.Count = old.Count
 	}
 	if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.ContainsAll(new.Template.Spec.Tolerations, old.Template.Spec.Tolerations) {
@@ -520,7 +528,7 @@ func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.Erro
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
-// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count
+// validateImmutablePodSets validates each PodSet's immutability, allowing scale-down adjustments
 // and added tolerations.
 func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
 	if len(new) != len(old) {
