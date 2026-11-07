@@ -4619,6 +4619,50 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		}
 	})
 
+	ginkgo.It("should keep a running implicit TAS Job when its flavor's nodeLabels change", func() {
+		ginkgo.By("creating an implicit TAS Job and waiting for admission and unsuspension")
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			NodeSelector(nodeGroupLabel, "tas").
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		wl := behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &wl)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+		ginkgo.By("updating the ResourceFlavor's nodeLabels to conflict with the Job's nodeSelector")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
+			tasFlavor.Spec.NodeLabels[nodeGroupLabel] = "other"
+			g.Expect(k8sClient.Update(ctx, tasFlavor)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			rf := &kueue.ResourceFlavor{}
+			g.Expect(indexedClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), rf)).To(gomega.Succeed())
+			g.Expect(rf.Spec.NodeLabels[nodeGroupLabel]).To(gomega.Equal("other"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("triggering reconciliation of the Job")
+		// Any Job event triggers reconciliation; adding an annotation is the cleanest way.
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			metav1.SetMetaDataAnnotation(&job.ObjectMeta, "example.com/trigger", "1")
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the Job remains unsuspended and the Workload remains admitted")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
+			updatedWl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&wl), updatedWl)).To(gomega.Succeed())
+			g.Expect(updatedWl.UID).To(gomega.Equal(wl.UID))
+			g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
+		}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("should ungate late Pods across elastic TAS replacements without exceeding admission", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		// Pods can retain the origin reference after a replacement is admitted.

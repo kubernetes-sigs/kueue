@@ -1760,14 +1760,12 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	infoMap := slices.ToRefMap(info, func(psi *podset.PodSetInfo) kueue.PodSetReference { return psi.Name })
 	runningPodSets := wl.Spec.DeepCopy().PodSets
 	canBePartiallyAdmitted := workload.CanBePartiallyAdmitted(wl)
+	log := ctrl.LoggerFrom(ctx)
+
 	for i := range runningPodSets {
 		ps := &runningPodSets[i]
 		psi, found := infoMap[ps.Name]
 		if !found {
-			return nil
-		}
-		err := podset.Merge(ctrl.LoggerFrom(ctx), &ps.Template.ObjectMeta, &ps.Template.Spec, *psi)
-		if err != nil {
 			return nil
 		}
 		// FromAssignment injects this annotation for implicit TAS. Mirror it in
@@ -1781,6 +1779,9 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if canBePartiallyAdmitted && ps.MinCount != nil {
 			// update the expected running count
 			ps.Count = psi.Count
+		}
+		if err := podset.Merge(log, &ps.Template.ObjectMeta, &ps.Template.Spec, *psi, podset.WithIgnoreNodeSelectorConflicts()); err != nil {
+			return nil
 		}
 	}
 	return runningPodSets
