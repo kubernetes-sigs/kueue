@@ -23,6 +23,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -235,7 +236,16 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 }
 
 func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
-	return j.Status.RayClusterStatus.State == rayv1.Ready
+	if !features.Enabled(features.RayJobPodsReadyFromConditions) {
+		return j.Status.RayClusterStatus.State == rayv1.Ready
+	}
+	// KubeRay never clears the deprecated state field after a worker is lost,
+	// so derive readiness from the condition and the replica counts instead.
+	// A RayJob cannot make progress without its workers, so the head being
+	// ready is not enough.
+	status := j.Status.RayClusterStatus
+	return apimeta.IsStatusConditionTrue(status.Conditions, string(rayv1.HeadPodReady)) &&
+		status.ReadyWorkerReplicas >= status.DesiredWorkerReplicas
 }
 
 func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {

@@ -17,6 +17,7 @@ limitations under the License.
 package rayjob
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1326,6 +1327,85 @@ func TestGetCustomAnnotations(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantCustomAnnotation, gotAnnotations); diff != "" {
 				t.Errorf("GetCustomAnnotations mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodsReady(t *testing.T) {
+	headReady := metav1.Condition{
+		Type:               string(rayv1.HeadPodReady),
+		Status:             metav1.ConditionTrue,
+		Reason:             "HeadPodRunningAndReady",
+		LastTransitionTime: metav1.Now(),
+	}
+	headNotReady := metav1.Condition{
+		Type:               string(rayv1.HeadPodReady),
+		Status:             metav1.ConditionFalse,
+		Reason:             "ContainersNotReady",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	testCases := map[string]struct {
+		gateEnabled bool
+		status      rayv1.RayClusterStatus
+		want        bool
+	}{
+		"disabled: legacy state stays ready after a worker is lost": {
+			gateEnabled: false,
+			status: rayv1.RayClusterStatus{
+				State:                 rayv1.Ready,
+				ReadyWorkerReplicas:   0,
+				DesiredWorkerReplicas: 1,
+			},
+			want: true,
+		},
+		"enabled: head and all workers ready": {
+			gateEnabled: true,
+			status: rayv1.RayClusterStatus{
+				State:                 rayv1.Ready,
+				Conditions:            []metav1.Condition{headReady},
+				ReadyWorkerReplicas:   1,
+				DesiredWorkerReplicas: 1,
+			},
+			want: true,
+		},
+		"enabled: a desired worker is missing": {
+			gateEnabled: true,
+			status: rayv1.RayClusterStatus{
+				State:                 rayv1.Ready,
+				Conditions:            []metav1.Condition{headReady},
+				ReadyWorkerReplicas:   0,
+				DesiredWorkerReplicas: 1,
+			},
+			want: false,
+		},
+		"enabled: the head is not ready": {
+			gateEnabled: true,
+			status: rayv1.RayClusterStatus{
+				State:                 rayv1.Ready,
+				Conditions:            []metav1.Condition{headNotReady},
+				ReadyWorkerReplicas:   1,
+				DesiredWorkerReplicas: 1,
+			},
+			want: false,
+		},
+		"enabled: no workers are desired": {
+			gateEnabled: true,
+			status: rayv1.RayClusterStatus{
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{headReady},
+			},
+			want: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayJobPodsReadyFromConditions, tc.gateEnabled)
+			job := &RayJob{Status: rayv1.RayJobStatus{RayClusterStatus: tc.status}}
+			if got := job.PodsReady(context.Background(), nil); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}
 		})
 	}
