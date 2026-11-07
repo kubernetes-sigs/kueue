@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +91,10 @@ var (
 // This is the canonical explanation of the deferred-sync handling; other sites
 // in this package point here rather than repeating it.
 const syncDeferredRequeueAfter = 2 * time.Second
+
+// noWorkerReservedQuotaMessagePrefix starts the admission check message that reports
+// why no worker reserved quota.
+const noWorkerReservedQuotaMessagePrefix = "No worker cluster reserved quota: "
 
 type wlReconciler struct {
 	client            client.Client
@@ -162,6 +168,29 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 		}
 	}
 	return bestMatchCond, bestMatchRemote
+}
+
+// quotaReservationFailuresMessage returns the reasons reported by the remote workloads
+// for not reserving quota. It returns an empty string if a remote workload reserved
+// quota or no remote workload reported a reason.
+func (g *wlGroup) quotaReservationFailuresMessage() string {
+	var failures []string
+	for _, remote := range slices.Sorted(maps.Keys(g.remotes)) {
+		wl := g.remotes[remote]
+		if wl == nil {
+			continue
+		}
+		if workload.HasQuotaReservation(wl) {
+			return ""
+		}
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); cond != nil {
+			failures = append(failures, fmt.Sprintf("%s (%s): %s", remote, cond.Reason, cond.Message))
+		}
+	}
+	if len(failures) == 0 {
+		return ""
+	}
+	return api.TruncateConditionMessage(noWorkerReservedQuotaMessagePrefix + strings.Join(failures, "; "))
 }
 
 // jobHasMultipleWorkloads reports whether the job creates a workload per component,
@@ -850,10 +879,33 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 	}
 
+	// 9. Report why no worker reserved quota. This runs before the nomination, which
+	// patches the local workload and so invalidates acs.
+	reportErr := w.syncQuotaReservationFailures(ctx, group, acs)
+
 	if err := w.nominateAndSynchronizeWorkers(ctx, group); err != nil {
-		return reconcile.Result{}, errors.Join(resetErr, err)
+		return reconcile.Result{}, errors.Join(resetErr, reportErr, err)
 	}
-	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
+	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, errors.Join(resetErr, reportErr)
+}
+
+// syncQuotaReservationFailures sets the admission check message to the reasons the
+// workers reported for not reserving quota. Once these reasons no longer apply, it
+// clears the message, but only if this function set it. This keeps messages set on
+// other transitions, such as the reset to Pending after an eviction.
+func (w *wlReconciler) syncQuotaReservationFailures(ctx context.Context, group *wlGroup, acs *kueue.AdmissionCheckState) error {
+	message := group.quotaReservationFailuresMessage()
+	if message == acs.Message {
+		return nil
+	}
+	// Keep messages set on other transitions, e.g. the reset to Pending after an eviction.
+	if message == "" && !strings.HasPrefix(acs.Message, noWorkerReservedQuotaMessagePrefix) {
+		return nil
+	}
+	return workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+		acs.Message = message
+		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+	})
 }
 
 // resetLocalStatus resets the status copied from a remote object onto the local
