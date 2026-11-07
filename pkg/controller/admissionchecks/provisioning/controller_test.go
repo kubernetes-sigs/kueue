@@ -225,6 +225,94 @@ func TestAddPlaceholderVolumes(t *testing.T) {
 	}
 }
 
+func TestFillEmptyContainerImages(t *testing.T) {
+	cases := map[string]struct {
+		spec corev1.PodSpec
+		want corev1.PodSpec
+	}{
+		"fills empty sidecars from the first container image": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "ray:2.9.0"},
+					{Name: "autoscaler"},
+					{Name: "ray-job-submitter"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: "ray:2.9.0"}},
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "ray:2.9.0"},
+					{Name: "autoscaler", Image: "ray:2.9.0"},
+					{Name: "ray-job-submitter", Image: "ray:2.9.0"},
+				},
+			},
+		},
+		"falls back to the first non-empty init container image": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{Name: "setup"},
+					{Name: "seed", Image: "init:1"},
+				},
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{Name: "setup", Image: "init:1"},
+					{Name: "seed", Image: "init:1"},
+				},
+				Containers: []corev1.Container{{Name: "c", Image: "init:1"}},
+			},
+		},
+		"leaves every image empty when there is no donor": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "a"},
+					{Name: "b"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "a"},
+					{Name: "b"},
+				},
+			},
+		},
+		"the first non-empty image wins": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: "init:1"}},
+				Containers: []corev1.Container{
+					{Name: "a"},
+					{Name: "b", Image: "second:1"},
+					{Name: "c", Image: "third:1"},
+					{Name: "d"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: "init:1"}},
+				Containers: []corev1.Container{
+					{Name: "a", Image: "second:1"},
+					{Name: "b", Image: "second:1"},
+					{Name: "c", Image: "third:1"},
+					{Name: "d", Image: "second:1"},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := tc.spec.DeepCopy()
+			fillEmptyContainerImages(spec)
+			if diff := cmp.Diff(&tc.want, spec); diff != "" {
+				t.Errorf("Unexpected pod spec (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestClearStaleAdmissionAnnotations(t *testing.T) {
 	template := corev1.PodTemplateSpec{
 		Annotations: map[string]string{
@@ -847,6 +935,47 @@ func TestReconcile(t *testing.T) {
 			Count: new(int32(1)),
 		},
 	}
+
+	logsMount := []corev1.VolumeMount{{Name: "logs", MountPath: "/logs"}}
+	workloadWithEmptyImage := baseWorkload.DeepCopy()
+	workloadWithEmptyImage.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
+		{
+			Name:  "c",
+			Image: "ray:2.9.0",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			Name:         "autoscaler",
+			VolumeMounts: logsMount,
+		},
+	}
+	filledImageTemplate := baseTemplate1.Clone().
+		Containers(
+			corev1.Container{
+				Name:  "c",
+				Image: "ray:2.9.0",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			},
+			corev1.Container{
+				Name:         "autoscaler",
+				Image:        "ray:2.9.0",
+				VolumeMounts: logsMount,
+			},
+		).
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	filledImageTemplate.Template.Spec.Volumes = []corev1.Volume{{
+		Name:     "logs",
+		EmptyDir: &corev1.EmptyDirVolumeSource{},
+	}}
 
 	cases := map[string]struct {
 		interceptorFuncsCreate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error
@@ -3402,6 +3531,32 @@ func TestReconcile(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
+				},
+			},
+		},
+		"fills empty container images on the PodTemplate and leaves the Workload unchanged": {
+			workload: workloadWithEmptyImage.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				"wl": workloadWithEmptyImage.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: filledImageTemplate,
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
