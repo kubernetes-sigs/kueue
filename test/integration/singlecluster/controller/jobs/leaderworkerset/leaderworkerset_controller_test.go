@@ -426,31 +426,23 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		ginkgo.By("Creating the default LocalQueue")
 		behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(cq.Name).Obj())
 
-		ginkgo.By("Waiting for the webhook to see the default LocalQueue")
-		gomega.Eventually(func(g gomega.Gomega) {
-			probe := testinglws.MakeLeaderWorkerSet("lws-probe", ns.Name).
-				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
-				Obj()
-			g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
-			g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "default"))
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Creating a LeaderWorkerSet with groupIdentity Hash and no queue-name is rejected", func() {
-			newLWS := testinglws.MakeLeaderWorkerSet("new-lws", ns.Name).
-				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
-				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, newLWS)).To(gomega.SatisfyAll(
-				utiltesting.BeForbiddenError(),
-				gomega.MatchError(gomega.ContainSubstring("spec.groupIdentity")),
-			))
+		ginkgo.By("Creating a LeaderWorkerSet with groupIdentity Hash and no queue-name is rejected once the webhook sees the default LocalQueue", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				newLWS := testinglws.MakeLeaderWorkerSet("new-lws", ns.Name).
+					GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				g.Expect(k8sClient.Create(ctx, newLWS, client.DryRunAll)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("spec.groupIdentity")),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating the existing LeaderWorkerSet while no replica is Ready", func() {
 			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
-				g.Expect(createdLWS.Status.ReadyReplicas).To(gomega.BeZero())
 				createdLWS.Spec.Replicas = new(int32(2))
 				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())

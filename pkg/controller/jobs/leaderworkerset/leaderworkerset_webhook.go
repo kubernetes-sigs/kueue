@@ -193,19 +193,11 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	}
 	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
-	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
-		ctx,
-		lws.Object(),
-		wh.client,
-		wh.manageJobsWithoutQueueName,
-		wh.managedJobsNamespaceSelector,
-	)
+	groupIdentityErrs, err := wh.validateGroupIdentityOnCreate(ctx, lws)
 	if err != nil {
 		return nil, err
 	}
-	if suspend {
-		validationErrs = append(validationErrs, validateGroupIdentity(lws)...)
-	}
+	validationErrs = append(validationErrs, groupIdentityErrs...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -349,6 +341,26 @@ func validateGroupIdentity(lws *LeaderWorkerSet) field.ErrorList {
 		return nil
 	}
 	return field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}
+}
+
+// validateGroupIdentityOnCreate rejects groupIdentity Hash on a LeaderWorkerSet
+// created under Kueue management. groupIdentity is checked first, so that other
+// LeaderWorkerSets need no lookup of their owner or Namespace.
+func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *LeaderWorkerSet) (field.ErrorList, error) {
+	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+		return nil, nil
+	}
+	managed, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		lws.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+	)
+	if err != nil || !managed {
+		return nil, err
+	}
+	return validateGroupIdentity(lws), nil
 }
 
 // validateGroupIdentityOnUpdate rejects groupIdentity Hash unless oldLWS is already

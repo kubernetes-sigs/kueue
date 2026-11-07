@@ -1034,6 +1034,14 @@ func TestValidateCreate(t *testing.T) {
 				GroupIdentity(leaderworkersetv1.GroupIdentityOrdinal).
 				Obj(),
 		},
+		"groupIdentity Ordinal with a missing owner skips the management lookup": {
+			integrations: []string{FrameworkName},
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityOrdinal).
+				OwnerReference("parent-lws", gvk).
+				Obj(),
+		},
 		"groupIdentity Hash when unmanaged": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
