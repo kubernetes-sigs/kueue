@@ -18,6 +18,7 @@ package cert
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -30,6 +31,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -59,7 +61,8 @@ const (
 // +kubebuilder:rbac:groups="apiregistration.k8s.io",resources=apiservices,resourceNames=v1beta2.visibility.kueue.x-k8s.io,verbs=get;update
 
 // BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
-// This function blocks until certificates are ready and CA bundles are injected into CRDs.
+// This function blocks until certificates are ready and CA bundles are injected into CRDs
+// and, with VisibilityOnDemand enabled, the visibility APIService.
 func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Configuration) error {
 	log := ctrl.Log.WithName("cert-bootstrap")
 
@@ -89,6 +92,16 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 		return fmt.Errorf("unable to add cert rotator to bootstrap manager: %w", err)
 	}
 
+	ready := []chan struct{}{certsReady}
+	if features.Enabled(features.VisibilityOnDemand) {
+		visibilityCertsReady := make(chan struct{})
+		err = cert.AddRotator(bootstrapMgr, buildVisibilityCertRotatorConfig(cfg, "visibility-cert-rotator-bootstrap", visibilityCertsReady))
+		if err != nil {
+			return fmt.Errorf("unable to add visibility cert rotator to bootstrap manager: %w", err)
+		}
+		ready = append(ready, visibilityCertsReady)
+	}
+
 	bootstrapCtx, bootstrapCancel := context.WithCancel(ctx)
 	defer bootstrapCancel()
 
@@ -103,7 +116,9 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 
 	// Wait for cert-rotator to complete cert generation and CA injection
 	log.Info("Waiting for certificate generation and CA injection to complete")
-	<-certsReady
+	if err := waitForCerts(managerStopped, ready); err != nil {
+		return err
+	}
 	log.Info("Certificates ready and CA bundles injected")
 
 	log.Info("Stopping bootstrap manager")
@@ -113,6 +128,19 @@ func BootstrapCerts(ctx context.Context, kubeConfig *rest.Config, cfg config.Con
 	<-managerStopped
 
 	log.Info("Certificate bootstrap complete")
+	return nil
+}
+
+// waitForCerts returns once every channel in ready is closed. The rotators stop the manager
+// when they run out of retries without closing their channel, so a stopped manager is an error.
+func waitForCerts(managerStopped <-chan struct{}, ready []chan struct{}) error {
+	for _, r := range ready {
+		select {
+		case <-r:
+		case <-managerStopped:
+			return errors.New("bootstrap manager stopped before certificates were ready")
+		}
+	}
 	return nil
 }
 
@@ -127,14 +155,17 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration) error {
 	return nil
 }
 
-// ManageVisibilityCerts adds a rotator that issues the visibility server's serving
-// certificate and injects its CA into the visibility APIService; ready is closed once
-// both are done. It runs outside BootstrapCerts so that a visibility failure cannot
-// block startup, and uses its own Secret instead of a SAN on the webhook certificate
-// because the rotator only revalidates the primary DNS name: webhook certificates
-// issued by earlier releases would never gain the visibility name.
-func ManageVisibilityCerts(mgr ctrl.Manager, cfg config.Configuration, ready chan struct{}) error {
-	if err := cert.AddRotator(mgr, buildVisibilityCertRotatorConfig(cfg, ready)); err != nil {
+// ManageVisibilityCerts adds the rotator for the visibility server's serving certificate
+// to the main manager for ongoing rotation; BootstrapCerts has already issued it. It uses
+// its own Secret instead of a SAN on the webhook certificate because the rotator only
+// revalidates the primary DNS name: webhook certificates issued by earlier releases would
+// never gain the visibility name.
+func ManageVisibilityCerts(mgr ctrl.Manager, cfg config.Configuration) error {
+	if !features.Enabled(features.VisibilityOnDemand) {
+		return nil
+	}
+	rotatorReady := make(chan struct{})
+	if err := cert.AddRotator(mgr, buildVisibilityCertRotatorConfig(cfg, "visibility-cert-rotator", rotatorReady)); err != nil {
 		return fmt.Errorf("unable to add visibility cert rotator to manager: %w", err)
 	}
 	return nil
@@ -193,7 +224,7 @@ func buildCertRotatorConfig(cfg config.Configuration, controllerName string, cer
 	}
 }
 
-func buildVisibilityCertRotatorConfig(cfg config.Configuration, certsReady chan struct{}) *cert.CertRotator {
+func buildVisibilityCertRotatorConfig(cfg config.Configuration, controllerName string, certsReady chan struct{}) *cert.CertRotator {
 	baseName := deriveWebhookBaseName(*cfg.InternalCertManagement.WebhookServiceName)
 
 	return &cert.CertRotator{
@@ -206,7 +237,7 @@ func buildVisibilityCertRotatorConfig(cfg config.Configuration, certsReady chan 
 		CAOrganization: caOrganization,
 		DNSName:        fmt.Sprintf("%s%s.%s.svc", baseName, visibilityServiceSuffix, *cfg.Namespace),
 		IsReady:        certsReady,
-		ControllerName: "visibility-cert-rotator",
+		ControllerName: controllerName,
 		Webhooks: []cert.WebhookInfo{{
 			Type: cert.APIService,
 			Name: visibilityv1beta2.SchemeGroupVersion.Version + "." + visibilityv1beta2.SchemeGroupVersion.Group,

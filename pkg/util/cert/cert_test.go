@@ -17,6 +17,7 @@ limitations under the License.
 package cert
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestDeriveWebhookBaseName(t *testing.T) {
@@ -162,7 +164,7 @@ func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
 			}
 			ready := make(chan struct{})
 
-			got := buildVisibilityCertRotatorConfig(cfg, ready)
+			got := buildVisibilityCertRotatorConfig(cfg, "visibility-cert-rotator", ready)
 
 			if got.IsReady != ready {
 				t.Error("IsReady is not the channel passed in")
@@ -178,5 +180,47 @@ func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
 				t.Errorf("Unexpected rotator config (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestWaitForCerts(t *testing.T) {
+	closed := make(chan struct{})
+	close(closed)
+	open := make(chan struct{})
+
+	tests := map[string]struct {
+		managerStopped chan struct{}
+		ready          []chan struct{}
+		wantErr        string
+	}{
+		"all certificates ready": {
+			managerStopped: open,
+			ready:          []chan struct{}{closed, closed},
+		},
+		"manager stopped while the second certificate is pending": {
+			managerStopped: closed,
+			ready:          []chan struct{}{closed, open},
+			wantErr:        "bootstrap manager stopped",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := waitForCerts(tc.managerStopped, tc.ready)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("Unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("Unexpected error: got %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestManageVisibilityCertsWithVisibilityOnDemandDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.VisibilityOnDemand, false)
+
+	if err := ManageVisibilityCerts(nil, config.Configuration{}); err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }

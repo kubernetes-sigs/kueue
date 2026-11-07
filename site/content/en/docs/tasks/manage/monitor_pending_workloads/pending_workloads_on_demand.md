@@ -80,6 +80,11 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/visibility/cluster-role-and-
 You can disable it by setting the `VisibilityOnDemand` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 If you disable the feature, you also need to remove the associated `APIService` from your cluster by doing `kubectl delete APIService v1beta2.visibility.kueue.x-k8s.io`.
+Until then, `kubectl kueue list workload` fails when there are pending Workloads. Afterwards, its `POSITION IN QUEUE` column stays empty.
+
+With internal certificate management, the controller manager does not become ready until
+the visibility server certificate is mounted and its CA is injected into the `APIService`.
+If this blocks startup, you can disable the feature.
 
 If you need the embedded visibility server to run on a different port, you can use the Configuration API `visibilityServer.bindPort`.
 
