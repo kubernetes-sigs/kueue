@@ -194,6 +194,21 @@ var _ = ginkgo.Describe("MultiKueue CapacityProvider", ginkgo.Label("area:multik
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("letting status.effectiveQuotas on worker1 expire so the provider falls back to spec", func() {
+			setWorkerClusterQueueEffectiveQuotas(worker1TestCluster, f.worker1Cq, utiltestingapi.MakeEffectiveQuotaStatus().
+				ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "7").Obj(),
+				)).
+				ValidUntil(time.Now().Add(5*time.Second)).
+				Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectCapacityProviderCPU(g, cpKey, "12")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectCapacityProviderCPU(g, cpKey, "10")
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("clearing status.effectiveQuotas on worker1 so the provider falls back to spec", func() {
 			setWorkerClusterQueueEffectiveQuotas(worker1TestCluster, f.worker1Cq, nil)
 			gomega.Eventually(func(g gomega.Gomega) {

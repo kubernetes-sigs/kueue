@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -604,7 +605,8 @@ func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
 			oldCQ, ok1 := oldObj.(*kueue.ClusterQueue)
 			newCQ, ok2 := newObj.(*kueue.ClusterQueue)
 			if ok1 && ok2 && (!equality.Semantic.DeepEqual(oldCQ.Spec.ResourceGroups, newCQ.Spec.ResourceGroups) ||
-				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas)) {
+				!equality.Semantic.DeepEqual(oldCQ.Status.EffectiveQuotas, newCQ.Status.EffectiveQuotas) ||
+				utildqo.IsInactive(oldCQ.Status.Conditions) != utildqo.IsInactive(newCQ.Status.Conditions)) {
 				rc.queueEventsForCQ(ctx, newCQ)
 			}
 		},

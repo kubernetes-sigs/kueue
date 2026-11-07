@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1beta2
 
+import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // EffectiveQuotaStatusApplyConfiguration represents a declarative configuration of the EffectiveQuotaStatus type for use
 // with apply.
 //
@@ -38,6 +42,12 @@ type EffectiveQuotaStatusApplyConfiguration struct {
 	// spec.resourceGroups.
 	//
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`
+	// validUntil is the time after which the effective quota expires. Kueue
+	// then ignores resourceGroups and uses spec.resourceGroups. The component
+	// managing the effective quota extends it while it keeps managing it.
+	// When omitted, the effective quota does not expire.
+	//
+	ValidUntil *v1.Time `json:"validUntil,omitempty"`
 }
 
 // EffectiveQuotaStatusApplyConfiguration constructs a declarative configuration of the EffectiveQuotaStatus type for use with
@@ -64,5 +74,13 @@ func (b *EffectiveQuotaStatusApplyConfiguration) WithResourceGroups(values ...*R
 		}
 		b.ResourceGroups = append(b.ResourceGroups, *values[i])
 	}
+	return b
+}
+
+// WithValidUntil sets the ValidUntil field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ValidUntil field is set to the value of the last call.
+func (b *EffectiveQuotaStatusApplyConfiguration) WithValidUntil(value v1.Time) *EffectiveQuotaStatusApplyConfiguration {
+	b.ValidUntil = &value
 	return b
 }

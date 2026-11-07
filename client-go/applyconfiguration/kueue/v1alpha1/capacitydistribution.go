@@ -24,6 +24,16 @@ type CapacityDistributionApplyConfiguration struct {
 	// subtreeRootQuotaRef identifies the root of the quota subtree.
 	//
 	SubtreeRootQuotaRef *CapacityDistributionSubtreeRootRefApplyConfiguration `json:"subtreeRootQuotaRef,omitempty"`
+	// effectiveQuotaTTLSeconds is how long, in seconds, the effective quota
+	// written by this DQO stays valid without renewal. When set, DQO sets
+	// status.effectiveQuotas.validUntil to the time it writes the effective quota
+	// plus this value, and renews it while distribution keeps succeeding.
+	// When not set, DQO writes the effective quota without validUntil, so it
+	// does not expire. A change applies the next time DQO writes the effective
+	// quota, so during an outage an existing validUntil stays as it is.
+	//
+	// Must be between 60 (1 minute) and 604800 (7 days).
+	EffectiveQuotaTTLSeconds *int32 `json:"effectiveQuotaTTLSeconds,omitempty"`
 }
 
 // CapacityDistributionApplyConfiguration constructs a declarative configuration of the CapacityDistribution type for use with
@@ -37,5 +47,13 @@ func CapacityDistribution() *CapacityDistributionApplyConfiguration {
 // If called multiple times, the SubtreeRootQuotaRef field is set to the value of the last call.
 func (b *CapacityDistributionApplyConfiguration) WithSubtreeRootQuotaRef(value *CapacityDistributionSubtreeRootRefApplyConfiguration) *CapacityDistributionApplyConfiguration {
 	b.SubtreeRootQuotaRef = value
+	return b
+}
+
+// WithEffectiveQuotaTTLSeconds sets the EffectiveQuotaTTLSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EffectiveQuotaTTLSeconds field is set to the value of the last call.
+func (b *CapacityDistributionApplyConfiguration) WithEffectiveQuotaTTLSeconds(value int32) *CapacityDistributionApplyConfiguration {
+	b.EffectiveQuotaTTLSeconds = &value
 	return b
 }

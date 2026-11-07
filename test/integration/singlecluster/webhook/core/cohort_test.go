@@ -19,12 +19,14 @@ package core
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -430,6 +432,11 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
 				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with validUntil",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ValidUntil(time.Now().Add(time.Hour).Truncate(time.Second)).
+					Obj(),
+				gomega.Succeed()),
 			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().
 					ResourceGroups(
@@ -479,5 +486,34 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 					Obj(),
 				utiltesting.BeInvalidError()),
 		)
+
+		ginkgo.DescribeTable("Validate status.conditions on update",
+			func(conditionTypes []string, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCohort kueue.Cohort
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &updateCohort)).Should(gomega.Succeed())
+					for _, conditionType := range conditionTypes {
+						updateCohort.Status.Conditions = append(updateCohort.Status.Conditions, metav1.Condition{
+							Type:               conditionType,
+							Status:             metav1.ConditionFalse,
+							Reason:             "Test",
+							LastTransitionTime: metav1.Now(),
+						})
+					}
+					g.Expect(k8sClient.Status().Update(ctx, &updateCohort)).Should(matcher)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow 16 conditions", conditionTypes(16), gomega.Succeed()),
+			ginkgo.Entry("Should reject 17 conditions", conditionTypes(17), utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject duplicate condition types", []string{"Same", "Same"}, utiltesting.BeInvalidError()),
+		)
 	})
 })
+
+func conditionTypes(n int) []string {
+	types := make([]string, 0, n)
+	for i := range n {
+		types = append(types, fmt.Sprintf("Type%d", i))
+	}
+	return types
+}
