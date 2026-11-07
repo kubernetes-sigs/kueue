@@ -3954,3 +3954,186 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }
+
+func TestWorkloadReconciler_ResourceSliceAPIAvailable(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationConsumableCapacity, true)
+
+	const (
+		driver     = "mig.example.com"
+		counterDC  = "mig.example.com"
+		capacityDC = "capacity.example.com"
+		plainDC    = "plain.example.com"
+	)
+
+	counterMapping := configapi.DeviceClassMapping{
+		Name:             "gpu-memory",
+		DeviceClassNames: []corev1.ResourceName{counterDC},
+		Sources: []configapi.DeviceClassSourceConfig{{
+			Counter: &configapi.DeviceClassCounterSource{
+				Name:           "memory",
+				Driver:         driver,
+				DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+			},
+		}},
+	}
+	capacityMapping := configapi.DeviceClassMapping{
+		Name:             "gpu-capacity",
+		DeviceClassNames: []corev1.ResourceName{capacityDC},
+		Sources: []configapi.DeviceClassSourceConfig{{
+			Capacity: &configapi.DeviceClassCapacitySource{
+				Name:           "memory",
+				Driver:         driver,
+				DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+			},
+		}},
+	}
+	plainMapping := configapi.DeviceClassMapping{
+		Name:             "gpu-plain",
+		DeviceClassNames: []corev1.ResourceName{plainDC},
+	}
+
+	draMapper := dra.NewResourceMapper()
+	if err := draMapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{counterMapping, capacityMapping, plainMapping}); err != nil {
+		t.Fatalf("Failed to initialize DRA mapper: %v", err)
+	}
+
+	counterTmpl := utiltesting.MakeResourceClaimTemplate("counter-claim-tmpl", "ns").
+		DeviceRequest("req", counterDC, 1).
+		Obj()
+	capacityTmpl := utiltesting.MakeResourceClaimTemplate("capacity-claim-tmpl", "ns").
+		DeviceRequest("req", capacityDC, 1).
+		Obj()
+	plainTmpl := utiltesting.MakeResourceClaimTemplate("plain-claim-tmpl", "ns").
+		DeviceRequest("req", plainDC, 1).
+		Obj()
+
+	counterWl := utiltestingapi.MakeWorkload("counter-wl", "ns").
+		Queue("lq").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "c-req", ResourceClaimTemplateName: new("counter-claim-tmpl")},
+					},
+				},
+			},
+		}).
+		Obj()
+
+	capacityWl := utiltestingapi.MakeWorkload("capacity-wl", "ns").
+		Queue("lq").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "cap-req", ResourceClaimTemplateName: new("capacity-claim-tmpl")},
+					},
+				},
+			},
+		}).
+		Obj()
+
+	plainWl := utiltestingapi.MakeWorkload("plain-wl", "ns").
+		Queue("lq").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "p-req", ResourceClaimTemplateName: new("plain-claim-tmpl")},
+					},
+				},
+			},
+		}).
+		Obj()
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+
+	cases := map[string]struct {
+		wl                        *kueue.Workload
+		resourceSliceAPIAvailable bool
+		wantInadmissible          bool
+		wantErrSubstring          string
+	}{
+		"counter-backed claim fails closed when ResourceSlice API is unavailable": {
+			wl:                        counterWl,
+			resourceSliceAPIAvailable: false,
+			wantInadmissible:          true,
+			wantErrSubstring:          "ResourceSlice API (resource.k8s.io/v1) for counter-based resources, which is not available on the cluster",
+		},
+		"capacity-backed claim fails closed when ResourceSlice API is unavailable": {
+			wl:                        capacityWl,
+			resourceSliceAPIAvailable: false,
+			wantInadmissible:          true,
+			wantErrSubstring:          "ResourceSlice API (resource.k8s.io/v1) for capacity-based resources, which is not available on the cluster",
+		},
+		"plain count-based claim succeeds when ResourceSlice API is unavailable": {
+			wl:                        plainWl,
+			resourceSliceAPIAvailable: false,
+			wantInadmissible:          false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			testWl := tc.wl.DeepCopy()
+			objs := []client.Object{testWl, counterTmpl, capacityTmpl, plainTmpl, cq, lq}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
+					},
+				}).
+				Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder,
+				WithResourceSliceAPIAvailable(tc.resourceSliceAPIAvailable),
+				WithDRAMapper(draMapper),
+			)
+			qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+			qManager.AddClusterQueue(t.Context(), cq)
+			qManager.AddLocalQueue(t.Context(), lq)
+
+			_, err := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
+			if err != nil {
+				t.Fatalf("unexpected reconcile error: %v", err)
+			}
+
+			var updatedWl kueue.Workload
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(testWl), &updatedWl); err != nil {
+				t.Fatalf("failed to fetch updated workload: %v", err)
+			}
+
+			requeuedCond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)
+			quotaReservedCond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+			if tc.wantInadmissible {
+				if requeuedCond == nil || requeuedCond.Status != metav1.ConditionFalse || !isDRAInadmissibleReason(requeuedCond.Reason) {
+					t.Errorf("expected Requeued=False condition with inadmissible reason, got: %v", requeuedCond)
+				}
+				if quotaReservedCond == nil || quotaReservedCond.Status != metav1.ConditionFalse {
+					t.Errorf("expected QuotaReserved=False condition, got: %v", quotaReservedCond)
+				}
+				if tc.wantErrSubstring != "" && requeuedCond != nil && !strings.Contains(requeuedCond.Message, tc.wantErrSubstring) {
+					t.Errorf("expected condition message containing %q, got %q", tc.wantErrSubstring, requeuedCond.Message)
+				}
+			} else {
+				if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
+					t.Errorf("expected workload not to be marked inadmissible, got: %v", requeuedCond)
+				}
+			}
+		})
+	}
+}

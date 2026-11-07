@@ -80,6 +80,14 @@ func GetCounterResourcesForWorkload(
 				claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
 				reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
+				if !sliceCache.APIAvailable() {
+					allErrs = append(allErrs, field.Forbidden(
+						reqPath.Child("exactly", "deviceClassName"),
+						fmt.Sprintf("DeviceClass %s requires ResourceSlice API (resource.k8s.io/v1) for counter-based resources, which is not available on the cluster", deviceClass),
+					))
+					return nil, allErrs
+				}
+
 				classSelectors, requestSelectors, errs := prepareDeviceSelectors(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
 				if len(errs) > 0 {
 					allErrs = append(allErrs, errs...)

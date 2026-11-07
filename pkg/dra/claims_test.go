@@ -96,6 +96,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		mappings        []configapi.DeviceClassMapping
 		featureGates    map[featuregate.Feature]bool
 		skipDeviceCheck bool
+		sliceCacheOpts  []ResourceSliceCacheOption
 		want            map[kueue.PodSetReference]corev1.ResourceList
 		wantErr         field.ErrorList
 	}{
@@ -1099,6 +1100,97 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("1")},
 			},
 		},
+		{
+			name: "Counter-backed DeviceClass returns forbidden when ResourceSlice API is unavailable",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup: defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{
+				Name:             "res-1",
+				DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+				Sources: []configapi.DeviceClassSourceConfig{{
+					Counter: &configapi.DeviceClassCounterSource{
+						Name:           "memory",
+						Driver:         "test-driver",
+						DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+					},
+				}},
+			}},
+			featureGates:   map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
+			sliceCacheOpts: []ResourceSliceCacheOption{WithResourceSliceAPIAvailable(false)},
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"),
+					"",
+				),
+			},
+		},
+		{
+			name: "Capacity-backed DeviceClass returns forbidden when ResourceSlice API is unavailable",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup: defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{
+				Name:             "res-1",
+				DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+				Sources: []configapi.DeviceClassSourceConfig{{
+					Capacity: &configapi.DeviceClassCapacitySource{
+						Name:           "test-driver/memory",
+						Driver:         "test-driver",
+						DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+					},
+				}},
+			}},
+			featureGates:   map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			sliceCacheOpts: []ResourceSliceCacheOption{WithResourceSliceAPIAvailable(false)},
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"),
+					"",
+				),
+			},
+		},
+		{
+			name: "CEL selectors return forbidden when ResourceSlice API is unavailable",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-noapi", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel", ResourceClaimTemplateName: new("claim-tmpl-cel-noapi")},
+				}
+			},
+			lookup:         defaultLookup,
+			sliceCacheOpts: []ResourceSliceCacheOption{WithResourceSliceAPIAvailable(false)},
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0),
+					"",
+				),
+			},
+		},
+		{
+			name: "Count-based request succeeds when ResourceSlice API is unavailable",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup:         defaultLookup,
+			sliceCacheOpts: []ResourceSliceCacheOption{WithResourceSliceAPIAvailable(false)},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("2")},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -1153,7 +1245,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			if testMapper == nil {
 				testMapper = NewResourceMapper()
 			}
-			sliceCache := NewResourceSliceCache(baseClient)
+			sliceCache := NewResourceSliceCache(baseClient, tc.sliceCacheOpts...)
 			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceCheck)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)

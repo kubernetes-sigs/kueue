@@ -176,7 +176,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		return true, ctrl.Result{}, nil, nil
 	}
 
-	sliceCache := dra.NewResourceSliceCache(r.client)
+	sliceCache := dra.NewResourceSliceCache(r.client, dra.WithResourceSliceAPIAvailable(r.resourceSliceAPIAvailable))
 	skipDeviceCheck := r.hasMultiKueueAdmissionCheck(wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
@@ -200,7 +200,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	// Process counter-based resources for partitionable devices
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && r.resourceSliceAPIAvailable {
+	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
 		counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
 		if len(counterFieldErrs) > 0 {
 			return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
@@ -209,7 +209,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	// Process capacity-based resources for consumable capacity devices
-	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && r.resourceSliceAPIAvailable {
+	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
 		ccResources, ccDone, ccResult, ccErr := r.handleDRAConsumableCapacity(ctx, wl, sliceCache, draResources)
 		if ccDone {
 			return true, ccResult, nil, ccErr
@@ -386,9 +386,9 @@ func WithDRABackedResources(value *dra.ExtendedResourceCache) Option {
 }
 
 // WithResourceSliceAPIAvailable indicates whether the ResourceSlice API
-// (resource.k8s.io/v1) is available on the cluster. When false, the
-// KueueDRAIntegrationPartitionableDevices and KueueDRAIntegrationConsumableCapacity
-// code paths are skipped to avoid reconciliation errors on clusters without ResourceSlice API.
+// (resource.k8s.io/v1) is available on the cluster. When false, workloads
+// requesting source-backed device classes or CEL device checks fail closed
+// to avoid admitting workloads with zero charges.
 func WithResourceSliceAPIAvailable(value bool) Option {
 	return func(r *WorkloadReconciler) {
 		r.resourceSliceAPIAvailable = value

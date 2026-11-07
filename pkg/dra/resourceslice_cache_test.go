@@ -207,3 +207,28 @@ func TestResourceSliceCache_ListByDriverThenListByDriverDifferent(t *testing.T) 
 		t.Errorf("expected still 2 API calls (gpu cached), got %d", listCallCount)
 	}
 }
+
+func TestResourceSliceCache_APIAvailable(t *testing.T) {
+	cl := utiltesting.NewClientBuilder().Build()
+
+	defaultCache := NewResourceSliceCache(cl)
+	if !defaultCache.APIAvailable() {
+		t.Errorf("expected default cache to have API available")
+	}
+
+	availableCache := NewResourceSliceCache(cl, WithResourceSliceAPIAvailable(true))
+	if !availableCache.APIAvailable() {
+		t.Errorf("expected availableCache to have API available")
+	}
+
+	unavailableCache := NewResourceSliceCache(cl, WithResourceSliceAPIAvailable(false))
+	if unavailableCache.APIAvailable() {
+		t.Errorf("expected unavailableCache to have API unavailable")
+	}
+
+	var nilCache *ResourceSliceCache
+	if !nilCache.APIAvailable() {
+		t.Errorf("expected nil cache to report API available as fallback")
+	}
+}
+
