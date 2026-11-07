@@ -4113,7 +4113,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+		"when workload is evicted, suspend and reset startTime, defer restoring node affinity while pods are active": {
 			job: baseJobWrapper.Clone().
 				Suspend(false).
 				StartTime(now).
@@ -4131,6 +4131,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4150,7 +4152,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+		"when workload is evicted but suspended, reset startTime, defer restoring node affinity while pods are active": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
@@ -4171,6 +4173,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4183,7 +4187,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+		"when workload is evicted, suspended and startTime is reset, defer restoring node affinity while pods are active": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
@@ -4203,6 +4207,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4211,6 +4217,240 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is deleted while pods are active, suspend and keep the workload's finalizer": {
+			job: baseJobWrapper.Clone().
+				Suspend(false).
+				StartTime(now).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
+				},
+			},
+		},
+		"when a stopping job's pods are gone and its workload is deleted, restore node affinity and release the workload": {
+			job: baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{},
+		},
+		"when a stopping job's pods are gone and its workload was admitted meanwhile, finish the stop and start the job": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().AdmittedAt(true, now).Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().AdmittedAt(true, now).Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
+		},
+		"when a running job has no matching workload and pods are active, suspend and keep the non-matching workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Suspend(false).
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				SetAnnotation(StoppingAnnotation, "true").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
+				},
+			},
+		},
+		"when a stopping job with no matching workload has no active pods, restore from the non-matching workload and delete it": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				SetAnnotation(StoppingAnnotation, "true").
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(8).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Suspend(true).
+				Obj(),
+			wantErr: jobframework.ErrNoMatchingWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/a",
+				},
+			},
+		},
+		"when a stopping job's active pods are gone, restore node affinity and clear the stopping annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.Clone().
+				Suspend(true).
+				SetAnnotation(StoppingAnnotation, "true").
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					AdmittedAt(true, now.Add(-time.Second)).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPreemption,
+						Message: "Preempted",
 					}).
 					Obj(),
 			},
@@ -5354,6 +5594,7 @@ func TestReconciler(t *testing.T) {
 					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
 				}
 
+				deletedWorkloads := false
 				for _, testWl := range tc.workloads {
 					controller := metav1.GetControllerOfNoCopy(&testWl)
 					if prebuiltWorkload == "" && controller == nil {
@@ -5361,8 +5602,17 @@ func TestReconciler(t *testing.T) {
 							t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 						}
 					}
+					deleted := testWl.DeletionTimestamp != nil
+					testWl.DeletionTimestamp = nil
 					if err := kClient.Create(ctx, &testWl); err != nil {
 						t.Fatalf("Could not create workload: %v", err)
+					}
+					// Create drops the deletionTimestamp; Delete sets it, and the finalizer keeps the Workload.
+					if deleted {
+						if err := kClient.Delete(ctx, &testWl); err != nil {
+							t.Fatalf("Could not delete workload: %v", err)
+						}
+						deletedWorkloads = true
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
@@ -5400,6 +5650,10 @@ func TestReconciler(t *testing.T) {
 				if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
 					t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
 				}
+				// jobCmpOpts ignores annotations, so compare the stopping marker on its own.
+				if want, got := tc.wantJob.Annotations[StoppingAnnotation], gotJob.Annotations[StoppingAnnotation]; want != got {
+					t.Errorf("Job %s annotation after reconcile = %q, want %q", StoppingAnnotation, got, want)
+				}
 				var gotWorkloads kueue.WorkloadList
 				if err := kClient.List(ctx, &gotWorkloads); err != nil {
 					t.Fatalf("Could not get Workloads after reconcile: %v", err)
@@ -5408,6 +5662,10 @@ func TestReconciler(t *testing.T) {
 				wlCheckOpts := workloadCmpOpts
 				if prebuiltWorkload != "" {
 					wlCheckOpts = workloadCmpOptsWithOwner
+				}
+				if deletedWorkloads {
+					// The fake client stamps its own deletion time.
+					wlCheckOpts = append(cmp.Options{cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.DeletionTimestamp")}, wlCheckOpts...)
 				}
 
 				// The fake client with patch.Apply cannot reset the Admission field (patch.Merge can).
