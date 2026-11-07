@@ -1794,6 +1794,37 @@ func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testin
 				{labels: teamLabels("a", "alpha"), count: 0},
 			},
 		},
+		"relabeling a cluster queue sharing labels with an idle cluster queue keeps the zero series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				baseWorkload.Clone().Name("cq1-wl").Obj(),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("a", "alpha"), 1)
+				relabeled := cq1.Clone().Cohort("a").Label("team", "beta").Obj()
+				customLabels.CQStore(kueue.ClusterQueueReference(relabeled.Name), relabeled.Labels, relabeled.Annotations)
+				if err := cache.UpdateClusterQueue(log, relabeled); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantValues: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: teamLabels("a", "alpha"), value: 0},
+				{labels: teamLabels("a", "beta"), value: 1},
+			},
+			wantSums: []struct {
+				labels map[string]string
+				value  float64
+			}{
+				{labels: cohortOnly("a"), value: 1},
+			},
+		},
 		"relabeling one of two cluster queues sharing a label keeps the other series": {
 			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
 			cqs: []*kueue.ClusterQueue{
@@ -2130,6 +2161,9 @@ func TestCohortAdmittedWorkloadsRelabelSynchronizesWithCacheLock(t *testing.T) {
 			ResourceGroup(flavorQuotas).
 			Obj()
 		customLabels.CQStore(kueue.ClusterQueueReference(relabeled.Name), relabeled.Labels, relabeled.Annotations)
+		if !cache.AddOrUpdateWorkload(ctx, log, admit("cq-alpha", "cq-alpha-wl-1")) {
+			t.Error("workload cq-alpha-wl-1 not added")
+		}
 		if err := cache.UpdateClusterQueue(log, relabeled); err != nil {
 			t.Errorf("relabel UpdateClusterQueue: %v", err)
 		}
@@ -2149,18 +2183,19 @@ func TestCohortAdmittedWorkloadsRelabelSynchronizesWithCacheLock(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	gotSum := 0.0
-	for _, dp := range utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{"cohort": "a"}) {
-		gotSum += dp.Value
+	teamLabels := func(team string) map[string]string {
+		return map[string]string{"cohort": "a", "custom_team": team}
 	}
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("gamma"), 2)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("beta"), 1)
+	expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, teamLabels("alpha"))
+
 	wantAdmitted := 0
 	if ch := cache.hm.Cohort("a"); ch != nil {
 		wantAdmitted = ch.admittedWorkloadsCount
 	}
-	if gotSum != float64(wantAdmitted) {
-		t.Fatalf("sum of cohort series = %v, admittedWorkloadsCount = %d", gotSum, wantAdmitted)
+	if wantAdmitted != 3 {
+		t.Fatalf("admittedWorkloadsCount = %d, want 3", wantAdmitted)
 	}
-	if wantAdmitted != 2 {
-		t.Fatalf("admittedWorkloadsCount = %d, want 2", wantAdmitted)
-	}
+	expectGaugeSum(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{"cohort": "a"}, float64(wantAdmitted))
 }

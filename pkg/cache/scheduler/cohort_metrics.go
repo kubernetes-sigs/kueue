@@ -309,7 +309,7 @@ func (c *Cache) reportRelabeledAdmittedActiveWorkloads(cq *clusterQueue, parent 
 		parent.moveAdmittedLabelCounts(oldVals, newVals, cq.admittedWorkloadsCount)
 		for ancestor := range parent.PathSelfToRoot() {
 			oldCount := ancestor.admittedCountForLabels(oldVals)
-			if oldCount == 0 {
+			if oldCount == 0 && !ancestor.subtreeHasClusterQueueWithLabels(oldVals) {
 				metrics.DeleteCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, oldVals, c.roleTracker)
 			} else {
 				metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, oldCount, oldVals, c.roleTracker)

@@ -170,3 +170,17 @@ func (c *cohort) admittedCountForLabels(labelVals []string) int {
 	}
 	return c.admittedLabelCounts.Count(metrics.ValsSetFrom(labelVals))
 }
+
+func (c *cohort) subtreeHasClusterQueueWithLabels(labelVals []string) bool {
+	for _, cq := range c.ChildCQs() {
+		if slices.Equal(cq.GetCustomLabelValues(), labelVals) {
+			return true
+		}
+	}
+	for _, child := range c.ChildCohorts() {
+		if child.subtreeHasClusterQueueWithLabels(labelVals) {
+			return true
+		}
+	}
+	return false
+}
