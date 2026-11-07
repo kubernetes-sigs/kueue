@@ -81,17 +81,6 @@ func legacyNegativeRequestWorkload() *kueue.Workload {
 		Obj()
 }
 
-func namedRequestContainer(name string, requests map[corev1.ResourceName]string) corev1.Container {
-	rl := make(corev1.ResourceList, len(requests))
-	for r, q := range requests {
-		rl[r] = resource.MustParse(q)
-	}
-	return corev1.Container{
-		Name:      name,
-		Resources: corev1.ResourceRequirements{Requests: rl},
-	}
-}
-
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
@@ -1732,17 +1721,13 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					InitContainers(namedRequestContainer("init", map[corev1.ResourceName]string{
-						legacyNegativeGPU: "-3",
-					})).
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
 					Obj()).
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					InitContainers(namedRequestContainer("init", map[corev1.ResourceName]string{
-						legacyNegativeGPU: "-3",
-					})).
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
 					Obj()).
 				Obj(),
 			wantErr: nil,
@@ -1843,16 +1828,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Containers(
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Containers(
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
 					).
 					Obj()).
 				Obj(),
@@ -1863,16 +1848,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Containers(
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Containers(
-						namedRequestContainer("c", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("c").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
@@ -1885,16 +1870,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					InitContainers(
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					InitContainers(
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
 					).
 					Obj()).
 				Obj(),
@@ -1905,16 +1890,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					InitContainers(
-						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("a").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					InitContainers(
-						namedRequestContainer("c", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
-						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						*utiltesting.MakeContainer().Name("c").WithResourceReq(legacyNegativeGPU, "-3").Obj(),
+						*utiltesting.MakeContainer().Name("b").WithResourceReq(legacyNegativeGPU, "1").Obj(),
 					).
 					Obj()).
 				Obj(),
