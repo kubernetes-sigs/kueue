@@ -31,7 +31,7 @@ RBAC_DIR="${ROOT_DIR}/config/components/rbac"
 # API groups whose resources need no editor/viewer ClusterRole.
 excluded_groups=(
   # Used by the controller itself, not submitted by users.
-  admissionregistration.k8s.io apiextensions.k8s.io events.k8s.io flowcontrol.apiserver.k8s.io
+  admissionregistration.k8s.io apiextensions.k8s.io apiregistration.k8s.io events.k8s.io flowcontrol.apiserver.k8s.io
   # Only read or created by Kueue.
   autoscaling.x-k8s.io node.k8s.io resource.k8s.io scheduling.k8s.io
 )

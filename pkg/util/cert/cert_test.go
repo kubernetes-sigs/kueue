@@ -17,7 +17,15 @@ limitations under the License.
 package cert
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
+	"k8s.io/apimachinery/pkg/types"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestDeriveWebhookBaseName(t *testing.T) {
@@ -105,5 +113,114 @@ func TestBuildWebhookConfigurationName(t *testing.T) {
 					tt.baseName, tt.webhookType, result, tt.expectedName)
 			}
 		})
+	}
+}
+
+func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
+	type rotatorFields struct {
+		SecretKey      types.NamespacedName
+		CertDir        string
+		DNSName        string
+		ControllerName string
+		Webhooks       []cert.WebhookInfo
+	}
+
+	tests := map[string]struct {
+		webhookServiceName string
+		namespace          string
+		want               rotatorFields
+	}{
+		"default kueue installation": {
+			webhookServiceName: "kueue-webhook-service",
+			namespace:          "kueue-system",
+			want: rotatorFields{
+				SecretKey:      types.NamespacedName{Namespace: "kueue-system", Name: "kueue-visibility-server-cert"},
+				CertDir:        "/visibility-certs",
+				DNSName:        "kueue-visibility-server.kueue-system.svc",
+				ControllerName: "visibility-cert-rotator",
+				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},
+			},
+		},
+		"custom helm release name and namespace": {
+			webhookServiceName: "prod-kueue-webhook-service",
+			namespace:          "batch",
+			want: rotatorFields{
+				SecretKey:      types.NamespacedName{Namespace: "batch", Name: "prod-kueue-visibility-server-cert"},
+				CertDir:        "/visibility-certs",
+				DNSName:        "prod-kueue-visibility-server.batch.svc",
+				ControllerName: "visibility-cert-rotator",
+				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Configuration{
+				Namespace: &tc.namespace,
+				InternalCertManagement: &config.InternalCertManagement{
+					WebhookServiceName: &tc.webhookServiceName,
+				},
+			}
+			ready := make(chan struct{})
+
+			got := buildVisibilityCertRotatorConfig(cfg, "visibility-cert-rotator", ready)
+
+			if got.IsReady != ready {
+				t.Error("IsReady is not the channel passed in")
+			}
+			gotFields := rotatorFields{
+				SecretKey:      got.SecretKey,
+				CertDir:        got.CertDir,
+				DNSName:        got.DNSName,
+				ControllerName: got.ControllerName,
+				Webhooks:       got.Webhooks,
+			}
+			if diff := cmp.Diff(tc.want, gotFields); diff != "" {
+				t.Errorf("Unexpected rotator config (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWaitForCerts(t *testing.T) {
+	closed := make(chan struct{})
+	close(closed)
+	open := make(chan struct{})
+
+	tests := map[string]struct {
+		managerStopped chan struct{}
+		ready          []chan struct{}
+		wantErr        string
+	}{
+		"all certificates ready": {
+			managerStopped: open,
+			ready:          []chan struct{}{closed, closed},
+		},
+		"manager stopped while the second certificate is pending": {
+			managerStopped: closed,
+			ready:          []chan struct{}{closed, open},
+			wantErr:        "bootstrap manager stopped",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := waitForCerts(tc.managerStopped, tc.ready)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("Unexpected error: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("Unexpected error: got %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestManageVisibilityCertsWithVisibilityOnDemandDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.VisibilityOnDemand, false)
+
+	if err := ManageVisibilityCerts(nil, config.Configuration{}); err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }

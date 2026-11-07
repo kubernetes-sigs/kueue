@@ -105,6 +105,22 @@ rules:
   - get
   - update
 - apiGroups:
+  - apiregistration.k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apiregistration.k8s.io
+  resourceNames:
+  - v1beta2.visibility.kueue.x-k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - get
+  - update
+- apiGroups:
   - apps
   resources:
   - deployments
