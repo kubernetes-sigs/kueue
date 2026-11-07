@@ -242,6 +242,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
 		return nil, err
 	}
+	cqImpl.reportedLabelVals = slices.Clone(cqImpl.GetCustomLabelValues())
 
 	return cqImpl, nil
 }
@@ -570,7 +571,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
-	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
+	c.reportClusterQueueAdmittedActiveWorkloads(cqImpl, oldParent, cqImpl.Parent())
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
