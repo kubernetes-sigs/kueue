@@ -1309,10 +1309,10 @@ type Ordering struct {
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if evicted := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evicted != nil &&
 		evicted.Status == metav1.ConditionTrue && evicted.Reason == kueue.WorkloadEvictedByRunDuration &&
-		w.Status.RequeueState != nil && w.Status.RequeueState.QueueOrderTimestamp != nil {
+		w.Status.RequeueState != nil && w.Status.RequeueState.QueueOrderTime != nil {
 		// CR timestamps have second precision; existing work in the same second
 		// must precede the new turn instead of being ordered by UID.
-		return &metav1.Time{Time: w.Status.RequeueState.QueueOrderTimestamp.Add(time.Millisecond)}
+		return &metav1.Time{Time: w.Status.RequeueState.QueueOrderTime.Add(time.Millisecond)}
 	}
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
 		if evictedCond, evictedByTimeout := workloadevict.IsEvictedByPodsReadyTimeout(w); evictedByTimeout {

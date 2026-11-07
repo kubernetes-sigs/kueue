@@ -77,7 +77,7 @@ Expiry sets `Evicted=True` with reason `RunDurationExceeded`.
 Kueue requests suspension through the job integration and retains quota until the
 integration confirms that old Pods have drained.
 It then requeues the same active, unfinished Workload and records a fresh queue
-turn in `status.requeueState.queueOrderTimestamp`.
+turn in `status.requeueState.queueOrderTime`.
 Each subsequent admission has a fresh timer and captures the current defaults.
 Suspension does not checkpoint application state: jobs must tolerate restarts and
 provide their own checkpointing when needed.

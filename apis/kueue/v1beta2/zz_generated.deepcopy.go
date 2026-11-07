@@ -1674,8 +1674,8 @@ func (in *RequeueState) DeepCopyInto(out *RequeueState) {
 		in, out := &in.RequeueAt, &out.RequeueAt
 		*out = (*in).DeepCopy()
 	}
-	if in.QueueOrderTimestamp != nil {
-		in, out := &in.QueueOrderTimestamp, &out.QueueOrderTimestamp
+	if in.QueueOrderTime != nil {
+		in, out := &in.QueueOrderTime, &out.QueueOrderTime
 		*out = (*in).DeepCopy()
 	}
 }

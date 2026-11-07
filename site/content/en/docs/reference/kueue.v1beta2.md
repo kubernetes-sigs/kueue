@@ -3190,11 +3190,11 @@ When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is 
 this time would be reset to null.</p>
 </td>
 </tr>
-<tr><td><code>queueOrderTimestamp</code><br/>
+<tr><td><code>queueOrderTime</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
-   <p>queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+   <p>queueOrderTime is the start of a new FIFO turn after a run-duration
 eviction has drained. It affects ordering only for that eviction reason.
 If unset, normal queue ordering applies.</p>
 </td>

@@ -340,7 +340,7 @@ type RunDurationStatus struct {
 	// admittedAt is the start of the current admission's duration limit.
 	// It is reset on each new admission, including after a time-based requeue.
 	// +required
-	AdmittedAt metav1.Time `json:"admittedAt"`
+	AdmittedAt metav1.Time `json:"admittedAt,omitempty"`
 
 	// deadline is the admission start plus the effective run duration.
 	// It is adjusted when the Workload override changes, but not during eviction.
@@ -867,11 +867,11 @@ type RequeueState struct {
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 
-	// queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+	// queueOrderTime is the start of a new FIFO turn after a run-duration
 	// eviction has drained. It affects ordering only for that eviction reason.
 	// If unset, normal queue ordering applies.
 	// +optional
-	QueueOrderTimestamp *metav1.Time `json:"queueOrderTimestamp,omitempty"`
+	QueueOrderTime *metav1.Time `json:"queueOrderTime,omitempty"`
 }
 
 // AdmissionCheckReference is the name of an AdmissionCheck.

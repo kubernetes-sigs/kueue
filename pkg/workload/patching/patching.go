@@ -109,7 +109,7 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	wlCopy.Status.RunDuration = w.Status.RunDuration.DeepCopy()
 	// Only include RequeueState in the patch if it has meaningful content.
-	if w.Status.RequeueState != nil && (w.Status.RequeueState.Count != nil || w.Status.RequeueState.RequeueAt != nil || w.Status.RequeueState.QueueOrderTimestamp != nil) {
+	if w.Status.RequeueState != nil && (w.Status.RequeueState.Count != nil || w.Status.RequeueState.RequeueAt != nil || w.Status.RequeueState.QueueOrderTime != nil) {
 		wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	}
 	if wlCopy.Status.Admission != nil {

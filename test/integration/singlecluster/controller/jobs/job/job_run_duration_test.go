@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("Job run duration", ginkgo.Label("job:batch", "area:jobs
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 				g.Expect(wl.UID).To(gomega.Equal(uid))
 				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
-				g.Expect(wl.Status.RequeueState.QueueOrderTimestamp).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.RequeueState.QueueOrderTime).NotTo(gomega.BeNil())
 				other := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, waitingKey, other)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(other)).To(gomega.BeTrue())

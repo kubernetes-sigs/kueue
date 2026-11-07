@@ -44,5 +44,5 @@ func CompleteRunDurationRequeue(w *kueue.Workload, now time.Time) {
 	if w.Status.RequeueState == nil {
 		w.Status.RequeueState = &kueue.RequeueState{}
 	}
-	w.Status.RequeueState.QueueOrderTimestamp = new(metav1.NewTime(now))
+	w.Status.RequeueState.QueueOrderTime = new(metav1.NewTime(now))
 }
