@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
@@ -45,8 +46,9 @@ func NewPlanner(
 	wl *workload.Info,
 	snapshot *schedcache.Snapshot,
 	preemptor *preemption.Preemptor,
+	filter *preemption.PreemptionFilter,
 ) assignment.Planner {
-	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor}
+	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor, filter: filter}
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
@@ -55,9 +57,10 @@ type wasPlanner struct {
 	wl        *workload.Info
 	snapshot  *schedcache.Snapshot
 	preemptor *preemption.Preemptor
+	filter    *preemption.PreemptionFilter
 }
 
-func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
+func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, options ...assignment.PlannerOption) (plan assignment.Plan) {
 	plan = assignment.Plan{
 		Assignment: initialAssignment,
 	}
@@ -95,7 +98,8 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment)
+	committedVictims := assignment.BuildOptions(options...).CommittedPreemptionVictims
+	placementSummary, failures, targets, err := p.simulateWorkloadPlacement(ctx, pods, plan.Assignment, committedVictims)
 	if err != nil {
 		plan.Error = err
 		return
@@ -123,11 +127,28 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment *flavorassigner.Assignment,
+	committedVictims preemption.PreemptedWorkloads,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		placementSummary, failures, _, err = p.schedule(ctx, pods)
+		var opts []simulator.ScheduleOption
+		if len(committedVictims) > 0 {
+			// The borrowing param holds no meaning here
+			// as the workload will not be preempting anything on this call.
+			p.filter.Initialize(assignment, true)
+			opts = append(opts, simulator.WithCommittedPreemptionVictims(committedVictims.References()))
+			opts = append(opts, simulator.WithPreemptionFilter(p.filter))
+		}
+
+		var preemptionVictims []workload.Reference
+		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
+		p.filter.Reset()
+
 		if err != nil {
 			return nil, nil, nil, err
+		}
+		if len(failures) == 0 && len(preemptionVictims) > 0 {
+			assignment.DemoteTo(flavorassigner.DeferredFit)
+			return placementSummary, nil, nil, nil
 		}
 		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
 			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
@@ -137,7 +158,7 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 		// Lower any remaining Fit resources to Preempt so candidate selection
 		// considers every resource the workload uses.
 		assignment.DemoteTo(flavorassigner.Preempt)
-		return p.scheduleWithPreemption(ctx, pods, *assignment)
+		return p.scheduleWithPreemption(ctx, pods, *assignment, committedVictims)
 	}
 	return placementSummary, failures, nil, nil
 }
@@ -175,17 +196,26 @@ func (p *wasPlanner) scheduleWithPreemption(
 	ctx context.Context,
 	pods []*corev1.Pod,
 	assignment flavorassigner.Assignment,
+	committedVictims preemption.PreemptedWorkloads,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+		p.filter.Initialize(&assignment, strategy.AllowBorrowing())
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
-			simulator.WithPreemptionFilter(&strategy),
+			simulator.WithPreemptionFilter(p.filter),
+			simulator.WithCommittedPreemptionVictims(committedVictims.References()),
 		)
+		p.filter.Reset()
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
+		}
+		if len(committedVictims) > 0 {
+			preemptedWorkloads = slices.DeleteFunc(preemptedWorkloads, func(wl workload.Reference) bool {
+				return committedVictims.Has(wl)
+			})
 		}
 		if len(failures) == 0 {
 			targets, err := strategy.GetTargets(preemptedWorkloads)
