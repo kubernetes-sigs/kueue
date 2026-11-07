@@ -19,6 +19,7 @@
 | [kueue-pr-evidence-common](kueue-pr-evidence-common/SKILL.md) | an evidence skill publishes its block, "preview the evidence block", "refresh the reviewer notes", shared conventions for kueue-pr-evidence-* skills |
 | [kueue-pr-evidence-state-diff](kueue-pr-evidence-state-diff/SKILL.md) | "show the state change in this PR", "before/after Kueue state", scheduling, preemption, admission, MultiKueue, metrics, or TAS |
 | [kueue-pr-evidence-red-green](kueue-pr-evidence-red-green/SKILL.md) | "show red/green for this PR", "fails before, passes after", proof that a new or changed test catches the bug |
+| [kueue-pr-evidence-contract-delta](kueue-pr-evidence-contract-delta/SKILL.md) | "what changes for users in this PR", "before/after user-facing contract", "does this need ACTION REQUIRED", API, CRD, flags, config, or metrics |
 
 ---
 
@@ -61,3 +62,5 @@
 @kueue-pr-evidence-state-diff/SKILL.md
 
 @kueue-pr-evidence-red-green/SKILL.md
+
+@kueue-pr-evidence-contract-delta/SKILL.md
