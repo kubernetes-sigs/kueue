@@ -1214,6 +1214,390 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 	}
 }
 
+type workloadTimeFilter struct {
+	retryAtByName map[string]*time.Time
+}
+
+func (f workloadTimeFilter) Matches(wl *workload.Info) (*time.Time, bool) {
+	retryAt, blocked := f.retryAtByName[wl.Obj.Name]
+	return retryAt, !blocked
+}
+
+func TestPreemptionEvaluatorRetryAt(t *testing.T) {
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	tVeryEarly := now.Add(5 * time.Second)
+	tEarly := now.Add(15 * time.Second)
+	tLate := now.Add(40 * time.Second)
+
+	frCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	frTASCPU := resources.FlavorResource{Flavor: "tas-default", Resource: corev1.ResourceCPU}
+	emptyConfig := utiltestingalpha.MakePreemptionConfig("test").Obj()
+	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	tasMemWl := utiltestingapi.MakeWorkload("tas-mem", "").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceMemory, "1Gi").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceMemory, "tas-default", "1Gi").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	type addCandidatesCall struct {
+		filter                filters.CandidateFilters
+		flavorsNeedPreemption sets.Set[resources.FlavorResource]
+	}
+
+	cases := map[string]struct {
+		config         *kueuealpha.PreemptionConfig // Nil leaves the evaluator nil.
+		admitted       []kueue.Workload
+		calls          []addCandidatesCall
+		wantCandidates []string
+		wantRetryAt    *time.Time
+	}{
+		"nil evaluator returns nil": {},
+		"evaluator without rules returns nil": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+		},
+		"candidate in non-matching ClusterQueue does not update RetryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					CQFilters: []filters.ClusterQueueFilter{
+						filters.NewWithinClusterQueueFilter("a"),
+					},
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"b1": &tEarly}},
+					},
+				},
+			}},
+		},
+		"candidate failing static WorkloadFilter does not update RetryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLFilters: []filters.WorkloadFilter{
+						filters.NewWithinLocalQueueFilter("", "other-lq"),
+					},
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+					},
+				},
+			}},
+		},
+		"candidate failing WorkloadTimeFilter with nil retryAt cancels earlier WorkloadTimeFilter retryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil}},
+					},
+				},
+			}},
+		},
+		"candidate failing multiple WorkloadTimeFilters uses latest retryAt (early then late)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
+					},
+				},
+			}},
+			wantRetryAt: &tLate,
+		},
+		"candidate failing multiple WorkloadTimeFilters uses latest retryAt (late then early)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+					},
+				},
+			}},
+			wantRetryAt: &tLate,
+		},
+		"candidate not using needed flavor quota or TAS nodes does not update RetryAt": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("other-flavor").SimpleReserveQuota("a", "other", now).Obj(),
+				*utiltestingapi.MakeWorkload("mem-only", "").Request(corev1.ResourceMemory, "1Gi").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{
+							"other-flavor": &tEarly,
+							"mem-only":     &tEarly,
+						}},
+					},
+				},
+			}},
+		},
+		"candidate holding TAS node of needed flavor updates RetryAt even without using quota resource": {
+			config:   emptyConfig,
+			admitted: []kueue.Workload{*tasMemWl},
+			calls: []addCandidatesCall{{
+				flavorsNeedPreemption: sets.New(frTASCPU),
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{"tas-mem": &tEarly}},
+					},
+				},
+			}},
+			wantRetryAt: &tEarly,
+		},
+		"multiple calls keep earliest RetryAt (early then late, and non-retryable miss)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly, "a2": nil}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate, "a2": &tLate}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": nil, "a2": nil}},
+						},
+					},
+				},
+			},
+			wantRetryAt: &tEarly,
+		},
+		"multiple calls keep earliest RetryAt (late then early)": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tLate}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						},
+					},
+				},
+			},
+			wantRetryAt: &tEarly,
+		},
+		"candidate matching earlier selector ignores later selector time miss": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly}},
+						},
+					},
+				},
+			},
+			wantCandidates: []string{"a1"},
+		},
+		"candidate matching later selector clears earlier selector time miss": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Queue("lq1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").Queue("lq2").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{
+				{
+					filter: filters.CandidateFilters{
+						WLTimeFilters: []filters.WorkloadTimeFilter{
+							workloadTimeFilter{retryAtByName: map[string]*time.Time{"a1": &tEarly, "a2": &tLate}},
+						},
+					},
+				},
+				{
+					filter: filters.CandidateFilters{
+						WLFilters: []filters.WorkloadFilter{
+							filters.NewWithinLocalQueueFilter("", "lq1"),
+						},
+					},
+				},
+			},
+			wantCandidates: []string{"a1"},
+			wantRetryAt:    &tLate,
+		},
+		"skipped candidates across ClusterQueues do not abort yielding matching candidates": {
+			config: emptyConfig,
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a-unused").SimpleReserveQuota("a", "other", now).Obj(),
+				*unitWl.Clone().Name("a-retry").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a-match").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b-unused").SimpleReserveQuota("b", "other", now).Obj(),
+				*unitWl.Clone().Name("b-retry").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("b-match").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			calls: []addCandidatesCall{{
+				filter: filters.CandidateFilters{
+					WLTimeFilters: []filters.WorkloadTimeFilter{
+						workloadTimeFilter{retryAtByName: map[string]*time.Time{
+							"a-unused": &tVeryEarly,
+							"b-unused": &tVeryEarly,
+							"a-retry":  &tLate,
+							"b-retry":  &tEarly,
+						}},
+					},
+				},
+			}},
+			wantCandidates: []string{"a-match", "b-match"},
+			wantRetryAt:    &tEarly,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ConfigurablePreemptions:     true,
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			makeCQ := func(cqName string) *kueue.ClusterQueue {
+				return utiltestingapi.MakeClusterQueue(cqName).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "3").
+							Resource(corev1.ResourceMemory, "3Gi").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("other").
+							Resource(corev1.ResourceCPU, "3").
+							Resource(corev1.ResourceMemory, "3Gi").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "3").
+							Resource(corev1.ResourceMemory, "3Gi").Obj(),
+					).Obj()
+			}
+			cqCache := schdcache.New(utiltesting.NewFakeClient())
+			for _, cqName := range []string{"a", "b"} {
+				if err := cqCache.AddClusterQueue(ctx, makeCQ(cqName)); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue %s to cache: %v", cqName, err)
+				}
+			}
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("other").Obj())
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas-default").TopologyName("hostname").NodeLabel("tas-node", "true").Obj())
+			cqCache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("hostname"))
+			cqCache.TASCache().SyncNode(testingnode.MakeNode("x1").
+				Label(corev1.LabelHostname, "x1").
+				Label("tas-node", "true").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("4Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj())
+			for i := range tc.admitted {
+				wl := tc.admitted[i].DeepCopy()
+				if wl.UID == "" {
+					wl.UID = types.UID(wl.Name)
+				}
+				cqCache.AddOrUpdateWorkload(ctx, log, wl)
+			}
+
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			var evaluator *PreemptionEvaluator
+			if tc.config != nil {
+				preemptor := workload.NewInfo(log, unitWl.Clone().Name("a-incoming").Obj())
+				preemptor.ClusterQueue = "a"
+				evaluator = NewPreemptionEvaluator(ctx, log, *tc.config, preemptor, candidatesByName)
+			}
+
+			// TODO(#17600): Test through FindCandidates once NewCandidateFilters wires WorkloadTimeFilter.
+			if len(tc.calls) == 0 {
+				evaluator.FindCandidates(snapshot, sets.New(frCPU), func() bool { return false }, func(*policy.Target) bool { return true })
+			}
+
+			seen := map[types.UID]int{}
+			retryAtByUID := map[types.UID]*time.Time{}
+			var candidates []*configurableCandidate
+			for i, call := range tc.calls {
+				flavorsNeedPreemption := call.flavorsNeedPreemption
+				if len(flavorsNeedPreemption) == 0 {
+					flavorsNeedPreemption = sets.New(frCPU)
+				}
+				neededFlavors := sets.New[kueue.ResourceFlavorReference]()
+				for fr := range flavorsNeedPreemption {
+					neededFlavors.Insert(fr.Flavor)
+				}
+				evaluator.addMatchingCandidates(&call.filter, snapshot, flavorsNeedPreemption, neededFlavors, "rule", seen, retryAtByUID, &candidates, i)
+			}
+			evaluator.recordRetryAt(seen, retryAtByUID)
+
+			gotCandidates := utilslices.Map(candidates, func(c **configurableCandidate) string {
+				return (*c).WlInfo.Obj.Name
+			})
+			slices.Sort(gotCandidates)
+			if diff := cmp.Diff(tc.wantCandidates, gotCandidates, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("selected candidates (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantRetryAt, evaluator.RetryAt()); diff != "" {
+				t.Errorf("evaluator.RetryAt() (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // candidatesByName orders the candidates by name, so that the order in which
 // they are yielded is predictable.
 func candidatesByName(a, b *workload.Info) int {

@@ -185,7 +185,19 @@ func NotifyRetryInadmissible(m *Manager, cqNames sets.Set[kueue.ClusterQueueRefe
 	notifyRetryInadmissibleWithoutLock(m, cqNames)
 }
 
+// NotifyRetryInadmissibleAfter is like NotifyRetryInadmissible, but waits at
+// least delay. The requeuer's batch period is the minimum wait.
+func NotifyRetryInadmissibleAfter(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay time.Duration) {
+	m.RLock()
+	defer m.RUnlock()
+	notifyRetryInadmissibleWithDelayWithoutLock(m, cqNames, &delay)
+}
+
 func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference]) {
+	notifyRetryInadmissibleWithDelayWithoutLock(m, cqNames, nil)
+}
+
+func notifyRetryInadmissibleWithDelayWithoutLock(m *Manager, cqNames sets.Set[kueue.ClusterQueueReference], delay *time.Duration) {
 	for name := range cqNames {
 		cq := m.hm.ClusterQueue(name)
 		if cq == nil {
@@ -193,10 +205,18 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 		}
 		switch {
 		case !cq.HasParent():
-			m.requeuer.notifyClusterQueue(cq.name)
+			if delay == nil {
+				m.requeuer.notifyClusterQueue(cq.name)
+			} else {
+				m.requeuer.notifyClusterQueueAfter(cq.name, *delay)
+			}
 		case !hierarchy.HasCycle(cq.Parent()):
 			rootName := cq.Parent().getRootUnsafe().GetName()
-			m.requeuer.notifyCohort(rootName)
+			if delay == nil {
+				m.requeuer.notifyCohort(rootName)
+			} else {
+				m.requeuer.notifyCohortAfter(rootName, *delay)
+			}
 		}
 		// We silently ignore Cohort trees with cycles.
 		// Once the cycle is removed, we will reconcile
@@ -210,8 +230,12 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 type inadmissibleRequeuer interface {
 	// notifyClusterQueue should only be called for ClusterQueues without a Cohort.
 	notifyClusterQueue(cqName kueue.ClusterQueueReference)
+	// notifyClusterQueueAfter should only be called for ClusterQueues without a Cohort.
+	notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration)
 	// notifyCohort should only be called for Root Cohorts.
 	notifyCohort(cohortName kueue.CohortReference)
+	// notifyCohortAfter should only be called for Root Cohorts.
+	notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration)
 	setManager(manager *Manager)
 }
 
@@ -245,8 +269,18 @@ func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReferenc
 	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, r.batchPeriod)
 }
 
+// notifyClusterQueueAfter waits at least delay, using batchPeriod as the minimum delay.
+func (r *workqueueRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, max(delay, r.batchPeriod))
+}
+
 func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference) {
 	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, r.batchPeriod)
+}
+
+// notifyCohortAfter waits at least delay, using batchPeriod as the minimum delay.
+func (r *workqueueRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, max(delay, r.batchPeriod))
 }
 
 func (r *workqueueRequeuer) setManager(manager *Manager) {
