@@ -1486,13 +1486,17 @@ func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object
 			"Cleared workload WaitForPodsReady")
 	case WaitForPodsReadyEventUpdated:
 		cfg := wl.Spec.WaitForPodsReady
-		if cfg.RecoveryTimeoutSeconds != nil {
+		switch {
+		case cfg.TimeoutSeconds != nil && cfg.RecoveryTimeoutSeconds != nil:
 			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
 				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d, recoveryTimeoutSeconds=%d",
-				cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
-		} else {
+				*cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
+		case cfg.TimeoutSeconds != nil:
 			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", cfg.TimeoutSeconds)
+				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", *cfg.TimeoutSeconds)
+		case cfg.RecoveryTimeoutSeconds != nil:
+			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+				"Updated workload spec WaitForPodsReady to recoveryTimeoutSeconds=%d", *cfg.RecoveryTimeoutSeconds)
 		}
 	}
 }

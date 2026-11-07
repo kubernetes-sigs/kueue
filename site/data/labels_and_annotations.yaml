@@ -606,14 +606,14 @@
     [Workload](/docs/concepts/workload/).
   description: |
     The annotation sets a per-workload
-    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) timeout and,
-    optionally, a recovery timeout, both in seconds, overriding those fields in the cluster-wide
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) optionally timeout and
+    a recovery timeout, both in seconds, overriding those fields in the cluster-wide
     `waitForPodsReady` configuration for that single workload.
 
     The value is a JSON object with the following fields:
-    - `timeoutSeconds` (required): the maximum time, in seconds, Kueue waits for the
+    - `timeoutSeconds` (optional): the maximum time, in seconds, Kueue waits for the
       admitted workload's Pods to become ready before evicting and requeuing it. Must be
-      greater than `0`.
+      greater than `0` when set.
     - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
       ready workload may stay with unready Pods before it is evicted. Must be greater
       than `0` when set.
