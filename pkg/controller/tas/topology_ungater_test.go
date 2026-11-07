@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
@@ -4219,15 +4220,247 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true")
 	secondLatePod := latePod.Clone().Name("second-late").UID("second-late-uid")
 
+	originalAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 2).Obj(),
+			utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	survivorAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	shrinking := replacement.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+		utiltestingapi.MakePodSetAssignment("workers").Count(4).TopologyAssignment(originalAssignment).Obj(),
+	).Obj(), now).AdmittedAt(true, now)
+	shrinkNodes := []corev1.Node{
+		*testingnode.MakeNode("n1").Label(corev1.LabelHostname, "n1").Obj(),
+		*testingnode.MakeNode("n2").Label(corev1.LabelHostname, "n2").Obj(),
+		*testingnode.MakeNode("n3").Label(corev1.LabelHostname, "n3").Obj(),
+		*testingnode.MakeNode("unlabeled").Obj(),
+	}
+	survivor := basePod.Clone().Name("a").UID("a").NodeName("n2").
+		NodeSelector(corev1.LabelHostname, "n2").StatusPhase(corev1.PodRunning)
+	secondSurvivor := survivor.Clone().Name("b").UID("b")
+	extraPod := survivor.Clone().Name("c").UID("c").NodeName("n1").NodeSelector(corev1.LabelHostname, "n1")
+	twoPodSetAdmission := utiltestingapi.MakeAdmission("cq").PodSets(
+		utiltestingapi.MakePodSetAssignment("workers").Count(4).TopologyAssignment(originalAssignment).Obj(),
+		utiltestingapi.MakePodSetAssignment("other").Count(1).
+			TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 1).Obj()).Obj()).Obj(),
+	).Obj()
+
 	testCases := map[string]struct {
-		workloads []kueue.Workload
-		pods      []corev1.Pod
+		workloads               []kueue.Workload
+		pods                    []corev1.Pod
+		nodes                   []corev1.Node
+		elasticTAS              bool
+		disableReclaimable      bool
+		wantTopologyAssignments map[string]*kueue.TopologyAssignment
+		wantAdmissions          map[string]*kueue.Admission
+		wantErr                 error
+		nodesOnRetry            []corev1.Node
+		wantAssignmentsOnRetry  map[string]*kueue.TopologyAssignment
 		// requestName is the Workload name the reconcile request is keyed by.
 		// Defaults to the slice chain name.
 		requestName      string
 		wantPods         []corev1.Pod
 		wantExpectedUIDs []types.UID
 	}{
+		"shrink releases the empty domain after a finished origin": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
+		"shrink waits for unhealthy node recovery": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().UnhealthyNodes("n1").Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink releases capacity after a survivor is reclaimed": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:       []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:   []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:      shrinkNodes,
+			elasticTAS: true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 1).Obj()).Obj()},
+		},
+		"shrink retains slice topology capacity after a survivor is reclaimed": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj()).
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink retains capacity for unified slice topology constraints": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: corev1.LabelHostname, Size: 2}).Obj()).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink releases capacity for single-Pod topology slices": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(1).Obj()).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
+		"shrink retains capacity when reclaiming is disabled": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			disableReclaimable:      true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink clamps reclaimable count above the current size": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 4}).Obj()},
+			pods:                    []corev1.Pod{},
+			wantPods:                []corev1.Pod{},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
+		"shrink retains capacity while excess Pods are terminating": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().Finalizer("test").DeletionTimestamp(now).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().Finalizer("test").DeletionTimestamp(now).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink waits for an incomplete Pod observation": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink waits for an unbound survivor": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("").Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("").Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"missing survivor Node defers shrink and ungates another PodSet": {
+			workloads: []kueue.Workload{*shrinking.Clone().Name("origin").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj(), *utiltestingapi.MakePodSet("other", 1).Obj()).
+				ReserveQuotaAt(twoPodSetAdmission, now).AdmittedAt(true, now).Obj()},
+			pods: []corev1.Pod{
+				*survivor.Clone().NodeName("missing").Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Label(constants.PodSetLabel, "other").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*survivor.Clone().NodeName("missing").Obj(),
+				*secondSurvivor.Clone().Obj(),
+				*latePod.Clone().Label(constants.PodSetLabel, "other").NodeSelector(corev1.LabelHostname, "n1").Obj(),
+			},
+			nodes:            shrinkNodes,
+			elasticTAS:       true,
+			wantAdmissions:   map[string]*kueue.Admission{"origin": twoPodSetAdmission},
+			wantErr:          errShrinkNodeNotFound,
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"shrink retries after the survivor Node becomes available": {
+			workloads:              []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                   []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:               []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			elasticTAS:             true,
+			wantAdmissions:         map[string]*kueue.Admission{"replacement": shrinking.Status.Admission},
+			wantErr:                errShrinkNodeNotFound,
+			nodesOnRetry:           []corev1.Node{*testingnode.MakeNode("n2").Label(corev1.LabelHostname, "n2").Obj()},
+			wantAssignmentsOnRetry: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
+		"shrink retains capacity for a survivor outside the reservation": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("n3").NodeSelector(corev1.LabelHostname, "n3").Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("n3").NodeSelector(corev1.LabelHostname, "n3").Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink counts excess Pods outside the reservation": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().NodeName("n3").NodeSelector(corev1.LabelHostname, "n3").Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().NodeName("n3").NodeSelector(corev1.LabelHostname, "n3").Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink waits for topology labels on the bound node": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("unlabeled").Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().NodeName("unlabeled").Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"terminal Pods no longer hold shrink capacity": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj(), *extraPod.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
+		"shrink is disabled with the elastic TAS feature gate": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              false,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink to zero clears the topology assignment": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().PodSets(*utiltestingapi.MakePodSet("workers", 0).Obj()).Obj()},
+			pods:                    []corev1.Pod{},
+			wantPods:                []corev1.Pod{},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
+		"shrink to zero clears grouped topology capacity": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 0).
+					SliceRequiredTopologyRequest(corev1.LabelHostname).SliceSizeTopologyRequest(2).Obj()).Obj()},
+			pods:                    []corev1.Pod{},
+			wantPods:                []corev1.Pod{},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
+		"reclaiming all Pods clears unified slice topology capacity": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: corev1.LabelHostname, Size: 2}).Obj()).
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 2}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().StatusPhase(corev1.PodSucceeded).Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().StatusPhase(corev1.PodSucceeded).Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
+		},
 		"late Pod referencing the origin slice is ungated": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
 			pods: []corev1.Pod{
@@ -4355,6 +4588,8 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
+			features.SetFeatureGateDuringTest(t, features.ReclaimablePods, !tc.disableReclaimable)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).
@@ -4369,17 +4604,45 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			for i := range tc.pods {
 				clientBuilder = clientBuilder.WithObjects(&tc.pods[i])
 			}
+			for i := range tc.nodes {
+				clientBuilder = clientBuilder.WithObjects(&tc.nodes[i])
+			}
 			kClient := clientBuilder.Build()
 			topologyUngater := newTopologyUngater(kClient, nil, nil)
 
 			req := reconcile.Request{Namespace: sliceKey.Namespace, Name: cmp.Or(tc.requestName, sliceKey.Name)}
-			if _, err := topologyUngater.Reconcile(ctx, req); err != nil {
-				t.Fatalf("Reconcile returned error: %v", err)
+			_, err := topologyUngater.Reconcile(ctx, req)
+			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("Reconcile error (-want,+got):\n%s", diff)
+			}
+
+			gotTopologyAssignments := make(map[string]*kueue.TopologyAssignment, len(tc.wantTopologyAssignments))
+			for name := range tc.wantTopologyAssignments {
+				var got kueue.Workload
+				if err := kClient.Get(ctx, types.NamespacedName{Namespace: sliceKey.Namespace, Name: name}, &got); err != nil {
+					t.Fatalf("Could not get Workload after reconcile: %v", err)
+				}
+				gotTopologyAssignments[name] = got.Status.Admission.PodSetAssignments[0].TopologyAssignment
 			}
 
 			var gotPods corev1.PodList
 			if err := kClient.List(ctx, &gotPods); err != nil {
 				t.Fatalf("Could not list Pods after reconcile: %v", err)
+			}
+
+			for name, want := range tc.wantTopologyAssignments {
+				if diff := gocmp.Diff(want, gotTopologyAssignments[name]); diff != "" {
+					t.Errorf("Topology assignment after reconcile (-want,+got):\n%s", diff)
+				}
+			}
+			for name, want := range tc.wantAdmissions {
+				var got kueue.Workload
+				if err := kClient.Get(ctx, types.NamespacedName{Namespace: sliceKey.Namespace, Name: name}, &got); err != nil {
+					t.Fatalf("Could not get Workload after reconcile: %v", err)
+				}
+				if diff := gocmp.Diff(want, got.Status.Admission, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Admission after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
@@ -4391,6 +4654,26 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			}
 			if got, want := topologyUngater.expectationsStore.Satisfied(log, sliceKey), len(tc.wantExpectedUIDs) == 0; got != want {
 				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, want)
+			}
+			if len(tc.nodesOnRetry) > 0 {
+				for i := range tc.nodesOnRetry {
+					if err := kClient.Create(ctx, &tc.nodesOnRetry[i]); err != nil {
+						t.Fatalf("Could not create Node before retry: %v", err)
+					}
+				}
+				// The returned error requests this retry; no Pod or Workload update is needed.
+				if _, err := topologyUngater.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile retry returned error: %v", err)
+				}
+				for name, want := range tc.wantAssignmentsOnRetry {
+					var got kueue.Workload
+					if err := kClient.Get(ctx, types.NamespacedName{Namespace: sliceKey.Namespace, Name: name}, &got); err != nil {
+						t.Fatalf("Could not get Workload after retry: %v", err)
+					}
+					if diff := gocmp.Diff(want, got.Status.Admission.PodSetAssignments[0].TopologyAssignment); diff != "" {
+						t.Errorf("Topology assignment after retry (-want,+got):\n%s", diff)
+					}
+				}
 			}
 		})
 	}
