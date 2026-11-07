@@ -486,6 +486,7 @@ func (c *Cache) snapshotClusterQueue(
 		AdmissionChecks:               utilmaps.DeepCopySets(cq.AdmissionChecks),
 		ResourceNode:                  cq.resourceNode.Clone(),
 		ConcurrentAdmissionPolicy:     cq.ConcurrentAdmissionPolicy,
+		MaximumRunDurationSeconds:     cq.MaximumRunDurationSeconds,
 		TASFlavors:                    make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot),
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),

@@ -35,6 +35,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 var (
@@ -183,6 +185,23 @@ func (m *IntegrationManager) GetIntegrationByGVK(gvk schema.GroupVersionKind) (I
 		}
 	}
 	return IntegrationCallbacks{}, false
+}
+
+// SupportsRunDuration reports whether an enabled owner's integration is restartable.
+func (m *IntegrationManager) SupportsRunDuration(w *kueue.Workload) bool {
+	owner := metav1.GetControllerOf(w)
+	if owner == nil {
+		return false
+	}
+	for name := range m.getEnabledIntegrations() {
+		cb, found := m.GetIntegration(name)
+		if !found || cb.NewJob == nil || !cb.matchingOwnerReference(owner) {
+			continue
+		}
+		_, supported := cb.NewJob().(JobWithRunDuration)
+		return supported
+	}
+	return false
 }
 
 // GetIntegrationsList returns the frameworks registered with this manager.

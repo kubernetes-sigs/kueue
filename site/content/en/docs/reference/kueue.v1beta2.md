@@ -405,6 +405,15 @@ The description is limited to a maximum of 2048 characters.</p>
    <p>clusterQueue is the name of the ClusterQueue that admitted this workload.</p>
 </td>
 </tr>
+<tr><td><code>runDurationPolicy</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-RunDurationPolicy"><code>RunDurationPolicy</code></a>
+</td>
+<td>
+   <p>runDurationPolicy captures the ClusterQueue default at quota reservation.
+If absent, this reservation does not support run-duration limits.
+Its fields are immutable while the admission exists.</p>
+</td>
+</tr>
 <tr><td><code>podSetAssignments</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetAssignment"><code>[]PodSetAssignment</code></a>
 </td>
@@ -922,6 +931,18 @@ It must be a DNS (RFC 1123) and has the maximum length of 253 characters.</p>
 <tbody>
     
   
+<tr><td><code>maximumRunDurationSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maximumRunDurationSeconds is the default maximum duration of each admission,
+in seconds, before a restartable Workload is evicted and requeued.
+Workload.spec.maximumRunDurationSeconds overrides this default.
+Changes apply to subsequent quota reservations, not current admissions.
+If unset, no default run duration is enforced.
+Requires the WorkloadRunDuration feature gate.</p>
+</td>
+</tr>
 <tr><td><code>resourceGroups</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
@@ -3169,6 +3190,15 @@ When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is 
 this time would be reset to null.</p>
 </td>
 </tr>
+<tr><td><code>queueOrderTimestamp</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+eviction has drained. It affects ordering only for that eviction reason.
+If unset, normal queue ordering applies.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -3419,6 +3449,66 @@ from the cohort.</p>
 <td>
    <p>borrowed is quantity of quota that is borrowed from the cohort. In other
 words, it's the used quota that is over the nominalQuota.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `RunDurationPolicy`     {#kueue-x-k8s-io-v1beta2-RunDurationPolicy}
+    
+
+**Appears in:**
+
+- [Admission](#kueue-x-k8s-io-v1beta2-Admission)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>defaultSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>defaultSeconds is the ClusterQueue's maximumRunDurationSeconds when quota
+was reserved. If unset, this admission has no default duration limit.
+Removing a Workload override restores this default, not a newer queue value.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `RunDurationStatus`     {#kueue-x-k8s-io-v1beta2-RunDurationStatus}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta2-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>admittedAt</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>admittedAt is the start of the current admission's duration limit.
+It is reset on each new admission, including after a time-based requeue.</p>
+</td>
+</tr>
+<tr><td><code>deadline</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>deadline is the admission start plus the effective run duration.
+It is adjusted when the Workload override changes, but not during eviction.
+If unset, the current admission has no run-duration deadline.</p>
 </td>
 </tr>
 </tbody>
@@ -3896,6 +3986,20 @@ the workload can be admitted before it's automatically deactivated.</p>
 <p>If unspecified, no execution time limit is enforced on the Workload.</p>
 </td>
 </tr>
+<tr><td><code>maximumRunDurationSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maximumRunDurationSeconds limits each admission, in seconds from when the
+Workload becomes Admitted. On expiry, a restartable Workload is evicted,
+drained, and requeued with a new same-priority FIFO turn.
+This field is mutable. Changes immediately adjust the current deadline,
+but cannot cancel an eviction that has already been requested.
+If unset, the ClusterQueue default captured at quota reservation is used.
+This does not change the cumulative maximumExecutionTimeSeconds limit.
+Requires the WorkloadRunDuration feature gate and a restartable integration.</p>
+</td>
+</tr>
 <tr><td><code>preemptionGates</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PreemptionGate"><code>[]PreemptionGate</code></a>
 </td>
@@ -3958,6 +4062,15 @@ conditions are limited to 16 items.</li>
    <p>admission holds the parameters of the admission of the workload by a
 ClusterQueue. admission can be set back to null, but its fields cannot be
 changed once set.</p>
+</td>
+</tr>
+<tr><td><code>runDuration</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-RunDurationStatus"><code>RunDurationStatus</code></a>
+</td>
+<td>
+   <p>runDuration records the current admission's start and effective deadline.
+If absent, no run-duration policy is active for this admission.
+It is cleared when the admission ends.</p>
 </td>
 </tr>
 <tr><td><code>requeueState</code><br/>

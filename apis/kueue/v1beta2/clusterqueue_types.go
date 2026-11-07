@@ -63,6 +63,16 @@ type CohortReference string
 // ClusterQueueSpec defines the desired state of ClusterQueue
 // +kubebuilder:validation:XValidation:rule="!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
+	// maximumRunDurationSeconds is the default maximum duration of each admission,
+	// in seconds, before a restartable Workload is evicted and requeued.
+	// Workload.spec.maximumRunDurationSeconds overrides this default.
+	// Changes apply to subsequent quota reservations, not current admissions.
+	// If unset, no default run duration is enforced.
+	// Requires the WorkloadRunDuration feature gate.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaximumRunDurationSeconds *int32 `json:"maximumRunDurationSeconds,omitempty"`
+
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
 	// that provide quotas for these resources.

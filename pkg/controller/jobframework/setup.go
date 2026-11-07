@@ -115,6 +115,7 @@ func (m *IntegrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 }
 
 func (m *IntegrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+	opts = append(opts, WithRunDurationReader(mgr.GetAPIReader()))
 	if r, err := cb.NewReconciler(
 		ctx,
 		mgr.GetClient(),

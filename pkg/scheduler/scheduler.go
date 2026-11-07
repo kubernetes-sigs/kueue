@@ -96,6 +96,7 @@ type Scheduler struct {
 	resourceFormatter                   *resources.ResourceFormatter
 	refillBudget                        int
 	failedTASReplacementRecoveryTimeout time.Duration
+	runDurationSupported                func(*kueue.Workload) bool
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -103,6 +104,7 @@ type Scheduler struct {
 }
 
 type options struct {
+	runDurationSupported                func(*kueue.Workload) bool
 	podsReadyRequeuingTimestamp         config.RequeuingTimestamp
 	fairSharing                         *config.FairSharing
 	admissionFairSharing                *config.AdmissionFairSharing
@@ -187,6 +189,13 @@ func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
 	}
 }
 
+// WithRunDurationSupport supplies the enabled integrations' restartability check.
+func WithRunDurationSupport(supported func(*kueue.Workload) bool) Option {
+	return func(o *options) {
+		o.runDurationSupported = supported
+	}
+}
+
 // WithRefillBudget sets the per-cycle cap on the workloads refill may pop.
 func WithRefillBudget(budget int) Option {
 	return func(o *options) {
@@ -243,6 +252,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		resourceFormatter:                   options.resourceFormatter,
 		refillBudget:                        options.refillBudget,
 		failedTASReplacementRecoveryTimeout: options.failedTASReplacementRecoveryTimeout,
+		runDurationSupported:                options.runDurationSupported,
 	}
 	return s
 }
@@ -939,6 +949,10 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 	} else if e.clusterQueueSnapshot == nil {
 		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	} else if message := s.runDurationAdmissionError(h.Obj, e.clusterQueueSnapshot); message != "" {
+		e.inadmissibleMsg = message
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonRunDurationUnsupported
+		e.requeueReason = qcache.RequeueReasonRunDurationUnsupported
 	} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
 		e.inadmissibleMsg = err.Error()
 		if errors.Is(err, workload.ErrInternal) {
@@ -1222,11 +1236,51 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 }
 
 func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) {
+	if workload.HasQuotaReservation(wl) && wl.Status.Admission != nil {
+		admission.RunDurationPolicy = wl.Status.Admission.RunDurationPolicy.DeepCopy()
+	} else if features.Enabled(features.WorkloadRunDuration) && !cq.HasMultiKueueAdmissionCheck() &&
+		s.runDurationSupported != nil && s.runDurationSupported(wl) &&
+		!workloadslicing.Enabled(wl) && !concurrentadmission.IsVariant(wl) && !concurrentadmission.IsParent(wl) &&
+		cq.ConcurrentAdmissionPolicy == nil {
+		admission.RunDurationPolicy = &kueue.RunDurationPolicy{}
+		if cq.MaximumRunDurationSeconds != nil {
+			admission.RunDurationPolicy.DefaultSeconds = new(*cq.MaximumRunDurationSeconds)
+		}
+	}
 	workload.SetQuotaReservation(wl, admission, s.clock)
 	if workload.HasAllRequiredChecks(log, wl, cq.AdmissionChecks) {
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(wl, s.clock.Now())
 	}
+}
+
+func (s *Scheduler) runDurationAdmissionError(wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot) string {
+	if !features.Enabled(features.WorkloadRunDuration) {
+		return ""
+	}
+	defaultSeconds := cq.MaximumRunDurationSeconds
+	if workload.HasQuotaReservation(wl) {
+		if wl.Status.Admission == nil || wl.Status.Admission.RunDurationPolicy == nil {
+			return ""
+		}
+		defaultSeconds = wl.Status.Admission.RunDurationPolicy.DefaultSeconds
+	}
+	if wl.Spec.MaximumRunDurationSeconds == nil && defaultSeconds == nil {
+		return ""
+	}
+	if cq.HasMultiKueueAdmissionCheck() {
+		return "run-duration limits are not supported for MultiKueue manager admissions"
+	}
+	if workloadslicing.Enabled(wl) {
+		return "Run-duration limits are not supported with ElasticJobsViaWorkloadSlices"
+	}
+	if concurrentadmission.IsVariant(wl) || concurrentadmission.IsParent(wl) || cq.ConcurrentAdmissionPolicy != nil {
+		return "Run-duration limits are not supported with ConcurrentAdmission"
+	}
+	if s.runDurationSupported == nil || !s.runDurationSupported(wl) {
+		return "Run-duration limits require an enabled restartable job integration"
+	}
+	return ""
 }
 
 func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {

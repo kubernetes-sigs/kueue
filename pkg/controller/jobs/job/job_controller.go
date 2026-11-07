@@ -19,6 +19,7 @@ package job
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -59,6 +60,8 @@ const (
 	JobMinParallelismAnnotation              = "kueue.x-k8s.io/job-min-parallelism"
 	JobCompletionsEqualParallelismAnnotation = "kueue.x-k8s.io/job-completions-equal-parallelism"
 	StoppingAnnotation                       = "kueue.x-k8s.io/stopping"
+	runDurationWaitingForSuspension          = "run-duration"
+	runDurationSchedulingRestored            = "run-duration-ready"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -160,15 +163,43 @@ func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
 }
 
+func (j *Job) RunDurationDrained(ctx context.Context, c client.Reader) (bool, error) {
+	live := &batchv1.Job{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(j.Object()), live); err != nil {
+		return false, err
+	}
+	if live.UID != j.UID {
+		return false, errors.New("job changed identity during run-duration drain")
+	}
+	if !ptr.Deref(live.Spec.Suspend, false) || live.Annotations[StoppingAnnotation] != runDurationSchedulingRestored ||
+		!isJobStatusConditionTrue(live.Status.Conditions, batchv1.JobSuspended) ||
+		live.Status.Active != 0 || ptr.Deref(live.Status.Terminating, 0) != 0 {
+		return false, nil
+	}
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods, client.InNamespace(j.Namespace),
+		client.MatchingLabels{batchv1.ControllerUidLabel: string(j.UID)}); err != nil {
+		return false, err
+	}
+	for i := range pods.Items {
+		if pods.Items[i].Status.Phase != corev1.PodSucceeded && pods.Items[i].Status.Phase != corev1.PodFailed {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (j *Job) Suspend() {
 	j.Spec.Suspend = new(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, reason jobframework.StopReason, _ string) (bool, error) {
 	object := j.Object()
 	stoppedNow := false
+	runDuration := reason == jobframework.StopReason(string(jobframework.StopReasonWorkloadEvicted)+"DueTo"+kueue.WorkloadEvictedByRunDuration)
 
-	if !j.IsSuspended() {
+	stoppingState := j.Annotations[StoppingAnnotation]
+	if !j.IsSuspended() || (runDuration && stoppingState != runDurationWaitingForSuspension && stoppingState != runDurationSchedulingRestored) {
 		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
 			if j.Annotations == nil {
@@ -183,6 +214,28 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		stoppedNow = true
 	}
 
+	// Clear a previous admission's acknowledgement once. The existing stopping
+	// marker makes this step restart-safe before waiting for the batch controller.
+	if runDuration && j.Annotations[StoppingAnnotation] == "true" {
+		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
+			j.Status.Conditions = slices.DeleteFunc(j.Status.Conditions, func(condition batchv1.JobCondition) bool {
+				return condition.Type == batchv1.JobSuspended
+			})
+			return true, nil
+		}); err != nil {
+			return stoppedNow, fmt.Errorf("reset suspension acknowledgement: %w", err)
+		}
+		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
+			j.Annotations[StoppingAnnotation] = runDurationWaitingForSuspension
+			return true, nil
+		}); err != nil {
+			return stoppedNow, fmt.Errorf("record suspension wait: %w", err)
+		}
+	}
+	if runDuration && !isJobStatusConditionTrue(j.Status.Conditions, batchv1.JobSuspended) {
+		return stoppedNow, nil
+	}
+
 	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
 		if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
@@ -195,7 +248,11 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 		j.RestorePodSetsInfo(ctx, podSetsInfo)
-		delete(j.Annotations, StoppingAnnotation)
+		if runDuration {
+			j.Annotations[StoppingAnnotation] = runDurationSchedulingRestored
+		} else {
+			delete(j.Annotations, StoppingAnnotation)
+		}
 		return true, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
@@ -376,6 +433,7 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 }
 
 func (j *Job) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
+	delete(j.Annotations, StoppingAnnotation)
 	j.Spec.Suspend = new(false)
 	if len(podSetsInfo) != 1 {
 		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))

@@ -127,6 +127,16 @@ type JobWithCustomStop interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
+// JobWithRunDuration opts an integration into per-admission duration limits.
+// Stop must prevent new Pods from starting without destroying the job or its
+// Workload. RunDurationDrained must return false until all old Pods have drained,
+// including terminating Pods and Pods from older revisions. Run must support another
+// admission of the same Workload after Stop. Integrations must not release quota
+// independently before drain or replace the Workload during this lifecycle.
+type JobWithRunDuration interface {
+	RunDurationDrained(context.Context, client.Reader) (bool, error)
+}
+
 // JobWithFinalize is an optional interface that should be implemented by generic jobs
 // when custom finalization logic is needed for a job after it has finished.
 type JobWithFinalize interface {

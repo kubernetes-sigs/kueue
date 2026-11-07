@@ -711,6 +711,7 @@ func setupScheduler(
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
+		scheduler.WithRunDurationSupport(integrationManager.SupportsRunDuration),
 		scheduler.WithFailedTASReplacementRecoveryTimeout(waitforpodsready.RecoveryTimeout(cfg.WaitForPodsReady)),
 	)
 	if err := mgr.Add(sched); err != nil {

@@ -279,6 +279,17 @@ spec:
                     whenCanPreempt are TryNextFlavor
                   rule: '!has(self.preference) || (self.whenCanBorrow == ''TryNextFlavor''
                     && self.whenCanPreempt == ''TryNextFlavor'')'
+              maximumRunDurationSeconds:
+                description: |-
+                  maximumRunDurationSeconds is the default maximum duration of each admission,
+                  in seconds, before a restartable Workload is evicted and requeued.
+                  Workload.spec.maximumRunDurationSeconds overrides this default.
+                  Changes apply to subsequent quota reservations, not current admissions.
+                  If unset, no default run duration is enforced.
+                  Requires the WorkloadRunDuration feature gate.
+                format: int32
+                minimum: 1
+                type: integer
               namespaceSelector:
                 description: |-
                   namespaceSelector defines which namespaces are allowed to submit workloads to

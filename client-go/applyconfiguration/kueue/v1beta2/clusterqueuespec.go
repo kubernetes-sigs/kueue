@@ -28,6 +28,13 @@ import (
 //
 // ClusterQueueSpec defines the desired state of ClusterQueue
 type ClusterQueueSpecApplyConfiguration struct {
+	// maximumRunDurationSeconds is the default maximum duration of each admission,
+	// in seconds, before a restartable Workload is evicted and requeued.
+	// Workload.spec.maximumRunDurationSeconds overrides this default.
+	// Changes apply to subsequent quota reservations, not current admissions.
+	// If unset, no default run duration is enforced.
+	// Requires the WorkloadRunDuration feature gate.
+	MaximumRunDurationSeconds *int32 `json:"maximumRunDurationSeconds,omitempty"`
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
 	// that provide quotas for these resources.
@@ -112,6 +119,14 @@ type ClusterQueueSpecApplyConfiguration struct {
 // apply.
 func ClusterQueueSpec() *ClusterQueueSpecApplyConfiguration {
 	return &ClusterQueueSpecApplyConfiguration{}
+}
+
+// WithMaximumRunDurationSeconds sets the MaximumRunDurationSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaximumRunDurationSeconds field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithMaximumRunDurationSeconds(value int32) *ClusterQueueSpecApplyConfiguration {
+	b.MaximumRunDurationSeconds = &value
+	return b
 }
 
 // WithResourceGroups adds the given value to the ResourceGroups field in the declarative configuration

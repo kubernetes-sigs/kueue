@@ -105,7 +105,8 @@ type clusterQueue struct {
 	// TAS Workloads are accounted again when TAS cache becomes initialized.
 	isTASSynced bool
 
-	AdmissionScope *kueue.AdmissionScope
+	AdmissionScope            *kueue.AdmissionScope
+	MaximumRunDurationSeconds *int32
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 
@@ -223,6 +224,10 @@ func (c *clusterQueue) updateClusterQueue(
 
 	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
 	c.AdmissionScope = in.Spec.AdmissionScope
+	c.MaximumRunDurationSeconds = nil
+	if in.Spec.MaximumRunDurationSeconds != nil {
+		c.MaximumRunDurationSeconds = new(*in.Spec.MaximumRunDurationSeconds)
+	}
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}

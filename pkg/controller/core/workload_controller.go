@@ -97,6 +97,7 @@ var (
 	// preserved them, the controller would not be able to transition the workload
 	// back to PendingEvaluation once the blockages are resolved.
 	schedulerSetReasons = sets.New(
+		kueue.WorkloadQuotaReservedReasonRunDurationUnsupported,
 		kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
@@ -941,13 +942,51 @@ func (r *WorkloadReconciler) reconcileQuotaReserved(
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	runDurationRecheckAfter, err := r.reconcileRunDuration(ctx, wl)
+	if err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
 	// get the minimun non-zero value
 	recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
 	if recheckAfter == 0 {
 		recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
 	}
+	if runDurationRecheckAfter > 0 && (recheckAfter == 0 || runDurationRecheckAfter < recheckAfter) {
+		recheckAfter = runDurationRecheckAfter
+	}
 	return ctrl.Result{RequeueAfter: recheckAfter}, nil
+}
+
+func (r *WorkloadReconciler) reconcileRunDuration(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
+	if !features.Enabled(features.WorkloadRunDuration) || !workload.HasQuotaReservation(wl) || !workload.IsActive(wl) ||
+		workloadevict.IsEvicted(wl) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) ||
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) ||
+		!wl.DeletionTimestamp.IsZero() || wl.Status.RunDuration == nil {
+		return 0, nil
+	}
+	deadline := workload.RunDurationDeadline(wl)
+	if deadline != nil && !deadline.After(r.clock.Now()) {
+		message := fmt.Sprintf("The per-admission run duration expired at %s", deadline.UTC().Format(time.RFC3339))
+		err := workloadevict.Evict(ctx, r.client, r.recorder, wl, kueue.WorkloadEvictedByRunDuration, message, "",
+			r.clock, r.cache.ShouldExposeLocalQueueMetricsForWorkload(ctrl.LoggerFrom(ctx), wl), r.roleTracker, r.customLabels,
+			workloadevict.WithCustomPrepare(func(w *kueue.Workload) {
+				w.Status.RunDuration.Deadline = deadline
+			}))
+		return 0, err
+	}
+	if !equality.Semantic.DeepEqual(wl.Status.RunDuration.Deadline, deadline) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(w *kueue.Workload) (bool, error) {
+			w.Status.RunDuration.Deadline = deadline
+			return true, nil
+		}); err != nil {
+			return 0, err
+		}
+	}
+	if deadline == nil {
+		return 0, nil
+	}
+	return deadline.Sub(r.clock.Now()), nil
 }
 
 // isOrphanedWorkload determines if a workload is orphaned and should be finalized.

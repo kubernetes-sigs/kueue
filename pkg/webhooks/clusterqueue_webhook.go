@@ -96,12 +96,14 @@ func (w *ClusterQueueWebhook) ValidateDelete(_ context.Context, _ *kueue.Cluster
 
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(cq)
+	allErrs = append(allErrs, validateRunDurationSeconds(cq.Spec.MaximumRunDurationSeconds, nil, field.NewPath("spec", "maximumRunDurationSeconds"))...)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavors(cq)...)
 	return allErrs
 }
 
 func ValidateClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) field.ErrorList {
 	allErrs := validateClusterQueueSpec(newCQ)
+	allErrs = append(allErrs, validateRunDurationSeconds(newCQ.Spec.MaximumRunDurationSeconds, oldCQ.Spec.MaximumRunDurationSeconds, field.NewPath("spec", "maximumRunDurationSeconds"))...)
 	allErrs = append(allErrs, validateAdmissionCheckOnFlavorsUpdate(oldCQ, newCQ)...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(
 		newCQ.Spec.ConcurrentAdmissionPolicy,

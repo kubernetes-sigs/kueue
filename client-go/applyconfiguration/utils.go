@@ -220,6 +220,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ResourceQuotaApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ResourceUsage"):
 		return &kueuev1beta2.ResourceUsageApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("RunDurationPolicy"):
+		return &kueuev1beta2.RunDurationPolicyApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("RunDurationStatus"):
+		return &kueuev1beta2.RunDurationStatusApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("SchedulingStats"):
 		return &kueuev1beta2.SchedulingStatsApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("Topology"):

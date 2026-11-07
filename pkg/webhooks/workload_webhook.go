@@ -42,6 +42,7 @@ import (
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -114,6 +115,25 @@ func (w *WorkloadWebhook) ValidateDelete(_ context.Context, _ *kueue.Workload) (
 func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
+	var oldRunDuration *int32
+	if oldObj != nil {
+		oldRunDuration = oldObj.Spec.MaximumRunDurationSeconds
+	}
+	allErrs = append(allErrs, validateRunDurationSeconds(obj.Spec.MaximumRunDurationSeconds, oldRunDuration, specPath.Child("maximumRunDurationSeconds"))...)
+	if oldObj != nil && workload.HasQuotaReservation(obj) && obj.Spec.MaximumRunDurationSeconds != nil &&
+		(obj.Status.Admission == nil || obj.Status.Admission.RunDurationPolicy == nil) &&
+		!ptr.Equal(obj.Spec.MaximumRunDurationSeconds, oldRunDuration) {
+		allErrs = append(allErrs, field.Forbidden(specPath.Child("maximumRunDurationSeconds"),
+			"the current reservation has no run-duration policy; configure the limit before the next admission"))
+	}
+	if features.Enabled(features.WorkloadRunDuration) && (obj.Spec.MaximumRunDurationSeconds != nil ||
+		(obj.Status.Admission != nil && obj.Status.Admission.RunDurationPolicy != nil &&
+			obj.Status.Admission.RunDurationPolicy.DefaultSeconds != nil)) {
+		if workloadslicing.Enabled(obj) || concurrentadmission.IsVariant(obj) || concurrentadmission.IsParent(obj) {
+			allErrs = append(allErrs, field.Forbidden(specPath.Child("maximumRunDurationSeconds"),
+				"run-duration limits do not support ConcurrentAdmission or ElasticJobsViaWorkloadSlices"))
+		}
+	}
 
 	variableCountPodSets := 0
 	for i := range obj.Spec.PodSets {
@@ -152,6 +172,15 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	}
 
 	statusPath := field.NewPath("status")
+	if obj.Status.Admission != nil && obj.Status.Admission.RunDurationPolicy != nil {
+		value := obj.Status.Admission.RunDurationPolicy.DefaultSeconds
+		if value != nil && *value < 1 {
+			allErrs = append(allErrs, field.Invalid(statusPath.Child("admission", "runDurationPolicy", "defaultSeconds"), *value, "must be positive"))
+		}
+	}
+	if obj.Status.RunDuration != nil && obj.Status.RunDuration.AdmittedAt.IsZero() {
+		allErrs = append(allErrs, field.Required(statusPath.Child("runDuration", "admittedAt"), "must identify the admission start"))
+	}
 	if workload.HasQuotaReservation(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, oldObj, statusPath.Child("admission"))...)
 	}

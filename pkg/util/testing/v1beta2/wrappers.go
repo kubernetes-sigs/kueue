@@ -202,6 +202,24 @@ func (w *WorkloadWrapper) AdmittedAt(a bool, t time.Time) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) MaximumRunDurationSeconds(seconds int32) *WorkloadWrapper {
+	w.Spec.MaximumRunDurationSeconds = new(seconds)
+	return w
+}
+
+func (w *WorkloadWrapper) RunDuration(defaultSeconds *int32, admittedAt time.Time) *WorkloadWrapper {
+	w.Status.Admission.RunDurationPolicy = &kueue.RunDurationPolicy{DefaultSeconds: defaultSeconds}
+	w.Status.RunDuration = &kueue.RunDurationStatus{AdmittedAt: metav1.NewTime(admittedAt)}
+	seconds := w.Spec.MaximumRunDurationSeconds
+	if seconds == nil {
+		seconds = defaultSeconds
+	}
+	if seconds != nil {
+		w.Status.RunDuration.Deadline = new(metav1.NewTime(admittedAt.Add(time.Duration(*seconds) * time.Second)))
+	}
+	return w
+}
+
 func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
 	return w.FinishedAt(time.Now())
 }
@@ -1153,6 +1171,11 @@ func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) 
 // NamespaceSelector sets the namespace selector.
 func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *ClusterQueueWrapper {
 	c.Spec.NamespaceSelector = s
+	return c
+}
+
+func (c *ClusterQueueWrapper) MaximumRunDurationSeconds(seconds int32) *ClusterQueueWrapper {
+	c.Spec.MaximumRunDurationSeconds = new(seconds)
 	return c
 }
 

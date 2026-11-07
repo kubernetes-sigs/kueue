@@ -27,6 +27,10 @@ import (
 type AdmissionApplyConfiguration struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
 	ClusterQueue *kueuev1beta2.ClusterQueueReference `json:"clusterQueue,omitempty"`
+	// runDurationPolicy captures the ClusterQueue default at quota reservation.
+	// If absent, this reservation does not support run-duration limits.
+	// Its fields are immutable while the admission exists.
+	RunDurationPolicy *RunDurationPolicyApplyConfiguration `json:"runDurationPolicy,omitempty"`
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	PodSetAssignments []PodSetAssignmentApplyConfiguration `json:"podSetAssignments,omitempty"`
 }
@@ -42,6 +46,14 @@ func Admission() *AdmissionApplyConfiguration {
 // If called multiple times, the ClusterQueue field is set to the value of the last call.
 func (b *AdmissionApplyConfiguration) WithClusterQueue(value kueuev1beta2.ClusterQueueReference) *AdmissionApplyConfiguration {
 	b.ClusterQueue = &value
+	return b
+}
+
+// WithRunDurationPolicy sets the RunDurationPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RunDurationPolicy field is set to the value of the last call.
+func (b *AdmissionApplyConfiguration) WithRunDurationPolicy(value *RunDurationPolicyApplyConfiguration) *AdmissionApplyConfiguration {
+	b.RunDurationPolicy = value
 	return b
 }
 

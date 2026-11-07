@@ -57,6 +57,7 @@ type RequeueReason string
 const (
 	RequeueReasonFailedAfterNomination  RequeueReason = "FailedAfterNomination"
 	RequeueReasonNamespaceMismatch      RequeueReason = "NamespaceMismatch"
+	RequeueReasonRunDurationUnsupported RequeueReason = "RunDurationUnsupported"
 	RequeueReasonGeneric                RequeueReason = ""
 	RequeueReasonPreemptionGated        RequeueReason = "PreemptionGated"
 	RequeueReasonPendingPreemption      RequeueReason = "PendingPreemption"
@@ -851,7 +852,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 	log := ctrl.LoggerFrom(ctx)
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
-		immediate = reason != RequeueReasonNamespaceMismatch
+		immediate = reason != RequeueReasonNamespaceMismatch && reason != RequeueReasonRunDurationUnsupported
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
 			reason == RequeueReasonSnapshotFailed ||

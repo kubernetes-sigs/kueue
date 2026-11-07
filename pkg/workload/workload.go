@@ -941,6 +941,10 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 		wl.Status.Admission = nil
 		changed = true
 	}
+	if wl.Status.RunDuration != nil {
+		wl.Status.RunDuration = nil
+		changed = true
+	}
 
 	// Reset the admitted condition if necessary.
 	if SyncAdmittedCondition(wl, now) {
@@ -1300,9 +1304,16 @@ type Ordering struct {
 	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
 
-// GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
-// be the workload creation time or the last time a PodsReady timeout has occurred.
+// GetQueueOrderTimestamp returns the creation time or the fresh turn after a
+// run-duration drain or configured PodsReady timeout.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if evicted := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evicted != nil &&
+		evicted.Status == metav1.ConditionTrue && evicted.Reason == kueue.WorkloadEvictedByRunDuration &&
+		w.Status.RequeueState != nil && w.Status.RequeueState.QueueOrderTimestamp != nil {
+		// CR timestamps have second precision; existing work in the same second
+		// must precede the new turn instead of being ordered by UID.
+		return &metav1.Time{Time: w.Status.RequeueState.QueueOrderTimestamp.Add(time.Millisecond)}
+	}
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
 		if evictedCond, evictedByTimeout := workloadevict.IsEvictedByPodsReadyTimeout(w); evictedByTimeout {
 			return &evictedCond.LastTransitionTime

@@ -35,6 +35,10 @@ type RequeueStateApplyConfiguration struct {
 	// this time would be reset to null.
 	//
 	RequeueAt *v1.Time `json:"requeueAt,omitempty"`
+	// queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+	// eviction has drained. It affects ordering only for that eviction reason.
+	// If unset, normal queue ordering applies.
+	QueueOrderTimestamp *v1.Time `json:"queueOrderTimestamp,omitempty"`
 }
 
 // RequeueStateApplyConfiguration constructs a declarative configuration of the RequeueState type for use with
@@ -56,5 +60,13 @@ func (b *RequeueStateApplyConfiguration) WithCount(value int32) *RequeueStateApp
 // If called multiple times, the RequeueAt field is set to the value of the last call.
 func (b *RequeueStateApplyConfiguration) WithRequeueAt(value v1.Time) *RequeueStateApplyConfiguration {
 	b.RequeueAt = &value
+	return b
+}
+
+// WithQueueOrderTimestamp sets the QueueOrderTimestamp field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the QueueOrderTimestamp field is set to the value of the last call.
+func (b *RequeueStateApplyConfiguration) WithQueueOrderTimestamp(value v1.Time) *RequeueStateApplyConfiguration {
+	b.QueueOrderTimestamp = &value
 	return b
 }

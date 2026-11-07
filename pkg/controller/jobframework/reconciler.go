@@ -103,6 +103,7 @@ type JobReconciler struct {
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
 	client                       client.Client
+	runDurationReader            client.Reader
 	record                       events.EventRecorder
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -148,6 +149,7 @@ type Options struct {
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
 	CustomLabels                 *metrics.CustomLabels
+	RunDurationReader            client.Reader
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
 	MaxTimeoutOnWorkload         *metav1.Duration
@@ -155,6 +157,13 @@ type Options struct {
 
 // Option configures the reconciler.
 type Option func(*Options)
+
+// WithRunDurationReader supplies an uncached reader for physical drain checks.
+func WithRunDurationReader(reader client.Reader) Option {
+	return func(o *Options) {
+		o.RunDurationReader = reader
+	}
+}
 
 func ProcessOptions(opts ...Option) Options {
 	options := defaultOptions
@@ -337,6 +346,9 @@ func NewReconciler(
 	if options.IntegrationManager == nil {
 		options.IntegrationManager = NewIntegrationManager()
 	}
+	if options.RunDurationReader == nil {
+		options.RunDurationReader = client
+	}
 
 	return &JobReconciler{
 		workloadSlices: &workloadslicing.Manager{
@@ -350,6 +362,7 @@ func NewReconciler(
 		queues:                       options.Queues,
 		cache:                        options.Cache,
 		client:                       client,
+		runDurationReader:            options.RunDurationReader,
 		record:                       record,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -619,6 +632,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
+		if evCond.Reason == kueue.WorkloadEvictedByRunDuration && workload.HasQuotaReservation(wl) {
+			restartable, supported := job.(JobWithRunDuration)
+			if !supported {
+				return ctrl.Result{}, errors.New("job integration does not support run-duration drain")
+			}
+			drained, err := restartable.RunDurationDrained(ctx, r.runDurationReader)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("checking run-duration drain: %w", err)
+			}
+			if !drained || job.IsActive() {
+				return ctrl.Result{RequeueAfter: time.Second}, nil
+			}
+		}
 		if !job.IsActive() {
 			log.V(6).Info("The job is no longer active, clear the workloads admission")
 			if err := r.clearAdmissionAfterEviction(ctx, job, wl); err != nil {
@@ -800,8 +826,17 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 		if evCond == nil || evCond.Status != metav1.ConditionTrue {
 			return false, nil
 		}
-		// The requeued condition status is true only for preemption or node failures.
+		// Requeue only for retryable eviction reasons.
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+		if evCond.Reason == kueue.WorkloadEvictedByRunDuration &&
+			workload.IsActive(wl) && !workloadfinish.IsFinished(wl) && wl.DeletionTimestamp.IsZero() {
+			if _, ok := job.(JobWithRunDuration); ok {
+				setRequeued = true
+				if workload.HasQuotaReservation(wl) {
+					workload.CompleteRunDurationRequeue(wl, r.clock.Now())
+				}
+			}
+		}
 		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
 		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
 		// Its Workload must be requeued or both stay stuck.
@@ -1953,6 +1988,12 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	info := GetPodSetsInfoFromWorkload(wl)
 
 	if jws, implements := job.(JobWithCustomStop); implements {
+		if stopReason == StopReasonWorkloadEvicted {
+			if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil &&
+				evCond.Status == metav1.ConditionTrue && evCond.Reason == kueue.WorkloadEvictedByRunDuration {
+				stopReason = StopReason(string(stopReason) + "DueTo" + evCond.Reason)
+			}
+		}
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
 			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
@@ -2545,6 +2586,7 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.jr.runDurationReader = mgr.GetAPIReader()
 	controllerName := strings.ToLower(r.newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(r.newJob().Object()).Owns(&kueue.Workload{}).

@@ -60,6 +60,15 @@ type WorkloadSpecApplyConfiguration struct {
 	// If unspecified, no execution time limit is enforced on the Workload.
 	//
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
+	// maximumRunDurationSeconds limits each admission, in seconds from when the
+	// Workload becomes Admitted. On expiry, a restartable Workload is evicted,
+	// drained, and requeued with a new same-priority FIFO turn.
+	// This field is mutable. Changes immediately adjust the current deadline,
+	// but cannot cancel an eviction that has already been requested.
+	// If unset, the ClusterQueue default captured at quota reservation is used.
+	// This does not change the cumulative maximumExecutionTimeSeconds limit.
+	// Requires the WorkloadRunDuration feature gate and a restartable integration.
+	MaximumRunDurationSeconds *int32 `json:"maximumRunDurationSeconds,omitempty"`
 	// preemptionGates is a list of gates governing whether the workload
 	// can trigger preemptions.
 	// The gates are closed by default.
@@ -128,6 +137,14 @@ func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApp
 // If called multiple times, the MaximumExecutionTimeSeconds field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithMaximumExecutionTimeSeconds(value int32) *WorkloadSpecApplyConfiguration {
 	b.MaximumExecutionTimeSeconds = &value
+	return b
+}
+
+// WithMaximumRunDurationSeconds sets the MaximumRunDurationSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaximumRunDurationSeconds field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithMaximumRunDurationSeconds(value int32) *WorkloadSpecApplyConfiguration {
+	b.MaximumRunDurationSeconds = &value
 	return b
 }
 

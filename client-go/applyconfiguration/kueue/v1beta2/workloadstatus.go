@@ -45,6 +45,10 @@ type WorkloadStatusApplyConfiguration struct {
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
 	// changed once set.
 	Admission *AdmissionApplyConfiguration `json:"admission,omitempty"`
+	// runDuration records the current admission's start and effective deadline.
+	// If absent, no run-duration policy is active for this admission.
+	// It is cleared when the admission ends.
+	RunDuration *RunDurationStatusApplyConfiguration `json:"runDuration,omitempty"`
 	// requeueState holds the re-queue state
 	// when a workload meets Eviction with PodsReadyTimeout reason.
 	//
@@ -116,6 +120,14 @@ func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.Conditio
 // If called multiple times, the Admission field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAdmission(value *AdmissionApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.Admission = value
+	return b
+}
+
+// WithRunDuration sets the RunDuration field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RunDuration field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithRunDuration(value *RunDurationStatusApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	b.RunDuration = value
 	return b
 }
 

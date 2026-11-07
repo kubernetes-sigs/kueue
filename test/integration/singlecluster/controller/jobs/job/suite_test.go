@@ -89,7 +89,7 @@ func managerSetupWithConfiguration(configuration *config.Configuration, opts ...
 			indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())
 		}
 		integrationManager := jobcontrollers.NewIntegrationManager()
-		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithRunDurationReader(mgr.GetAPIReader()))
 		reconciler, err := job.NewReconciler(
 			ctx,
 			mgr.GetClient(),
@@ -170,7 +170,10 @@ func managerAndControllersSetup(
 		}
 
 		if enableScheduler {
+			runDurationIntegrations := jobcontrollers.NewIntegrationManager()
+			runDurationIntegrations.EnableIntegration(job.FrameworkName)
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
+				scheduler.WithRunDurationSupport(runDurationIntegrations.SupportsRunDuration),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 				scheduler.WithCustomLabels(customLabels))
 			err = mgr.Add(sched)

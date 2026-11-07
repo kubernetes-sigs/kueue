@@ -76,6 +76,18 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 
+	// maximumRunDurationSeconds limits each admission, in seconds from when the
+	// Workload becomes Admitted. On expiry, a restartable Workload is evicted,
+	// drained, and requeued with a new same-priority FIFO turn.
+	// This field is mutable. Changes immediately adjust the current deadline,
+	// but cannot cancel an eviction that has already been requested.
+	// If unset, the ClusterQueue default captured at quota reservation is used.
+	// This does not change the cumulative maximumExecutionTimeSeconds limit.
+	// Requires the WorkloadRunDuration feature gate and a restartable integration.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaximumRunDurationSeconds *int32 `json:"maximumRunDurationSeconds,omitempty"`
+
 	// preemptionGates is a list of gates governing whether the workload
 	// can trigger preemptions.
 	// The gates are closed by default.
@@ -301,12 +313,40 @@ type Admission struct {
 	// +optional
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
 
+	// runDurationPolicy captures the ClusterQueue default at quota reservation.
+	// If absent, this reservation does not support run-duration limits.
+	// Its fields are immutable while the admission exists.
+	// +optional
+	RunDurationPolicy *RunDurationPolicy `json:"runDurationPolicy,omitempty"`
+
 	// podSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=18
 	// +optional
 	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
+}
+
+type RunDurationPolicy struct {
+	// defaultSeconds is the ClusterQueue's maximumRunDurationSeconds when quota
+	// was reserved. If unset, this admission has no default duration limit.
+	// Removing a Workload override restores this default, not a newer queue value.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	DefaultSeconds *int32 `json:"defaultSeconds,omitempty"`
+}
+
+type RunDurationStatus struct {
+	// admittedAt is the start of the current admission's duration limit.
+	// It is reset on each new admission, including after a time-based requeue.
+	// +required
+	AdmittedAt metav1.Time `json:"admittedAt"`
+
+	// deadline is the admission start plus the effective run duration.
+	// It is adjusted when the Workload override changes, but not during eviction.
+	// If unset, the current admission has no run-duration deadline.
+	// +optional
+	Deadline *metav1.Time `json:"deadline,omitempty"`
 }
 
 // PodSetReference is the name of a PodSet.
@@ -672,6 +712,12 @@ type WorkloadStatus struct {
 	// +optional
 	Admission *Admission `json:"admission,omitempty"`
 
+	// runDuration records the current admission's start and effective deadline.
+	// If absent, no run-duration policy is active for this admission.
+	// It is cleared when the admission ends.
+	// +optional
+	RunDuration *RunDurationStatus `json:"runDuration,omitempty"`
+
 	// requeueState holds the re-queue state
 	// when a workload meets Eviction with PodsReadyTimeout reason.
 	//
@@ -820,6 +866,12 @@ type RequeueState struct {
 	//
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+
+	// queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+	// eviction has drained. It affects ordering only for that eviction reason.
+	// If unset, normal queue ordering applies.
+	// +optional
+	QueueOrderTimestamp *metav1.Time `json:"queueOrderTimestamp,omitempty"`
 }
 
 // AdmissionCheckReference is the name of an AdmissionCheck.
@@ -1160,6 +1212,13 @@ const (
 	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
 	// place due to a PodsReady timeout.
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
+
+	// WorkloadEvictedByRunDuration indicates expiry of a per-admission duration.
+	WorkloadEvictedByRunDuration = "RunDurationExceeded"
+
+	// WorkloadQuotaReservedReasonRunDurationUnsupported indicates a duration policy
+	// that the Workload's integration or lifecycle cannot support.
+	WorkloadQuotaReservedReasonRunDurationUnsupported = "RunDurationUnsupported"
 
 	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
 	// because at least one admission check transitioned to False.

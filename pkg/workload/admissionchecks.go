@@ -43,16 +43,26 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	hasAllTopologyAssignmentsReady := !HasTopologyAssignmentsPending(w)
 	admittedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted)
 	quotaReservedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	timerChanged := false
+	if !hasReservation && w.Status.RunDuration != nil {
+		w.Status.RunDuration = nil
+		timerChanged = true
+	} else if hasReservation && isAdmitted && w.Status.RunDuration == nil && w.Status.Admission != nil &&
+		w.Status.Admission.RunDurationPolicy != nil {
+		w.Status.RunDuration = &kueue.RunDurationStatus{AdmittedAt: admittedCond.LastTransitionTime}
+		w.Status.RunDuration.Deadline = RunDurationDeadline(w)
+		timerChanged = true
+	}
 
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		// If QuotaReserved is not set yet, and the UnadmittedWorkloadsExplicitStatus feature gate is disabled,
 		// we don't want to explicitly initialize the Admitted condition either (keeping them both absent).
 		if quotaReservedCond == nil && admittedCond == nil && !features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
-			return false
+			return timerChanged
 		}
 	} else {
 		if isAdmitted == (hasReservation && hasAllChecksReady && hasAllTopologyAssignmentsReady) {
-			return false
+			return timerChanged
 		}
 	}
 
@@ -101,7 +111,16 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 			}
 		}
 	}
-	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
+	changed := apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
+	if newCondition.Status == metav1.ConditionTrue && w.Status.RunDuration == nil &&
+		w.Status.Admission != nil && w.Status.Admission.RunDurationPolicy != nil {
+		w.Status.RunDuration = &kueue.RunDurationStatus{
+			AdmittedAt: metav1.NewTime(now),
+		}
+		w.Status.RunDuration.Deadline = RunDurationDeadline(w)
+		changed = true
+	}
+	return changed || timerChanged
 }
 
 // matchingChecks returns the list of admission checks in the given state.

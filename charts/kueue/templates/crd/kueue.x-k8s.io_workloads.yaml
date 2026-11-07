@@ -117,6 +117,19 @@ spec:
                   format: int32
                   minimum: 1
                   type: integer
+                maximumRunDurationSeconds:
+                  description: |-
+                    maximumRunDurationSeconds limits each admission, in seconds from when the
+                    Workload becomes Admitted. On expiry, a restartable Workload is evicted,
+                    drained, and requeued with a new same-priority FIFO turn.
+                    This field is mutable. Changes immediately adjust the current deadline,
+                    but cannot cancel an eviction that has already been requested.
+                    If unset, the ClusterQueue default captured at quota reservation is used.
+                    This does not change the cumulative maximumExecutionTimeSeconds limit.
+                    Requires the WorkloadRunDuration feature gate and a restartable integration.
+                  format: int32
+                  minimum: 1
+                  type: integer
                 podSets:
                   description: |-
                     podSets is a list of sets of homogeneous pods, each described by a Pod spec
@@ -9036,6 +9049,21 @@ spec:
                       x-kubernetes-list-map-keys:
                         - name
                       x-kubernetes-list-type: map
+                    runDurationPolicy:
+                      description: |-
+                        runDurationPolicy captures the ClusterQueue default at quota reservation.
+                        If absent, this reservation does not support run-duration limits.
+                        Its fields are immutable while the admission exists.
+                      properties:
+                        defaultSeconds:
+                          description: |-
+                            defaultSeconds is the ClusterQueue's maximumRunDurationSeconds when quota
+                            was reserved. If unset, this admission has no default duration limit.
+                            Removing a Workload override restores this default, not a newer queue value.
+                          format: int32
+                          minimum: 1
+                          type: integer
+                      type: object
                   type: object
                 admissionChecks:
                   description: admissionChecks list all the admission checks required by the workload and the current status
@@ -9350,6 +9378,13 @@ spec:
                       format: int32
                       minimum: 0
                       type: integer
+                    queueOrderTimestamp:
+                      description: |-
+                        queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+                        eviction has drained. It affects ordering only for that eviction reason.
+                        If unset, normal queue ordering applies.
+                      format: date-time
+                      type: string
                     requeueAt:
                       description: |-
                         requeueAt records the time when a workload will be re-queued.
@@ -9393,6 +9428,28 @@ spec:
                   x-kubernetes-list-map-keys:
                     - name
                   x-kubernetes-list-type: map
+                runDuration:
+                  description: |-
+                    runDuration records the current admission's start and effective deadline.
+                    If absent, no run-duration policy is active for this admission.
+                    It is cleared when the admission ends.
+                  properties:
+                    admittedAt:
+                      description: |-
+                        admittedAt is the start of the current admission's duration limit.
+                        It is reset on each new admission, including after a time-based requeue.
+                      format: date-time
+                      type: string
+                    deadline:
+                      description: |-
+                        deadline is the admission start plus the effective run duration.
+                        It is adjusted when the Workload override changes, but not during eviction.
+                        If unset, the current admission has no run-duration deadline.
+                      format: date-time
+                      type: string
+                  required:
+                    - admittedAt
+                  type: object
                 schedulingStats:
                   description: schedulingStats tracks scheduling statistics
                   properties:
