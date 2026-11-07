@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -639,6 +641,60 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 				behavioral.ExpectLQPendingWorkloadsMetric(localQueue, 0, 0)
 				behavioral.ExpectLQReservingActiveWorkloadsMetric(localQueue, 0)
+			})
+		})
+
+		ginkgo.It("Should not charge a workload slice and the slice it replaces together", func() {
+			ginkgo.By("Creating ResourceFlavors", func() {
+				onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+				behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
+				spotFlavor = utiltestingapi.MakeResourceFlavor(flavorSpot).Obj()
+				behavioral.MustCreate(ctx, k8sClient, spotFlavor)
+				modelAFlavor = utiltestingapi.MakeResourceFlavor(flavorModelA).NodeLabel(resourceGPU.String(), flavorModelA).Obj()
+				behavioral.MustCreate(ctx, k8sClient, modelAFlavor)
+				modelBFlavor = utiltestingapi.MakeResourceFlavor(flavorModelB).NodeLabel(resourceGPU.String(), flavorModelB).Obj()
+				behavioral.MustCreate(ctx, k8sClient, modelBFlavor)
+			})
+
+			slice := func(name, gpus string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "job-uid").
+					Request(resourceGPU, gpus).
+					Obj()
+			}
+			reserve := func(wl *kueue.Workload, gpus string) {
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(resourceGPU, flavorModelA, gpus).Obj()).Obj())
+			}
+			expectReserved := func(reserving int32, gpus string) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updatedCq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					g.Expect(updatedCq.Status.ReservingWorkloads).To(gomega.Equal(reserving))
+					g.Expect(updatedCq.Status.FlavorsReservation).To(gomega.ContainElement(gomega.BeComparableTo(kueue.FlavorUsage{
+						Name:      flavorModelA,
+						Resources: []kueue.ResourceUsage{{Name: resourceGPU, Total: resource.MustParse(gpus)}},
+					})))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			old := slice("old", "2")
+			ginkgo.By("Reserving quota for the old slice", func() {
+				behavioral.MustCreate(ctx, k8sClient, old)
+				reserve(old, "2")
+				expectReserved(1, "2")
+			})
+
+			replacement := slice("new", "3")
+			replacement.Annotations[constants.WorkloadSliceReplacementForAnnotation] = ns.Name + "/old"
+			ginkgo.By("Reserving quota for its replacement while the old slice still holds its own", func() {
+				behavioral.MustCreate(ctx, k8sClient, replacement)
+				reserve(replacement, "3")
+				expectReserved(1, "3")
 			})
 		})
 	})
