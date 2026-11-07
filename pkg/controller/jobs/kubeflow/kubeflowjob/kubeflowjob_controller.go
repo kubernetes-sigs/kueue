@@ -21,6 +21,7 @@ import (
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -194,19 +195,37 @@ func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
 }
 
 func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, error) {
+	return j.validateTopologyRequest(ctx, nil)
+}
+
+func (j *KubeflowJob) validateTopologyRequest(ctx context.Context, oldJob *KubeflowJob) (field.ErrorList, error) {
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return nil, nil
 	}
 
 	podSets, podSetsErr := jobframework.JobPodSets(ctx, j, nil)
 
+	var oldReplicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec
+	if oldJob != nil {
+		oldReplicaSpecs = oldJob.KFJobControl.ReplicaSpecs()
+	}
+
 	var allErrs field.ErrorList
 	replicaTypes := j.OrderedReplicaTypes()
 	for _, replicaType := range replicaTypes {
 		replicaSpecsPath := field.NewPath("spec", j.KFJobControl.ReplicaSpecsFieldName())
+		var oldTemplateMeta *metav1.ObjectMeta
+		if oldReplicaSpec := oldReplicaSpecs[replicaType]; oldReplicaSpec != nil {
+			oldTemplateMeta = &oldReplicaSpec.Template.ObjectMeta
+		}
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(
 			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
 			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+		)...)
+		allErrs = append(allErrs, jobframework.ValidateTASPreferredTopologyRequest(
+			replicaSpecsPath.Key(string(replicaType)).Child("template", "metadata"),
+			&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta,
+			oldTemplateMeta,
 		)...)
 
 		if podSetsErr != nil {
@@ -228,8 +247,9 @@ func (j *KubeflowJob) ValidateOnCreate(ctx context.Context) (field.ErrorList, er
 	return nil, podSetsErr
 }
 
-func (j *KubeflowJob) ValidateOnUpdate(ctx context.Context, _ jobframework.GenericJob) (field.ErrorList, error) {
-	return j.ValidateOnCreate(ctx)
+func (j *KubeflowJob) ValidateOnUpdate(ctx context.Context, oldJob jobframework.GenericJob) (field.ErrorList, error) {
+	oldKubeflowJob, _ := oldJob.(*KubeflowJob)
+	return j.validateTopologyRequest(ctx, oldKubeflowJob)
 }
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {
