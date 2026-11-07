@@ -9947,9 +9947,9 @@ spec:
                     format: int32
                     minimum: 0
                     type: integer
-                  queueOrderTimestamp:
+                  queueOrderTime:
                     description: |-
-                      queueOrderTimestamp is the start of a new FIFO turn after a run-duration
+                      queueOrderTime is the start of a new FIFO turn after a run-duration
                       eviction has drained. It affects ordering only for that eviction reason.
                       If unset, normal queue ordering applies.
                     format: date-time
