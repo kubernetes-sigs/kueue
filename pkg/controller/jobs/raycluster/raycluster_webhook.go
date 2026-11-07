@@ -224,7 +224,9 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob,
 				var oldWorkerGroupMeta *metav1.ObjectMeta
 				if oldRayJob != nil {
 					for j := range oldRayJob.Spec.WorkerGroupSpecs {
-						if oldRayJob.Spec.WorkerGroupSpecs[j].GroupName == string(p.Name) {
+						// PodSet names are lowercased when the PodSets are built, so
+						// normalise the old group name before comparing it.
+						if kueue.NewPodSetReference(oldRayJob.Spec.WorkerGroupSpecs[j].GroupName) == p.Name {
 							oldWorkerGroupMeta = &oldRayJob.Spec.WorkerGroupSpecs[j].Template.ObjectMeta
 							break
 						}

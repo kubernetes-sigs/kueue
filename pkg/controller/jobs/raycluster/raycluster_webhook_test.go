@@ -814,6 +814,25 @@ func TestValidateUpdate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		"mixed-case worker group names keep unchanged preferred topology requests accepted": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("Workers-A", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+				).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				WithWorkerGroups(
+					*testingrayutil.MakeWorkerGroup("Workers-A", 1).
+						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+				).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			wantErr: nil,
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
