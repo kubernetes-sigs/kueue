@@ -3303,6 +3303,184 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 }
 
+func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	reserved := utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now)
+	cases := map[string]struct {
+		pendingWorkloads []client.Object
+		trackedWorkloads []*kueue.Workload
+		// deleteLocalQueue deletes lq before remove and update run.
+		deleteLocalQueue bool
+		// deleteOnReport deletes lq when remove or update reports the LocalQueue metric.
+		deleteOnReport  bool
+		remove          workload.Reference
+		update          *kueue.Workload
+		wantLQWorkloads map[kueue.LocalQueueName]float64
+		wantCQWorkloads float64
+	}{
+		"Workload with reserved quota removed after the deletion": {
+			trackedWorkloads: []*kueue.Workload{
+				reserved.Clone().Obj(),
+				reserved.Clone().Name("wl2").Obj(),
+			},
+			deleteLocalQueue: true,
+			remove:           "ns/wl1",
+			wantCQWorkloads:  1,
+		},
+		"Workload with reserved quota moved to another LocalQueue after the deletion": {
+			trackedWorkloads: []*kueue.Workload{
+				reserved.Clone().Obj(),
+				reserved.Clone().Name("wl2").Obj(),
+			},
+			deleteLocalQueue: true,
+			update:           utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq2").Obj(),
+			wantLQWorkloads:  map[kueue.LocalQueueName]float64{"lq2": 1},
+			wantCQWorkloads:  2,
+		},
+		"Workload with reserved quota changing its status after the deletion": {
+			trackedWorkloads: []*kueue.Workload{
+				reserved.Clone().Obj(),
+			},
+			deleteLocalQueue: true,
+			update: reserved.Clone().
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadAdmitted,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+				}).
+				Obj(),
+			wantCQWorkloads: 1,
+		},
+		"pending Workload removed by the deletion while another one has the same status": {
+			pendingWorkloads: []client.Object{utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Obj()},
+			trackedWorkloads: []*kueue.Workload{utiltestingapi.MakeWorkload("wl2", "ns").Queue("lq").Obj()},
+			deleteLocalQueue: true,
+			wantCQWorkloads:  1,
+		},
+		"Workload moved to a LocalQueue that does not exist": {
+			trackedWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Obj(),
+				reserved.Clone().Name("wl2").Obj(),
+			},
+			update:          reserved.Clone().Queue("missing").Obj(),
+			wantLQWorkloads: map[kueue.LocalQueueName]float64{"lq": 1},
+			wantCQWorkloads: 2,
+		},
+		"Workload with reserved quota removed while the LocalQueue is deleted": {
+			trackedWorkloads: []*kueue.Workload{
+				reserved.Clone().Obj(),
+				reserved.Clone().Name("wl2").Obj(),
+			},
+			deleteOnReport:  true,
+			remove:          "ns/wl1",
+			wantCQWorkloads: 1,
+		},
+		"Workload with reserved quota added while the LocalQueue is deleted": {
+			trackedWorkloads: []*kueue.Workload{
+				reserved.Clone().Obj(),
+			},
+			deleteOnReport:  true,
+			update:          reserved.Clone().Name("wl2").Obj(),
+			wantCQWorkloads: 2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			lqNames := []kueue.LocalQueueName{"lq", "lq2", "missing"}
+			metrics.ClearClusterQueueMetrics("cq")
+			for _, name := range lqNames {
+				metrics.ClearLocalQueueMetrics(metrics.LocalQueueReference{Name: name, Namespace: "ns"})
+			}
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(tc.pendingWorkloads...), nil)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("failed to add ClusterQueue: %v", err)
+			}
+			for _, q := range []*kueue.LocalQueue{lq, utiltestingapi.MakeLocalQueue("lq2", "ns").ClusterQueue("cq").Obj()} {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("failed to add LocalQueue: %v", err)
+				}
+			}
+			for _, wl := range tc.trackedWorkloads {
+				manager.UpdateUnadmittedWorkload(log, wl)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": "lq", "namespace": "ns"}); len(got) == 0 {
+				t.Fatal("expected the LocalQueue unadmitted workloads metric before the deletion")
+			}
+
+			if tc.deleteLocalQueue {
+				manager.DeleteLocalQueue(log, lq)
+			}
+			opLog := log
+			var reported bool
+			deleted := make(chan struct{})
+			if tc.deleteOnReport {
+				opLog = funcr.New(func(_, args string) {
+					if reported || !strings.Contains(args, "Reporting LQ unadmitted workload metric") {
+						return
+					}
+					reported = true
+					lockFree := manager.TryLock()
+					if lockFree {
+						manager.Unlock()
+						t.Error("the LocalQueue unadmitted workloads metric was reported without the manager lock")
+					}
+					go func() {
+						defer close(deleted)
+						manager.DeleteLocalQueue(log, lq)
+					}()
+					if lockFree {
+						// Nothing stops the deletion, so let it clear the metric before the report.
+						utiltesting.WaitForClose(t, deleted)
+					} else {
+						utiltesting.WaitForPendingWriter(t, manager, deleted)
+					}
+				}, funcr.Options{Verbosity: 4})
+			}
+			if tc.remove != "" {
+				manager.RemoveUnadmittedWorkload(opLog, tc.remove)
+			}
+			if tc.update != nil {
+				manager.UpdateUnadmittedWorkload(opLog, tc.update)
+			}
+			if tc.deleteOnReport {
+				if !reported {
+					t.Fatal("the LocalQueue unadmitted workloads metric was not reported")
+				}
+				utiltesting.WaitForClose(t, deleted)
+			}
+
+			for _, name := range lqNames {
+				series := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": string(name), "namespace": "ns"})
+				want, ok := tc.wantLQWorkloads[name]
+				if !ok {
+					if len(series) != 0 {
+						t.Errorf("LocalQueue %q unadmitted workloads series = %v, want none", name, series)
+					}
+					continue
+				}
+				var got float64
+				for _, dp := range series {
+					got += dp.Value
+				}
+				if got != want {
+					t.Errorf("LocalQueue %q unadmitted workloads = %v, want %v", name, got, want)
+				}
+			}
+			var gotCQWorkloads float64
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": "cq"}) {
+				gotCQWorkloads += dp.Value
+			}
+			if gotCQWorkloads != tc.wantCQWorkloads {
+				t.Errorf("ClusterQueue unadmitted workloads = %v, want %v", gotCQWorkloads, tc.wantCQWorkloads)
+			}
+		})
+	}
+}
+
 // TestAddOrUpdateWorkloadCarriesFlavorScanState covers the flavor scan progress surviving a
 // Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
 // FlavorScanState, so a cluster where Workloads are updated frequently sent the scan back to

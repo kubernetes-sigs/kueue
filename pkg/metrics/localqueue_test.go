@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,6 +27,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestNewLocalQueueMetricsConfig(t *testing.T) {
@@ -136,6 +138,85 @@ func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 			if got := testCase.cfg.ShouldExposeLocalQueueMetrics(testCase.lqLabels); got != testCase.want {
 				t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, testCase.want)
 			}
+		})
+	}
+}
+
+func TestLocalQueueRecorder(t *testing.T) {
+	lq := LocalQueueReference{Name: "recorder-lq", Namespace: "recorder-ns"}
+	cases := map[string]struct {
+		nilRecorder          bool
+		deleteBeforeRecord   bool
+		deleteWhileRecording bool
+		deleteAfterRecord    bool
+		wantRecorded         bool
+		wantSeries           int
+	}{
+		"record": {
+			wantRecorded: true,
+			wantSeries:   1,
+		},
+		"nil recorder": {
+			nilRecorder: true,
+		},
+		"delete before record": {
+			deleteBeforeRecord: true,
+		},
+		"delete while recording": {
+			deleteWhileRecording: true,
+			wantRecorded:         true,
+		},
+		"delete after record": {
+			deleteAfterRecord: true,
+			wantRecorded:      true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ClearLocalQueueMetrics(lq)
+			var recorder *LocalQueueRecorder
+			if !tc.nilRecorder {
+				recorder = NewLocalQueueRecorder(lq)
+			}
+			if tc.deleteBeforeRecord {
+				recorder.Delete()
+			}
+			deleted := make(chan struct{})
+			var recorded bool
+			recorder.Record(func() {
+				recorded = true
+				// Record holds the read lock while record runs, so that Delete waits
+				// for record but other Record calls do not.
+				if recorder.mu.TryLock() {
+					recorder.mu.Unlock()
+					t.Error("Record does not hold the lock while record runs")
+				}
+				if !recorder.mu.TryRLock() {
+					t.Error("Record holds the write lock while record runs")
+				} else {
+					recorder.mu.RUnlock()
+				}
+				if tc.deleteWhileRecording {
+					go func() {
+						recorder.Delete()
+						close(deleted)
+					}()
+					if !utiltesting.WaitForPendingWriter(t, &recorder.mu, deleted) {
+						t.Fatal("Delete returned while record was running")
+					}
+				}
+				LocalQueueQuotaReservedWorkload(lq, "", time.Second, nil, nil)
+			})
+			if tc.deleteWhileRecording {
+				utiltesting.WaitForClose(t, deleted)
+			}
+			if tc.deleteAfterRecord {
+				recorder.Delete()
+			}
+			if recorded != tc.wantRecorded {
+				t.Errorf("Record called record = %v, want %v", recorded, tc.wantRecorded)
+			}
+			expectFilteredMetricsCount(t, LocalQueueQuotaReservedWorkloadsTotal, tc.wantSeries, "name", "recorder-lq", "namespace", "recorder-ns")
 		})
 	}
 }
