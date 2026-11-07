@@ -92,7 +92,7 @@ filters:
     approvers:
       - infra-approvers
 
-  "^\\.cloudbuild.yaml$":
+  "^cloudbuild(-periodic)?\\.yaml$":
     approvers:
       - infra-approvers
 
