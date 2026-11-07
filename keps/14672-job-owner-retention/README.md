@@ -398,9 +398,20 @@ necessary to implement this enhancement.
 
 #### Unit Tests
 
-TBD — to be filled in during implementation, following the pattern
-established in KEP-1618's own unit test plan (`pkg/controller/core/workload_controller_test.go`,
-`apis/config/v1beta1/defaults_test.go`, `pkg/config/config_test.go`).
+- `recordFinishedAt`: stamps for `Succeeded` and `Failed`, does not stamp for
+  `WorkloadSliceReplaced`, does not overwrite an existing stamp.
+- `handleOwnerAfterFinishedPolicy`: deletes once the period has elapsed,
+  requeues with the remaining duration while it has not, does nothing without
+  a stamp or without retention configured, and does nothing when the feature
+  gate is disabled.
+- Tampering: ignores a stamp while the Workload is unfinished, and rejects a
+  timestamp in the future.
+- Stamp-write failure and concurrent owner deletion are covered here rather
+  than at integration level: both need failure injection or a staged deletion
+  race, which a fake client with `WithInterceptorFuncs` can do deterministically
+  and a real API server cannot.
+- Config validation: `jobs.afterFinished` must be non-negative, and validation
+  runs even when `workloads` is unset.
 
 #### Integration tests
 
@@ -414,11 +425,7 @@ established in KEP-1618's own unit test plan (`pkg/controller/core/workload_cont
   `workloads.afterFinished`, and the owner is still deleted correctly when
   `jobs.afterFinished` later elapses
 - default-disabled backward-compatible behavior
-- the stamp write failing: the owner is left unstamped and is not collected,
-  and no error propagates that would block the Workload's own retention
-- the owner being deleted concurrently with the stamp: the write is skipped
-  when `DeletionTimestamp` is set, and a delete landing between fetch and
-  patch does not produce an error
+
 
 ### Graduation Criteria
 
