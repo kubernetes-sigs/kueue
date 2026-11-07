@@ -123,21 +123,29 @@ func TestMultiKueue(t *testing.T) {
 	behavioral.RunSuite(t, "MultiKueue Suite")
 }
 
+var depCRDPathsWithoutClusterProfile = []string{
+	behavioral.JobsetCrds,
+	behavioral.TrainingOperatorCrds,
+	behavioral.MpiOperatorCrds,
+	behavioral.RayOperatorCrds,
+	behavioral.AppWrapperCrds,
+	behavioral.KfTrainerCrds,
+	behavioral.AutoscalerCrds,
+	behavioral.LeaderWorkerSetCrds,
+}
+
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
+	ginkgo.GinkgoHelper()
+	depCRDPaths := append([]string{behavioral.ClusterProfileCrds}, depCRDPathsWithoutClusterProfile...)
+	return createClusterWithDepCRDs(setupFnc, depCRDPaths, apiFeatureGates...)
+}
+
+func createClusterWithDepCRDs(setupFnc framework.ManagerSetup, depCRDPaths []string, apiFeatureGates ...string) cluster {
+	ginkgo.GinkgoHelper()
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		WebhookPath: behavioral.WebhookPath,
-		DepCRDPaths: []string{
-			behavioral.JobsetCrds,
-			behavioral.TrainingOperatorCrds,
-			behavioral.MpiOperatorCrds,
-			behavioral.RayOperatorCrds,
-			behavioral.AppWrapperCrds,
-			behavioral.KfTrainerCrds,
-			behavioral.AutoscalerCrds,
-			behavioral.ClusterProfileCrds,
-			behavioral.LeaderWorkerSetCrds,
-		},
+		WebhookPath:               behavioral.WebhookPath,
+		DepCRDPaths:               depCRDPaths,
 		APIServerFeatureGates:     apiFeatureGates,
 		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
