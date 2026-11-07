@@ -30,6 +30,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -57,8 +58,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -2117,6 +2120,44 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				t.Errorf("unexpected constructed client RateLimiter presence: want %t, got %t", tc.wantRateLimiter, got)
 			}
 		})
+	}
+}
+
+func TestStopAndRemoveClusterClearsMetrics(t *testing.T) {
+	counters := map[string]*prometheus.CounterVec{
+		"dispatched": metrics.MultiKueueWorkloadsDispatchedTotal,
+		"admitted":   metrics.MultiKueueWorkloadsAdmittedTotal,
+		"evicted":    metrics.MultiKueueWorkloadsEvictedTotal,
+	}
+	for _, vec := range counters {
+		vec.Reset()
+		t.Cleanup(vec.Reset)
+	}
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace,
+		withAdapters(adapters),
+		withEventRecorder(&utiltesting.EventRecorder{}),
+	)
+
+	// The same ClusterQueue references both workers.
+	for _, cluster := range []string{"worker1", "worker2"} {
+		metrics.ReportMultiKueueWorkloadDispatched("cq1", cluster, nil)
+		metrics.ReportMultiKueueWorkloadAdmitted("cq1", cluster, nil)
+		metrics.ReportMultiKueueWorkloadEvicted("cq1", cluster, kueue.WorkloadEvictedByPreemption, nil)
+	}
+
+	reconciler.stopAndRemoveCluster("worker1")
+
+	// worker1 series are dropped, while other clusters keep their series.
+	for name, vec := range counters {
+		if got := len(testingmetrics.CollectFilteredGaugeVec(vec, map[string]string{"cluster": "worker1"})); got != 0 {
+			t.Errorf("expected worker1 %s series to be dropped, got %d series", name, got)
+		}
+		if got := len(testingmetrics.CollectFilteredGaugeVec(vec, map[string]string{"cluster": "worker2"})); got != 1 {
+			t.Errorf("expected worker2 %s series to remain, got %d series", name, got)
+		}
 	}
 }
 
