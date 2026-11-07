@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -43,8 +45,130 @@ func TestReconcileRequeue(t *testing.T) {
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
+	lateRetry := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		RequeueState(nil, new(metav1.NewTime(now.Add(-time.Second)))).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadEvicted,
+			Status: metav1.ConditionTrue,
+			Reason: kueue.WorkloadEvictedByAdmissionCheck,
+		}).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadRequeued,
+			Status: metav1.ConditionFalse,
+			Reason: kueue.WorkloadEvictedByAdmissionCheck,
+		}).
+		AdmissionChecks(
+			kueue.AdmissionCheckState{
+				Name:       "first",
+				State:      kueue.CheckStatePending,
+				RetryCount: new(int32(1)),
+			},
+			kueue.AdmissionCheckState{
+				Name:                "late",
+				State:               kueue.CheckStateRetry,
+				RetryCount:          new(int32(2)),
+				RequeueAfterSeconds: new(int32(60)),
+				LastTransitionTime:  metav1.NewTime(now.Add(-time.Minute)),
+			},
+		)
+	resetLateRetry := lateRetry.Clone()
+	resetLateRetry.Status.RequeueState = &kueue.RequeueState{}
+	resetLateRetry.Status.AdmissionChecks[1] = kueue.AdmissionCheckState{
+		Name:                "late",
+		State:               kueue.CheckStatePending,
+		RetryCount:          new(int32(3)),
+		RequeueAfterSeconds: new(int32(60)),
+		LastTransitionTime:  metav1.NewTime(now),
+		Message:             "Reset to Pending after eviction. Previously: Retry",
+	}
+	rejectedRetry := lateRetry.Clone()
+	rejectedRetry.Status.AdmissionChecks[0].State = kueue.CheckStateRejected
+	removedCheck := rejectedRetry.Clone().RequeueState(nil, nil).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadRequeued,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadBackoffFinished,
+			Message: "The workload backoff was finished",
+		})
+	flavorChecksCQ := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		AdmissionCheckStrategy(
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("first", "spot").Obj(),
+			*utiltestingapi.MakeAdmissionCheckStrategyRule("late").Obj(),
+		)
+	removedCheckCQ := flavorChecksCQ.Clone().AdmissionCheckStrategy(*utiltestingapi.MakeAdmissionCheckStrategyRule("late", "spot").Obj())
 
 	cases := map[string]reconcileTestCase{
+		"late retry is reset before enqueueing after backoff": {
+			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload:     lateRetry.Clone().Obj(),
+			wantWorkload: resetLateRetry.Clone().Obj(),
+			beforeReconcile: func(_ context.Context, _ client.Client, queues *qcache.Manager) {
+				queues.DeleteWorkload(utiltesting.NewLogger(t), "ns/wl")
+			},
+			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{
+				"cq": {"ns/wl": workload.NewInfo(utiltesting.NewLogger(t), resetLateRetry.Clone().Obj())},
+			},
+		},
+		"late retry is reset when no backoff remains": {
+			workload: lateRetry.Clone().RequeueState(nil, nil).Obj(),
+			wantWorkload: resetLateRetry.Clone().RequeueState(nil, nil).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadBackoffFinished,
+					Message: "The workload backoff was finished",
+				}).Obj(),
+		},
+		"late retry does not shorten an existing backoff": {
+			workload:     lateRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
+			wantWorkload: lateRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
+			wantResult:   reconcile.Result{RequeueAfter: time.Minute},
+		},
+		"flavor-specific late rejection takes precedence over retry after quota release": {
+			cq:       flavorChecksCQ.Obj(),
+			lq:       utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Obj(),
+			wantWorkload: rejectedRetry.Clone().RequeueState(nil, new(metav1.NewTime(now.Add(time.Minute)))).Condition(metav1.Condition{
+				Type:    kueue.WorkloadDeactivationTarget,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+				Message: `AdmissionCheck in Rejected state: "first"`,
+			}).Obj(),
+			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{},
+			beforeReconcile: func(_ context.Context, _ client.Client, queues *qcache.Manager) {
+				queues.DeleteWorkload(utiltesting.NewLogger(t), "ns/wl")
+			},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+				EventType: "Warning",
+				Reason:    "AdmissionCheckRejected",
+				Message:   `Deactivated due to AdmissionCheck in Rejected state: "first"`,
+			}},
+		},
+		"removed admission checks do not deactivate an evicted workload": {
+			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().AdmissionChecks().Obj(),
+		},
+		"removing an obsolete rejection preserves flavor-specific retry state": {
+			cq:           removedCheckCQ.Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().AdmissionChecks(removedCheck.Status.AdmissionChecks[1]).Obj(),
+		},
+		"missing local queue does not deactivate an evicted workload": {
+			cq:           utiltestingapi.MakeClusterQueue("cq").Obj(),
+			workload:     removedCheck.Clone().Obj(),
+			wantWorkload: removedCheck.Clone().Obj(),
+		},
 		"increment re-queue count": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
