@@ -17,6 +17,7 @@
 | [reviewer/](reviewer/README.md) | "review this PR", "review this code", "evaluate this diff", "score these commits", "review the changes between", "code quality evaluation", any code review of kueue changes |
 | [kueue-pr-evidence-common](kueue-pr-evidence-common/SKILL.md) | an evidence skill publishes its block, "preview the evidence block", "refresh the reviewer notes", shared conventions for kueue-pr-evidence-* skills |
 | [kueue-pr-evidence-state-diff](kueue-pr-evidence-state-diff/SKILL.md) | "show the state change in this PR", "before/after Kueue state", scheduling, preemption, admission, MultiKueue, metrics, or TAS |
+| [kueue-pr-evidence-perf-delta](kueue-pr-evidence-perf-delta/SKILL.md) | "did this change scheduler performance", "perf delta for this PR", scheduler, cache, TAS, or DRA hot-path changes |
 
 ---
 
@@ -55,3 +56,5 @@
 @kueue-pr-evidence-common/SKILL.md
 
 @kueue-pr-evidence-state-diff/SKILL.md
+
+@kueue-pr-evidence-perf-delta/SKILL.md
