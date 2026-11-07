@@ -91,11 +91,12 @@ golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configur
 	# The custom builder runs in golangci-lint's module; keep Kueue's selected Go toolchain.
 	@identity=$$( { $(GO_CMD) env GOVERSION GOHOSTOS GOHOSTARCH; cat hack/testing/kal-linter/.custom-gcl.yaml; $(GOLANGCI_LINT) version; } | cksum); \
 	marker="$(GOLANGCI_LINT_KAL).source-version"; \
-	sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$1" | awk '{print $$1}'; else shasum -a 256 "$$1" | awk '{print $$1}'; fi; }; \
-	if [ -x "$(GOLANGCI_LINT_KAL)" ] && [ -f "$$marker" ] && [ "$$(sed -n '1p' "$$marker")" = "$$identity" ] && [ "$$(sed -n '2p' "$$marker")" = "$$(sha256 "$(GOLANGCI_LINT_KAL)")" ]; then exit 0; fi; \
+	sha256() { output=$$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$1"; else shasum -a 256 "$$1"; fi) || return 1; digest=$${output%% *}; case "$$digest" in ''|*[!0123456789abcdefABCDEF]*) return 1;; esac; [ "$${#digest}" -eq 64 ] || return 1; printf '%s\n' "$$digest"; }; \
+	if [ -x "$(GOLANGCI_LINT_KAL)" ] && [ -f "$$marker" ]; then digest=$$(sha256 "$(GOLANGCI_LINT_KAL)") || digest=; if [ -n "$$digest" ] && [ "$$(sed -n '1p' "$$marker")" = "$$identity" ] && [ "$$(sed -n '2p' "$$marker")" = "$$digest" ]; then exit 0; fi; fi; \
 	(cd hack/testing/kal-linter && $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom) && \
 	mv hack/testing/kal-linter/bin/golangci-lint-kube-api-linter "$(GOLANGCI_LINT_KAL)" && \
-	printf '%s\n%s\n' "$$identity" "$$(sha256 "$(GOLANGCI_LINT_KAL)")" > "$$marker"
+	digest=$$(sha256 "$(GOLANGCI_LINT_KAL)") || { echo "Could not calculate SHA-256 for $(GOLANGCI_LINT_KAL)" >&2; exit 1; }; \
+	printf '%s\n%s\n' "$$identity" "$$digest" > "$$marker"
 
 .PHONY: controller-gen
 controller-gen: ## Build and reuse the pinned controller-gen tool.

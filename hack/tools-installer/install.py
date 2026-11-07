@@ -84,6 +84,7 @@ class NoReleaseBinary(ValueError):
 
 
 def install_source(name, version, destination):
+    """Build a tool from its pinned Go package into the destination path."""
     tool = TOOLS[name]
     module = tool["module"]
     package = tool.get("package", module)
@@ -119,7 +120,10 @@ def marker_matches(marker, identity, digest, source=False):
     """Check a marker, rejecting legacy markers without a binary digest."""
     if not marker.is_file():
         return False
-    return marker.read_text() == marker_contents(identity, digest, source)
+    try:
+        return marker.read_text() == marker_contents(identity, digest, source)
+    except UnicodeDecodeError:
+        return False
 
 
 def download(url):
@@ -212,6 +216,7 @@ def release_binary(name, version, goos, goarch):
 
 
 def install(name, version, destination):
+    """Install or reuse a pinned tool after validating its marker and contents."""
     goos, goarch = subprocess.check_output(
         [os.environ.get("GO_CMD", "go"), "env", "GOHOSTOS", "GOHOSTARCH"], text=True
     ).split()

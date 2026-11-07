@@ -30,18 +30,30 @@ identity="$module $package $version $go_identity CGO_ENABLED=${CGO_ENABLED:-defa
 marker="$binary.source-version"
 
 sha256() {
+    local output digest
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | awk '{print $1}'
+        if ! output=$(sha256sum "$1"); then
+            return 1
+        fi
     else
-        shasum -a 256 "$1" | awk '{print $1}'
+        if ! output=$(shasum -a 256 "$1"); then
+            return 1
+        fi
     fi
+    digest=${output%% *}
+    [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]] || return 1
+    printf '%s\n' "$digest"
 }
 
-if [[ -x "$binary" && -f "$marker" && "$(sed -n '1p' "$marker")" == "$identity" && "$(sed -n '2p' "$marker")" == "$(sha256 "$binary")" ]]; then
-    exit 0
+if [[ -x "$binary" && -f "$marker" ]]; then
+    digest=$(sha256 "$binary") || digest=
+    if [[ -n "$digest" && "$(sed -n '1p' "$marker")" == "$identity" && "$(sed -n '2p' "$marker")" == "$digest" ]]; then
+        exit 0
+    fi
 fi
 retry_script="$(dirname "${BASH_SOURCE[0]}")/../testing/retry.sh"
 bash "$retry_script" --stream -- \
     env GOBIN="$(dirname "$binary")" GOOS="$host_os" GOARCH="$host_arch" \
     "$go_cmd" install "$package@$version"
-printf '%s\n%s\n' "$identity" "$(sha256 "$binary")" > "$marker"
+digest=$(sha256 "$binary") || { echo "Could not calculate SHA-256 for $binary" >&2; exit 1; }
+printf '%s\n%s\n' "$identity" "$digest" > "$marker"

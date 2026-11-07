@@ -76,6 +76,17 @@ class InstallTest(unittest.TestCase):
             release.assert_called_once_with("kind", "v1", "linux", "amd64")
             self.assertEqual(binary.read_bytes(), b"reinstalled")
 
+    def test_undecodable_marker_is_a_cache_miss(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+            binary = Path(temp) / "kind"
+            binary.write_bytes(b"cached binary")
+            binary.chmod(0o755)
+            binary.with_name("kind.release-version").write_bytes(b"\xff\n")
+            with patch.object(installer, "release_binary", return_value=b"reinstalled") as release:
+                installer.install("kind", "v1", binary)
+            release.assert_called_once_with("kind", "v1", "linux", "amd64")
+            self.assertEqual(binary.read_bytes(), b"reinstalled")
+
     def test_failed_upgrade_preserves_installed_version(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
             binary = Path(temp) / "kind"
@@ -555,6 +566,37 @@ else:
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(marker.exists())
                     self.assertFalse(binary.exists())
+
+    def test_source_build_rejects_failed_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import pathlib
+import sys
+if sys.argv[1] == "env":
+    values = {"GOVERSION": "go1.27.0", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64", "GOFLAGS": ""}
+    print("\\n".join(values[key] for key in sys.argv[2:]))
+else:
+    binary = pathlib.Path(__import__("os").environ["GOBIN"]) / "generator"
+    binary.write_text("binary")
+    binary.chmod(0o755)
+''')
+            fake_go.chmod(0o755)
+            binary = root / "generator"
+            command = ["bash", str(Path(__file__).with_name("source.sh")), str(binary), "example/generator", "v1", "example/generator"]
+            env = {**os.environ, "GO_CMD": str(fake_go)}
+            subprocess.run(command, env=env, check=True)
+            marker = root / "generator.source-version"
+            original_marker = marker.read_text()
+            (root / "sha256sum").write_text("#!/bin/sh\nexit 1\n")
+            (root / "sha256sum").chmod(0o755)
+            binary.write_text("replaced binary")
+            binary.chmod(0o755)
+            result = subprocess.run(command, env={**env, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Could not calculate SHA-256", result.stderr)
+            self.assertEqual(marker.read_text(), original_marker)
 
     def test_codegen_downloads_module_before_querying_source_directory(self):
         with tempfile.TemporaryDirectory() as temp:
