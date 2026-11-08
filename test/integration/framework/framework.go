@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -302,6 +304,26 @@ func isExpectedIntegrationErrorLog(le observer.LoggedEntry) bool {
 		strings.Contains(errLog, "ResourceClaimTemplate.resource.k8s.io") &&
 		strings.Contains(errLog, "not found"):
 		return true
+	case le.LoggerName == "multikueue-multikueuecluster-reconciler" &&
+		strings.Contains(errLog, "kubeconfig path is not under the allowed prefix"):
+		context := le.ContextMap()
+		for _, name := range []string{"testing-cluster-invalid-path", "testing-cluster-relative", "testing-cluster-traversal"} {
+			switch le.Message {
+			case "loading client config failed":
+				if context["name"] == name {
+					return true
+				}
+			case "Reconciler error":
+				if context["name"] == name && strings.HasPrefix(errLog, "failed to load client config, reason: BadKubeConfig, error: kubeconfig path is not under the allowed prefix") {
+					return true
+				}
+			case "Rejecting FS watch for invalid path":
+				if reflect.DeepEqual(context["multiKueueCluster"], klog.KRef("", name).MarshalLog()) {
+					return true
+				}
+			}
+		}
+		return false
 	case (le.Message == "loading client config failed" || le.Message == "Reconciler error") &&
 		(strings.Contains(errLog, "ClusterProfile.multicluster.x-k8s.io") && strings.Contains(errLog, "not found") ||
 			strings.Contains(errLog, "failed to load client config, reason: BadClusterProfile") ||
