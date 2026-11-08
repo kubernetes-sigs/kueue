@@ -150,21 +150,25 @@ func isAnElasticJob(sparkApp metav1.Object) bool {
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+	return w.validate(ctx, nil, job, maxTimeoutOnWorkload)
+}
+
+func (w *SparkApplicationWebhook) validate(ctx context.Context, oldJob, newJob *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
-	kueueJob := (*SparkApplication)(job)
+	kueueJob := (*SparkApplication)(newJob)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
-		spec := &job.Spec
+		spec := &newJob.Spec
 
 		if spec.Mode != sparkv1beta2.DeployModeCluster {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("mode"), spec.Mode, "only Cluster mode is supported for a kueue managed job"))
 		}
 
-		if isAnElasticJob(job) {
-			allErrors = append(allErrors, validateElasticJob(job)...)
+		if isAnElasticJob(newJob) {
+			allErrors = append(allErrors, validateElasticJob(oldJob, newJob)...)
 		}
 
-		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		if !isAnElasticJob(newJob) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
 					ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled,
@@ -188,7 +192,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 	return allErrors, nil
 }
 
-func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
+func validateElasticJob(oldJob, newJob *sparkv1beta2.SparkApplication) field.ErrorList {
 	allErrors := field.ErrorList{}
 
 	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
@@ -196,10 +200,14 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 	}
 
 	var schedulingGates []corev1.PodSchedulingGate
-	if job.Spec.Executor.Template != nil {
-		schedulingGates = job.Spec.Executor.Template.Spec.SchedulingGates
+	if newJob.Spec.Executor.Template != nil {
+		schedulingGates = newJob.Spec.Executor.Template.Spec.SchedulingGates
 	}
-	if !slices.Contains(schedulingGates, workloadSliceSchedulingGate) {
+
+	// On create (oldJob == nil), an elastic job must have the gate.
+	// On update (oldJob != nil), only reject removing the gate if the old object had it.
+	shouldHaveGate := oldJob == nil || hasElasticJobSchedulingGate(oldJob)
+	if shouldHaveGate && !slices.Contains(schedulingGates, workloadSliceSchedulingGate) {
 		allErrors = append(
 			allErrors,
 			field.Invalid(
@@ -214,14 +222,23 @@ func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
 	// allocation enabled in sparkConf alone would leave scaled-up executors gated.
 	// The Spark Operator overrides sparkConf only when spec.dynamicAllocation.enabled
 	// is true; otherwise it passes nothing and sparkConf still enables it.
-	value := job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]
-	typedEnabled := ptr.Deref(job.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
+	value := newJob.Spec.SparkConf[sparkConfDynamicAllocationEnabled]
+	typedEnabled := ptr.Deref(newJob.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
 	if !typedEnabled && strings.EqualFold(strings.TrimSpace(value), "true") {
 		allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath, value,
 			"an elastic job must configure dynamic allocation in spec.dynamicAllocation, not in sparkConf"))
 	}
 
 	return allErrors
+}
+
+func hasElasticJobSchedulingGate(job *sparkv1beta2.SparkApplication) bool {
+	if job == nil || job.Spec.Executor.Template == nil {
+		return false
+	}
+	return slices.Contains(job.Spec.Executor.Template.Spec.SchedulingGates, corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	})
 }
 
 func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication) (field.ErrorList, error) {
@@ -254,7 +271,7 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newSparkApp, nil)
+	validationErrs, err := w.validate(ctx, oldSparkApp, newSparkApp, nil)
 	if err != nil {
 		return nil, err
 	}
