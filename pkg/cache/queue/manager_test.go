@@ -428,8 +428,74 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	}
 }
 
-// TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
-// Inadmissible workloads should become active.
+// A workload found inadmissible under the rules of one PreemptionConfig may be
+// admissible under another, so switching or dropping the reference retries it.
+func TestUpdateClusterQueueSwitchingPreemptionConfig(t *testing.T) {
+	inadmissible := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head"}}
+	cases := map[string]struct {
+		annotations      map[string]string
+		wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		"referencing another PreemptionConfig retries the workloads": {
+			annotations: map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "permissive"},
+		},
+		"dropping the PreemptionConfig retries the workloads": {},
+		"keeping the PreemptionConfig does not retry them": {
+			annotations:      map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "restrictive", "example.com/unrelated": "true"},
+			wantInadmissible: inadmissible,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+			cq.Annotations = map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "restrictive"}
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			head := utiltestingapi.MakeWorkload("head", defaultNamespace).Queue("lq").
+				Request(corev1.ResourceCPU, "1").Obj()
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			// Drain the requeues of the setup, so only the update can trigger one.
+			watcher.ProcessRequeues(ctx)
+			// Increase the popCycle to ensure that the head will be added as inadmissible.
+			manager.getClusterQueue("cq").popCycle++
+			if err := cl.Create(ctx, head); err != nil {
+				t.Fatalf("Failed adding Workload to the client: %v", err)
+			}
+			manager.RequeueWorkload(ctx, workload.NewInfo(log, head), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+			if diff := gocmp.Diff(inadmissible, manager.DumpInadmissible(), cmpDump); diff != "" {
+				t.Fatalf("Unexpected inadmissible workloads before the update (-want,+got):\n%s", diff)
+			}
+
+			updated := cq.DeepCopy()
+			updated.Annotations = tc.annotations
+			if err := manager.UpdateClusterQueue(updated, false); err != nil {
+				t.Fatalf("Failed to update ClusterQueue: %v", err)
+			}
+			watcher.ProcessRequeues(ctx)
+
+			var wantActive map[kueue.ClusterQueueReference][]workload.Reference
+			if tc.wantInadmissible == nil {
+				wantActive = inadmissible
+			}
+			if diff := gocmp.Diff(wantActive, manager.Dump(), cmpDump); diff != "" {
+				t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantInadmissible, manager.DumpInadmissible(), cmpDump); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestUpdateClusterQueueReferencingPreemptionConfig(t *testing.T) {
 	cases := map[string]struct {
 		configurablePreemptions bool
@@ -505,6 +571,8 @@ func TestUpdateClusterQueueReferencingPreemptionConfig(t *testing.T) {
 	}
 }
 
+// TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
+// Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{

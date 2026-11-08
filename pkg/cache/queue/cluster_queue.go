@@ -181,6 +181,8 @@ type ClusterQueue struct {
 	// then says nothing about the other workloads with its hash, so they are
 	// not bulk-moved to inadmissible.
 	usesPreemptionConfig bool
+	// preemptionConfigName is the name of the referenced PreemptionConfig.
+	preemptionConfigName string
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -335,8 +337,12 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	defer c.rwm.Unlock()
 	c.name = kueue.ClusterQueueReference(apiCQ.Name)
 	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
-	_, hasPreemptionConfig := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]
+	preemptionConfigName, hasPreemptionConfig := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]
 	c.usesPreemptionConfig = features.Enabled(features.ConfigurablePreemptions) && hasPreemptionConfig
+	c.preemptionConfigName = ""
+	if c.usesPreemptionConfig {
+		c.preemptionConfigName = preemptionConfigName
+	}
 	if c.usesPreemptionConfig {
 		clear(c.hashToBulkMoveReason)
 	}
@@ -353,12 +359,12 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	return nil
 }
 
-// UsesPreemptionConfig reports whether the ClusterQueue references a
-// PreemptionConfig while ConfigurablePreemptions is enabled.
-func (c *ClusterQueue) UsesPreemptionConfig() bool {
+// PreemptionConfig returns the name of the PreemptionConfig the ClusterQueue
+// references and whether it uses one while ConfigurablePreemptions is enabled.
+func (c *ClusterQueue) PreemptionConfig() (string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.usesPreemptionConfig
+	return c.preemptionConfigName, c.usesPreemptionConfig
 }
 
 // AddFromLocalQueue pushes all workloads belonging to this queue to
