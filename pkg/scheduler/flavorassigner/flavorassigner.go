@@ -333,6 +333,10 @@ func (a *FlavorAssigner) AssignFlavors(
 		),
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
+	// A reserved Workload is re-evaluated by the TAS node replacement path, not
+	// for a new admission. The conflicting flavor check below applies only to
+	// admissions.
+	alreadyReserved := a.wl.Obj.Status.Admission != nil
 
 	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
 
@@ -467,6 +471,26 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 
+		// Flavors in one resource group are picked independently, so two of them
+		// can set the same node label key to different values. No node can match
+		// such a selector, so reject the assignment before quota is reserved
+		// instead of admitting a workload that cannot start.
+		//
+		// A Workload that already holds quota keeps the assignment it was
+		// admitted with. It is re-evaluated on the TAS node replacement path,
+		// and rejecting it there would evict it even when a healthy replacement
+		// node is available. Its node selector is resolved deterministically
+		// when the Pod template is built.
+		if groupFlavors != nil && !alreadyReserved && features.Enabled(features.FailAdmissionOnConflictingFlavorLabels) {
+			if err := a.conflictingFlavors(groupFlavors); err != nil {
+				groupFlavors = nil
+				groupStatus = Status{
+					reasons:     []string{err.Error()},
+					noFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+				}
+			}
+		}
+
 		// The quota check kept this total exactly. resourceUsage is a Quantity,
 		// which cannot hold it, so writing the cap would make the cache account
 		// for less than was admitted. An even Pod count then fails the workload
@@ -512,6 +536,37 @@ func (a *FlavorAssigner) AssignFlavors(
 		return assignment
 	}
 	return assignment
+}
+
+// conflictingFlavors returns an error when the flavors selected for one PodSet
+// set the same node label key to different values, naming both flavors and the
+// key so the pending workload explains why it does not fit.
+func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) error {
+	merged := make(map[string]string)
+	owners := make(map[string]kueue.ResourceFlavorReference)
+	for _, resName := range slices.Sorted(maps.Keys(flavors)) {
+		flavorName := flavors[resName].Name
+		flv := a.resourceFlavors[flavorName]
+		if flv == nil {
+			continue
+		}
+		for key := range flv.Spec.NodeLabels {
+			if _, found := owners[key]; !found {
+				owners[key] = flavorName
+			}
+		}
+		var conflict error
+		utilmaps.MergeKeepExisting(&merged, flv.Spec.NodeLabels, func(key string, kept, ignored string) {
+			if conflict == nil {
+				conflict = fmt.Errorf("flavors %s and %s have conflicting node labels: conflict for key=%s, value1=%s, value2=%s",
+					owners[key], flavorName, key, kept, ignored)
+			}
+		})
+		if conflict != nil {
+			return conflict
+		}
+	}
+	return nil
 }
 
 // AssignTopology updates the assignment based on topology requirements.
