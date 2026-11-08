@@ -265,14 +265,28 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 	field.ErrorList,
 ) {
+	perPodSet, replaced, _, errs := ResolveExtendedResourceQuotaWithQuotaKeys(ctx, cl, mapper, wi)
+	return perPodSet, replaced, errs
+}
+
+// ResolveExtendedResourceQuotaWithQuotaKeys returns the DRA logical-quota resources,
+// the original extended-resource names they replaced, and the mapping from each
+// replaced original name to its logical quota key.
+func ResolveExtendedResourceQuotaWithQuotaKeys(ctx context.Context, cl client.Client, mapper *ResourceMapper, wi *workload.Info) (
+	map[kueue.PodSetReference]corev1.ResourceList,
+	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
+	map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName,
+	field.ErrorList,
+) {
 	wl := wi.Obj
 	if cl == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	log := ctrl.LoggerFrom(ctx)
 	perPodSet := make(map[kueue.PodSetReference]corev1.ResourceList)
 	replacedExtendedResources := make(map[kueue.PodSetReference]sets.Set[corev1.ResourceName])
+	replacedExtendedResourceQuotaKeys := make(map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName)
 	var allErrs field.ErrorList
 
 	for i := range wl.Spec.PodSets {
@@ -282,18 +296,16 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
 		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
 
-		// The field path of the first container an original resource name is seen in,
-		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
 		initContainersForPodRequests := containersForPodRequests(initEntries, firstPath)
 		regularContainersForPodRequests := containersForPodRequests(regularEntries, firstPath)
-		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
 		podRequests := resourcehelpers.PodRequests(
 			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initContainersForPodRequests, Containers: regularContainersForPodRequests}},
 			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 
 		aggregated := corev1.ResourceList{}
 		replaced := sets.New[corev1.ResourceName]()
+		quotaKeys := make(map[corev1.ResourceName]corev1.ResourceName)
 		for resourceName, quantity := range podRequests {
 			quotaKey, errs := resolveQuotaKey(ctx, cl, mapper, resourceName, firstPath[resourceName])
 			if len(errs) > 0 {
@@ -304,10 +316,6 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				continue
 			}
 
-			// resourceName is confirmed DRA-backed: now hold it to the
-			// integer-only rule, checked per container rather than on the
-			// aggregate above, so two invalid fractional requests (e.g. two
-			// 500m requests summing to a valid 1) can't hide each other.
 			var resParseErrs field.ErrorList
 			for _, entries := range [][]containerExtendedResourceRequests{initEntries, regularEntries} {
 				for _, e := range entries {
@@ -329,9 +337,6 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				continue
 			}
 
-			// Each container's quantity passed the integer check above, but their
-			// sum can still overflow int64 (e.g. two containers requesting 9e18
-			// each), so the aggregate needs its own check rather than assuming ok.
 			resValue, ok := quantity.AsInt64()
 			if !ok {
 				allErrs = append(allErrs, field.Invalid(
@@ -342,6 +347,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				continue
 			}
 			replaced.Insert(resourceName)
+			quotaKeys[resourceName] = quotaKey
 			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(resValue, resource.DecimalSI)})
 		}
 
@@ -351,11 +357,12 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		}
 		if replaced.Len() > 0 {
 			replacedExtendedResources[ps.Name] = replaced
+			replacedExtendedResourceQuotaKeys[ps.Name] = quotaKeys
 		}
 	}
 
 	if len(allErrs) > 0 {
-		return nil, nil, allErrs
+		return nil, nil, nil, allErrs
 	}
-	return perPodSet, replacedExtendedResources, nil
+	return perPodSet, replacedExtendedResources, replacedExtendedResourceQuotaKeys, nil
 }

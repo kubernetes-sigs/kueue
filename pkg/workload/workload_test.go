@@ -3299,10 +3299,12 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	cases := map[string]struct {
-		workload                  kueue.Workload
-		draResources              map[kueue.PodSetReference]corev1.ResourceList
-		replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
-		wantInfo                  Info
+		workload                          kueue.Workload
+		draResources                      map[kueue.PodSetReference]corev1.ResourceList
+		replacedExtendedResources         map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+		replacedExtendedResourceQuotaKeys map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName
+		transforms                        []config.ResourceTransformation
+		wantInfo                          Info
 	}{
 		"extended resource replaced with DRA resource": {
 			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
@@ -3353,6 +3355,12 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 			replacedExtendedResources: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
 				"main": sets.New[corev1.ResourceName]("example.com/gpu", "example.com/tpu"),
 			},
+			replacedExtendedResourceQuotaKeys: map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName{
+				"main": {
+					"example.com/gpu": "gpu",
+					"example.com/tpu": "tpu",
+				},
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
@@ -3372,12 +3380,99 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 				},
 			},
 		},
+		"transformed DRA-backed resource charges once": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Request("example.com/gpu", "3").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu": resource.MustParse("3"),
+				},
+			},
+			replacedExtendedResources: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+			replacedExtendedResourceQuotaKeys: map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName{
+				"main": {
+					"example.com/gpu": "gpu",
+				},
+			},
+			transforms: []config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"gpu": resource.MustParse("1")},
+			}},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name:  "main",
+					Count: 1,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 100,
+						"gpu":              3,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 100,
+						"gpu":              3,
+					}),
+				}},
+			},
+		},
+		"transformed DRA-backed resource renamed away from logical quota key charges once": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "100m").
+					Request("example.com/gpu", "3").
+					Obj()).
+				Obj(),
+			draResources: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu": resource.MustParse("3"),
+				},
+			},
+			replacedExtendedResources: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+			replacedExtendedResourceQuotaKeys: map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName{
+				"main": {
+					"example.com/gpu": "gpu",
+				},
+			},
+			transforms: []config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/credit": resource.MustParse("1")},
+			}},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name:  "main",
+					Count: 1,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:   100,
+						"example.com/credit": 3,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:   100,
+						"example.com/credit": 3,
+					}),
+				}},
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			info := NewInfo(log, &tc.workload, WithPreprocessedDRAResources(tc.draResources, tc.replacedExtendedResources))
+			infoOpts := []InfoOption{WithPreprocessedDRAResources(tc.draResources, tc.replacedExtendedResources)}
+			if len(tc.replacedExtendedResourceQuotaKeys) > 0 {
+				infoOpts = append(infoOpts, WithReplacedExtendedResourceQuotaKeys(tc.replacedExtendedResourceQuotaKeys))
+			}
+			if len(tc.transforms) > 0 {
+				infoOpts = append(infoOpts, WithResourceTransformations(tc.transforms))
+			}
+			info := NewInfo(log, &tc.workload, infoOpts...)
 
 			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
