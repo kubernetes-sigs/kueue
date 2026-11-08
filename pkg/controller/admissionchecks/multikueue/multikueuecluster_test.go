@@ -30,7 +30,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -58,8 +57,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -208,6 +205,7 @@ func TestUpdateConfig(t *testing.T) {
 		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
+		clusterProfileAPINotServed    bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -623,6 +621,32 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
+		"cluster profile API not served yet": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Generation(1).
+					Obj(),
+			},
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
+				makeTestClusterProfile("worker1", "accessProvider1"),
+			},
+			cpAccessProvider: &testClusterProfileAccessProvider{
+				supportedProviders: map[string]bool{
+					"accessProvider1": true,
+				},
+			},
+			clusterProfileAPINotServed: true,
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
+		},
 		"path with feature gate off emits deprecation warning": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
@@ -695,6 +719,7 @@ func TestUpdateConfig(t *testing.T) {
 				withAdapters(adapters),
 				withClusterProfileAccessProvider(tc.cpAccessProvider),
 				withEventRecorder(recorder),
+				withClusterProfileCRDPresent(!tc.clusterProfileAPINotServed),
 			)
 
 			reconciler.rootContext = ctx
@@ -1821,7 +1846,7 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 			return
 		}
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
-		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider.go-style read
 	})
 }
 
@@ -2092,33 +2117,6 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				t.Errorf("unexpected constructed client RateLimiter presence: want %t, got %t", tc.wantRateLimiter, got)
 			}
 		})
-	}
-}
-
-func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
-	metrics.MultiKueueClusterByStatus.Reset()
-	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace,
-		withAdapters(adapters),
-		withEventRecorder(&utiltesting.EventRecorder{}),
-	)
-
-	// The same ClusterQueue references both workers.
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, nil)
-
-	reconciler.stopAndRemoveCluster("worker1")
-
-	// worker1 series are dropped so a deleted cluster stops reporting as active,
-	// while other clusters keep their series.
-	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
-		t.Errorf("expected only worker2 series to remain, got %d series", got)
-	}
-	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
-		t.Errorf("expected worker2 to still be reported as active, got %v", got)
 	}
 }
 

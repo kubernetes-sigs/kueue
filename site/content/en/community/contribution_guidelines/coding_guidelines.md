@@ -117,6 +117,32 @@ Controllers follow the controller-runtime reconciler pattern:
   func IsUnretryableError(e error) bool          { var target *unretryableError; return errors.As(e, &target) }
   ```
 
+- Expose errors that callers or tests need to distinguish as structured values,
+  not as message text. Use a sentinel for a fixed condition, and a typed error
+  with an `Is` method when the error carries data:
+
+  ```go
+  // Sentinel, see ErrCqNotFound in pkg/cache/scheduler.
+  var ErrCqNotFound = errors.New("cluster queue not found")
+
+  // Typed error, simplified from FilterBuildError in pkg/scheduler/preemption/config/filters.
+  type FilterBuildError struct{ Name string }
+
+  func (e *FilterBuildError) Error() string { return fmt.Sprintf("cannot build filter %q", e.Name) }
+  func (e *FilterBuildError) Is(target error) bool {
+      t, ok := target.(*FilterBuildError)
+      if !ok || t == nil || e == nil {
+          return false
+      }
+      return t.Name == e.Name
+  }
+  ```
+
+- Do not match on `err.Error()` with `==`, `strings.Contains`, or
+  `strings.HasPrefix`. It turns a cosmetic wording change into a failure in
+  every caller and test that asserted on it. A one-off error that is only
+  wrapped with `%w` and logged does not need a sentinel.
+
 ### Client Usage
 
 - **Prefer patch-based updates** over full object updates, especially for status:
@@ -360,6 +386,25 @@ if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" 
     t.Errorf("unexpected error (-want,+got):\n%s", diff)
 }
 ```
+
+Compare errors by identity, not by message. `cmpopts.EquateErrors()` uses
+`errors.Is`, so `wantError` is a sentinel or a typed error with an `Is` method:
+
+```go
+// Avoid: breaks on any rewording of the message.
+if err == nil || !strings.Contains(err.Error(), "cluster queue not found") {
+    t.Errorf("unexpected error: %v", err)
+}
+
+// Prefer.
+tc := testCase{wantError: ErrCqNotFound}
+if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); diff != "" {
+    t.Errorf("unexpected error (-want,+got):\n%s", diff)
+}
+```
+
+Do not write a custom `cmp.Comparer` that falls back to comparing messages.
+Make the errors comparable with a sentinel or an `Is` method instead.
 
 Use predefined comparison options from `test/util/behavioral/constants.go`:
 

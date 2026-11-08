@@ -745,14 +745,17 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 		"valid timeout and recoveryTimeout": {
 			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 20}`,
 		},
-		"only recoveryTimeout without timeout is rejected": {
+		"only recoveryTimeout without timeout is accepted": {
 			annotation: `{"recoveryTimeoutSeconds": 20}`,
+		},
+		"no timeouts is rejected": {
+			annotation: `{}`,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    annotationPath.String(),
-					BadValue: `{"recoveryTimeoutSeconds": 20}`,
-					Detail:   "timeoutSeconds must be greater than 0",
+					BadValue: `{}`,
+					Detail:   "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set",
 				},
 			},
 		},
@@ -796,6 +799,17 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 					Type:     field.ErrorTypeInvalid,
 					Field:    annotationPath.String(),
 					BadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout alone exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"recoveryTimeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:     field.ErrorTypeInvalid,
+					Field:    annotationPath.String(),
+					BadValue: `{"recoveryTimeoutSeconds": 7201}`,
 					Detail:   "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},

@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -57,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -655,9 +657,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 5. Delete workloads that are out of sync or are not in the chosen worker,
-	// except for two cases (in which we'll update the remote workload accorddingly):
+	// except for three cases (in which we'll update the remote workload accordingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	// - workloads with tolerations added to their PodSets
 	for rem, remWl := range group.remotes {
 		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
@@ -691,6 +694,20 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				if err := remClient.getClient().Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
+			}
+
+			// Added tolerations keep the remote admission valid, so the remote
+			// Workload is updated instead of being recreated. They are updated
+			// separately, so that a rejection does not block the updates above.
+			if features.Enabled(features.AllowAddingPodTemplateTolerations) {
+				tolerationsAdded, err := addRemoteTolerations(ctx, remClient.getClient(), group.local, remWl)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				updateRemote = updateRemote || tolerationsAdded
+			}
+
+			if updateRemote {
 				continue
 			}
 
@@ -833,11 +850,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 	}
 
-	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
-	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
-		res.RequeueAfter = requeueAfterSynchronize
+	if err := w.nominateAndSynchronizeWorkers(ctx, group); err != nil {
+		return reconcile.Result{}, errors.Join(resetErr, err)
 	}
-	return res, errors.Join(resetErr, err)
+	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 }
 
 // resetLocalStatus resets the status copied from a remote object onto the local
@@ -848,6 +864,30 @@ func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) err
 		return nil
 	}
 	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
+}
+
+// addRemoteTolerations copies the tolerations added to the local Workload to the
+// remote Workload, and reports whether the local Workload added any.
+func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local, remote *kueue.Workload) (bool, error) {
+	updated := remote.DeepCopy()
+	if !utiltolerations.CopyAddedByName(workload.PodTemplates(updated), workload.PodTemplates(local)) {
+		return false, nil
+	}
+	err := remoteClient.Update(ctx, updated)
+	if apierrors.IsForbidden(err) {
+		// A Forbidden error is permanent: the worker rejects the tolerations,
+		// for example when it runs an older Kueue or has the feature gate
+		// disabled. Retrying cannot fix it, and returning the error would keep
+		// MultiKueue from syncing the job and the admission state, so the error
+		// is only logged and the remote Workload is kept.
+		ctrl.LoggerFrom(ctx).Error(err, "Worker rejected the added tolerations of the remote Workload", "remoteWorkload", klog.KObj(remote))
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to update remote workload: %w", err)
+	}
+	*remote = *updated
+	return true, nil
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
@@ -995,7 +1035,7 @@ func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
 	return wl.Status.Admission.ClusterQueue
 }
 
-func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
+func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) error {
 	var errs []error
 
 	for clusterName, remoteWl := range group.remotes {
@@ -1021,39 +1061,39 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 		}
 	}
 
-	return reconcile.Result{}, errors.Join(errs...)
+	return errors.Join(errs...)
 }
 
-func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
+func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
 	componentWorkloads, err := listComponentWorkloads(ctx, w.client, group.local)
 	if err != nil {
-		return reconcile.Result{}, err
+		return err
 	}
 
 	// check nonMK AdmissionChecks are Ready before nominating clusters, to avoid nominating clusters for workloads that are not fully admitted yet.
 	if ready, ac := allNonMKAdmissionChecksReady(group.local, group.acName); !ready {
 		log.V(3).Info("Waiting for all non-MultiKueue admission checks to be ready before nominating clusters", "admissionCheck", ac)
-		return reconcile.Result{}, nil
+		return nil
 	}
 
 	if group.jobHasMultipleWorkloads() && componentWorkloads != nil {
 		allExist, err := w.allExpectedWorkloadsExist(ctx, group.local, group.jobAdapter, len(componentWorkloads.Items))
 		if err != nil {
-			return reconcile.Result{}, err
+			return err
 		}
 		if !allExist {
 			log.V(3).Info("Waiting for all component workloads to exist")
-			return reconcile.Result{}, nil
+			return nil
 		}
 		w.enqueueComponentWorkloads(ctx, group.local)
 	}
 
 	assignedWorkerCluster, err := w.getComponentWorkloadsClusterName(ctx, group.local, componentWorkloads)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("checking component workloads: %w", err)
+		return fmt.Errorf("checking component workloads: %w", err)
 	}
 	isPrimary := isPrimaryComponentWorkload(group.local, group.jobAdapter, componentWorkloads)
 
@@ -1065,18 +1105,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
 					return true, nil
 				}); err != nil {
-					return reconcile.Result{}, err
+					return err
 				}
 			}
 			return w.syncToSingleCluster(ctx, log, group, assignedWorkerCluster)
 		}
 		log.V(3).Info("Worker cluster not available", "cluster", assignedWorkerCluster)
-		return reconcile.Result{}, fmt.Errorf("assigned worker cluster %q is not available", assignedWorkerCluster)
+		return fmt.Errorf("assigned worker cluster %q is not available", assignedWorkerCluster)
 	}
 
 	if !isPrimary {
 		log.V(3).Info("Waiting for primary workload to nominate cluster")
-		return reconcile.Result{}, nil
+		return nil
 	}
 
 	var nominatedWorkers []string
@@ -1103,7 +1143,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			return true, nil
 		}); err != nil {
 			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-			return reconcile.Result{}, err
+			return err
+		}
+		if len(nominatedWorkers) == 0 && len(group.unavailableClusters) > 0 {
+			return fmt.Errorf("no connected cluster to nominate, unavailable clusters: %v", group.unavailableClusters)
 		}
 	} else {
 		// Incremental dispatcher and External dispatcher path
@@ -1139,7 +1182,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			group.remotes[rem] = nil
 		}
 	}
-	return reconcile.Result{}, errors.Join(errs...)
+	return errors.Join(errs...)
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {
