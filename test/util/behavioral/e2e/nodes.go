@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"slices"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -66,4 +67,17 @@ func SetupTASNodes(ctx context.Context, k8sClient client.Client, nodeGroupLabel 
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
+}
+
+// GetWorkerNode returns a node that is not a control plane node.
+func GetWorkerNode(ctx context.Context, c client.Client) *corev1.Node {
+	ginkgo.GinkgoHelper()
+	nodes := &corev1.NodeList{}
+	gomega.Expect(c.List(ctx, nodes)).To(gomega.Succeed())
+	i := slices.IndexFunc(nodes.Items, func(n corev1.Node) bool {
+		_, isControlPlane := n.Labels["node-role.kubernetes.io/control-plane"]
+		return !isControlPlane
+	})
+	gomega.Expect(i).To(gomega.BeNumerically(">=", 0), "no worker node found")
+	return &nodes.Items[i]
 }

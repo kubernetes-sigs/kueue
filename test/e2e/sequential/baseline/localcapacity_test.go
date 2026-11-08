@@ -72,22 +72,9 @@ var _ = ginkgo.Describe("DQO local-capacity CapacityProvider", ginkgo.Label("fea
 		gomega.Eventually(func(g gomega.Gomega) {
 			c := &kueue.Cohort{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), c)).To(gomega.Succeed())
-			g.Expect(c.Status.EffectiveQuotas).NotTo(gomega.BeNil())
-			found := false
-			for _, rg := range c.Status.EffectiveQuotas.ResourceGroups {
-				for _, fq := range rg.Flavors {
-					if fq.Name != kueue.ResourceFlavorReference(flavor.Name) {
-						continue
-					}
-					for _, rq := range fq.Resources {
-						if rq.Name == corev1.ResourceCPU {
-							g.Expect(rq.NominalQuota.String()).To(gomega.Equal(want))
-							found = true
-						}
-					}
-				}
-			}
-			g.Expect(found).To(gomega.BeTrue(), "cpu quota not found in effectiveQuotas")
+			flavorRef := kueue.ResourceFlavorReference(flavor.Name)
+			g.Expect(behavioral.EffectiveQuotaResources(c.Status.EffectiveQuotas, flavorRef)).To(gomega.HaveKey(corev1.ResourceCPU))
+			g.Expect(behavioral.EffectiveNominalQuotas(c.Status.EffectiveQuotas, flavorRef)).To(gomega.HaveKeyWithValue(corev1.ResourceCPU, want))
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
@@ -110,15 +97,7 @@ var _ = ginkgo.Describe("DQO local-capacity CapacityProvider", ginkgo.Label("fea
 			cfg.FeatureGates[string(features.DQOLocalCapacityProvider)] = true
 		})
 
-		nodes := &corev1.NodeList{}
-		gomega.Expect(k8sClient.List(ctx, nodes)).To(gomega.Succeed())
-		for i := range nodes.Items {
-			if _, isControlPlane := nodes.Items[i].Labels["node-role.kubernetes.io/control-plane"]; !isControlPlane {
-				worker = &nodes.Items[i]
-				break
-			}
-		}
-		gomega.Expect(worker).NotTo(gomega.BeNil(), "no worker node found")
+		worker = e2e.GetWorkerNode(ctx, k8sClient)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-local-capacity-")
 		name := "local-capacity-" + ns.Name
@@ -168,22 +147,24 @@ var _ = ginkgo.Describe("DQO local-capacity CapacityProvider", ginkgo.Label("fea
 		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, flavor, true, behavioral.MediumTimeout)
 	})
 
+	// The scheduler cache applies a new effective quota asynchronously to the
+	// Cohort status, so this test does not assert that workloads stay pending
+	// after the quota drops. The integration suite covers that by also waiting for
+	// the cache to report the new quota.
 	ginkgo.It("should admit workloads according to the nodes of the flavor", func() {
-		ginkgo.By("Keeping a workload pending while the flavor has no nodes", func() {
+		ginkgo.By("Publishing zero quota while the flavor has no nodes", func() {
 			expectCohortCPUQuota("0")
-			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, makeWorkload("wl-no-nodes"))
 		})
 
-		ginkgo.By("Admitting the workload once a node joins the flavor", func() {
+		ginkgo.By("Admitting a workload once a node joins the flavor", func() {
 			setWorkerLabel(true)
 			expectCohortCPUQuota(worker.Status.Allocatable.Cpu().String())
-			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "wl-no-nodes"})
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, makeWorkload("wl-node-joined"))
 		})
 
-		ginkgo.By("Keeping a new workload pending once the node leaves the flavor", func() {
+		ginkgo.By("Publishing zero quota once the node leaves the flavor", func() {
 			setWorkerLabel(false)
 			expectCohortCPUQuota("0")
-			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, makeWorkload("wl-node-left"))
 		})
 	})
 
@@ -192,7 +173,7 @@ var _ = ginkgo.Describe("DQO local-capacity CapacityProvider", ginkgo.Label("fea
 			delete(cfg.FeatureGates, string(features.DynamicQuotaOrchestration))
 			delete(cfg.FeatureGates, string(features.DQOLocalCapacityProvider))
 		})
-		// The Cohort's spec quota of 1 CPU fits the pending workload next to the admitted one.
-		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "wl-node-left"})
+		// The Cohort's spec quota of 1 CPU admits a workload although the nodes publish no quota.
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, makeWorkload("wl-fallback"))
 	})
 })
