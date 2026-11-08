@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -66,10 +67,9 @@ var _ = ginkgo.Describe(
 	func() {
 		ginkgo.When("the external RayJob adapter is enabled", func() {
 			var (
-				managerNs *corev1.Namespace
-				worker1Ns *corev1.Namespace
-				worker2Ns *corev1.Namespace
-
+				managerNs                *corev1.Namespace
+				worker1Ns                *corev1.Namespace
+				worker2Ns                *corev1.Namespace
 				managerMultiKueueSecret1 *corev1.Secret
 				managerMultiKueueSecret2 *corev1.Secret
 				workerCluster1           *kueue.MultiKueueCluster
@@ -79,14 +79,11 @@ var _ = ginkgo.Describe(
 				managerCq                *kueue.ClusterQueue
 				managerLq                *kueue.LocalQueue
 				managerFlavor            *kueue.ResourceFlavor
-
-				worker1Cq *kueue.ClusterQueue
-				worker1Lq *kueue.LocalQueue
-
-				worker2Cq *kueue.ClusterQueue
-				worker2Lq *kueue.LocalQueue
+				worker1Cq                *kueue.ClusterQueue
+				worker1Lq                *kueue.LocalQueue
+				worker2Cq                *kueue.ClusterQueue
+				worker2Lq                *kueue.LocalQueue
 			)
-
 			ginkgo.BeforeAll(func() {
 				managerTestCluster.fwk.StartManager(
 					managerTestCluster.ctx,
@@ -116,7 +113,29 @@ var _ = ginkgo.Describe(
 						failedWebhook, err := webhooks.Setup(mgr, nil)
 						gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-						// Set up RayJob webhook (but not MultiKueue integration)
+						jobOptions := []jobframework.Option{
+							jobframework.WithCache(cCache),
+							jobframework.WithQueues(queues),
+						}
+
+						// Set up Job and RayJob webhooks (but not MultiKueue integration).
+						err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						jobReconciler, err := workloadjob.NewReconciler(
+							ctx,
+							mgr.GetClient(),
+							mgr.GetFieldIndexer(),
+							mgr.GetEventRecorder(constants.JobControllerName),
+							jobOptions...,
+						)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						err = jobReconciler.SetupWithManager(mgr)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+						err = workloadjob.SetupWebhook(mgr, jobOptions...)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 						err = workloadrayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -129,11 +148,7 @@ var _ = ginkgo.Describe(
 						err = rayjobReconciler.SetupWithManager(mgr)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-						err = workloadrayjob.SetupRayJobWebhook(
-							mgr,
-							jobframework.WithCache(cCache),
-							jobframework.WithQueues(queues),
-						)
+						err = workloadrayjob.SetupRayJobWebhook(mgr, jobOptions...)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 						// Set up multikueue with external frameworks only
@@ -158,9 +173,7 @@ var _ = ginkgo.Describe(
 						}
 						batchAdapters, err := jobcontrollers.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						for kind, adapter := range batchAdapters {
-							adapters[kind] = adapter
-						}
+						maps.Copy(adapters, batchAdapters)
 
 						err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 							multikueue.WithGCInterval(2*time.Second),
@@ -692,7 +705,6 @@ var _ = ginkgo.Describe(
 				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).
 					To(gomega.Succeed())
 			})
-
 		})
 	},
 )
