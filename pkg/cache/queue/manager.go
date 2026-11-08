@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -423,7 +424,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	}
 
 	oldActive := cqImpl.Active()
-	oldConfig, usedPreemptionConfig := cqImpl.PreemptionConfig()
+	oldConfig := cqImpl.preemptionConfig()
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
@@ -431,8 +432,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 
 	// Workloads found inadmissible under the previous preemption rules, including
 	// ones bulk-moved by their scheduling hash, may be admissible under the new ones.
-	newConfig, usesPreemptionConfig := cqImpl.PreemptionConfig()
-	preemptionConfigChanged := usedPreemptionConfig != usesPreemptionConfig || oldConfig != newConfig
+	preemptionConfigChanged := !ptr.Equal(oldConfig, cqImpl.preemptionConfig())
 	if requeueInadmissibleWorkloads || preemptionConfigChanged {
 		// Broadcast occurs after inadmissible workloads are requeued.
 		// Immediate broadcast is no-op, as there are no workloads

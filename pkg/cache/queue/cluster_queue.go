@@ -174,15 +174,14 @@ type ClusterQueue struct {
 	// Cleared when queueInadmissibleWorkloads runs.
 	hashToBulkMoveReason map[workload.EquivalenceHash]QuotaReservedReason
 
-	// usesPreemptionConfig is set when the ClusterQueue references a
-	// PreemptionConfig. Its rules select candidates by properties of the
-	// preemptor that the scheduling equivalence hash leaves out, such as
+	// preemptionConfigName is the name of the PreemptionConfig the ClusterQueue
+	// references, or nil when it references none or ConfigurablePreemptions is
+	// disabled. The rules of a PreemptionConfig select candidates by properties
+	// of the preemptor that the scheduling equivalence hash leaves out, such as
 	// labels, priority class or LocalQueue. A workload that cannot be admitted
 	// then says nothing about the other workloads with its hash, so they are
 	// not bulk-moved to inadmissible.
-	usesPreemptionConfig bool
-	// preemptionConfigName is the name of the referenced PreemptionConfig.
-	preemptionConfigName string
+	preemptionConfigName *string
 
 	finishedWorkloads sets.Set[workload.Reference]
 
@@ -337,20 +336,15 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	defer c.rwm.Unlock()
 	c.name = kueue.ClusterQueueReference(apiCQ.Name)
 	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
-	preemptionConfigName, hasPreemptionConfig := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]
-	c.usesPreemptionConfig = features.Enabled(features.ConfigurablePreemptions) && hasPreemptionConfig
-	c.preemptionConfigName = ""
-	if c.usesPreemptionConfig {
-		c.preemptionConfigName = preemptionConfigName
-	}
-	if c.usesPreemptionConfig {
-		clear(c.hashToBulkMoveReason)
-	}
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
 		return err
 	}
 	c.namespaceSelector = nsSelector
+	c.preemptionConfigName = nil
+	if name, ok := apiCQ.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok && features.Enabled(features.ConfigurablePreemptions) {
+		c.preemptionConfigName = &name
+	}
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
@@ -359,12 +353,12 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	return nil
 }
 
-// PreemptionConfig returns the name of the PreemptionConfig the ClusterQueue
-// references and whether it uses one while ConfigurablePreemptions is enabled.
-func (c *ClusterQueue) PreemptionConfig() (string, bool) {
+// preemptionConfig returns the name of the PreemptionConfig the ClusterQueue
+// uses, or nil when it uses none.
+func (c *ClusterQueue) preemptionConfig() *string {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.preemptionConfigName, c.usesPreemptionConfig
+	return c.preemptionConfigName
 }
 
 // AddFromLocalQueue pushes all workloads belonging to this queue to
@@ -443,9 +437,9 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 		c.workloads.InsertInadmissible(key, wInfo)
 		return
 	}
-	// Skip to inadmissible if the workload's equivalence class was already bulk-moved to inadmissible
-	// (only for BestEffortFIFO; StrictFIFO preserves strict ordering).
-	if c.queueingStrategy == kueue.BestEffortFIFO && c.workloads.GetActive(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
+	// Skip to inadmissible if the workload's equivalence class was already bulk-moved to inadmissible.
+	// Hashes recorded before the ClusterQueue referenced a PreemptionConfig stay until the requeue.
+	if c.bulkMovesByHash() && c.workloads.GetActive(key) == nil && wInfo.SchedulingHash != workload.SchedulingHashUnknown {
 		if _, has := c.hashToBulkMoveReason[wInfo.SchedulingHash]; has {
 			c.workloads.InsertInadmissible(key, wInfo)
 			return
@@ -575,7 +569,7 @@ func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason 
 // will be put into the inadmissibleWorkloads.
 // When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
-// to inadmissible.
+// to inadmissible, see bulkMovesByHash.
 func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
@@ -645,13 +639,20 @@ func (c *ClusterQueue) hasQueuedWorkloads() bool {
 	return c.workloads.hasActive()
 }
 
+// bulkMovesByHash reports whether workloads are moved to inadmissible by their
+// scheduling hash. Only BestEffortFIFO queues do it; in StrictFIFO the head
+// workload stays in the heap and must not cause equivalent workloads to be
+// skipped. Neither do ClusterQueues using a PreemptionConfig, see
+// preemptionConfigName.
+func (c *ClusterQueue) bulkMovesByHash() bool {
+	return c.queueingStrategy == kueue.BestEffortFIFO && c.preemptionConfigName == nil
+}
+
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
-// scheduling hash to inadmissibleWorkloads. Returns the number moved.
-// Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
-// stays in the heap and must not cause equivalent workloads to be skipped.
-// Neither applies to ClusterQueues using a PreemptionConfig, see usesPreemptionConfig.
+// scheduling hash to inadmissibleWorkloads, see bulkMovesByHash. Returns the
+// number moved.
 func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, reason QuotaReservedReason) int {
-	if c.queueingStrategy != kueue.BestEffortFIFO || c.usesPreemptionConfig {
+	if !c.bulkMovesByHash() {
 		return 0
 	}
 	c.hashToBulkMoveReason[hash] = reason

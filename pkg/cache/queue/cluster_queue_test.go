@@ -2363,9 +2363,13 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 }
 
 func TestRequeueHashTriggerByReason(t *testing.T) {
+	withConfig := map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"}
 	tests := map[string]struct {
-		reason   RequeueReason
-		wantHash bool
+		configurablePreemptions bool
+		annotations             map[string]string
+		queueingStrategy        kueue.QueueingStrategy
+		reason                  RequeueReason
+		wantHash                bool
 	}{
 		"nofit triggers hash": {
 			reason:   RequeueReasonNoFit,
@@ -2387,18 +2391,49 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			reason:   RequeueReasonGeneric,
 			wantHash: false,
 		},
+		"StrictFIFO does not trigger hash": {
+			queueingStrategy: kueue.StrictFIFO,
+			reason:           RequeueReasonNoFit,
+			wantHash:         false,
+		},
+		// A PreemptionConfig selects candidates by properties of the preemptor
+		// that the scheduling hash leaves out, so a head that cannot be admitted
+		// must not take the rest of its equivalence class to inadmissible.
+		"nofit with a PreemptionConfig does not trigger hash": {
+			configurablePreemptions: true,
+			annotations:             withConfig,
+			reason:                  RequeueReasonNoFit,
+			wantHash:                false,
+		},
+		"preempt no candidates with a PreemptionConfig does not trigger hash": {
+			configurablePreemptions: true,
+			annotations:             withConfig,
+			reason:                  RequeueReasonPreemptionNoCandidates,
+			wantHash:                false,
+		},
+		"PreemptionConfig is ignored with ConfigurablePreemptions disabled": {
+			annotations: withConfig,
+			reason:      RequeueReasonPreemptionNoCandidates,
+			wantHash:    true,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, tc.configurablePreemptions)
 			ctx, log := utiltesting.ContextWithLog(t)
-			cq, _ := newClusterQueue(ctx,
-				&kueue.ClusterQueue{
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: kueue.BestEffortFIFO,
-					},
-				}, nil,
+			queueingStrategy := kueue.BestEffortFIFO
+			if tc.queueingStrategy != "" {
+				queueingStrategy = tc.queueingStrategy
+			}
+			apiCQ := &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					QueueingStrategy: queueingStrategy,
+				},
+			}
+			apiCQ.Annotations = tc.annotations
+			cq, _ := newClusterQueue(ctx, apiCQ, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 				nil, nil)
 
@@ -2416,97 +2451,9 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 	}
 }
 
-// A PreemptionConfig selects candidates by properties of the preemptor that the
-// scheduling hash leaves out, so a head without candidates must not take the
-// rest of its equivalence class to inadmissible.
-func TestRequeueBulkMoveWithPreemptionConfig(t *testing.T) {
-	withConfig := map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"}
-	cases := map[string]struct {
-		configurablePreemptions bool
-		annotations             map[string]string
-		queueingStrategy        kueue.QueueingStrategy
-		reason                  RequeueReason
-		wantBulkMove            bool
-		wantActive              int
-		wantInadmissible        int
-	}{
-		"PreemptionConfig, preemption without candidates": {
-			configurablePreemptions: true,
-			annotations:             withConfig,
-			queueingStrategy:        kueue.BestEffortFIFO,
-			reason:                  RequeueReasonPreemptionNoCandidates,
-			wantActive:              2,
-			wantInadmissible:        1,
-		},
-		"PreemptionConfig, no fit": {
-			configurablePreemptions: true,
-			annotations:             withConfig,
-			queueingStrategy:        kueue.BestEffortFIFO,
-			reason:                  RequeueReasonNoFit,
-			wantActive:              2,
-			wantInadmissible:        1,
-		},
-		"PreemptionConfig, StrictFIFO": {
-			configurablePreemptions: true,
-			annotations:             withConfig,
-			queueingStrategy:        kueue.StrictFIFO,
-			reason:                  RequeueReasonPreemptionNoCandidates,
-			// StrictFIFO keeps the head in the heap.
-			wantActive: 3,
-		},
-		"no PreemptionConfig": {
-			configurablePreemptions: true,
-			queueingStrategy:        kueue.BestEffortFIFO,
-			reason:                  RequeueReasonPreemptionNoCandidates,
-			wantBulkMove:            true,
-			wantInadmissible:        3,
-		},
-		"PreemptionConfig ignored with ConfigurablePreemptions disabled": {
-			annotations:      withConfig,
-			queueingStrategy: kueue.BestEffortFIFO,
-			reason:           RequeueReasonPreemptionNoCandidates,
-			wantBulkMove:     true,
-			wantInadmissible: 3,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
-			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, tc.configurablePreemptions)
-			ctx, log := utiltesting.ContextWithLog(t)
-			apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(tc.queueingStrategy).Obj()
-			apiCQ.Annotations = tc.annotations
-			cq, err := newClusterQueue(ctx, apiCQ, nil, defaultOrdering, nil, nil)
-			if err != nil {
-				t.Fatalf("Failed to create ClusterQueue: %v", err)
-			}
-
-			now := time.Now()
-			newInfo := func(name string, created time.Time) *workload.Info {
-				wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
-					Creation(created).
-					Request(corev1.ResourceCPU, "1").Obj()
-				info := workload.NewInfo(log, wl)
-				info.SchedulingHash = "shared-hash"
-				return info
-			}
-			cq.PushOrUpdate(newInfo("queued", now.Add(time.Second)))
-			cq.RequeueIfNotPresent(ctx, newInfo("head", now), tc.reason, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
-			cq.PushOrUpdate(newInfo("added-later", now.Add(2*time.Second)))
-
-			active, inadmissible := cq.Pending()
-			if active != tc.wantActive || inadmissible != tc.wantInadmissible {
-				t.Errorf("Pending() = (active %d, inadmissible %d), want (active %d, inadmissible %d)",
-					active, inadmissible, tc.wantActive, tc.wantInadmissible)
-			}
-			if _, gotHash := cq.hashToBulkMoveReason["shared-hash"]; gotHash != tc.wantBulkMove {
-				t.Errorf("hashToBulkMoveReason has the hash: %v, want %v", gotHash, tc.wantBulkMove)
-			}
-		})
-	}
-}
-
-func TestUpdateWithPreemptionConfigForgetsBulkMovedHashes(t *testing.T) {
+// Referencing a PreemptionConfig stops bulk moves by hash, but the workloads
+// already bulk-moved keep their reason until they are requeued.
+func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -2522,9 +2469,10 @@ func TestUpdateWithPreemptionConfigForgetsBulkMovedHashes(t *testing.T) {
 		info.SchedulingHash = "shared-hash"
 		return info
 	}
+	cq.PushOrUpdate(newInfo("queued"))
 	cq.RequeueIfNotPresent(ctx, newInfo("head"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
-	if _, has := cq.hashToBulkMoveReason["shared-hash"]; !has {
-		t.Fatal("The hash should be recorded before the PreemptionConfig is referenced")
+	if active, inadmissible := cq.Pending(); active != 0 || inadmissible != 2 {
+		t.Fatalf("Pending() = (active %d, inadmissible %d), want (active 0, inadmissible 2) before the PreemptionConfig is referenced", active, inadmissible)
 	}
 
 	withConfig := apiCQ.DeepCopy()
@@ -2532,23 +2480,21 @@ func TestUpdateWithPreemptionConfigForgetsBulkMovedHashes(t *testing.T) {
 	if err := cq.Update(withConfig); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
-	if len(cq.hashToBulkMoveReason) != 0 {
-		t.Errorf("hashToBulkMoveReason = %v, want empty after referencing a PreemptionConfig", cq.hashToBulkMoveReason)
+	if reason, ok := cq.GetNoFitReason("default/queued"); !ok || reason != string(kueue.WorkloadQuotaReservedReasonWaitingForQuota) {
+		t.Errorf("GetNoFitReason() = (%q, %v), want (%q, true) for a workload bulk-moved before the update", reason, ok, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
 	}
 	cq.PushOrUpdate(newInfo("added-later"))
+	cq.RequeueIfNotPresent(ctx, newInfo("head-2"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
 	if active, _ := cq.Pending(); active != 1 {
-		t.Errorf("Active workloads = %d, want 1", active)
+		t.Errorf("Active workloads = %d, want 1 while the PreemptionConfig is referenced", active)
 	}
 
 	if err := cq.Update(apiCQ); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
-	cq.RequeueIfNotPresent(ctx, newInfo("head-2"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
-	if _, has := cq.hashToBulkMoveReason["shared-hash"]; !has {
-		t.Error("The hash should be recorded again once the PreemptionConfig is no longer referenced")
-	}
+	cq.RequeueIfNotPresent(ctx, newInfo("head-3"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
 	if active, _ := cq.Pending(); active != 0 {
-		t.Errorf("Active workloads = %d, want 0 after the bulk move", active)
+		t.Errorf("Active workloads = %d, want 0 after the bulk move resumes", active)
 	}
 }
 
