@@ -78,9 +78,11 @@ class WorkflowTest(unittest.TestCase):
             ("tag", "Failed to create and push tag"),
         ):
             with self.subTest(step=step_id):
+                # A failed step's own message gets the run link appended.
+                self.assertIn(f"(steps.{step_id}.outputs.message && format('{{0}} See the [failed workflow run]", message)
                 # A failed step with no message still names itself and links the run.
-                self.assertIn(f"steps.{step_id}.outputs.message || format('❌ {wording}", message)
-        self.assertEqual(message.count("actions/runs/"), 5)
+                self.assertIn(f"steps.{step_id}.outputs.message, github.repository, github.run_id)) || format('❌ {wording}", message)
+        self.assertEqual(message.count("actions/runs/"), 8)
 
 
 class MainTest(unittest.TestCase):
