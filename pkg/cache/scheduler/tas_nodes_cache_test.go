@@ -110,8 +110,9 @@ func TestNodesCacheFind(t *testing.T) {
 		Label("cloud.provider.com/topology-block", "b1").
 		Obj()
 	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Obj()
+	node5 := node.MakeNode("test5").Label("cloud.provider.com/zone", "").Obj()
 
-	nodes := []corev1.Node{*node1, *node2, *node3, *node4}
+	nodes := []corev1.Node{*node1, *node2, *node3, *node4, *node5}
 
 	for i := range nodes {
 		nc.nodes[nodes[i].Name] = copyAndStripNode(&nodes[i])
@@ -128,11 +129,16 @@ func TestNodesCacheFind(t *testing.T) {
 				copyAndStripNode(node2),
 				copyAndStripNode(node3),
 				copyAndStripNode(node4),
+				copyAndStripNode(node5),
 			},
 		},
 		"match labels": {
 			nodeLabels: map[string]string{"cloud.provider.com/zone": "us-east-1a"},
 			wantNodes:  []*corev1.Node{copyAndStripNode(node2), copyAndStripNode(node3)},
+		},
+		"empty label value matches only nodes with the label set to empty": {
+			nodeLabels: map[string]string{"cloud.provider.com/zone": ""},
+			wantNodes:  []*corev1.Node{copyAndStripNode(node5)},
 		},
 		"match levels": {
 			levels:    []string{"cloud.provider.com/topology-block"},

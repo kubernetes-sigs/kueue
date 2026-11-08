@@ -32,9 +32,10 @@ func NodeHostname(node *corev1.Node) string {
 
 // NodeMatchesFlavor checks if a node's labels match the required labels
 // and contains all required topology levels. Returns true if matches.
+// A required label matches only when the node has it, even if the required value is empty.
 func NodeMatchesFlavor(nodeLabels map[string]string, requiredLabels map[string]string, requiredLevels []string) bool {
 	for k, v := range requiredLabels {
-		if nodeLabels[k] != v {
+		if val, ok := nodeLabels[k]; !ok || val != v {
 			return false
 		}
 	}
