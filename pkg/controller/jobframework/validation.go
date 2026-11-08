@@ -19,11 +19,13 @@ package jobframework
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -68,6 +70,7 @@ var (
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
 		rayv1.GroupVersion.WithKind("RayJob").String(),
 		rayv1.GroupVersion.WithKind("RayService").String(),
+		sparkv1beta2.GroupVersion.WithKind("SparkApplication").String(),
 	)
 	supportedPrebuiltWlJobGVKs = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
@@ -309,6 +312,13 @@ func validateCreateForMaxExecTime(job GenericJob) field.ErrorList {
 		if v <= 0 {
 			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, "should be greater than 0")}
 		}
+
+		// MaximumExecutionTimeSecondsForObject parses the label as a 32-bit value
+		// and Workload.spec.maximumExecutionTimeSeconds is an int32, so a larger
+		// value would be silently dropped and the job would run without a limit.
+		if v > math.MaxInt32 {
+			return field.ErrorList{field.Invalid(maxExecTimeLabelPath, v, fmt.Sprintf("should be less than or equal to %d", math.MaxInt32))}
+		}
 	}
 	return nil
 }
@@ -375,13 +385,16 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout <= 0 {
+		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"))
+		}
+		if cfg.Timeout != nil && *cfg.Timeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds must be greater than 0"))
 		}
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds must be greater than 0 seconds"))
 		}
-		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+		if maxTimeoutOnWorkload != nil && cfg.Timeout != nil && *cfg.Timeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}

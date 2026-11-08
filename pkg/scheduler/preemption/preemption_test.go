@@ -57,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v resources.Amount) bool { return v.CmpInt64(0) == 0 }),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "candidateOrderCache"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
@@ -5226,103 +5226,107 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 	}
 }
 
-func TestPreemptionStrategy(t *testing.T) {
-	vLowKey := client.ObjectKey{Namespace: "default", Name: "v-low"}
-	vMidKey := client.ObjectKey{Namespace: "default", Name: "v-mid"}
+func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrategy, *schdcache.Snapshot) {
+	t.Helper()
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
 
-	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
-		t.Helper()
-		now := time.Now()
-		ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+		Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+		Obj()
 
-		cq := utiltestingapi.MakeClusterQueue("cq").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
-			Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+	admitted := func(name string, prio int32, cpu string) kueue.Workload {
+		return *utiltestingapi.MakeWorkload(name, "default").
+			Priority(prio).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, cpu).Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", cpu).
+						Obj()).
+					Obj(),
+				now,
+			).
 			Obj()
-
-		admitted := func(name string, prio int32, cpu string) kueue.Workload {
-			return *utiltestingapi.MakeWorkload(name, "default").
-				Priority(prio).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, cpu).Obj()).
-				ReserveQuotaAt(
-					utiltestingapi.MakeAdmission("cq").
-						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-							Assignment(corev1.ResourceCPU, "default", cpu).
-							Obj()).
-						Obj(),
-					now,
-				).
-				Obj()
-		}
-
-		cl := utiltesting.NewClientBuilder().
-			WithLists(&kueue.WorkloadList{Items: []kueue.Workload{
-				admitted("v-low", 10, "2"),
-				admitted("v-mid", 20, "2"),
-			}}).
-			Build()
-		cqCache := schdcache.New(cl)
-		cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
-		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("adding ClusterQueue to cache: %v", err)
-		}
-		snapshot, err := cqCache.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("building snapshot: %v", err)
-		}
-
-		incoming := utiltestingapi.MakeWorkload("incoming", "default").
-			Priority(50).
-			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
-			Obj()
-		wlInfo := workload.NewInfo(log, incoming)
-		wlInfo.ClusterQueue = "cq"
-		assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
-			corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
-		})
-
-		preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
-		for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
-			return s, snapshot
-		}
-		t.Fatal("expected at least one PreemptionStrategy")
-		return PreemptionStrategy{}, nil
 	}
 
-	inSnapshot := func(snapshot *schdcache.Snapshot, wlKey client.ObjectKey) bool {
-		_, ok := snapshot.ClusterQueue("cq").Workloads[workload.NewReference(wlKey.Namespace, wlKey.Name)]
-		return ok
+	cl := utiltesting.NewClientBuilder().
+		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{
+			admitted("v-low", 10, "2"),
+			admitted("v-mid", 20, "2"),
+		}}).
+		Build()
+	cqCache := schdcache.New(cl)
+	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("adding ClusterQueue to cache: %v", err)
+	}
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("building snapshot: %v", err)
+	}
+
+	incoming := utiltestingapi.MakeWorkload("incoming", "default").
+		Priority(50).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, incomingCPU).Obj()).
+		Obj()
+	wlInfo := workload.NewInfo(log, incoming)
+	wlInfo.ClusterQueue = "cq"
+	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
+	})
+
+	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
+		return s, snapshot
+	}
+	t.Fatal("expected at least one PreemptionStrategy")
+	return PreemptionStrategy{}, nil
+}
+
+func workloadInSnapshot(snapshot *schdcache.Snapshot, wlKey workload.Reference) bool {
+	_, ok := snapshot.ClusterQueue("cq").Workloads[wlKey]
+	return ok
+}
+
+func TestPreemptionStrategy(t *testing.T) {
+	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
+
+	setupStrategy := func(t *testing.T) (PreemptionStrategy, *schdcache.Snapshot) {
+		return setupPreemptionStrategy(t, "2")
 	}
 
 	t.Run("Candidates", func(t *testing.T) {
 		t.Run("yields lazily and removes only yielded candidates from snapshot", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 				break
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey}, yielded); diff != "" {
 				t.Errorf("Candidates() first yield mismatch (-want +got):\n%s", diff)
 			}
-			if inSnapshot(snapshot, vLowKey) {
+			if workloadInSnapshot(snapshot, vLowKey) {
 				t.Errorf("expected yielded candidate %v to be removed from snapshot", vLowKey)
 			}
-			if !inSnapshot(snapshot, vMidKey) {
+			if !workloadInSnapshot(snapshot, vMidKey) {
 				t.Errorf("expected unyielded candidate %v to remain in snapshot", vMidKey)
 			}
 		})
 
 		t.Run("yields all candidates in priority order", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
-			var yielded []client.ObjectKey
+			var yielded []workload.Reference
 			for wlKey := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
 			}
-			if diff := cmp.Diff([]client.ObjectKey{vLowKey, vMidKey}, yielded); diff != "" {
+			if diff := cmp.Diff([]workload.Reference{vLowKey, vMidKey}, yielded); diff != "" {
 				t.Errorf("Candidates() full sequence mismatch (-want +got):\n%s", diff)
 			}
-			if inSnapshot(snapshot, vLowKey) || inSnapshot(snapshot, vMidKey) {
+			if workloadInSnapshot(snapshot, vLowKey) || workloadInSnapshot(snapshot, vMidKey) {
 				t.Errorf("expected all yielded candidates to be removed from snapshot")
 			}
 		})
@@ -5335,12 +5339,12 @@ func TestPreemptionStrategy(t *testing.T) {
 		for range strategy.Candidates() {
 			break
 		}
-		if inSnapshot(snapshot, vLowKey) {
+		if workloadInSnapshot(snapshot, vLowKey) {
 			t.Fatalf("expected %v to be removed from snapshot before Reset", vLowKey)
 		}
 		strategy.Reset()
 		strategy.Reset()
-		if !inSnapshot(snapshot, vLowKey) {
+		if !workloadInSnapshot(snapshot, vLowKey) {
 			t.Errorf("Reset() did not restore %v to snapshot", vLowKey)
 		}
 		if gotUsage := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]; gotUsage.Cmp(usageBefore) != 0 {
@@ -5350,25 +5354,42 @@ func TestPreemptionStrategy(t *testing.T) {
 
 	t.Run("GetTargets", func(t *testing.T) {
 		cases := map[string]struct {
-			preemptedWorkloads []client.ObjectKey
-			wantTargets        []client.ObjectKey
+			incomingCPU        string
+			verify             func([]*Target) (bool, string)
+			preemptedWorkloads []workload.Reference
+			wantTargets        []workload.Reference
 			wantErr            bool
 		}{
 			"empty preemptedWorkloads": {
 				preemptedWorkloads: nil,
 			},
 			"unyielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vMidKey},
+				preemptedWorkloads: []workload.Reference{vMidKey},
 				wantErr:            true,
 			},
 			"yielded candidate key": {
-				preemptedWorkloads: []client.ObjectKey{vLowKey},
-				wantTargets:        []client.ObjectKey{vLowKey},
+				preemptedWorkloads: []workload.Reference{vLowKey},
+				wantTargets:        []workload.Reference{vLowKey},
+			},
+			"preempted workloads do not free enough quota": {
+				incomingCPU:        "4",
+				preemptedWorkloads: []workload.Reference{vLowKey},
+			},
+			"strategy verification fails": {
+				verify:             func([]*Target) (bool, string) { return false, "DRS violated" },
+				preemptedWorkloads: []workload.Reference{vLowKey},
 			},
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
-				strategy, snapshot := setupStrategy(t)
+				cpu := tc.incomingCPU
+				if cpu == "" {
+					cpu = "2"
+				}
+				strategy, snapshot := setupPreemptionStrategy(t, cpu)
+				if tc.verify != nil {
+					strategy.verify = tc.verify
+				}
 				for range strategy.Candidates() {
 					break
 				}
@@ -5376,17 +5397,124 @@ func TestPreemptionStrategy(t *testing.T) {
 				if (err != nil) != tc.wantErr {
 					t.Fatalf("GetTargets(%v) error = %v, wantErr %v", tc.preemptedWorkloads, err, tc.wantErr)
 				}
-				var gotTargets []client.ObjectKey
+				var gotTargets []workload.Reference
 				for _, target := range targets {
-					gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+					gotTargets = append(gotTargets, workload.Key(target.WorkloadInfo.Obj))
 				}
 				if diff := cmp.Diff(tc.wantTargets, gotTargets); diff != "" {
 					t.Errorf("GetTargets(%v) targets mismatch (-want +got):\n%s", tc.preemptedWorkloads, diff)
 				}
-				if !inSnapshot(snapshot, vLowKey) {
+				if !workloadInSnapshot(snapshot, vLowKey) {
 					t.Errorf("GetTargets(%v) did not restore %v to snapshot", tc.preemptedWorkloads, vLowKey)
 				}
 			})
 		}
 	})
+}
+
+func TestPreemptionStrategy_PreemptionFilter(t *testing.T) {
+	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
+	unknownKey := workload.NewReference("default", "unknown")
+
+	cases := map[string]struct {
+		incomingCPU     string
+		yieldCandidates int
+		unpreempt       []workload.Reference
+		preempt         []workload.Reference
+		reset           bool
+		wantMayFit      bool
+		wantPreempted   []workload.Reference
+	}{
+		"quota full before yielding candidates": {
+			incomingCPU: "2",
+			wantMayFit:  false,
+		},
+		"yielding one candidate frees enough quota": {
+			incomingCPU:     "2",
+			yieldCandidates: 1,
+			wantMayFit:      true,
+			wantPreempted:   []workload.Reference{vLowKey},
+		},
+		"yielding one candidate is insufficient for larger workload": {
+			incomingCPU:     "4",
+			yieldCandidates: 1,
+			wantMayFit:      false,
+			wantPreempted:   []workload.Reference{vLowKey},
+		},
+		"yielding both candidates frees enough quota for larger workload": {
+			incomingCPU:     "4",
+			yieldCandidates: 2,
+			wantMayFit:      true,
+			wantPreempted:   []workload.Reference{vLowKey, vMidKey},
+		},
+		"unpreempting yielded candidate restores usage so workload no longer fits": {
+			incomingCPU:     "2",
+			yieldCandidates: 1,
+			unpreempt:       []workload.Reference{vLowKey},
+			wantMayFit:      false,
+		},
+		"reprieving unneeded second candidate keeps quota satisfied": {
+			incomingCPU:     "2",
+			yieldCandidates: 2,
+			unpreempt:       []workload.Reference{vMidKey},
+			wantMayFit:      true,
+			wantPreempted:   []workload.Reference{vLowKey},
+		},
+		"re-preempting after unpreempt removes candidate again": {
+			incomingCPU:     "2",
+			yieldCandidates: 1,
+			unpreempt:       []workload.Reference{vLowKey},
+			preempt:         []workload.Reference{vLowKey},
+			wantMayFit:      true,
+			wantPreempted:   []workload.Reference{vLowKey},
+		},
+		"preempting unyielded or unknown workload is a no-op": {
+			incomingCPU: "2",
+			preempt:     []workload.Reference{vLowKey, unknownKey},
+			wantMayFit:  false,
+		},
+		"reset restores all preempted candidates": {
+			incomingCPU:     "4",
+			yieldCandidates: 2,
+			reset:           true,
+			wantMayFit:      false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			strategy, snapshot := setupPreemptionStrategy(t, tc.incomingCPU)
+			if tc.yieldCandidates > 0 {
+				yielded := 0
+				for range strategy.Candidates() {
+					yielded++
+					if yielded == tc.yieldCandidates {
+						break
+					}
+				}
+			}
+			for _, wlKey := range tc.unpreempt {
+				strategy.UnpreemptWorkload(wlKey)
+			}
+			for _, wlKey := range tc.preempt {
+				strategy.PreemptWorkload(wlKey)
+			}
+			if tc.reset {
+				strategy.Reset()
+			}
+			if got := strategy.MayFit(); got != tc.wantMayFit {
+				t.Errorf("MayFit() = %v, want %v", got, tc.wantMayFit)
+			}
+			var gotPreempted []workload.Reference
+			for _, wlKey := range []workload.Reference{vLowKey, vMidKey} {
+				if !workloadInSnapshot(snapshot, wlKey) {
+					gotPreempted = append(gotPreempted, wlKey)
+				}
+			}
+			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+				t.Errorf("workloads preempted from snapshot mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

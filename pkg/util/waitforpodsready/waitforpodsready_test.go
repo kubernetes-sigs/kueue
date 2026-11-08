@@ -102,6 +102,64 @@ func TestPodsScheduledTrackingEnabled(t *testing.T) {
 	}
 }
 
+func TestRecoveryTimeout(t *testing.T) {
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		cfg          *configapi.WaitForPodsReady
+		want         *time.Duration
+	}{
+		"nil config": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+		},
+		"waitForPodsReady disabled by feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: true,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+		},
+		"recovery timeout unset": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+		"recovery timeout zero": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{},
+			},
+		},
+		"recovery timeout positive": {
+			featureGates: map[featuregate.Feature]bool{
+				features.DisableWaitForPodsReady: false,
+			},
+			cfg: &configapi.WaitForPodsReady{
+				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
+				RecoveryTimeout: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+			want: ptr.To(2 * time.Minute),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			if got := RecoveryTimeout(tc.cfg); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("RecoveryTimeout() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseAnnotation(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string
@@ -115,13 +173,13 @@ func TestParseAnnotation(t *testing.T) {
 		"valid annotation": {
 			annotation: `{"timeoutSeconds":100}`,
 			want: &WorkloadLevelConfig{
-				Timeout: 100 * time.Second,
+				Timeout: ptr.To(100 * time.Second),
 			},
 		},
 		"valid annotation with recoveryTimeoutSeconds": {
 			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":50}`,
 			want: &WorkloadLevelConfig{
-				Timeout:         100 * time.Second,
+				Timeout:         ptr.To(100 * time.Second),
 				RecoveryTimeout: ptr.To(50 * time.Second),
 			},
 		},
@@ -131,38 +189,44 @@ func TestParseAnnotation(t *testing.T) {
 				RecoveryTimeout: ptr.To(100 * time.Second),
 			},
 		},
+		"zero timeoutSeconds remains present for validation": {
+			annotation: `{"timeoutSeconds":0}`,
+			want: &WorkloadLevelConfig{
+				Timeout: ptr.To(time.Duration(0)),
+			},
+		},
 		// ParseAnnotation does not validate values; negative timeouts are
 		// rejected by the webhook (ValidateWaitForPodsReadyAnnotation).
 		"negative timeoutSeconds parses without error": {
 			annotation: `{"timeoutSeconds":-1}`,
 			want: &WorkloadLevelConfig{
-				Timeout: -1 * time.Second,
+				Timeout: ptr.To(-1 * time.Second),
 			},
 		},
 		// 36028797018963969 is 2^55+1: multiplied by time.Second it wraps around to exactly 1s.
 		"timeoutSeconds that would wrap around to a small duration is clamped": {
 			annotation: `{"timeoutSeconds":36028797018963969}`,
 			want: &WorkloadLevelConfig{
-				Timeout: time.Duration(math.MaxInt64),
+				Timeout: ptr.To(time.Duration(math.MaxInt64)),
 			},
 		},
 		"max int64 timeoutSeconds is clamped instead of wrapping to a negative duration": {
 			annotation: `{"timeoutSeconds":9223372036854775807}`,
 			want: &WorkloadLevelConfig{
-				Timeout: time.Duration(math.MaxInt64),
+				Timeout: ptr.To(time.Duration(math.MaxInt64)),
 			},
 		},
 		"recoveryTimeoutSeconds that would wrap around to a small duration is clamped": {
 			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":36028797018963969}`,
 			want: &WorkloadLevelConfig{
-				Timeout:         100 * time.Second,
+				Timeout:         ptr.To(100 * time.Second),
 				RecoveryTimeout: ptr.To(time.Duration(math.MaxInt64)),
 			},
 		},
 		"min int64 timeoutSeconds is clamped": {
 			annotation: `{"timeoutSeconds":-9223372036854775808}`,
 			want: &WorkloadLevelConfig{
-				Timeout: time.Duration(math.MinInt64),
+				Timeout: ptr.To(time.Duration(math.MinInt64)),
 			},
 		},
 		"unexpected end of JSON input": {
@@ -210,20 +274,18 @@ func TestParseWaitForPodsReady(t *testing.T) {
 		},
 		"timeout only": {
 			annotation: `{"timeoutSeconds":100}`,
-			want:       &kueue.WaitForPodsReady{TimeoutSeconds: 100},
+			want:       &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(100))},
 		},
 		"timeout and recoveryTimeout": {
 			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":50}`,
 			want: &kueue.WaitForPodsReady{
-				TimeoutSeconds:         100,
+				TimeoutSeconds:         new(int64(100)),
 				RecoveryTimeoutSeconds: ptr.To[int64](50),
 			},
 		},
-		// ParseWaitForPodsReady does not validate values; the minimum is enforced by the webhook.
-		"missing timeoutSeconds defaults to zero": {
+		"missing timeoutSeconds remains nil": {
 			annotation: `{"recoveryTimeoutSeconds":10}`,
 			want: &kueue.WaitForPodsReady{
-				TimeoutSeconds:         0,
 				RecoveryTimeoutSeconds: ptr.To[int64](10),
 			},
 		},

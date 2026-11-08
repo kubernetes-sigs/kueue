@@ -23,19 +23,22 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 const (
-	UsingKubeConfigs                = "spec.kubeconfigs"
-	UsingClusterProfiles            = "spec.clusterProfiles"
-	UsingMultiKueueClusters         = "spec.multiKueueClusters"
-	AdmissionCheckUsingConfigKey    = "spec.multiKueueConfig"
-	WorkloadsWithAdmissionCheckKey  = "status.admissionChecks"
-	AdmissionCheckControllerNameKey = "spec.controllerName"
-	ClusterQueueAdmissionChecksKey  = "spec.admissionChecks"
+	UsingKubeConfigs                    = "spec.kubeconfigs"
+	UsingClusterProfiles                = "spec.clusterProfiles"
+	UsingMultiKueueClusters             = "spec.multiKueueClusters"
+	AdmissionCheckUsingConfigKey        = "spec.multiKueueConfig"
+	WorkloadsWithAdmissionCheckKey      = "status.admissionChecks"
+	AdmissionCheckControllerNameKey     = "spec.controllerName"
+	ClusterQueueAdmissionChecksKey      = "spec.admissionChecks"
+	CapacityProviderParametersKey       = "spec.parameters.name"
+	ProviderConfigManagerSubtreeRootKey = "spec.managerSubtreeRootRef.name"
 )
 
 var (
@@ -93,6 +96,25 @@ func clusterQueueAdmissionChecksIndexerFunc(obj client.Object) []string {
 	return names
 }
 
+func capacityProviderParametersIndexerFunc(obj client.Object) []string {
+	cp, ok := obj.(*kueuealpha.CapacityProvider)
+	if !ok || !isMultiKueueCapacityProvider(cp) || !isCapacityProviderConfigRef(cp.Spec.Parameters) {
+		return nil
+	}
+	return []string{cp.Spec.Parameters.Name}
+}
+
+// providerConfigManagerSubtreeRootIndexerFunc indexes MultiKueueCapacityProviderConfigs by
+// spec.managerSubtreeRootRef.name. In Alpha, only ClusterQueue is supported as a subtree root;
+// Cohort support may be added in a future release.
+func providerConfigManagerSubtreeRootIndexerFunc(obj client.Object) []string {
+	cfg, ok := obj.(*kueuealpha.MultiKueueCapacityProviderConfig)
+	if !ok || cfg.Spec.ManagerSubtreeRootRef.Kind != kueuealpha.ClusterQueueSubtreeRootRefKind {
+		return nil
+	}
+	return []string{cfg.Spec.ManagerSubtreeRootRef.Name}
+}
+
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, kubeConfigLocationIndexerFunc(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
@@ -108,12 +130,18 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc); err != nil {
 			return fmt.Errorf("setting index on admission checks controllerName: %w", err)
 		}
 		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc); err != nil {
 			return fmt.Errorf("setting index on cluster queues admissionChecks: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueuealpha.CapacityProvider{}, CapacityProviderParametersKey, capacityProviderParametersIndexerFunc); err != nil {
+			return fmt.Errorf("setting index on capacity providers parameters: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueCapacityProviderConfig{}, ProviderConfigManagerSubtreeRootKey, providerConfigManagerSubtreeRootIndexerFunc); err != nil {
+			return fmt.Errorf("setting index on capacity provider configs managerSubtreeRootRef: %w", err)
 		}
 	}
 	return nil

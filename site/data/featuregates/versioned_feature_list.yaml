@@ -27,12 +27,22 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: AllowAddingPodTemplateTolerations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: AssignQueueLabelsForPods
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: ClassicalPreemptionCandidateOrderCache
   versionedSpecs:
   - default: true
@@ -63,6 +73,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: DeclareWorkloadFailureOnUnretriablePodGroups
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: DeferRayServiceFinalizationForRedisCleanup
   versionedSpecs:
   - default: true
@@ -79,12 +95,30 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: DisableStatefulSetWorkloadNameFallback
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DQOLocalCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
+- name: DQOMultiKueueCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: DynamicQuotaOrchestration
   versionedSpecs:
   - default: false
@@ -113,6 +147,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: ElasticJobsViaWorkloadSlicesForSparkApplication
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
   versionedSpecs:
   - default: false
@@ -371,12 +411,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
-- name: MultiKueueManagerQuotaAutomation
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.18"
 - name: MultiKueueOrchestratedPreemption
   versionedSpecs:
   - default: false
@@ -507,6 +541,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: ReservedResourceNameValidation
   versionedSpecs:
   - default: true
@@ -633,6 +671,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: TASLeaderPodSetFeasibility
   versionedSpecs:
   - default: true
@@ -655,6 +697,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASPartialSlices
   versionedSpecs:
   - default: true
@@ -671,6 +719,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: TASRecomputeAssignmentWithinSchedulingCycle
   versionedSpecs:
   - default: true
@@ -683,6 +735,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: TASRejectInvalidPodIndexLabel
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASReplaceMultipleFailedNodes
   versionedSpecs:
   - default: false
@@ -715,6 +773,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASResidualPodAccounting
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASRespectNodeAffinityPreferred
   versionedSpecs:
   - default: false

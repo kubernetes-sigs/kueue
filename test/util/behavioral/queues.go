@@ -108,6 +108,15 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueues did not become active", readCq))
 }
 
+func ExpectClusterQueueWeightedShare(ctx context.Context, c client.Client, cq *kueue.ClusterQueue, want int64) {
+	ginkgo.GinkgoHelper()
+	readCq := &kueue.ClusterQueue{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
+		g.Expect(readCq.Status.FairSharing).To(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: want}))
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue weighted share did not update", readCq))
+}
+
 func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
 	ginkgo.GinkgoHelper()
 	readLq := &kueue.LocalQueue{}

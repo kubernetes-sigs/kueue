@@ -1778,6 +1778,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 			})
 
 			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", framework.SlowSpec, func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DeclareWorkloadFailureOnUnretriablePodGroups, true)
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					GroupNameLabel("test-group").
@@ -4682,6 +4683,67 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 					}),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should admit a pod group whose index-label annotation names a label the Pods lack", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASRejectInvalidPodIndexLabel, false)
+
+		group := testingpod.MakePod("group-no-index", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Annotation(kueue.PodGroupPodIndexLabelAnnotation, "example.com/absent-index").
+			Request(corev1.ResourceCPU, "100m").
+			MakeGroup(2)
+
+		ginkgo.By("Creating the Pod group", func() {
+			for _, p := range group {
+				behavioral.MustCreate(ctx, k8sClient, p)
+				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
+					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
+				))
+				gomega.Expect(p.Labels).ShouldNot(gomega.HaveKey(kueue.PodGroupPodIndexLabel))
+			}
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: "group-no-index", Namespace: ns.Name}
+
+		ginkgo.By("verify the workload is created", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		ginkgo.By("verify the pods are ungated without rank-based ordering", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, p := range group {
+					pod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).Should(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should refuse a pod group whose index-label annotation names a label the Pods lack when TASRejectInvalidPodIndexLabel is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASRejectInvalidPodIndexLabel, true)
+
+		group := testingpod.MakePod("group-refused", ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Annotation(kueue.PodGroupPodIndexLabelAnnotation, "example.com/absent-index").
+			Request(corev1.ResourceCPU, "100m").
+			MakeGroup(2)
+
+		ginkgo.By("Creating the first Pod of the group", func() {
+			gomega.Expect(k8sClient.Create(ctx, group[0])).Should(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodGroupPodIndexLabelAnnotation)),
+			))
 		})
 	})
 })

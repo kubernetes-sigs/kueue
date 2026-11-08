@@ -255,10 +255,8 @@ The page above covers the three basic TAS annotations. Kueue also supports
 additional placement behavior:
 
 - **Placement strategies** - TAS uses greedy packing strategies to choose
-  domains. The default strategy is `BestFit`. When the beta `TASProfileMixed`
-  feature gate is enabled, which is the default since Kueue v0.15, TAS uses
-  `LeastFreeCapacity` for unconstrained placement and `BestFit` for required
-  and preferred placement.
+  domains: `LeastFreeCapacity` for unconstrained placement, and `BestFit` for
+  required and preferred placement.
 - **Balanced placement** - the alpha `TASBalancedPlacement` feature gate makes
   preferred placement distribute pods or slices more evenly across the selected
   domains. This is useful for workloads with all-to-all communication patterns

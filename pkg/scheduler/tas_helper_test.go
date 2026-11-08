@@ -80,6 +80,10 @@ type tasScheduleForTASCase struct {
 	eventCmpOpts cmp.Options
 
 	featureGates map[featuregate.Feature]bool
+
+	// recoveryTimeout bounds failed TAS replacement deferral in this case.
+	// A nil value keeps the default used by normal Kueue configuration.
+	recoveryTimeout *time.Duration
 }
 
 // runScheduleForTASCases runs the shared "build client → schedule → assert" procedure for
@@ -250,7 +254,15 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 							fakeClock.Step(time.Second)
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					recoveryTimeout := 30 * time.Minute
+					if tc.recoveryTimeout != nil {
+						recoveryTimeout = *tc.recoveryTimeout
+					}
+					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
+					if recoveryTimeout > 0 {
+						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(new(recoveryTimeout)))
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },

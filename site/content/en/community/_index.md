@@ -1,21 +1,14 @@
 ---
-title: "Join Us"
+title: "Join the Kueue Community"
 linkTitle: "Join Us"
+description: "Kueue is a Kubernetes SIG Scheduling subproject developed by the community. We welcome users, operators, contributors, and maintainers of all skill levels!"
 weight: 30
 menu:
   main:
     weight: 30
 ---
 
-<!-- 1. JOIN US & COMMUNITY OVERVIEW -->
-<div class="text-center mb-5">
-  <h2 class="fw-bold text-primary mb-2">Join the Kueue Community</h2>
-  <p class="lead text-muted mx-auto" style="max-width: 750px;">
-    Kueue is a Kubernetes SIG Apps subproject developed by the community. We welcome users, contributors, and maintainers of all skill levels!
-  </p>
-</div>
-
-<!-- 2. COMMUNITY CHANNELS & CONTRIBUTOR ZONE -->
+<!-- 1. COMMUNITY CHANNELS & CONTRIBUTOR ZONE -->
 <div class="row g-4 mb-5">
 
   <!-- Contribute Card -->

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const FailedReasonSkipped = "skipped"
@@ -158,7 +159,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	// Pods with indeterminate workloads are not indexed by Workload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
@@ -167,6 +168,23 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
 
+	return func() error {
+		_, err := s.wasSnapshot.Unpreempt(unpreempt)
+		return err
+	}, nil
+}
+
+func (s *wasSimulator) PreemptPods(ctx context.Context, podRefs []simulator.PodRef) (func() error, error) {
+	pods := make([]*corev1.Pod, 0, len(podRefs))
+	for _, ref := range podRefs {
+		if pod := s.pods.Pod(ref.Key); pod != nil && pod.UID == ref.UID {
+			pods = append(pods, pod)
+		}
+	}
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, pods)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preempt residual Pods from WAS snapshot: %w", err)
+	}
 	return func() error {
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err

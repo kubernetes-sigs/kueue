@@ -1010,7 +1010,9 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			}
 		}
 		podSpec := podSets[psIdx].Template.Spec
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), utiltaints.IsSchedulingTaint, true)
+		// The PodSpec is shared, so build a new slice rather than appending to its Tolerations.
+		tolerations := slices.Concat(podSpec.Tolerations, flavor.Spec.Tolerations)
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return status

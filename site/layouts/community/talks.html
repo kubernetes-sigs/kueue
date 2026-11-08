@@ -63,7 +63,7 @@
           {{ range sort site.Data.talks "date" "desc" }}
           
             <!-- Pre-compute search string for instantaneous client-side searching -->
-            {{ $year := dateFormat "2006" .date }}
+            {{ $yearMonth := dateFormat "Jan 2006" .date }}
             {{ $presenterNames := slice }}
             {{ $presenterCompanies := slice }}
             {{ range .presenters }}
@@ -72,38 +72,40 @@
                 {{ $presenterCompanies = $presenterCompanies | append .company }}
               {{ end }}
             {{ end }}
-            {{ $searchString := printf "%s %s %s %s %s" .title .event $year (delimit $presenterNames " ") (delimit $presenterCompanies " ") | lower }}
+            {{ $types := slice }}
+            {{ if reflect.IsSlice .type }}
+              {{ $types = .type }}
+            {{ else }}
+              {{ $types = slice .type }}
+            {{ end }}
+            {{ $searchString := printf "%s %s %s %s %s" .title .event $yearMonth (delimit $presenterNames " ") (delimit $presenterCompanies " ") | lower }}
 
 
-            <div class="col talk-card-col" data-type="{{ .type }}" data-search="{{ $searchString }}">
+            <div class="col talk-card-col" data-type="{{ delimit $types " " }}" data-search="{{ $searchString }}">
               <div class="card h-100 shadow-sm bg-white border rounded-3 hover-shadow" style="transition: all 0.2s ease-in-out;">
                 <div class="card-body p-4 d-flex flex-column">
                   
-                  <!-- Card Header: Type Badge & Year -->
+                  <!-- Card Header: Type Badge & Date -->
                   <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div>
-                      {{ if eq .type "case-study" }}
-                        <span class="chip-green" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
-                          {{ if and .links.video (not .links.article) }}
-                            <!-- Video Case Study -->
-                            <i class="fas fa-video me-1"></i> {{ T "talks_filter_case_studies" }}
-                          {{ else }}
-                            <!-- Written / General Case Study -->
+                    <div class="d-flex flex-wrap gap-1">
+                      {{ range $types }}
+                        {{ if eq . "case-study" }}
+                          <span class="chip-green" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
                             <i class="fas fa-book-open me-1"></i> {{ T "talks_filter_case_studies" }}
-                          {{ end }}
-                        </span>
-                      {{ else if eq .type "tutorial" }}
-                        <span class="chip-purple" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
-                          <i class="fas fa-graduation-cap me-1"></i> {{ T "talks_filter_tutorials" }}
-                        </span>
-                      {{ else }}
-                        <span class="chip-sky" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
-                          <i class="fas fa-video me-1"></i> {{ T "talks_filter_videos" }}
-                        </span>
+                          </span>
+                        {{ else if eq . "tutorial" }}
+                          <span class="chip-purple" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                            <i class="fas fa-graduation-cap me-1"></i> {{ T "talks_filter_tutorials" }}
+                          </span>
+                        {{ else }}
+                          <span class="chip-sky" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                            <i class="fas fa-video me-1"></i> {{ T "talks_filter_videos" }}
+                          </span>
+                        {{ end }}
                       {{ end }}
                     </div>
-                    <span class="text-muted small fw-bold" style="font-size: 0.8rem; font-family: monospace;">
-                      {{ dateFormat "2006" .date }}
+                    <span class="text-muted small fw-bold" style="font-size: 0.78rem; font-family: monospace; white-space: nowrap;">
+                      {{ dateFormat "Jan 2006" .date }}
                     </span>
                   </div>
 
@@ -163,9 +165,9 @@
                     <div class="d-flex gap-2 w-100">
                       {{ if .links.article }}
                         <a href="{{ .links.article }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary flex-grow-1 fw-semibold py-1.5">
-                          {{ if eq .type "tutorial" }}
+                          {{ if in $types "tutorial" }}
                             <i class="fas fa-graduation-cap me-1.5"></i> {{ T "talks_btn_read_tutorial" }}
-                          {{ else if eq .type "case-study" }}
+                          {{ else if in $types "case-study" }}
                             <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_case_study" }}
                           {{ else }}
                             <i class="fas fa-book-open me-1.5"></i> {{ T "talks_btn_read_article" }}
@@ -249,10 +251,10 @@
     let visibleCount = 0;
 
     cardCols.forEach(col => {
-      const type = col.getAttribute("data-type") || "";
+      const types = (col.getAttribute("data-type") || "").split(/\s+/).filter(Boolean);
       const searchText = col.getAttribute("data-search") || "";
 
-      const matchesTab = (activeTab === "all" || type === activeTab);
+      const matchesTab = (activeTab === "all" || types.includes(activeTab));
       const matchesSearch = (activeQuery === "" || searchText.includes(activeQuery));
 
       if (matchesTab && matchesSearch) {
@@ -293,6 +295,16 @@
     activeQuery = (value || "").toLowerCase().trim();
     filterTalks();
   };
+
+  document.addEventListener("DOMContentLoaded", function() {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q) {
+      const searchInput = document.getElementById("talksSearch");
+      if (searchInput) searchInput.value = q;
+      setSearchQuery(q);
+    }
+  });
 </script>
 
 <!-- 7. SCALABLE HOVER EFFECTS -->

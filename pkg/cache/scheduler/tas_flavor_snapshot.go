@@ -244,7 +244,7 @@ type TASFlavorSnapshot struct {
 	// domainFreeCapacities caches the summed free capacity of each usage
 	// domain's leaves. It is filled on first read and never invalidated, which
 	// holds because addNonTASUsage is the only writer of leaf free capacity and
-	// snapshot() calls it before the snapshot is used.
+	// Cache.Snapshot calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
@@ -302,7 +302,11 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
-	stats  *tasExclusionStats
+	// affinityScores are the scores of leaves, by index. The leaves read their score
+	// from domain state, which every pass clears. The leader's entry has none, because
+	// only its leaves are read.
+	affinityScores []int64
+	stats          *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -373,6 +377,21 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
 }
 
+// adjustNonTASUsage is used only by a temporary scheduling probe, after the
+// initial snapshot has been built. Cached capacities must be invalidated on
+// both the release and its restoration.
+func (s *TASFlavorSnapshot) adjustNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, release bool) {
+	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
+	if release {
+		leafCapacity.freeCapacity.Add(usage)
+	} else {
+		leafCapacity.freeCapacity.Sub(usage)
+	}
+	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+	s.domainFreeCapacities = make(map[utiltas.TopologyDomainID]resources.Requests)
+	s.forgetMatchingLeaves()
+}
+
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(count)}))
@@ -422,8 +441,8 @@ func (s *TASFlavorSnapshot) usageDomain(domainID utiltas.TopologyDomainID) *doma
 }
 
 // addTASUsageForHeldDomains adds usage only for the usage domains this snapshot
-// holds. With TASHandleOverlappingFlavors, usages can cover far more domains
-// than the flavor selects, so it walks whichever side is smaller.
+// holds. Cross-flavor aggregation can cover far more domains than the flavor
+// selects, so it walks whichever side is smaller.
 func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
 	if len(s.usageDomains()) < len(usages) {
 		for domainID := range s.usageDomains() {
@@ -863,11 +882,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	var sharedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		sharedDomainUsages = opts.aggregatedDomainUsages
-	}
-	assumedUsage := newAssumedUsage(sharedDomainUsages)
+	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
 
 	// opts.workload is unset on some call paths (e.g. simulateEmpty probing).
 	var wlObj *kueue.Workload
@@ -1209,9 +1224,9 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 // TopologyAssignment names; a node named after a domain would otherwise share
 // its entry.
 type assumedUsage struct {
-	// perDomain is keyed the way TopologyAssignment values are. With
-	// TASHandleOverlappingFlavors it is shared with the sibling flavors, see
-	// WithAggregatedDomainUsages.
+	// perDomain is keyed the way TopologyAssignment values are, and is shared
+	// with the sibling flavors when cross-flavor aggregation is active (see
+	// WithAggregatedDomainUsages).
 	perDomain map[utiltas.TopologyDomainID]resources.Requests
 
 	// perLeaf is keyed by leaf, and is filled only when the hostname level is
@@ -2206,7 +2221,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return unconstrained && features.Enabled(features.TASProfileMixed)
+	return unconstrained
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned
@@ -2633,9 +2648,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
@@ -2647,9 +2660,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
@@ -2810,7 +2821,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
 	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
 	}
 	return nil
 }
@@ -2888,6 +2899,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
+			for i, leaf := range cached.leaves {
+				leaf.SetAffinityScore(cached.affinityScores[i])
+			}
 			return cached.leaves, cached.stats, nil
 		}
 	}
@@ -2899,18 +2913,26 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+}
+
+func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
+	scores := make([]int64, len(leaves))
+	for i, leaf := range leaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	return scores
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
@@ -3032,7 +3054,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
 		}
-		affinityScore += childDomainState.affinityScore
+		// A child with no room for the PodSet's Pods adds no score, so a domain
+		// does not win only because it has more nodes.
+		if childPodCount > 0 {
+			affinityScore += childDomainState.affinityScore
+		}
 	}
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity
