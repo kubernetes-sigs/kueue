@@ -3,12 +3,18 @@ updates:
 
   # Weekly ecosystems run on different days, so their PRs don't start presubmits together.
 
+  # Every ecosystem waits 14 days after a release before proposing it, so a release that is pulled or followed by
+  # a fix within two weeks never opens a pull request. Cooldown applies to version updates only: a security update
+  # still opens at once.
+
   # Maintain Python dependencies and hashes for release scripts.
   - package-ecosystem: "pip"
     directory: "/hack/releasing"
     schedule:
       interval: "weekly"
       day: "wednesday"
+    cooldown:
+      default-days: 14
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -26,6 +32,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "tuesday"
+    cooldown:
+      default-days: 14
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -45,6 +53,8 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    cooldown:
+      default-days: 14
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -85,6 +95,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 14
     labels:
       - "ok-to-test"
       - "release-note-none"
@@ -106,6 +118,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "wednesday"
+    cooldown:
+      default-days: 14
     labels:
       - "ok-to-test"
       - "release-note-none"
