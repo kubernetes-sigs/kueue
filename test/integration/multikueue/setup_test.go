@@ -650,7 +650,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, ac) })
 		})
 
-		mkConfig := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster", "testing-cluster-relative", "testing-cluster-traversal").Obj()
+		mkConfig := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster-invalid-path", "testing-cluster-relative", "testing-cluster-traversal").Obj()
 		ginkgo.By("creating the config", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, mkConfig)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, mkConfig) })
@@ -661,7 +661,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			fsKubeConfig := filepath.Join(tempDir, "testing.kubeconfig")
 			gomega.Expect(os.WriteFile(fsKubeConfig, []byte("test"), 0666)).Should(gomega.Succeed())
 
-			cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.PathLocationType, fsKubeConfig).Obj()
+			cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster-invalid-path").KubeConfig(kueue.PathLocationType, fsKubeConfig).Obj()
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
 
