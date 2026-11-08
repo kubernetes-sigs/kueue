@@ -615,7 +615,9 @@ func (n *nonTasUsageCache) updatePodUsage(key client.ObjectKey, pod *corev1.Pod,
 	if oldNode == "" {
 		return ""
 	}
-	if oldNode != pod.Spec.NodeName || len(oldUsage.GreaterKeys(requests)) > 0 {
+	// Coalesced delete/create events can replace a Pod with one that omits
+	// a previously requested resource, which also frees capacity.
+	if oldNode != pod.Spec.NodeName || requestsDecreased(oldUsage, requests) {
 		return oldNode
 	}
 	return ""
