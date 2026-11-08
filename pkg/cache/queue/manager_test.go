@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -429,6 +430,81 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
 // Inadmissible workloads should become active.
+func TestUpdateClusterQueueReferencingPreemptionConfig(t *testing.T) {
+	cases := map[string]struct {
+		configurablePreemptions bool
+		annotations             map[string]string
+		wantActive              map[kueue.ClusterQueueReference][]workload.Reference
+		wantInadmissible        map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		"referencing a PreemptionConfig retries the bulk-moved workloads": {
+			configurablePreemptions: true,
+			annotations:             map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"},
+			wantActive:              map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/queued"}},
+		},
+		"an unrelated annotation does not retry them": {
+			configurablePreemptions: true,
+			annotations:             map[string]string{"example.com/unrelated": "true"},
+			wantInadmissible:        map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/queued"}},
+		},
+		"the PreemptionConfig is ignored with ConfigurablePreemptions disabled": {
+			annotations:      map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"},
+			wantInadmissible: map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/queued"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, tc.configurablePreemptions)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			now := time.Now()
+			head := utiltestingapi.MakeWorkload("head", defaultNamespace).Queue("lq").Creation(now).
+				Request(corev1.ResourceCPU, "1").Obj()
+			queued := utiltestingapi.MakeWorkload("queued", defaultNamespace).Queue("lq").Creation(now.Add(time.Second)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+			manager, watcher := NewManagerForUnitTestsWithRequeuer(cl, nil)
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			// Drain the requeues of the setup, so only the update can trigger one.
+			watcher.ProcessRequeues(ctx)
+			// Increase the popCycle to ensure that the head will be added as inadmissible.
+			manager.getClusterQueue("cq").popCycle++
+			for _, wl := range []*kueue.Workload{head, queued} {
+				if err := cl.Create(ctx, wl); err != nil {
+					t.Fatalf("Failed adding Workload to the client: %v", err)
+				}
+			}
+			manager.getClusterQueue("cq").PushOrUpdate(workload.NewInfo(log, queued))
+			manager.RequeueWorkload(ctx, workload.NewInfo(log, head), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+			wantBulkMoved := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"default/head", "default/queued"}}
+			if diff := gocmp.Diff(wantBulkMoved, manager.DumpInadmissible(), cmpDump); diff != "" {
+				t.Fatalf("Unexpected inadmissible workloads before the update (-want,+got):\n%s", diff)
+			}
+
+			updated := cq.DeepCopy()
+			updated.Annotations = tc.annotations
+			if err := manager.UpdateClusterQueue(updated, false); err != nil {
+				t.Fatalf("Failed to update ClusterQueue: %v", err)
+			}
+			watcher.ProcessRequeues(ctx)
+
+			if diff := gocmp.Diff(tc.wantActive, manager.Dump(), cmpDump); diff != "" {
+				t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantInadmissible, manager.DumpInadmissible(), cmpDump); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestUpdateClusterQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{

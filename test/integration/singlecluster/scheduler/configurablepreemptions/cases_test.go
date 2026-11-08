@@ -383,6 +383,90 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 		})
 	})
 
+	ginkgo.When("the preemptorSelector excludes some workloads of an equivalent shape", func() {
+		var (
+			flavor *kueue.ResourceFlavor
+			cq     *kueue.ClusterQueue
+			lq     *kueue.LocalQueue
+			config *kueuealpha.PreemptionConfig
+		)
+
+		ginkgo.BeforeEach(func() {
+			config = kueuetestalpha1.MakePreemptionConfig("prod-preempts-dev-except-team-b").
+				Rules(
+					kueuetestalpha1.MakePreemptionRule("prod-preempts-dev", kueuealpha.Always,
+						kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"class": "dev"}}).
+							Priority(kueuealpha.Base, kueuealpha.LessThan).
+							Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
+						MatchLabels: map[string]string{"class": "prod"},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{Key: "team", Operator: metav1.LabelSelectorOpNotIn, Values: []string{"b"}},
+						},
+					}).Obj(),
+				).Obj()
+			behavioral.MustCreate(ctx, k8sClient, config)
+
+			flavor = utiltestingapi.MakeResourceFlavor("rf-excluded-preemptor").Obj()
+			behavioral.MustCreate(ctx, k8sClient, flavor)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-excluded-preemptor").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+					Resource(corev1.ResourceCPU, "2").Obj()).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, config.Name).
+				Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			lq = utiltestingapi.MakeLocalQueue("lq-excluded-preemptor", ns.Name).ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+		})
+
+		ginkgo.It("does not keep an allowed preemptor behind an excluded one", func() {
+			makeWorkload := func(name string, priority int32, labels map[string]string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Priority(priority).
+					Labels(labels).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+			}
+
+			wlDev1 := makeWorkload("dev-1", 10, map[string]string{"class": "dev"})
+			wlDev2 := makeWorkload("dev-2", 10, map[string]string{"class": "dev"})
+			behavioral.MustCreate(ctx, k8sClient, wlDev1)
+			behavioral.MustCreate(ctx, k8sClient, wlDev2)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlDev1, wlDev2)
+
+			wlExcluded := makeWorkload("prod-team-b", 100, map[string]string{"class": "prod", "team": "b"})
+			ginkgo.By("Keeping the preemptor excluded by the preemptorSelector pending", func() {
+				behavioral.MustCreate(ctx, k8sClient, wlExcluded)
+				gomega.Eventually(func(g gomega.Gomega) {
+					updated := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlExcluded), updated)).To(gomega.Succeed())
+					g.Expect(meta.IsStatusConditionFalse(updated.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			// The allowed preemptor has the same scheduling shape as the excluded
+			// one; only its labels differ, and the rule matches on labels.
+			wlAllowed := makeWorkload("prod-team-a", 100, map[string]string{"class": "prod", "team": "a"})
+			ginkgo.By("Admitting the allowed preemptor by preempting a dev workload", func() {
+				behavioral.MustCreate(ctx, k8sClient, wlAllowed)
+				integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq, 1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlAllowed)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlExcluded)
+			})
+		})
+	})
+
 	ginkgo.When("WithinClusterQueue preemption is restricted to low-priority classes", func() {
 		var (
 			flavor *kueue.ResourceFlavor

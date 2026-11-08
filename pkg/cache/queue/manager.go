@@ -423,12 +423,15 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	}
 
 	oldActive := cqImpl.Active()
+	usedPreemptionConfig := cqImpl.UsesPreemptionConfig()
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
-	if requeueInadmissibleWorkloads {
+	// Workloads bulk-moved to inadmissible by their scheduling hash before the
+	// ClusterQueue referenced a PreemptionConfig may be admissible under its rules.
+	if requeueInadmissibleWorkloads || (!usedPreemptionConfig && cqImpl.UsesPreemptionConfig()) {
 		// Broadcast occurs after inadmissible workloads are requeued.
 		// Immediate broadcast is no-op, as there are no workloads
 		// to process.
