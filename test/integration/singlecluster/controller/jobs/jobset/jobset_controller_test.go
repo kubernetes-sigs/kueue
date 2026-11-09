@@ -991,6 +991,88 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			},
 		}),
 	)
+
+	ginkgo.It("Should reconcile PodsReady when pre-existing reclaimablePods are set on a restartable JobSet", func() {
+		jobSet := testingjobset.MakeJobSet("restartable-upgrade-job", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			},
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			},
+		).Queue("test-queue").Obj()
+		jobSet.Spec.FailurePolicy = &jobsetapi.FailurePolicy{MaxRestarts: 1}
+		behavioral.MustCreate(ctx, k8sClient, jobSet)
+
+		lookupKey := types.NamespacedName{Name: jobSet.Name, Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		admission := utiltestingapi.MakeAdmission("foo").PodSets(
+			kueue.PodSetAssignment{
+				Name:    createdWorkload.Spec.PodSets[0].Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+			},
+			kueue.PodSetAssignment{
+				Name:    createdWorkload.Spec.PodSets[1].Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+			},
+		).Obj()
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+		createdJobSet := &jobsetapi.JobSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
+			g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Seeding pre-existing reclaimablePods as if written before controller upgrade", func() {
+			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, createdWorkload, []kueue.ReclaimablePod{
+				{Name: "replicated-job-1", Count: 1},
+			})).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Updating JobSet status so ReclaimablePods() is empty while all pods are ready", func() {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
+			createdJobSet.Status.ReplicatedJobsStatus = []jobsetapi.ReplicatedJobStatus{
+				{Name: "replicated-job-1", Ready: 1, Active: 1},
+				{Name: "replicated-job-2", Ready: 1, Active: 1},
+			}
+			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying pre-existing reclaimablePods are retained and PodsReady reaches True without webhook error", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(createdWorkload.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+					{Name: "replicated-job-1", Count: 1},
+				}))
+				cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionTrue))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Releasing quota reservation clears stale reclaimablePods", func() {
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				g.Expect(createdWorkload.Status.ReclaimablePods).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Label("job:jobset", "area:jobs"), func() {
@@ -1168,6 +1250,182 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 		})
+	})
+
+	ginkgo.It("Should withhold partial reclaim while RestartJobSet can still recreate completed jobs", func() {
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+
+		jobSet1 := testingjobset.MakeJobSet("restartable-jobset1", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    2,
+				Parallelism: 4,
+				Completions: 8,
+			},
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    3,
+				Parallelism: 4,
+				Completions: 4,
+			},
+		).Queue(localQueue.Name).
+			Request("replicated-job-1", corev1.ResourceCPU, "250m").
+			Request("replicated-job-2", corev1.ResourceCPU, "250m").
+			Obj()
+		jobSet1.Spec.FailurePolicy = &jobsetapi.FailurePolicy{MaxRestarts: 1}
+		lookupKey1 := types.NamespacedName{Name: jobSet1.Name, Namespace: jobSet1.Namespace}
+		behavioral.MustCreate(ctx, k8sClient, jobSet1)
+
+		createdJobSet1 := &jobsetapi.JobSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+			g.Expect(*createdJobSet1.Spec.Suspend).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		jobSet2 := testingjobset.MakeJobSet("queued-jobset2", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    2,
+				Parallelism: 1,
+				Completions: 1,
+			},
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			},
+		).Queue(localQueue.Name).
+			Request("replicated-job-1", corev1.ResourceCPU, "1").
+			Request("replicated-job-2", corev1.ResourceCPU, "1").
+			Obj()
+		lookupKey2 := types.NamespacedName{Name: jobSet2.Name, Namespace: jobSet2.Namespace}
+		behavioral.MustCreate(ctx, k8sClient, jobSet2)
+		behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+
+		wlKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet1.Name, jobSet1.UID), Namespace: jobSet1.Namespace}
+		wl := &kueue.Workload{}
+
+		ginkgo.By("completing replicated-job-1 while restart budget remains does not reclaim or admit jobSet2", func() {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+			createdJobSet1.Status.ReplicatedJobsStatus = []jobsetapi.ReplicatedJobStatus{
+				{Name: "replicated-job-1", Succeeded: 2},
+				{Name: "replicated-job-2", Active: 3},
+			}
+			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet1)).Should(gomega.Succeed())
+
+			createdJobSet2 := &jobsetapi.JobSet{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeEmpty())
+				g.Expect(k8sClient.Get(ctx, lookupKey2, createdJobSet2)).Should(gomega.Succeed())
+				g.Expect(*createdJobSet2.Spec.Suspend).Should(gomega.BeTrue())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		ginkgo.By("exhausting RestartJobSet budget and completing replicated-job-1 reclaims quota and admits jobSet2", func() {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+			createdJobSet1.Status.Restarts = 1
+			createdJobSet1.Status.RestartsCountTowardsMax = 1
+			createdJobSet1.Status.ReplicatedJobsStatus = []jobsetapi.ReplicatedJobStatus{
+				{Name: "replicated-job-1", Succeeded: 2},
+				{Name: "replicated-job-2", Active: 3},
+			}
+			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet1)).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+					{Name: "replicated-job-1", Count: 8},
+				}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			createdJobSet2 := &jobsetapi.JobSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey2, createdJobSet2)).Should(gomega.Succeed())
+				g.Expect(*createdJobSet2.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
+		})
+	})
+
+	ginkgo.It("Should reclaim completed training stage when remaining eval stage cannot trigger RestartJobSet", func() {
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+
+		jobSet1 := testingjobset.MakeJobSet("train-eval-jobset", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "training",
+				Replicas:    2,
+				Parallelism: 4,
+				Completions: 8,
+			},
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "eval",
+				Replicas:    3,
+				Parallelism: 4,
+				Completions: 4,
+			},
+		).Queue(localQueue.Name).
+			Request("training", corev1.ResourceCPU, "250m").
+			Request("eval", corev1.ResourceCPU, "250m").
+			Obj()
+		jobSet1.Spec.FailurePolicy = &jobsetapi.FailurePolicy{
+			MaxRestarts: 2,
+			Rules: []jobsetapi.FailurePolicyRule{{
+				Name:                 "failOnEvalError",
+				Action:               jobsetapi.FailJobSet,
+				TargetReplicatedJobs: []string{"eval"},
+			}},
+		}
+		lookupKey1 := types.NamespacedName{Name: jobSet1.Name, Namespace: jobSet1.Namespace}
+		behavioral.MustCreate(ctx, k8sClient, jobSet1)
+
+		createdJobSet1 := &jobsetapi.JobSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+			g.Expect(*createdJobSet1.Spec.Suspend).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		jobSet2 := testingjobset.MakeJobSet("queued-after-train", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    2,
+				Parallelism: 1,
+				Completions: 1,
+			},
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			},
+		).Queue(localQueue.Name).
+			Request("replicated-job-1", corev1.ResourceCPU, "1").
+			Request("replicated-job-2", corev1.ResourceCPU, "1").
+			Obj()
+		lookupKey2 := types.NamespacedName{Name: jobSet2.Name, Namespace: jobSet2.Namespace}
+		behavioral.MustCreate(ctx, k8sClient, jobSet2)
+		behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+
+		gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+		createdJobSet1.Status.ReplicatedJobsStatus = []jobsetapi.ReplicatedJobStatus{
+			{Name: "training", Succeeded: 2},
+			{Name: "eval", Active: 3},
+		}
+		gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet1)).Should(gomega.Succeed())
+
+		createdJobSet2 := &jobsetapi.JobSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey2, createdJobSet2)).Should(gomega.Succeed())
+			g.Expect(*createdJobSet2.Spec.Suspend).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+		behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 	})
 })
 

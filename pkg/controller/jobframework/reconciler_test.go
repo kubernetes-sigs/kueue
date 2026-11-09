@@ -2885,29 +2885,47 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 }
 
 // TestReconcileJobSetReclaimablePods covers how the reconciler updates a workload's
-// reclaimablePods depending on its eviction/quota state (kueue#14811). It uses a JobSet
-// because that is the job type that actually produces a reclaimable decrease: a Recreate
-// restart moves a succeeded child back to running, dropping its Succeeded count to zero.
+// reclaimablePods depending on its eviction/quota state (kueue#14811, kueue#17213). It uses
+// a JobSet because a Recreate restart or controller upgrade can cause ReclaimablePods() to
+// report a lower count than wl.Status.ReclaimablePods while the workload still holds quota.
 func TestReconcileJobSetReclaimablePods(t *testing.T) {
 	gvk := v1alpha2.GroupVersion.WithKind("JobSet")
 	reclaimableOne := []kueue.ReclaimablePod{{Name: "rj", Count: 1}}
 
 	testCases := map[string]struct {
-		evicted         bool
-		wantReclaimable []kueue.ReclaimablePod
+		evicted           bool
+		holdingQuota      bool
+		elasticScaledDown bool
+		wantReclaimable   []kueue.ReclaimablePod
 	}{
 		"evicted and holding quota: reclaimable pods are retained": {
 			evicted:         true,
+			holdingQuota:    true,
 			wantReclaimable: reclaimableOne,
 		},
-		"not evicted: reclaimable pods are removed": {
+		"not evicted and holding quota: reclaimable pods are retained": {
 			evicted:         false,
+			holdingQuota:    true,
+			wantReclaimable: reclaimableOne,
+		},
+		"not evicted and holding quota with elastic scale-down: reclaimable pods are removed": {
+			evicted:           false,
+			holdingQuota:      true,
+			elasticScaledDown: true,
+			wantReclaimable:   nil,
+		},
+		"not holding quota: reclaimable pods are removed": {
+			evicted:         false,
+			holdingQuota:    false,
 			wantReclaimable: nil,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.elasticScaledDown {
+				features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			// A suspended JobSet whose replicated job has one active pod and none succeeded:
@@ -2927,8 +2945,19 @@ func TestReconcileJobSetReclaimablePods(t *testing.T) {
 			wlWrapper := utiltestingapi.MakeWorkload("job-1", "ns").
 				PodSets(basePodSets...).
 				ControllerReference(gvk, "job-1", "job-1")
+			if tc.elasticScaledDown {
+				wlWrapper = wlWrapper.Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+			}
+			if tc.holdingQuota {
+				admittedCount := int32(2)
+				if tc.elasticScaledDown {
+					admittedCount = 3
+				}
+				wlWrapper = wlWrapper.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					utiltestingapi.MakePodSetAssignment("rj").Assignment(corev1.ResourceCPU, "default", "1").Count(admittedCount).Obj(),
+				).Obj(), time.Now())
+			}
 			if tc.evicted {
-				wlWrapper = wlWrapper.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now())
 				wlWrapper = wlWrapper.Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,

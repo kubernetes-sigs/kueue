@@ -714,6 +714,7 @@ func (r *JobReconciler) reconcileReclaimablePods(ctx context.Context, job Generi
 			return true, ctrl.Result{}, fmt.Errorf("getting reclaimable pods: %w", err)
 		}
 		reclPods = workload.LimitReclaimablePodsToPodSetSizes(wl, reclPods)
+		reclPods = retainReclaimablePodsWhileHoldingQuota(wl, reclPods)
 
 		if !workload.ReclaimablePodsAreEqual(reclPods, wl.Status.ReclaimablePods) {
 			err = workload.UpdateReclaimablePods(ctx, r.client, wl, reclPods)
@@ -2715,4 +2716,30 @@ func mergeAnnotations(job GenericJob, customAnnotations map[string]string) (map[
 		}
 	}
 	return merged, changed
+}
+
+// retainReclaimablePodsWhileHoldingQuota keeps non-scaled-down reclaimable pod
+// counts monotonic while wl holds quota, matching WorkloadWebhook validation so
+// controller upgrades or job restarts do not block reconciliation.
+func retainReclaimablePodsWhileHoldingQuota(wl *kueue.Workload, reclPods []kueue.ReclaimablePod) []kueue.ReclaimablePod {
+	if !workload.HasQuotaReservation(wl) || len(wl.Status.ReclaimablePods) == 0 {
+		return reclPods
+	}
+	scaledDown := workloadslicing.ScaledDownPodSetNames(wl)
+	idxByName := make(map[kueue.PodSetReference]int, len(reclPods))
+	for i := range reclPods {
+		idxByName[reclPods[i].Name] = i
+	}
+	for i := range wl.Status.ReclaimablePods {
+		old := wl.Status.ReclaimablePods[i]
+		if scaledDown.Has(old.Name) {
+			continue
+		}
+		if idx, found := idxByName[old.Name]; found {
+			reclPods[idx].Count = max(reclPods[idx].Count, old.Count)
+		} else {
+			reclPods = append(reclPods, old)
+		}
+	}
+	return reclPods
 }

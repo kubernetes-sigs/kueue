@@ -19,6 +19,7 @@ package jobset
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	batchv1 "k8s.io/api/batch/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -35,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 var (
@@ -194,13 +195,14 @@ func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ ...jobframewo
 	return replicas == readyReplicas
 }
 
+// ReclaimablePods returns the pods of completed ReplicatedJobs that will not be recreated.
 func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
 		return nil, nil
 	}
 
 	ret := make([]kueue.ReclaimablePod, 0, len(j.Spec.ReplicatedJobs))
-	statuses := slices.ToRefMap(j.Status.ReplicatedJobsStatus, func(js *jobsetapi.ReplicatedJobStatus) string { return js.Name })
+	statuses := utilslices.ToRefMap(j.Status.ReplicatedJobsStatus, func(js *jobsetapi.ReplicatedJobStatus) string { return js.Name })
 
 	allSucceeded := true
 	for i := range j.Spec.ReplicatedJobs {
@@ -217,20 +219,49 @@ func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.
 		}
 	}
 	// RestartJobSet recreates already-succeeded child Jobs, violating monotonic ReclaimablePods.
-	if _, _, finished := j.Finished(ctx); !finished && !allSucceeded && j.canRestartJobSet() {
+	if _, _, finished := j.Finished(ctx); !finished && !allSucceeded && j.canRestartJobSet(statuses) {
 		return nil, nil
 	}
 	return ret, nil
 }
 
-func (j *JobSet) canRestartJobSet() bool {
+// canRestartJobSet reports whether a global JobSet restart is in progress or can still be
+// triggered by any incomplete ReplicatedJob.
+func (j *JobSet) canRestartJobSet(statuses map[string]*jobsetapi.ReplicatedJobStatus) bool {
+	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetRestarting)) {
+		return true
+	}
 	fp := j.Spec.FailurePolicy
 	if fp == nil {
 		return false
 	}
-	budgetRemaining := max(j.Status.RestartsCountTowardsMax, j.Status.Restarts) < fp.MaxRestarts
+	restartsTowardsMax := j.Status.RestartsCountTowardsMax
+	for i := range j.Status.ReplicatedJobsStatus {
+		for _, r := range j.Status.ReplicatedJobsStatus[i].JobRestartsCountTowardsMax {
+			restartsTowardsMax += r
+		}
+	}
+	budgetRemaining := restartsTowardsMax < fp.MaxRestarts
+	for i := range j.Spec.ReplicatedJobs {
+		spec := &j.Spec.ReplicatedJobs[i]
+		if status, found := statuses[spec.Name]; found && status.Succeeded >= spec.Replicas {
+			continue
+		}
+		if canJobTriggerRestartJobSet(fp, spec.Name, budgetRemaining) {
+			return true
+		}
+	}
+	return false
+}
+
+// canJobTriggerRestartJobSet reports whether a failure in jobName can trigger RestartJobSet
+// or RestartJobSetAndIgnoreMaxRestarts under fp.
+func canJobTriggerRestartJobSet(fp *jobsetapi.FailurePolicy, jobName string, budgetRemaining bool) bool {
 	for i := range fp.Rules {
 		rule := &fp.Rules[i]
+		if len(rule.TargetReplicatedJobs) > 0 && !slices.Contains(rule.TargetReplicatedJobs, jobName) {
+			continue
+		}
 		switch rule.Action {
 		case jobsetapi.RestartJobSetAndIgnoreMaxRestarts:
 			return true
@@ -239,10 +270,8 @@ func (j *JobSet) canRestartJobSet() bool {
 				return true
 			}
 		}
-		// An unconditional rule matches every failure, shadowing later rules and the default RestartJobSet.
-		if len(rule.OnJobFailureReasons) == 0 &&
-			len(rule.OnJobFailureMessagePatterns) == 0 &&
-			len(rule.TargetReplicatedJobs) == 0 {
+		// An unconditional rule targeting jobName catches every failure, shadowing later rules and default RestartJobSet.
+		if len(rule.OnJobFailureReasons) == 0 && len(rule.OnJobFailureMessagePatterns) == 0 {
 			return false
 		}
 	}
