@@ -38,8 +38,7 @@ import (
 
 var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(c *config.Configuration) {
 			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
 				config.DeviceClassMapping{
 					Name:             "gpu.memory",
