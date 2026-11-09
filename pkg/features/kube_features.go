@@ -838,6 +838,15 @@ const (
 	// not all Pods of the group succeeded. When disabled, such a Workload finishes with
 	// reason Succeeded, as before https://github.com/kubernetes-sigs/kueue/pull/16156.
 	DeclareWorkloadFailureOnUnretriablePodGroups featuregate.Feature = "DeclareWorkloadFailureOnUnretriablePodGroups"
+
+	// owner: @HristoMohamed
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18516
+	//
+	// Break ties between equal-capacity TAS topology domains by comparing
+	// ancestor free capacity bottom-up (ascending) before falling back to
+	// alphabetical domain names, so smaller or partially-occupied parent
+	// domains are packed before splitting larger intact ancestor blocks.
+	TASAncestorCapacityTieBreak featuregate.Feature = "TASAncestorCapacityTieBreak"
 )
 
 func init() {
@@ -1266,6 +1275,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeclareWorkloadFailureOnUnretriablePodGroups: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha}, // Beta and on by default in 0.21
+	},
+
+	TASAncestorCapacityTieBreak: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
