@@ -223,7 +223,7 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := sets.New[kueue.ClusterQueueReference]()
-	flavorCache := r.cache.CloneTASCache()
+	remainingFlavors := r.cache.CloneTASCache()
 	for nodeName := range nodes {
 		var node corev1.Node
 		if err := r.k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
@@ -241,11 +241,13 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 			r.notifyFreedNode(nodeName)
 			continue
 		}
-		for name, fc := range flavorCache {
+		for name, fc := range remainingFlavors {
 			if utiltas.NodeMatchesFlavor(node.Labels, fc.NodeLabels(), fc.TopologyLevels()) {
 				for _, cq := range r.cache.ClusterQueuesUsingFlavor(name) {
 					cqNames.Insert(cq)
 				}
+				// Remove from the cloned map so each flavor's queues are scanned only once.
+				delete(remainingFlavors, name)
 			}
 		}
 	}
