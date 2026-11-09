@@ -353,12 +353,15 @@ to 4).
 
 Users set the floor through the job's own minimum, which the integration copies:
 
-| Integration | PodSet | `preemptionMinCount` |
+| Integration | PodSet | `preemptionMinCount` source |
 |---|---|---|
+| batch/Job | the main PodSet | `kueue.x-k8s.io/partial-preemption-min-count` annotation on the Job |
 | RayCluster, RayJob, RayService | each worker group with `numOfHosts` of 1 | `minReplicas`, 0 if unset |
 | SparkApplication | executors, with `spec.dynamicAllocation.enabled` | `minExecutors`, 0 if unset |
 
-The Ray head, the RayJob submitter and the Spark driver never get a floor, so they never shrink.
+For batch/Job the floor is not taken from `spec.completions` or `spec.parallelism`; the user sets it
+explicitly via the annotation. The Ray head, the RayJob submitter and the Spark driver never get a
+floor, so they never shrink.
 
 An integration copies the floor only when it creates the Workload or a scale-up slice; a later change
 to the job's minimum takes effect on the next slice, not on the admitted Workload. The webhook
@@ -371,7 +374,8 @@ fits. Partial preemption keeps that shape but splits the decision into three sta
 candidate is no longer "evict or not" but "shrink by how much":
 
 1. **Ordering** — produce a total order over the candidates ([Candidate ordering](#candidate-ordering)).
-2. **Consumption** — walk that order twice: a shrink pass, then an evict pass ([Shrink and evict
+2. **Consumption** — pin the lowest priority band present, round-robin-shrink its victims to their
+   floor, then evict that band whole, before moving to the next band ([Shrink and evict
    passes](#shrink-and-evict-passes)).
 3. **Target selection** — the floor in both passes, which fill-back then raises ([Target
    selection](#target-selection)).
@@ -383,19 +387,20 @@ whole candidates in order, so there is no behavioral change.
 
 A candidate is eligible for partial preemption when the `PartialPreemption` gate is enabled, the
 Workload carries the opt-in annotation with value `"true"` and is elastic, and at least one PodSet
-has an effective used count above its `preemptionMinCount`. Those PodSets must not have a topology
-assignment. Otherwise the candidate falls back to whole eviction. The used count comes from the
-Workload's usage; an existing lower
-`preemptionTargetCount` is used as the effective count for simulation. With `waitForPodsReady`
-enabled, a Workload that has not yet reached PodsReady is evicted whole rather than shrunk. In
-Alpha, a Workload with the `kueue.x-k8s.io/multikueue-origin` label, which MultiKueue dispatched to
-a worker cluster, is evicted whole.
+has an effective used count above its `preemptionMinCount`. In Alpha, exactly one PodSet per
+Workload may carry a floor; a Workload with multiple PodSets that each have a `preemptionMinCount`
+is evicted whole (supporting multiple PodSets is a Beta criterion). That PodSet must not have a
+topology assignment. Otherwise the candidate falls back to whole eviction. The used count comes from
+the Workload's usage; an existing lower `preemptionTargetCount` is used as the effective count for
+simulation. With `waitForPodsReady` enabled, a Workload that has not yet reached PodsReady is
+evicted whole rather than shrunk. In Alpha, a Workload with the `kueue.x-k8s.io/multikueue-origin`
+label, which MultiKueue dispatched to a worker cluster, is evicted whole.
 
 #### Candidate ordering
 
-In Alpha, candidate ordering is identical to today's. Because of the two passes described in
-[Shrink and evict passes](#shrink-and-evict-passes), partial preemptions are still favored over
-whole evictions: every eligible candidate is shrunk before any candidate is evicted whole.
+In Alpha, candidate ordering is identical to today's. Partial preemptions are still favored over
+whole evictions because lower-priority victims are drained before higher-priority ones are touched
+(see [Candidate consumption](#shrink-and-evict-passes) below).
 
 In a future version, we will re-evaluate the ordering and put a candidate that can shed more Pods
 (`used - preemptionMinCount`, capped by any in-flight target) ahead of one that can shed fewer (see
@@ -413,30 +418,26 @@ segments:
 5. Non-evicted candidates with priority advantage
 6. Non-evicted candidates from the same queue
 
-The Kueue scheduler simulates the preemption over the candidate order and stops as soon as the
-preemptor fits:
+Segments 1-3 (the evicted/shrinking half) are walked once in a single pass, resuming in-progress
+reductions. Segments 4-6 use a multi-round walk where the per-round cap is a fixed 1 replica.
 
-1. **Work already in progress (segments 1-3).** Already-evicted candidates count as removed, and a
-   Workload with an in-flight target counts at that target.
-2. **Shrink pass.** Walk the order and simulate each eligible candidate at its floor, skipping
-   candidates that can only be evicted whole. Stop once the preemptor fits.
-3. **Evict pass.** If the preemptor still does not fit, walk the order again and remove candidates
-   whole, including the ones shrunk in step 2. Stop once the preemptor fits.
+**Band-wise consumption.** Within a multi-round segment, candidates are sorted by priority.
+The scheduler pins the priority of the first valid candidate it returns — the "priority band" — and
+stays in that band until it is exhausted, only then moving to the next higher band. Within a band,
+candidates are visited round by round: each round walks every victim in the band, reclaiming one
+replica per victim per round. Because the scheduler calls `getTargets` after each yield, a victim
+whose current count has already reached its floor is no longer a partial-preemption candidate; it
+becomes a whole-eviction candidate for that same `getTargets` call. This means the low-priority band
+is fully drained — every victim shrunk to its floor and then evicted whole — before any
+higher-priority victim is touched.
 
-A partially preempted Workload can show up more than once. A Workload with an in-flight target
-counts at that target in step 1, shows up again in the shrink pass if it is still above its floor,
-and can show up a third time in the evict pass, which may evict it whole. A Workload shrunk in step 2
-shows up again in step 3.
+A Workload with an in-flight target counts at that target in the single-pass segments (1-3), and
+also appears in the multi-round segment at its natural priority position so it can be shed further.
+A candidate in another ClusterQueue stops qualifying once its ClusterQueue is back within nominal
+quota. If no candidate set frees enough quota, the Kueue scheduler runs today's whole-eviction pass
+instead, so partial preemption never leaves a preemptor `Pending` that whole eviction would admit.
 
-A shrink can change which candidates are still valid: a candidate in another ClusterQueue stops
-qualifying once its ClusterQueue is back within nominal quota. So if the evict pass does not make
-the preemptor fit, the Kueue scheduler discards the shrinks from step 2 and runs today's whole-eviction
-pass, followed by fill-back. Partial preemption therefore never leaves a preemptor `Pending` that
-whole eviction would admit.
-
-Any shrink counts as cheaper than any whole eviction: the shrink pass walks the whole order, across
-segments and priorities, before the evict pass evicts anything. Re-evaluating this cost model is a
-Beta criterion (see [Cost model and candidate
+Re-evaluating this cost model is a Beta criterion (see [Cost model and candidate
 ordering](FUTURE_WORK.md#cost-model-and-candidate-ordering)).
 
 Fair Sharing shrinks a candidate to its floor the first time it comes up, and judges it by its
@@ -447,11 +448,12 @@ in other ClusterQueues are tried.
 
 #### Target selection
 
-In both passes, the target of a shrunk victim is its floor, `preemptionMinCount`. Fill-back then
-raises it to the largest count that still lets the preemptor fit, binary-searching between the floor
-and the victim's previous count. This adds at most
-`ceil(log2(previous count - preemptionMinCount + 1))` fit simulations per victim. An in-flight
-target stays in place unless the shrink pass lowers it toward the floor; no step raises it.
+Each round the scheduler reclaims at most one replica from a candidate: the target for this round
+is `used - 1`, bounded below by `preemptionMinCount`. The scheduler visits the candidate again in
+later rounds, deepening the target by one each time, until the preemptor fits or the floor is
+reached. If a candidate already carries a still-draining in-flight `preemptionTargetCount` from a
+previous cycle and its current count is still above that target, the target is reused directly —
+the same reduction is pursued until its Pods are gone. No step ever raises a target.
 
 #### Issuing preemptions
 
@@ -467,21 +469,16 @@ Quota is not released here (that is the release phase of the two-phase model).
 #### No-fit behavior
 
 Partial targets are issued only when the resulting target set makes the preemptor fit. The Kueue
-scheduler reuses the existing over-preemption trimming: once it has a target set that frees enough quota,
-`fillBackWorkloads` walks the targets and restores each candidate to the largest count that still
-lets the preemptor fit, so a victim gives up only what the preemptor needs and is evicted whole only
-when shrinking is not enough. With partial preemption enabled, `fillBackWorkloads` starts from the
-last target rather than the second-to-last: whole-eviction preemption skips the last target because
-it is always required, but a partial last victim can still be restored to a count above its floor.
-In Alpha, fill-back adds each victim back whole if the preemptor still fits. Otherwise, for a victim
-that was shrunk but not evicted, it binary-searches each shrunk PodSet in turn for the largest count
-up to its count before the simulation (at most its in-flight target) that still fits. An evicted
-victim is restored whole or not at all.
-
-**Alpha gap:** an evicted victim is never restored to its floor, and whole and partial restores are
-interleaved per victim instead of every whole restore happening first. Both are addressed in future
-work (see [Fill-back order](FUTURE_WORK.md#fill-back-order)), re-evaluated for Beta together with
-the strict-priority mode (see [Strict priority](FUTURE_WORK.md#strict-priority)).
+scheduler reuses the existing over-preemption trimming: once it has a target set that frees enough
+quota, `fillBackWorkloads` walks the targets in reverse (highest priority first). For each one it
+tries reverting it entirely; if the preemptor still fits without it, the victim was not needed and
+is dropped. Otherwise the victim is needed: if it is a partial-preemption candidate,
+`fillbackPartialPreemption` binary-searches between its floor and its count before the simulation
+(capped by any in-flight target) for the largest count that still lets the preemptor fit, so it gives
+up only what is needed instead of its whole floor-to-count range. A non-partial victim stays wholly
+evicted. The fit-achieving target itself is also walked by this loop and is normally not droppable,
+but because a later round can replace an earlier reduced target in place, it is re-checked like any
+other candidate rather than being assumed required.
 
 If even evicting every candidate whole does not free enough quota, the tentative
 partial and whole-eviction targets are discarded, no preemption is issued, and the preemptor remains
@@ -489,36 +486,32 @@ partial and whole-eviction targets are discarded, no preemption is issued, and t
 
 #### Example
 
-All victims below belong to the same ClusterQueue as the arriving preemptor, so they share the
-same-queue segment. The ClusterQueue is fully used by four partial-preemptible victims:
+All victims belong to the same ClusterQueue as the arriving preemptor (same-queue segment). The
+ClusterQueue is used by three partial-preemptible victims, `L1` and `L2` at low priority (`L2`
+admitted after `L1`) and `H` at high priority, each using 4 with a `preemptionMinCount` of 2. A
+higher-priority preemptor arrives needing 5. Strict priority is fixed on, so the multi-round walk
+stays in the low band until it is exhausted; the per-round cap is 1.
 
-| Victim | priority | used | `preemptionMinCount` | in-flight target |
+| Round | Visit | Target | Reclaimed this step | Still needed |
 |---|---|---|---|---|
-| `L1` | low    | 5 | 2 | — |
-| `L2` | low    | 5 | 3 | — |
-| `M`  | medium | 5 | 1 | 3 (still draining) |
-| `H`  | high   | 5 | 2 | — |
+| 1 | `L1` | 3 | **1** | 4 |
+| 1 | `L2` | 3 | **1** | 3 |
+| 2 | `L1` | 2 (floor) | **1** | 2 |
+| 2 | `L2` | 2 (floor) | **1** | 1 |
+| 3 | `L2` evicted whole (newest first) | 0 | **2** | −1, preemptor fits |
 
-`M` already carries an in-flight `preemptionTargetCount` of 3 from an earlier cycle whose Pods have
-not all exited. A preemptor with a higher priority than all four arrives needing 14. The candidate
-order is `L1`, `L2`, `M`, `H`: by priority, and `L1` was admitted after `L2`.
+Both `L1` and `L2` reach their floor in round 2 without fitting, so round 3 finds no partial
+candidate left in the low band — `getTargets` now treats them as ordinary whole-eviction
+candidates, and `L2`, the newer of the two, is evicted whole. That reclaims 1 more than needed, so
+fill-back walks the targets in reverse: it cannot drop `L2` (without it the preemptor no longer
+fits), and `fillbackPartialPreemption` finds no partial count for `L2` between its floor and its
+original count that fits either, so `L2` stays evicted. It also cannot drop `L1` (same reason), but
+`fillbackPartialPreemption` finds that restoring `L1` to 3 (giving back the 1 replica it does not
+need to lose) still lets the preemptor fit, so `L1` is raised from 2 back to 3.
 
-| Step | Pass | Visit | Reclaimed | Still needed |
-|---|---|---|---|---|
-| 1 | in progress | `M` at its in-flight target 3 | 5 − 3 = **2** | 12 |
-| 2 | shrink | `L1` to its floor 2 | **3** | 9 |
-| 3 | shrink | `L2` to its floor 3 | **2** | 7 |
-| 4 | shrink | `M` from its target 3 to its floor 1 | **2** | 5 |
-| 5 | shrink | `H` to its floor 2 | **3** | 2 |
-| 6 | evict | `L1` whole: its remaining 2 | **2** | 0, the preemptor fits |
-
-Fill-back gives nothing back: adding `L1` back whole, or any victim back to its previous count,
-would leave the preemptor short. So `L1` is evicted, and `L2`, `M` and `H` keep running at 3, 1 and
-2. `H` loses Pods while `L1`, at a lower priority, is evicted.
-
-If the preemptor needed 11 instead, the shrink pass alone would make it fit at step 5, with no
-eviction. Fill-back would then raise `H`, the last victim, from 2 to 3, the largest count that
-still fits.
+Final result: `L1` ends at 3 (gave up 1), `L2` is evicted whole (gave up 4), and `H` is never
+touched — the high band is only reached once the low band is fully shrunk to the floor and still
+does not free enough quota.
 
 ### Shrinking the PodSet
 
@@ -676,7 +669,8 @@ make this code solid enough prior to committing the changes necessary to impleme
 
 #### Unit tests
 
-- The shrink pass before the evict pass, and the fallback to today's whole-eviction pass.
+- Band-wise shrink-to-floor then whole-eviction within a priority band before advancing to the next
+  band, and the fallback to today's whole-eviction pass.
 - Fill-back: whole restores, and the binary search for shrunk victims, including the last victim;
   an in-flight target is never raised.
 - Fair Sharing: a shrunk candidate is judged by its share after the shrink, and is evicted whole if
@@ -726,10 +720,11 @@ make this code solid enough prior to committing the changes necessary to impleme
 - Support PodSets with a topology assignment, and MultiKueue.
 - Shrink victims selected by `PreemptionConfig` rules.
 - Cover JobSet and the other elastic integrations.
+- Support multiple shrinkable PodSets per Workload (see [Multiple PodSets per Workload](FUTURE_WORK.md#multiple-podsets-per-workload)).
 - Review the opt-in annotation as an API field.
-- Re-evaluate the cost model and the candidate ordering, a strict-priority mode, the fill-back order,
-  spreading reductions across victims, and a timeout for shrinks that do not converge (see
-  [FUTURE_WORK.md](FUTURE_WORK.md)).
+- Re-evaluate the cost model and the candidate ordering, the fill-back order, spreading reductions
+  across victims, a timeout for shrinks that do not converge, and faster candidate selection for
+  large reductions (see [FUTURE_WORK.md](FUTURE_WORK.md)).
 - Decide on proactive downscaling, with user feedback.
 
 ## Implementation History
@@ -794,5 +789,6 @@ added if users ask for it.
 ## Future Work Ideas
 
 Ideas deferred from Alpha are in [FUTURE_WORK.md](FUTURE_WORK.md): the cost model and candidate
-ordering, spreading reductions across victims, a timeout for shrinks that do not converge, and
-proactive downscaling.
+ordering, spreading reductions across victims, faster candidate selection, supporting multiple
+shrinkable PodSets per Workload, a timeout for shrinks that do not converge, and proactive
+downscaling.

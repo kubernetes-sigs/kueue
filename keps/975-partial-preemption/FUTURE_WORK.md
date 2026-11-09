@@ -2,11 +2,12 @@
 
 <!-- toc -->
 - [Cost model and candidate ordering](#cost-model-and-candidate-ordering)
-  - [Strict priority](#strict-priority)
   - [Partial-preemption-aware ordering](#partial-preemption-aware-ordering)
   - [A cost function](#a-cost-function)
 - [Fill-back order](#fill-back-order)
 - [Spreading reductions across victims](#spreading-reductions-across-victims)
+- [Faster candidate selection](#faster-candidate-selection)
+- [Multiple PodSets per Workload](#multiple-podsets-per-workload)
 - [Timeout](#timeout)
 - [Proactive downscaling](#proactive-downscaling)
 <!-- /toc -->
@@ -17,17 +18,11 @@ re-evaluated for Beta, and production feedback may bring one forward to a later 
 
 ## Cost model and candidate ordering
 
-In Alpha, any shrink counts as cheaper than any whole eviction: the shrink pass walks the whole
-candidate order, across segments and priorities, before anything is evicted. So an opted-in
-higher-priority Workload can lose Pods while a lower-priority one is kept, and same-queue victims
-can shrink before borrowed quota is reclaimed from other queues.
-
-### Strict priority
-
-Run the shrink pass and then the evict pass inside each group of segment and priority, before
-moving to the next group. Lower priority then yields first, as it does for whole eviction today, at
-the cost of evicting a lower-priority Workload whole that a cross-priority shrink would have kept
-running. It could be exposed as a `partialPreemption.disableStrictPriorityPreemption` flag.
+In Alpha, within a single pass over the non-evicted segments, any shrink counts as cheaper than any
+whole eviction: a priority band is round-robin-shrunk to its victims' floors and only then evicted
+whole, and the walk never advances to a higher-priority band while the current one still has a
+victim above its floor. Within the evicted/shrinking segments (same hierarchical or same-queue advantage),
+a same-queue victim can still shrink before borrowed quota is reclaimed from other queues.
 
 ### Partial-preemption-aware ordering
 
@@ -47,8 +42,9 @@ Three criteria could be added to the existing candidate comparator:
    behind its peers, so repeated rounds rotate across candidates and spread the reduction instead of
    repeatedly hitting the same Workload.
 
-In Alpha, the shrink pass already favors shrinking over evicting, and an in-flight target counts at
-that target before the passes start.
+In Alpha, shrinking already wins over evicting within a band by construction (see [Cost model and
+candidate ordering](#cost-model-and-candidate-ordering) above), and an in-flight target counts at
+that target before a band is walked.
 
 ### A cost function
 
@@ -77,6 +73,26 @@ more rounds until the preemptor fits or every victim reaches its floor. The cap 
 much a victim loses in total, only the order in which victims lose Pods, and a capped victim would
 shift its loss onto uncapped peers. A bounded step per victim per round, as a scheduler default
 rather than a per-victim annotation, would spread reductions without that side effect.
+
+## Faster candidate selection
+
+Fill-back finds the best count for a single shrunk victim by binary search
+(`fillbackPartialPreemption`), but the forward walk that picks candidates in the first place is a
+linear scan: each round re-walks the current priority band from its start looking for the next
+valid, still-above-floor candidate, and `maxReclaimedReplicasPerRound` is fixed at 1, so shrinking a
+band by N replicas total takes multiple rounds, each rescanning the band. For a band with many
+victims or a reduction that needs many rounds to converge, this adds up. A future version could
+track the scan position across rounds instead of restarting from the top of the band, or compute the
+needed reduction directly from the preemptor's request instead of reclaiming one replica at a time.
+
+## Multiple PodSets per Workload
+
+In Alpha, only one PodSet per Workload may carry a `preemptionMinCount`; a Workload with more than
+one eligible PodSet is evicted whole instead of shrinking the ones that are above their floor. Most
+elastic workloads in scope for Alpha (a Ray worker group, a Spark executor pool) only have one
+shrinkable PodSet, so this does not block the primary use cases. Supporting several shrinkable
+PodSets per Workload is a Beta criterion; it needs the ordering, target selection and fill-back logic
+to reason about the combination of all of a Workload's floors rather than a single one.
 
 ## Timeout
 
