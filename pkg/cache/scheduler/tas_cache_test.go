@@ -12489,6 +12489,23 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"rack required falls back to alphabetical block order when TASAncestorCapacityTieBreak is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASAncestorCapacityTieBreak: false},
+			nodes:        defaultNodes,
+			levels:       defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "rack-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x3"}}},
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, enableVectorizedRequests := range []bool{true, false} {

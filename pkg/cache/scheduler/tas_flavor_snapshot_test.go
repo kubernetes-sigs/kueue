@@ -58,6 +58,8 @@ type testDomainSpec struct {
 	parent *testDomainSpec
 }
 
+// addDomainsWithState populates s.domainStates for specs and their ancestor
+// chain, returning the allocated domain pointers in the same order as specs.
 func addDomainsWithState(s *TASFlavorSnapshot, specs []testDomainSpec) []*domain {
 	added := make(map[*testDomainSpec]*domain)
 	var addSpec func(spec *testDomainSpec) *domain
@@ -797,6 +799,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
+		disableTASAncestorCapacityTieBreak   bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
@@ -1040,6 +1043,31 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 			unconstrained: false,
 			wantOrder:     []string{"b2-r1", "b1-r1"},
 		},
+		"ancestor leader capacity ignored when feature gate is disabled": {
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockSmallLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1"},
+		},
 		"non-leader domains fall back to worker ancestor capacity": {
 			domains: []testDomainSpec{
 				{
@@ -1148,6 +1176,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 
@@ -1224,6 +1253,7 @@ func TestSortedDomains(t *testing.T) {
 		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
+		disableTASAncestorCapacityTieBreak   bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
@@ -1410,6 +1440,37 @@ func TestSortedDomains(t *testing.T) {
 			unconstrained: false,
 			wantOrder:     []string{"b2-r1", "b3-r1", "b1-r1"},
 		},
+		"ancestor capacity ignored when feature gate is disabled": {
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1", "b3-r1"},
+		},
 		"LeastFreeCapacity: ancestor sliceCount and podCount ascending as tiebreaker": {
 			domains: []testDomainSpec{
 				{
@@ -1510,6 +1571,7 @@ func TestSortedDomains(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 

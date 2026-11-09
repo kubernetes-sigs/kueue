@@ -2591,6 +2591,7 @@ func domainIDs(domains []*domain) []string {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
+	ancestorTieBreak := features.Enabled(features.TASAncestorCapacityTieBreak)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		aDomainState, bDomainState := s.domainStateOf(a), s.domainStateOf(b)
@@ -2615,11 +2616,13 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(aDomainState.podCountWithLeader, bDomainState.podCountWithLeader)
 		}
 
-		// When neither domain can host a leader (leaderCount == 0), ancestors may
-		// also have no leader-capable children (leaving podCountWithLeader == 0),
-		// so compare worker-only ancestor capacities instead.
-		if c := s.compareAncestorCapacity(a, b, aDomainState.leaderCount > 0); c != 0 {
-			return c
+		if ancestorTieBreak {
+			// When neither domain can host a leader (leaderCount == 0), ancestors may
+			// also have no leader-capable children (leaving podCountWithLeader == 0),
+			// so compare worker-only ancestor capacities instead.
+			if c := s.compareAncestorCapacity(a, b, aDomainState.leaderCount > 0); c != 0 {
+				return c
+			}
 		}
 
 		return s.compareDomainLevelValues(a, b)
@@ -2638,9 +2641,12 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // Any spreadRules are applied last and take precedence over all of the above,
 // so a domain does not win a spreading decision just by having more room.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
-	return s.sortedDomainsWithAncestorTieBreak(domains, unconstrained, true, spreadRules)
+	return s.sortedDomainsWithAncestorTieBreak(domains, unconstrained, features.Enabled(features.TASAncestorCapacityTieBreak), spreadRules)
 }
 
+// sortedDomainsWithAncestorTieBreak sorts domains using BestFit or LeastFreeCapacity
+// and optionally breaks equal-capacity ties by comparing ancestor free capacity
+// bottom-up when packAncestors is true.
 func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain, unconstrained, packAncestors bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
