@@ -12,7 +12,8 @@ COPY cmd/kueueviz/backend/ .
 
 # Build the application
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
 
 # Runtime stage
 FROM ${BASE_IMAGE}
