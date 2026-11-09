@@ -4652,7 +4652,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Warning",
-					Reason:    "PrebuiltWorkloadControlledByOther",
+					Reason:    "PrebuiltWorkloadHasAnotherController",
 					Message:   "Prebuilt workload \"ns/prebuilt-workload\" is controlled by Job \"other-job\" and cannot be used by this job. Select a different prebuilt workload",
 				},
 				{
@@ -4704,7 +4704,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Warning",
-					Reason:    "PrebuiltWorkloadControlledByOther",
+					Reason:    "PrebuiltWorkloadHasAnotherController",
 					Message:   "Prebuilt workload \"ns/prebuilt-workload\" is controlled by Job \"other-job\" and cannot be used by this job. Select a different prebuilt workload",
 				},
 			},

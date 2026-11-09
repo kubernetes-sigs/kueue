@@ -1184,7 +1184,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			)
 			msg := fmt.Sprintf("Prebuilt workload %q is controlled by %s %q and cannot be used by this job. "+
 				"Select a different prebuilt workload", klog.KObj(wl), controlledBy.Kind, controlledBy.Name)
-			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadControlledByOther, "PrebuiltWorkloadRefused",
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadHasAnotherController, "PrebuiltWorkloadRefused",
 				api.TruncateEventMessage(msg))
 			return nil, nil
 		}
