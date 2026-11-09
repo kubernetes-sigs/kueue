@@ -717,6 +717,70 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should reserve quota for workload with CEL selectors when ClusterQueue has a ProvisioningRequest admission check and no matching ResourceSlices exist", func() {
+			ginkgo.By("Creating an active ProvisioningRequest AdmissionCheck")
+			ac := utiltestingapi.MakeAdmissionCheck("ac-prov-dra").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ac)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			}()
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
+
+			ginkgo.By("Creating a ClusterQueue with the ProvisioningRequest AdmissionCheck")
+			provCq := utiltestingapi.MakeClusterQueue("").GeneratedName("prov-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("foo", "10").
+						Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, provCq)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, provCq, true)
+			}()
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, provCq)
+
+			provLq := utiltestingapi.MakeLocalQueue("prov-lq", ns.Name).
+				ClusterQueue(provCq.Name).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, provLq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, provLq)
+
+			ginkgo.By("Creating a ResourceClaimTemplate with CEL selectors that match no devices")
+			rct := utiltesting.MakeResourceClaimTemplate("prov-cel-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				WithCELSelectors("device.driver == \"provisioned-driver\"").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, rct)
+
+			ginkgo.By("Creating a workload targeting the ProvisioningRequest ClusterQueue")
+			wl := utiltestingapi.MakeWorkload("prov-cel-wl", ns.Name).
+				Queue("prov-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "prov-cel-template").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			}()
+
+			ginkgo.By("Verifying workload reserves quota despite having no matching ResourceSlices")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName("foo"), resource.MustParse("2")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should reserve quota for workload with CEL selectors when ClusterQueue has a MultiKueue admission check and no matching ResourceSlices exist", func() {
 			ginkgo.By("Creating an active MultiKueue AdmissionCheck")
 			ac := utiltestingapi.MakeAdmissionCheck("ac-multikueue").

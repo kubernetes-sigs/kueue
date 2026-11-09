@@ -3202,6 +3202,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				if tc.lq != nil {
 					setupLocalQueue(ctx, t, cl, qManager, tc.lq, tc.shouldDeleteLQ)
 				}
+				registerAdmissionChecksInSchedulerCache(ctx, t, cqCache, tc.cq, tc.additionalObjects)
 
 				if needsDRAMapperSetup(tc, testWl) {
 					draConfig := []configapi.DeviceClassMapping{
@@ -3542,6 +3543,30 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 		if err := cl.Delete(ctx, testCq); err != nil {
 			t.Fatalf("couldn't delete the cluster queue: %v", err)
 		}
+	}
+}
+
+// registerAdmissionChecksInSchedulerCache puts AdmissionCheck objects from the
+// fake client into the scheduler cache so WorkloadReconciler can see their
+// controllers. Inactive ClusterQueues are otherwise omitted from that cache.
+func registerAdmissionChecksInSchedulerCache(ctx context.Context, t *testing.T, cqCache *schdcache.Cache, cq *kueue.ClusterQueue, objects []client.Object) {
+	t.Helper()
+	var checks []*kueue.AdmissionCheck
+	for _, obj := range objects {
+		if ac, ok := obj.(*kueue.AdmissionCheck); ok {
+			checks = append(checks, ac)
+		}
+	}
+	if len(checks) == 0 {
+		return
+	}
+	if cq != nil {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil && err.Error() != "ClusterQueue already exists" {
+			t.Fatalf("couldn't add ClusterQueue to scheduler cache: %v", err)
+		}
+	}
+	for _, ac := range checks {
+		cqCache.AddOrUpdateAdmissionCheck(logr.Discard(), ac)
 	}
 }
 

@@ -177,7 +177,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	sliceCache := dra.NewResourceSliceCache(r.client)
-	skipDeviceCheck := r.hasMultiKueueAdmissionCheck(wl)
+	skipDeviceCheck := r.skipDRADeviceAvailabilityCheck(wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
 	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
@@ -243,7 +243,11 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	return false, ctrl.Result{}, queueOptions, nil
 }
 
-func (r *WorkloadReconciler) hasMultiKueueAdmissionCheck(wl *kueue.Workload) bool {
+// skipDRADeviceAvailabilityCheck reports whether the present-device ResourceSlice
+// scan should be skipped. CEL syntax and type compilation still run.
+// MultiKueue managers have no worker devices; ProvisioningRequest queues may
+// have no ResourceSlices yet when scaling from zero.
+func (r *WorkloadReconciler) skipDRADeviceAvailabilityCheck(wl *kueue.Workload) bool {
 	if wl.Spec.QueueName == "" {
 		return false
 	}
@@ -252,7 +256,7 @@ func (r *WorkloadReconciler) hasMultiKueueAdmissionCheck(wl *kueue.Workload) boo
 		return false
 	}
 	for _, ac := range r.cache.AdmissionChecksForClusterQueue(cqName) {
-		if ac.Controller == kueue.MultiKueueControllerName {
+		if ac.Controller == kueue.MultiKueueControllerName || ac.Controller == kueue.ProvisioningRequestControllerName {
 			return true
 		}
 	}
