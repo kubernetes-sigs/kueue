@@ -556,6 +556,21 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"with required topology annotation on top-level job metadata (ignored)": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Obj(),
+			},
+		},
 		"with preferred topology annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
