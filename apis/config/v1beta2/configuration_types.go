@@ -397,6 +397,14 @@ type MultiKueue struct {
 	// +optional
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
 
+	// WorkerWatchTimeout defines the timeout the manager requests for each watch it opens on
+	// a worker cluster. When a watch ends, the manager reconnects to the worker and requeues
+	// the workloads assigned to it, so a longer timeout makes these requeues less frequent.
+	// If unset or 0, no timeout is requested and the worker's API server ends each watch after
+	// its --min-request-timeout times a random factor in [1, 2), 30 to 60 minutes by default.
+	// +optional
+	WorkerWatchTimeout *metav1.Duration `json:"workerWatchTimeout,omitempty"`
+
 	// DispatcherName defines the dispatcher responsible for selecting worker clusters to handle the workload.
 	// - If specified, the workload will be handled by the named dispatcher.
 	// - If not specified, the workload will be handled by the default ("kueue.x-k8s.io/multikueue-dispatcher-all-at-once") dispatcher.

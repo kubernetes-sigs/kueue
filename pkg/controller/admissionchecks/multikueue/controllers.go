@@ -40,6 +40,7 @@ type SetupOptions struct {
 	gcInterval               time.Duration
 	origin                   string
 	workerLostTimeout        time.Duration
+	workerWatchTimeout       time.Duration
 	eventsBatchPeriod        time.Duration
 	adapters                 map[string]jobframework.MultiKueueAdapter
 	dispatcherName           string
@@ -72,6 +73,14 @@ func WithOrigin(origin string) SetupOption {
 func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
 		o.workerLostTimeout = d
+	}
+}
+
+// WithWorkerWatchTimeout - sets the timeout requested for each watch on a
+// worker cluster. If 0, the worker's API server picks the timeout.
+func WithWorkerWatchTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.workerWatchTimeout = d
 	}
 }
 
@@ -175,6 +184,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		namespace,
 		withGCInterval(options.gcInterval),
 		withOrigin(options.origin),
+		withWorkerWatchTimeout(options.workerWatchTimeout),
 		withFSWatcher(fsWatcher),
 		withAdapters(options.adapters),
 		withClusterProfileAccessProvider(cpAccessProvider),
