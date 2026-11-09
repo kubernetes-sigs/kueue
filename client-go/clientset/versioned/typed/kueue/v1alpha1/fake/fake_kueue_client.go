@@ -36,6 +36,10 @@ func (c *FakeKueueV1alpha1) DynamicQuotaOrchestrators() v1alpha1.DynamicQuotaOrc
 	return newFakeDynamicQuotaOrchestrators(c)
 }
 
+func (c *FakeKueueV1alpha1) MultiKueueCapacityProviderConfigs() v1alpha1.MultiKueueCapacityProviderConfigInterface {
+	return newFakeMultiKueueCapacityProviderConfigs(c)
+}
+
 func (c *FakeKueueV1alpha1) PreemptionConfigs() v1alpha1.PreemptionConfigInterface {
 	return newFakePreemptionConfigs(c)
 }

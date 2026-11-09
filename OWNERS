@@ -28,6 +28,8 @@ filters:
   "^Makefile$":
     approvers:
       - release-team
+    reviewers:
+      - infra-reviewers
 
   # Any directory depth: README.md or README.md.gotmpl
   "README\\.md(\\.gotmpl)?$":
@@ -66,16 +68,22 @@ filters:
   "_test\\.go$":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
 
   # Test and verification makefiles
   "^hack/make/(verify|test)\\.mk$":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
 
   # Linter configs
   "^\\.golangci.*\\.ya?ml$":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
 
   # Agent instructions and experimental agent
   "^AGENTS\\.md$":

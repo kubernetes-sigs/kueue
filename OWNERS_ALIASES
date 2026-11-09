@@ -15,18 +15,37 @@ aliases:
     - sohankunkerkar
     - amy
     - j-skiba
+    - apullo777
   kueuectl-approvers:
     - mbobrovskyi
   kueuectl-reviewers:
     - henry3260
+  kueueviz-reviewers:
+    - akram
+    - danylott
+    - mykysha
+  concurrent-admission-reviewers:
+    - ivnovakov
   deployment-integration-approvers:
     - mbobrovskyi
+  deployment-integration-reviewers:
+    - vladikkuzn
   leaderworkerset-integration-approvers:
     - mbobrovskyi
+  leaderworkerset-integration-reviewers:
+    - vladikkuzn
   pod-integration-approvers:
     - mbobrovskyi
+  pod-integration-reviewers:
+    - vladikkuzn
   statefulset-integration-approvers:
     - mbobrovskyi
+  statefulset-integration-reviewers:
+    - vladikkuzn
+  jobframework-implementation-approvers:
+    - mbobrovskyi
+  kueue-priority-booster-reviewers:
+    - vladikkuzn
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
@@ -35,11 +54,17 @@ aliases:
     - mbobrovskyi
     - olekzabl
     - pbundyra
+  test-reviewers:
+    - ivnovakov
+    - mykysha
+    - reruno
+    - vladikkuzn
   agent-approvers:
     - amy
     - kannon92
     - pbundyra
   agent-reviewers:
+    - vladikkuzn
     - amy
     - kannon92
     - pbundyra
@@ -47,6 +72,8 @@ aliases:
     - mbobrovskyi
   infra-approvers:
     - mbobrovskyi
+  infra-reviewers:
+    - vladikkuzn
   release-team:
     - mbobrovskyi
     - Singularity23x0
