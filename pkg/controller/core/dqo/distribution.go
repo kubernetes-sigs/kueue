@@ -456,8 +456,7 @@ func buildEffectiveQuotas(
 						effectiveResourceGroups[i].Flavors[j].Resources[k].NominalQuota = allocated
 						if kind == kueuealpha.ClusterQueueSubtreeRootRefKind && resourceQuota.LendingLimit != nil {
 							if resourceQuota.LendingLimit.Cmp(allocated) > 0 {
-								cappedLimit := allocated.DeepCopy()
-								effectiveResourceGroups[i].Flavors[j].Resources[k].LendingLimit = &cappedLimit
+								effectiveResourceGroups[i].Flavors[j].Resources[k].LendingLimit = new(allocated.DeepCopy())
 							}
 						}
 					}

@@ -61,6 +61,10 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
+	wlPriorityClassFilter, err := buildPriorityClassFilter(selector.PriorityClassSelector)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return CandidateFilters{}, errs
@@ -80,6 +84,9 @@ func NewCandidateFilters(
 	wlFilters = append(wlFilters, wlNumericFilters...)
 	if wlPriorityFilter != nil {
 		wlFilters = append(wlFilters, wlPriorityFilter)
+	}
+	if wlPriorityClassFilter != nil {
+		wlFilters = append(wlFilters, wlPriorityClassFilter)
 	}
 
 	return CandidateFilters{
@@ -175,6 +182,15 @@ func buildPriorityFilter(
 		return nil, nil
 	}
 	return NewPriorityFilter(log, *priority, preemptor)
+}
+
+func buildPriorityClassFilter(
+	selector *kueuealpha.PreemptionConfigPriorityClassSelector,
+) (WorkloadFilter, *FilterBuildError) {
+	if isEmptyPriorityClassSelector(selector) {
+		return nil, nil
+	}
+	return NewPriorityClassFilter(*selector)
 }
 
 func buildClusterQueueLabelFilter(

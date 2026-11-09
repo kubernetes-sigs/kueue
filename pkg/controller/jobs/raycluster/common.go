@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -358,6 +359,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
+	jobframework.DefaultPodIndexOffsetForPodSetGroup(&headPod.ObjectMeta)
 
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
@@ -366,6 +368,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&workerPod.ObjectMeta)
 	}
 
 	return nil
@@ -416,7 +419,7 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
-		isRayObjectManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		isManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
 		allErrors = append(
 			allErrors,
 			field.Forbidden(
@@ -444,17 +447,22 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	return allErrors
 }
 
-func isRayObjectManagedByMultiKueue(object client.Object) bool {
-	switch job := object.(type) {
-	case *rayv1.RayCluster:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	case *rayv1.RayJob:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	case *rayv1.RayService:
-		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
-	default:
-		return false
+// EquivalenceOptions returns the ComparePodSetsOption shared by all Ray job
+// types. Unless KubeRayEvictOnInconsistentTopologyRequest is enabled, it
+// ignores the TopologyRequest index and subgroup fields, so that workloads
+// created before rank-based ordering was added are not evicted as out of sync.
+func EquivalenceOptions() []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
 	}
+	return nil
+}
+
+// CanDefaultManagedBy reports whether the spec.managedBy of a Ray job can be
+// defaulted to MultiKueue: it must be unset or set to the KubeRay controller.
+func CanDefaultManagedBy(managedBy *string) bool {
+	return features.Enabled(features.MultiKueue) &&
+		(managedBy == nil || *managedBy == rayutils.KubeRayController)
 }
 
 func ValidateTopologyRequest(
@@ -533,6 +541,8 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
 	switch job := object.(type) {
+	case *rayv1.RayCluster:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayJob:
 		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayService:
@@ -606,7 +616,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 	return podSets
 }
 
-// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// ParsePodSetReplicaSizes parses the RayClusterPodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
 func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
 	counts := make(map[kueue.PodSetReference]int32)

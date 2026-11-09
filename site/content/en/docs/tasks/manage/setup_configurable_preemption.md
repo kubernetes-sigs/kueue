@@ -179,9 +179,45 @@ Because `PreemptionConfig` now manages both quota acquisition and topology defra
 
 ---
 
+### Scenario 3: Priority Threshold for Within-ClusterQueue Preemption
+
+In a shared `ClusterQueue` with multiple priority tiers (e.g., `production-high`, `production-standard`, `batch-low`, and `dev-preemptible`), you can restrict within-queue preemption so higher-priority workloads only preempt specific low-priority classes while protecting intermediate tiers such as `production-standard`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: PreemptionConfig
+metadata:
+  name: "preempt-same-cq-low-priority"
+spec:
+  rules:
+  - name: "preempt-same-cq-low-priority"
+    activationPolicy:
+      trigger: "InsufficientQuota"
+    candidateSelectors:
+    - scope: "WithinClusterQueue"
+      priority:
+        mode: "Base"
+        comparison: "LessThan"
+      priorityClassSelector:
+        sourceRef:
+          group: "kueue.x-k8s.io"
+          kind: "WorkloadPriorityClass"
+        nameExpressions:
+        - operator: "In"
+          values:
+          - "batch-low"
+          - "dev-preemptible"
+```
+
+**How it works:**
+- **Priority Class Allowlist (`priorityClassSelector`)**: Combined with `priority` (`mode: Base` and `comparison: LessThan`), only candidates in the same `ClusterQueue` (`WithinClusterQueue`) that have strictly lower base priority **and** reference a `WorkloadPriorityClass` (`sourceRef`) named `batch-low` or `dev-preemptible` (`nameExpressions` with `operator: In`) are eligible for preemption. Running `production-standard` workloads are protected even when a `production-high` workload arrives.
+- **ClusterQueue Setup**: Attach this config via `kueue.x-k8s.io/preemption-config-name: "preempt-same-cq-low-priority"` and set `spec.preemption.withinClusterQueue: Never` on the `ClusterQueue` so classical preemption does not bypass `priorityClassSelector`.
+
+---
+
 ## Common Pitfalls
 
-- **Classical Preemption Bypassing Custom Guardrails**: In Alpha, candidate sets from `spec.preemption` and `PreemptionConfig` are merged. If your custom rules protect specific workloads using `labelSelector` or `clusterQueueSelector`, classical preemption in `spec.preemption` will still evaluate and evict those workloads unless you set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
+- **Classical Preemption Bypassing Custom Guardrails**: In Alpha, candidate sets from `spec.preemption` and `PreemptionConfig` are merged. If your custom rules protect specific workloads using `priorityClassSelector`, `labelSelector`, or `clusterQueueSelector`, classical preemption in `spec.preemption` will still evaluate and evict those workloads unless you set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
 - **Preemption Flapping from Symmetric Rules**: When defining rules across queues (with `WithinCohortTree` or `AnyClusterQueue`), ensure rules are strictly asymmetric (e.g., using `priority.comparison: LessThan` or `numericLabels.comparison: LessThan`) to avoid cascading preemptions where workloads repeatedly evict each other.
 - **Label Propagation**: Custom numeric labels or tier labels on Jobs are not copied to Kueue `Workload` resources unless added to `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2).
 - **Topology Defragmentation Requires Quota Feasibility**: A workload blocked by both quota exhaustion and topology fragmentation cannot activate `QuotaFeasibleAndInsufficientTopology` until its quota requirement is satisfied by baseline preemption or an `InsufficientQuota` rule.

@@ -24,13 +24,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -39,6 +39,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type testCandidate struct {
@@ -59,7 +60,7 @@ func (p *passthroughChecker) Simulate(_ context.Context, fn func()) error {
 	return nil
 }
 
-func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
@@ -87,6 +88,14 @@ func (p *passthroughChecker) AddPodGroup(_ context.Context, _ *schedulingv1beta1
 }
 
 func (p *passthroughChecker) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (p *passthroughChecker) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (p *passthroughChecker) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
 	return nil
 }
 

@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", func() {
 	var (
 		ns       *corev1.Namespace
 		topology *kueue.Topology
@@ -44,13 +44,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		cq       *kueue.ClusterQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("zero-count-group")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -207,11 +204,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		})
 		ginkgo.By("reclaiming the completed workers and draining the queue", func() {
 			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
-				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			gomega.Expect(wl.Status.Admission).To(gomega.BeNil())
@@ -219,11 +212,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		})
 		ginkgo.By("removing the larger node and resuming with capacity for the remaining leader", func() {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = nil
-				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.UnsetClusterQueueStopPolicy(ctx, k8sClient, cq)
 		})
 		ginkgo.By("readmitting only the remaining pod on the smaller flavor", func() {
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -123,6 +124,12 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		if oldObj != nil {
 			oldPS = podset.FindPodSetByName(oldObj.Spec.PodSets, ps.Name)
 		}
+		allErrs = append(allErrs, validatePreferredTopologyForWAS(
+			ps,
+			oldPS,
+			psPath.Child("topologyRequest"),
+		)...,
+		)
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
@@ -498,16 +505,23 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
+// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count
+// and added tolerations.
 func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
 	}
+	if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.ContainsAll(new.Template.Spec.Tolerations, old.Template.Spec.Tolerations) {
+		// Allow adding tolerations: the pods still tolerate the taints of the
+		// assigned nodes, so the admission stays valid.
+		new.Template.Spec.Tolerations = old.Template.Spec.Tolerations
+	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
-// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
+// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count
+// and added tolerations.
 func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
@@ -568,4 +582,29 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
+}
+
+// validatePreferredTopologyForWAS rejects new preferred topology requests while
+// allowing unchanged requests on existing PodSets so status and cleanup updates
+// remain possible after WAS deep integration is enabled.
+func validatePreferredTopologyForWAS(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return nil
+	}
+
+	tr := ps.TopologyRequest
+	if tr == nil || tr.Preferred == nil {
+		return nil
+	}
+
+	if oldPS != nil && oldPS.TopologyRequest != nil && ptr.Equal(tr.Preferred, oldPS.TopologyRequest.Preferred) {
+		return nil
+	}
+
+	return field.ErrorList{
+		field.Forbidden(
+			path.Child("preferred"),
+			"preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		),
+	}
 }

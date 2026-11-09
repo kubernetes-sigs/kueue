@@ -5,14 +5,15 @@ FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 
 COPY cmd/kueueviz/backend/go.mod cmd/kueueviz/backend/go.sum ./
 COPY hack/testing/retry.sh /usr/local/bin/retry.sh
-RUN retry.sh --attempts 7 --delay 2 --exponential --stream -- go mod download
+RUN retry.sh --stream -- go mod download
 
 # Copy the application source code
 COPY cmd/kueueviz/backend/ .
 
 # Build the application
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
 
 # Runtime stage
 FROM ${BASE_IMAGE}
@@ -22,7 +23,7 @@ USER 65532:65532
 COPY --from=builder /kueueviz /
 
 # Set environment variables
-ENV PORT=8080
+ENV KUEUEVIZ_PORT=8080
 # Expose the application port
 EXPOSE 8080
 

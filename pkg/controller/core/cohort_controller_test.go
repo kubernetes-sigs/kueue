@@ -27,12 +27,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -767,6 +769,288 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 				if diff := cmp.Diff(*tc.wantWeightedShareMetric, dps[0].Value, cmpopts.EquateNaNs()); diff != "" {
 					t.Errorf("unexpected CohortWeightedShare metric value (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+type cohortUpdateRecorder struct {
+	updates []*kueue.Cohort
+}
+
+func (w *cohortUpdateRecorder) NotifyCohortUpdate(_, newCohort *kueue.Cohort) {
+	w.updates = append(w.updates, newCohort)
+}
+
+// The Cohort reconciler notifies its ClusterQueues when the Cohort changes
+// spec or quotas, and, with fair sharing, the tree when a ClusterQueue under it
+// is created, deleted or changes spec or quotas, and the tree a Cohort left. It
+// does not when a ClusterQueue only wrote its status: the ClusterQueues' own
+// status writes would otherwise requeue the Cohort and the Cohort would
+// reconcile them all again, forever.
+func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
+	// Notifications after each step, with fair sharing off and on.
+	steps := []struct {
+		name    string
+		wantOff int
+		wantOn  int
+	}{
+		{"cohort created", 1, 1},
+		{"cohort requeued", 1, 1},
+		{"clusterqueue status write", 1, 1},
+		{"clusterqueue quota change", 1, 2},
+		{"clusterqueue created", 1, 3},
+		{"clusterqueue deleted", 1, 4},
+		{"clusterqueue moved", 1, 6},
+		{"clusterqueue under the root quota change", 1, 7},
+		{"cohort status write", 1, 7},
+		{"cohort quota change", 2, 8},
+		{"cohort moved", 3, 10},
+		{"cohort deleted", 4, 11},
+		{"cohort delete event", 4, 12},
+	}
+	for name, fairSharing := range map[string]bool{"fair sharing off": false, "fair sharing on": true} {
+		t.Run(name, func(t *testing.T) {
+			cohort := utiltestingapi.MakeCohort("cohort").Parent("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
+			rootCQ := utiltestingapi.MakeClusterQueue("root-cq").Cohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(cohort, cq, rootCQ).WithStatusSubresource(cohort).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			for _, cq := range []*kueue.ClusterQueue{cq, rootCQ} {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("unexpected error adding ClusterQueue to cache: %v", err)
+				}
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("other").Parent("root").Obj()); err != nil {
+				t.Fatalf("unexpected error adding Cohort to cache: %v", err)
+			}
+			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithFairSharing(fairSharing))
+			recorder := &cohortUpdateRecorder{}
+			reconciler.AddUpdateWatcher(recorder)
+			cqHandler := &cohortCqHandler{reconciler: reconciler}
+			queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
+
+			expectNotified := func(step string) {
+				t.Helper()
+				want := 0
+				for _, s := range steps {
+					if s.name == step {
+						want = s.wantOff
+						if fairSharing {
+							want = s.wantOn
+						}
+					}
+				}
+				if got := len(recorder.updates); got != want {
+					t.Fatalf("%s: ClusterQueues notified %d times, want %d", step, got, want)
+				}
+			}
+			runReconcile := func(step string) {
+				t.Helper()
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+					t.Fatalf("%s: unexpected error reconciling cohort: %v", step, err)
+				}
+				expectNotified(step)
+			}
+			forwardClusterQueue := func(step string, oldCQ, newCQ *kueue.ClusterQueue, wantRequeued ...kueue.CohortReference) {
+				t.Helper()
+				cqHandler.Generic(ctx, event.TypedGenericEvent[clusterQueueUpdate]{Object: clusterQueueUpdate{oldCQ: oldCQ, newCQ: newCQ}}, queue)
+				requeued := make([]kueue.CohortReference, 0, queue.Len())
+				for queue.Len() > 0 {
+					item, _ := queue.Get()
+					queue.Done(item)
+					requeued = append(requeued, kueue.CohortReference(item.Name))
+				}
+				if diff := cmp.Diff(wantRequeued, requeued, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b kueue.CohortReference) bool { return a < b })); diff != "" {
+					t.Fatalf("%s: unexpected Cohorts requeued (-want/+got)\n%s", step, diff)
+				}
+			}
+
+			if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
+				t.Fatal("cohort create event was filtered out")
+			}
+			runReconcile("cohort created")
+			runReconcile("cohort requeued")
+
+			cqWithStatus := cq.DeepCopy()
+			cqWithStatus.Status.AdmittedWorkloads = 1
+			forwardClusterQueue("clusterqueue status write", cq, cqWithStatus, "cohort")
+			runReconcile("clusterqueue status write")
+
+			cqWithQuota := cq.DeepCopy()
+			cqWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+			forwardClusterQueue("clusterqueue quota change", cq, cqWithQuota, "cohort")
+			runReconcile("clusterqueue quota change")
+
+			forwardClusterQueue("clusterqueue created", nil, cq, "cohort")
+			runReconcile("clusterqueue created")
+			forwardClusterQueue("clusterqueue deleted", cq, nil, "cohort")
+			runReconcile("clusterqueue deleted")
+
+			cqMoved := cq.DeepCopy()
+			cqMoved.Spec.CohortName = "other"
+			forwardClusterQueue("clusterqueue moved", cq, cqMoved, "other", "cohort")
+			runReconcile("clusterqueue moved")
+
+			// The root is not an ancestor to requeue, so the handler notifies the tree.
+			rootCQWithQuota := rootCQ.DeepCopy()
+			rootCQWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
+			forwardClusterQueue("clusterqueue under the root quota change", rootCQ, rootCQWithQuota)
+			runReconcile("clusterqueue under the root quota change")
+
+			cohortWithStatus := cohort.DeepCopy()
+			cohortWithStatus.Status.FairSharing = &kueue.FairSharingStatus{WeightedShare: 1}
+			if reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithStatus}) {
+				t.Fatal("cohort status-only update event was not filtered out")
+			}
+			runReconcile("cohort status write")
+
+			cohortWithQuota := cohort.DeepCopy()
+			cohortWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("20")
+			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithQuota}) {
+				t.Fatal("cohort quota update event was filtered out")
+			}
+			runReconcile("cohort quota change")
+
+			// The tree left is notified by the event, the tree joined by Reconcile.
+			cohortMoved := cohort.DeepCopy()
+			cohortMoved.Spec.ParentName = "other-root"
+			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortMoved}) {
+				t.Fatal("cohort parent update event was filtered out")
+			}
+			runReconcile("cohort moved")
+
+			if err := cl.Delete(ctx, cohort); err != nil {
+				t.Fatalf("unexpected error deleting cohort: %v", err)
+			}
+			runReconcile("cohort deleted")
+			if recorder.updates[len(recorder.updates)-1] != nil {
+				t.Fatal("cohort deletion was not notified as a deletion")
+			}
+			if !reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: cohort}) {
+				t.Fatal("cohort delete event was filtered out")
+			}
+			expectNotified("cohort delete event")
+		})
+	}
+}
+
+func TestCohortReconcileCustomLabelChangeCounters(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	unbounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+	bounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).TrackedValues("alpha", "beta").Obj(),
+	}
+	mixed := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).TrackedValues("alpha", "beta").Obj(),
+		utiltestingapi.MakeCustomLabel("cost_cohort").SourceLabelKey("cost").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+
+	testCases := map[string]struct {
+		clConfig           []configapi.ControllerMetricsCustomLabel
+		inCycle            bool
+		wantOldCounterKept bool
+	}{
+		"unbounded labels": {
+			clConfig: unbounded,
+		},
+		"bounded labels": {
+			clConfig:           bounded,
+			wantOldCounterKept: true,
+		},
+		"mixed labels": {
+			clConfig: mixed,
+		},
+		"unbounded labels, Cohort in a cycle": {
+			clConfig: unbounded,
+			inCycle:  true,
+		},
+		"bounded labels, Cohort in a cycle": {
+			clConfig:           bounded,
+			inCycle:            true,
+			wantOldCounterKept: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cLabels := metrics.NewCustomLabels(tc.clConfig)
+			t.Cleanup(func() {
+				metrics.InitMetricVectors(nil)
+			})
+
+			cohortWrapper := utiltestingapi.MakeCohort("cohort-a").Label("team", "alpha")
+			cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+			objs := []client.Object{}
+			if tc.inCycle {
+				cohortWrapper = cohortWrapper.Parent("cohort-b")
+				objs = append(objs, cohortB)
+			}
+			cohort := cohortWrapper.Obj()
+			objs = append(objs, cohort)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(&kueue.Cohort{}).
+				Build()
+			cache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithCustomLabels(cLabels))
+
+			if tc.inCycle {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile error: %v", err)
+			}
+			cohortRef := kueue.CohortReference(cohort.Name)
+			metrics.ReportCohortSubtreeAdmittedWorkload(cohortRef, "", cLabels.CohortGet(cohortRef), nil)
+
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(cohort), cohort); err != nil {
+				t.Fatalf("Getting cohort: %v", err)
+			}
+			cohort.Labels["team"] = "beta"
+			if err := cl.Update(ctx, cohort); err != nil {
+				t.Fatalf("Updating cohort: %v", err)
+			}
+			// An admission recorded under the new value must survive the clear.
+			newVals := cLabels.MakeValsSet(configapi.SourceKindCohort, cohort.Labels, cohort.Annotations)
+			metrics.ReportCohortSubtreeAdmittedWorkload(cohortRef, "", newVals.OrderedList(), nil)
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile error: %v", err)
+			}
+
+			wantSeries := 0
+			if tc.wantOldCounterKept {
+				wantSeries = 1
+			}
+			got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedWorkloadsTotal, map[string]string{
+				"cohort":             cohort.Name,
+				"custom_team_cohort": "alpha",
+			})
+			if len(got) != wantSeries {
+				t.Errorf("Unexpected subtree admitted workloads counter with custom_team_cohort=alpha: want %d series, got %v", wantSeries, got)
+			}
+			if len(got) == 1 && got[0].Value != 1 {
+				t.Errorf("Expected the kept subtree admitted workloads counter with custom_team_cohort=alpha to keep value 1, got %v", got)
+			}
+			gotNew := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedWorkloadsTotal, map[string]string{
+				"cohort":             cohort.Name,
+				"custom_team_cohort": "beta",
+			})
+			if len(gotNew) != 1 || gotNew[0].Value != 1 {
+				t.Errorf("Expected the subtree admitted workloads counter with custom_team_cohort=beta to be kept with value 1, got %v", gotNew)
 			}
 		})
 	}

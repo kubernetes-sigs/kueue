@@ -20,6 +20,7 @@ import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHe
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import { formatTaint, formatToleration } from './utils/taints';
 
 const ResourceFlavorDetail = () => {
   const { flavorName } = useParams();
@@ -74,7 +75,7 @@ const ResourceFlavorDetail = () => {
             {details.nodeTaints?.length ? (
               <Box display="flex" flexWrap="wrap" gap={0.5}>
                 {details.nodeTaints.map((taint, index) => (
-                  <Chip key={index} label={`${taint.key}=${taint.value} (${taint.effect})`} size="small" color="warning" variant="outlined" />
+                  <Chip key={index} label={formatTaint(taint)} size="small" color="warning" variant="outlined" />
                 ))}
               </Box>
             ) : (
@@ -86,7 +87,7 @@ const ResourceFlavorDetail = () => {
             {details.tolerations?.length ? (
               <Box display="flex" flexWrap="wrap" gap={0.5}>
                 {details.tolerations.map((toleration, index) => (
-                  <Chip key={index} label={`${toleration.key} (${toleration.operator}): ${toleration.effect}`} size="small" variant="outlined" />
+                  <Chip key={index} label={formatToleration(toleration)} size="small" variant="outlined" />
                 ))}
               </Box>
             ) : (
@@ -178,7 +179,7 @@ const ResourceFlavorDetail = () => {
                       {node.taints?.length > 0 ? (
                         <Box display="flex" flexWrap="wrap" gap={0.5}>
                           {node.taints.map((taint, index) => (
-                            <Chip key={index} label={`${taint.key}=${taint.value} (${taint.effect})`} size="small" color="warning" variant="outlined" />
+                            <Chip key={index} label={formatTaint(taint)} size="small" color="warning" variant="outlined" />
                           ))}
                         </Box>
                       ) : (

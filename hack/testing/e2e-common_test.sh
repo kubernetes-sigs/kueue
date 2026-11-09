@@ -70,7 +70,7 @@ case "$*" in
     attempts=$(cat "${state_file}")
     attempts=$((attempts + 1))
     printf '%s' "${attempts}" >"${state_file}"
-    if [[ "${attempts}" -lt 2 ]]; then
+    if [[ "${attempts}" -lt 3 ]]; then
       printf 'pod-1\n'
       printf 'pod-1\n'
     else
@@ -197,18 +197,36 @@ export KUBECTL_FAKE_STATE KUBECTL_FAKE_LOG
 printf '0' >"${KUBECTL_FAKE_STATE}"
 : >"${KUBECTL_FAKE_LOG}"
 
-e2e_wait_for_deployment_webhook_endpoints "test.kubeconfig" "kubeflow-system" \
+# The fake sleep records each delay instead of waiting.
+SLEEP_FAKE_DIR="${test_dir}/sleep-fake"
+SLEEP_FAKE_LOG="${test_dir}/sleep.log"
+export SLEEP_FAKE_LOG
+mkdir "${SLEEP_FAKE_DIR}"
+cat >"${SLEEP_FAKE_DIR}/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s ' "$1" >>"${SLEEP_FAKE_LOG}"
+EOF
+chmod +x "${SLEEP_FAKE_DIR}/sleep"
+
+PATH="${SLEEP_FAKE_DIR}:${PATH}" e2e_wait_for_deployment_webhook_endpoints "test.kubeconfig" "kubeflow-system" \
   "kubeflow-trainer-controller-manager" "kubeflow-trainer-controller-manager"
 
 endpoint_attempts=$(cat "${KUBECTL_FAKE_STATE}")
-if [[ "${endpoint_attempts}" != "2" ]]; then
+if [[ "${endpoint_attempts}" != "3" ]]; then
   echo "expected EndpointSlice polling to continue until ready endpoints match deployment replicas; got ${endpoint_attempts} attempt(s)" >&2
   exit 1
 fi
 
 status_dump_count=$(grep -c -- "-o wide" "${KUBECTL_FAKE_LOG}" || true)
-if [[ "${status_dump_count}" != "1" ]]; then
-  echo "expected EndpointSlice status to be dumped after an unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+if [[ "${status_dump_count}" != "2" ]]; then
+  echo "expected EndpointSlice status to be dumped after each unsatisfied readiness check; got ${status_dump_count} dump(s)" >&2
+  exit 1
+fi
+
+# Polling keeps a constant delay: doubling it over 150 attempts would never time out.
+polling_delays=$(cat "${SLEEP_FAKE_LOG}")
+if [[ "${polling_delays}" != "2 2 " ]]; then
+  echo "expected EndpointSlice polling to keep a constant delay; got '${polling_delays}'" >&2
   exit 1
 fi
 
@@ -493,5 +511,50 @@ if [[ "${manifest_attempts}" != "1" ]]; then
 fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# e2e_timed runs the step with its arguments unchanged and logs its start and end
+# time, status, duration and label; once the step completes,
+# e2e_timed_log_unfinished has nothing to log.
+timestamp_re='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+timed_output=$(e2e_timed "kind/install_example" printf '%s|%s\n' "first arg" "second"; e2e_timed_log_unfinished 0)
+if [[ "${timed_output}" != *"first arg|second"* ]]; then
+  echo "expected e2e_timed to pass arguments through unchanged; got: ${timed_output}" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' <<<"${timed_output}") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=0 duration=[0-9]+s step=kind/install_example$" <<<"${timed_output}"; then
+  echo "expected one e2e-timing line for a successful step; got: ${timed_output}" >&2
+  exit 1
+fi
+
+# The subshell below is a standalone statement: inside "if", "&&" or "||" bash
+# would ignore errexit, which is exactly the behavior being checked.
+set +o errexit
+
+# A multi-command step like install_* or kueue_deploy: under errexit it must
+# stop at the first failing command instead of running the rest of the step.
+function e2e_timed_test_step {
+  false
+  echo "step continued after failure"
+}
+
+# With errexit on, as in the e2e scripts, a failing step stops the step and the
+# caller, and the EXIT trap logs the step with the exit status.
+(set -o errexit; trap 'e2e_timed_log_unfinished $?' EXIT; e2e_timed "failing_step" e2e_timed_test_step; echo "caller continued after failure") >"${test_dir}/timed-errexit.out" 2>&1
+errexit_status=$?
+
+set -o errexit
+
+if [[ "${errexit_status}" != "1" ]] || grep -q "continued after failure" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected e2e_timed to stop the caller on failure (status ${errexit_status})" >&2
+  exit 1
+fi
+if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=1 duration=[0-9]+s step=failing_step$" "${test_dir}/timed-errexit.out"; then
+  cat "${test_dir}/timed-errexit.out" >&2
+  echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
+  exit 1
+fi
 
 echo "e2e-common tests passed" >&3

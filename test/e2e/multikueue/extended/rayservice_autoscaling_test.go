@@ -44,9 +44,7 @@ func runRayServiceAutoscalingTest(
 ) {
 	const (
 		workerResource = "worker-unit"
-		actorA         = "rayservice-autoscaling-actor-a"
-		actorB         = "rayservice-autoscaling-actor-b"
-		actorC         = "rayservice-autoscaling-actor-c"
+		headResource   = "head-unit"
 	)
 
 	configMap := &corev1.ConfigMap{
@@ -78,7 +76,8 @@ app = HelloWorld.bind()`,
       - name: HelloWorld
         num_replicas: 1
         ray_actor_options:
-          num_cpus: 0`
+          num_cpus: 0
+          resources: {"` + headResource + `": 1}`
 	codeVolume := corev1.Volume{
 		Name: "code-sample",
 		ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -94,6 +93,7 @@ app = HelloWorld.bind()`,
 		EnableInTreeAutoscaling().
 		WithServeConfigV2(serveConfig).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "1").
+		RayStartParam(rayv1.HeadNode, "resources", fmt.Sprintf(`'{%q: 1}'`, headResource)).
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
 		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
 		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
@@ -102,6 +102,9 @@ app = HelloWorld.bind()`,
 		Image(rayv1.HeadNode, e2e.GetKuberayTestImage()).
 		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
 		Env(rayv1.HeadNode, []corev1.EnvVar{pythonPath}).
+		Env(rayv1.WorkerNode, []corev1.EnvVar{pythonPath}).
+		Volumes(rayv1.WorkerNode, []corev1.Volume{codeVolume}).
+		VolumeMounts(rayv1.WorkerNode, []corev1.VolumeMount{codeMount}).
 		Volumes(rayv1.HeadNode, []corev1.Volume{codeVolume}).
 		VolumeMounts(rayv1.HeadNode, []corev1.VolumeMount{codeMount}).
 		TerminationGracePeriod(1).
@@ -143,16 +146,49 @@ app = HelloWorld.bind()`,
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayService did not create a ready active RayCluster", workerService))
 	})
 	childKey := client.ObjectKeyFromObject(workerCluster)
+	serviceUID, clusterUID := workerService.UID, workerCluster.UID
+	updateServeConfig := func(config string) {
+		ginkgo.GinkgoHelper()
+		gomega.Eventually(func(g gomega.Gomega) {
+			managerService := &rayv1.RayService{}
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), managerService)).To(gomega.Succeed())
+			managerService.Spec.ServeConfigV2 = config
+			g.Expect(k8sManagerClient.Update(ctx, managerService)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerService)).To(gomega.Succeed())
+			g.Expect(workerService.Spec.ServeConfigV2).To(gomega.Equal(config))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	}
+	expectSameCluster := func(g gomega.Gomega) {
+		ginkgo.GinkgoHelper()
+		g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerService)).To(gomega.Succeed())
+		g.Expect(workerService.UID).To(gomega.Equal(serviceUID))
+		g.Expect(workerService.Status.ActiveServiceStatus.RayClusterName).To(gomega.Equal(childKey.Name))
+		g.Expect(workerService.Status.PendingServiceStatus.RayClusterName).To(gomega.BeEmpty())
+		g.Expect(workerClient.Get(ctx, childKey, workerCluster)).To(gomega.Succeed())
+		g.Expect(workerCluster.UID).To(gomega.Equal(clusterUID))
+	}
+	workerServeConfig := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        num_replicas: %d
+        ray_actor_options:
+          num_cpus: 0
+          resources: {"` + workerResource + `": 1}`
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 
-	ginkgo.By("Creating two detached actors so the RayService autoscaler adds two workers", func() {
-		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource)
-		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource)
+	ginkgo.By("Updating Serve in place to require two workers", func() {
+		updateServeConfig(fmt.Sprintf(workerServeConfig, 2))
 	})
 
 	var upSliceName string
 	ginkgo.By("Checking the RayService scale-up is reflected on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
+			expectSameCluster(g)
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(2))
@@ -169,13 +205,13 @@ app = HelloWorld.bind()`,
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.By("Terminating both actors so the RayService autoscaler scales back down to zero workers", func() {
-		e2e.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA)
-		e2e.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB)
+	ginkgo.By("Updating Serve in place to release both workers", func() {
+		updateServeConfig(serveConfig)
 	})
 
 	ginkgo.By("Checking the RayService scale-down updates the admitted slice in place", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
+			expectSameCluster(g)
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.BeEmpty())
@@ -191,12 +227,13 @@ app = HelloWorld.bind()`,
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.By("Creating one detached actor so the RayService autoscaler scales back up to one worker", func() {
-		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorC, workerResource)
+	ginkgo.By("Updating Serve in place to require one worker", func() {
+		updateServeConfig(fmt.Sprintf(workerServeConfig, 1))
 	})
 
 	ginkgo.By("Checking the RayService second scale-up is reflected on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
+			expectSameCluster(g)
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(1))

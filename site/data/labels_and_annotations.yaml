@@ -17,8 +17,6 @@
   used_on: |
     Pods.
   description: |
-    This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
-
     The label key in all Pods created by Kueue workloads or managed by Kueue.
     It indicates which cluster queue admitted the Kueue workload
     that the Pod corresponds to.
@@ -38,6 +36,18 @@
     (e.g., LeaderWorkerSet creates one workload per replica). Used by MultiKueue to determine
     primary workload ordering when dispatching component workloads to worker clusters atomically.
 
+- key: kueue.x-k8s.io/concurrent-admission-parent
+  type: Label
+  example: '`kueue.x-k8s.io/concurrent-admission-parent: "true"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The label is set to `"true"` on a Workload that is a parent of variant workloads
+    when using the [Concurrent Admission](/docs/concepts/concurrent_admission/) feature.
+    It identifies parent workloads to coordinate variant creation and admission.
+
+    This label is alpha-level for the `ConcurrentAdmission` feature gate.
+
 - key: kueue.x-k8s.io/elastic-job
   type: Annotation
   example: '`kueue.x-k8s.io/elastic-job: "true"`'
@@ -51,6 +61,18 @@
     to delay their scheduling until the associated workload slice has been admitted.
 
     This annotation is alpha-level for the `ElasticJobsViaWorkloadSlices` feature gate.
+
+- key: kueue.x-k8s.io/elastic-job-scale-up-strategy
+  type: Annotation
+  example: '`kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"`'
+  used_on: |
+    Kueue-managed Jobs supporting workload slicing.
+  description: |
+    The annotation selects how scale-up replicas are admitted for elastic jobs.
+    Supported values are `"atomic"` (default when unset) and `"partial"`.
+
+    This annotation is alpha-level for the `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate
+    and requires `kueue.x-k8s.io/elastic-job: "true"`.
 
 - key: kueue.x-k8s.io/is-group-workload
   type: Annotation
@@ -113,8 +135,6 @@
   used_on: |
     Pods.
   description: |
-    This label requires `AssignQueueLabelsForPods` feature that is enabled by default.
-
     The label key in all Pods created by Kueue workloads or managed by Kueue.
     It indicates to which local queue a workload corresponding to the Pod has been assigned.
     In the case of managed Pods, the value is equal to the name of the local queue to which the Pod has been assigned.
@@ -157,6 +177,16 @@
     The annotation stores the UID of the original object from the management cluster on remote objects
     in worker clusters. Used by job types (e.g., LeaderWorkerSet) that generate workload names based on
     their UID, ensuring workload names match between management and worker clusters.
+
+- key: kueue.x-k8s.io/multikueue-worker-workload-pod
+  type: Label
+  example: '`kueue.x-k8s.io/multikueue-worker-workload-pod: "true"`'
+  used_on: |
+    Pods.
+  description: |
+    The label indicates that the Pod is running on a [MultiKueue](/docs/concepts/multikueue/)
+    worker cluster and was dispatched from a management cluster.
+    It is added to Pods of workloads that carry the `kueue.x-k8s.io/multikueue-origin` label.
 
 - key: kueue.x-k8s.io/pod-group-fast-admission
   type: Annotation
@@ -253,8 +283,11 @@
     start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
     by the TAS topology ungater to correctly map Pod indexes to topology assignments.
   note: |
-    This annotation is not added when `kueue.x-k8s.io/podset-group-name` is specified,
-    as offset management is delegated to the PodSet Group mechanism in that case.
+    When `kueue.x-k8s.io/podset-group-name` is specified and this annotation is not set,
+    the larger PodSet of the group is offset by the size of the smaller one.
+    When Kueue starts an admitted JobSet, Ray job, Kubeflow Job (v1), TrainJob, or MPIJob
+    without `runLauncherAsWorker`, it sets this annotation to `0` in that case,
+    because their Pod indexes start from `0` in each PodSet.
 
 - key: kueue.x-k8s.io/pod-suspending-parent
   type: Annotation
@@ -573,14 +606,14 @@
     [Workload](/docs/concepts/workload/).
   description: |
     The annotation sets a per-workload
-    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) timeout and,
-    optionally, a recovery timeout, both in seconds, overriding those fields in the cluster-wide
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) optionally timeout and
+    a recovery timeout, both in seconds, overriding those fields in the cluster-wide
     `waitForPodsReady` configuration for that single workload.
 
     The value is a JSON object with the following fields:
-    - `timeoutSeconds` (required): the maximum time, in seconds, Kueue waits for the
+    - `timeoutSeconds` (optional): the maximum time, in seconds, Kueue waits for the
       admitted workload's Pods to become ready before evicting and requeuing it. Must be
-      greater than `0`.
+      greater than `0` when set.
     - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
       ready workload may stay with unready Pods before it is evicted. Must be greater
       than `0` when set.

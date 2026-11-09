@@ -1,46 +1,96 @@
-# This workflow syncs dependency versions for Dependabot PRs
+# This workflow regenerates files that depend on versions bumped by Dependabot.
+# The generate job runs the PR's code without write access and saves the result
+# as a patch. The push job only runs git: it checks the patch and pushes it.
 name: Dependabot Version Sync
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [ main ]
+    # Dependabot adds labels after opening the PR, so the "opened" event has none.
+    types: [ opened, synchronize, reopened, labeled ]
 
 jobs:
-    run-sync-hugo-version:
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test') && github.actor == 'dependabot[bot]' }}
-        runs-on: ubuntu-latest
+  generate:
+    if: >-
+      ${{ contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+          && github.event.pull_request.user.login == 'dependabot[bot]'
+          && github.actor == 'dependabot[bot]'
+          && (github.event.action != 'labeled' || github.event.label.name == 'ok-to-test')
+          && (contains(github.event.pull_request.title, 'hugo')
+              || contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools')) }}
+    runs-on: ubuntu-latest
 
-        # Permission required to edit a PR
-        permissions:
-          contents: write
+    # The job has no side effects, so a newer run can replace an older one.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
 
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with: 
-                ref: ${{github.head_ref}}
-            - name: Set git user from last commit
-              run: |
-                git config user.name "$(git log -1 --pretty=%an)"
-                git config user.email "$(git log -1 --pretty=%ae)"
-            - name: Sync hugo version
-              if: ${{ contains(github.event.pull_request.title, 'hugo') }}
-              run: |
-                make sync-hugo-version
-                if ! git diff --exit-code; then
-                  git add .
-                  git commit -m "Sync hugo version"
-                  git push
-                else
-                  echo "No changes to commit"
-                fi
-            - name: Sync controller-tools version
-              if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
-              run: |
-                make manifests update-helm
-                if ! git diff --exit-code; then
-                  git add .
-                  git commit -m "Sync controller-tools version"
-                  git push
-                else
-                  echo "No changes to commit"
-                fi
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Go
+        if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            hack/tools/go.sum
+      - name: Sync hugo version
+        if: ${{ contains(github.event.pull_request.title, 'hugo') }}
+        run: make sync-hugo-version
+      - name: Sync controller-tools version
+        if: ${{ contains(github.event.pull_request.title, 'sigs.k8s.io/controller-tools') }}
+        run: make manifests update-helm
+      - name: Save changes as a patch
+        run: |
+          git add -A
+          git diff --cached --no-ext-diff --no-textconv > "$RUNNER_TEMP/changes.patch"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: changes
+          path: ${{ runner.temp }}/changes.patch
+          retention-days: 1
+
+  push:
+    needs: generate
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # push the sync commit to the PR branch
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit the patch was generated from, so the push fails if the branch has moved.
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: changes
+          path: ${{ runner.temp }}
+      - name: Push the generated changes
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          patch="$RUNNER_TEMP/changes.patch"
+          if [ ! -s "$patch" ]; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git apply --index "$patch"
+          unexpected=$(git diff --cached --name-only --no-renames \
+            | grep -vE '^(netlify\.toml|config/components/.+\.yaml|charts/kueue/templates/.+)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::The patch changes files outside the allowlist. If they are expected, add them to the allowlist in this workflow:"
+            echo "$unexpected"
+            exit 1
+          fi
+          git config user.name "$(git log -1 --pretty=%an)"
+          git config user.email "$(git log -1 --pretty=%ae)"
+          git commit -m "Sync generated files"
+          git push origin "HEAD:$HEAD_REF"

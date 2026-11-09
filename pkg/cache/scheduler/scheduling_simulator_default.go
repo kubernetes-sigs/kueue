@@ -23,16 +23,17 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type defaultSimulatorFactory struct{}
@@ -47,13 +48,9 @@ func newDefaultSimulator() simulator.SchedulerSimulator {
 
 type defaultSimulator struct{}
 
-func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ *podtracker.Tracker, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	return &defaultSimulator{}, nil
 }
-
-func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
-
-func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) {}
 
 func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
@@ -121,7 +118,7 @@ func (s *defaultSimulator) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+func (s *defaultSimulator) PreemptWorkload(context.Context, workload.Reference) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
@@ -141,5 +138,13 @@ func (s *defaultSimulator) AddPodGroup(_ context.Context, _ *schedulingv1beta1.P
 }
 
 func (s *defaultSimulator) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
 	return nil
 }

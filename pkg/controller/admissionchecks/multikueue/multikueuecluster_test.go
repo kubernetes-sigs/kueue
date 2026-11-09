@@ -30,7 +30,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -58,12 +57,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -207,6 +205,7 @@ func TestUpdateConfig(t *testing.T) {
 		wantEvents                    []utiltesting.EventRecord
 		overrideKubeConfigPrefix      bool
 		multiKueueSafePathFeatureGate bool
+		clusterProfileAPINotServed    bool
 	}{
 		"new valid client is added": {
 			reconcileFor: "worker1",
@@ -622,6 +621,32 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("failed to load client config, reason: MultiKueueClusterProfileFeatureDisabled, error: %w", errors.New("MultiKueueClusterProfile feature gate is disabled")),
 		},
+		"cluster profile API not served yet": {
+			reconcileFor: "worker1",
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Generation(1).
+					Obj(),
+			},
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
+				makeTestClusterProfile("worker1", "accessProvider1"),
+			},
+			cpAccessProvider: &testClusterProfileAccessProvider{
+				supportedProviders: map[string]bool{
+					"accessProvider1": true,
+				},
+			},
+			clusterProfileAPINotServed: true,
+			wantClusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					ClusterProfile("worker1").
+					Active(metav1.ConditionFalse, "BadClusterProfile", "load client config failed: the ClusterProfile API is not served", 1).
+					Generation(1).
+					Obj(),
+			},
+			wantErr: fmt.Errorf("failed to load client config, reason: BadClusterProfile, error: %w", errors.New("the ClusterProfile API is not served")),
+		},
 		"path with feature gate off emits deprecation warning": {
 			reconcileFor: "worker1",
 			clusters: []kueue.MultiKueueCluster{
@@ -694,6 +719,7 @@ func TestUpdateConfig(t *testing.T) {
 				withAdapters(adapters),
 				withClusterProfileAccessProvider(tc.cpAccessProvider),
 				withEventRecorder(recorder),
+				withClusterProfileCRDPresent(!tc.clusterProfileAPINotServed),
 			)
 
 			reconciler.rootContext = ctx
@@ -1258,8 +1284,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 		KubeConfig(kueue.PathLocationType, "/tmp/worker1.kubeconfig").Generation(1).Obj()
 
 	deletingCluster := baseCluster.DeepCopy()
-	now := metav1.Now()
-	deletingCluster.DeletionTimestamp = &now
+	deletingCluster.DeletionTimestamp = new(metav1.Now())
 
 	cases := map[string]struct {
 		invoke        func(p predicate.Predicate) bool
@@ -1774,7 +1799,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 	rc.adapters = map[string]jobframework.MultiKueueAdapter{}
 
 	// Seed an initial client so the first read has a client to observe.
-	if _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
+	if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, rc.config); err != nil {
 		t.Fatalf("seeding initial client: %v", err)
 	}
 
@@ -1788,7 +1813,7 @@ func hammerSetConfigWithReader(t *testing.T, reader func(ctx context.Context, rc
 		defer writerDone.Store(true)
 		for i := range iterations {
 			cfg := &clientConfig{Kubeconfig: []byte(testKubeconfig(fmt.Sprintf("worker-%d", i)))}
-			if _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
+			if _, _, err := rc.updateConfigAndRefreshWatchers(ctx, cfg); err != nil {
 				writerErr = err
 				return
 			}
@@ -1821,7 +1846,7 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 			return
 		}
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
-		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider.go-style read
 	})
 }
 
@@ -2048,10 +2073,9 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				KubeConfig(kueue.SecretLocationType, "worker1").
 				Generation(1).
 				Obj()
-			secret := makeTestSecret("worker1", testKubeconfig("worker1"))
 
 			c := getClientBuilder(ctx).
-				WithObjects(cluster, &secret).
+				WithObjects(cluster, new(makeTestSecret("worker1", testKubeconfig("worker1")))).
 				WithStatusSubresource(&kueue.MultiKueueCluster{}).
 				Build()
 
@@ -2096,33 +2120,6 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 	}
 }
 
-func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
-	metrics.MultiKueueClusterByStatus.Reset()
-	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace,
-		withAdapters(adapters),
-		withEventRecorder(&utiltesting.EventRecorder{}),
-	)
-
-	// The same ClusterQueue references both workers.
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, nil)
-
-	reconciler.stopAndRemoveCluster("worker1")
-
-	// worker1 series are dropped so a deleted cluster stops reporting as active,
-	// while other clusters keep their series.
-	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
-		t.Errorf("expected only worker2 series to remain, got %d series", got)
-	}
-	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
-		t.Errorf("expected worker2 to still be reported as active, got %v", got)
-	}
-}
-
 func TestShouldWatchClusterProfiles(t *testing.T) {
 	cases := map[string]struct {
 		gateEnabled bool
@@ -2144,5 +2141,85 @@ func TestShouldWatchClusterProfiles(t *testing.T) {
 				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestReconnectResyncSkipsFinishedWorkloads(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := metav1.Now()
+	finished := func(reason string) metav1.Condition {
+		return metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			LastTransitionTime: now,
+		}
+	}
+	workloads := []kueue.Workload{
+		*utiltestingapi.MakeWorkload("running", TestNamespace).ClusterName("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("nominated", TestNamespace).NominatedClusterNames("worker1").Obj(),
+		*utiltestingapi.MakeWorkload("on-other-cluster", TestNamespace).ClusterName("worker2").Obj(),
+		*utiltestingapi.MakeWorkload("finished", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
+			Obj(),
+		*utiltestingapi.MakeWorkload("finished-deleting", TestNamespace).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			DeletionTimestamp(now.Time).
+			Obj(),
+		*utiltestingapi.MakeWorkload("replaced-slice", TestNamespace).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ClusterName("worker1").
+			Condition(finished(kueue.WorkloadSliceReplaced)).
+			Obj(),
+	}
+	kubeconfig := testKubeconfig("worker1")
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+	c := getClientBuilder(ctx).
+		WithObjects(cluster, &secret).
+		WithLists(&kueue.WorkloadList{Items: workloads}).
+		WithStatusSubresource(&kueue.MultiKueueCluster{}).
+		Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(c, TestNamespace,
+		withAdapters(adapters),
+		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
+	)
+	reconciler.rootContext = ctx
+	reconciler.builderOverride = fakeClientBuilder(ctx)
+
+	// A worker that was connected with the same kubeconfig and lost its connection:
+	// a non-nil client means it was connected before, the unchanged config means this
+	// is not a config change, and a new remoteClient starts disconnected.
+	rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+	rc.builderOverride = reconciler.builderOverride
+	rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
+	reconciler.remoteClients["worker1"] = rc
+	t.Cleanup(rc.StopWatchers)
+
+	// Reconnect: the reconcile re-establishes the watchers of the disconnected worker,
+	// which triggers the resync.
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if !rc.connState.isConnected() {
+		t.Fatal("expected the worker to be reconnected")
+	}
+
+	var gotEnqueued []string
+	for len(reconciler.wlUpdateCh) > 0 {
+		gotEnqueued = append(gotEnqueued, (<-reconciler.wlUpdateCh).Object.GetName())
+	}
+	wantEnqueued := []string{"finished-deleting", "nominated", "running"}
+	if diff := cmp.Diff(wantEnqueued, gotEnqueued, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 	}
 }

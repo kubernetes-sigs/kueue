@@ -44,6 +44,8 @@ type priorityStats struct {
 	workloadWrites int
 }
 
+// TestUpdateWorkloadPriority checks batch resolution, partial-failure recovery,
+// and priority legality without changing workload queues.
 func TestUpdateWorkloadPriority(t *testing.T) {
 	// One invocation of the helper, with the change to the cluster that only
 	// means something between two of them.
@@ -55,6 +57,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	type wantWorkload struct {
 		refName  *string
 		priority *int32
+		queue    *kueue.LocalQueueName
 	}
 
 	cases := map[string]struct {
@@ -75,9 +78,10 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		// reconciles would not repair that because they compare the class name only.
 		"resolves the class once for the whole set": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			job:   testingjob.MakeJob("job", "ns").Queue("new-queue").WorkloadPriorityClass("high").Obj(),
 			workloads: []*kueue.Workload{
-				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
-				utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+				utiltestingapi.MakeWorkload("first", "ns").Queue("old-queue").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").Queue("old-queue").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 			},
 			// Every read reports a different value, standing in for an administrator
 			// editing the class while the workloads are being written.
@@ -97,8 +101,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 			steps: []step{{}},
 			want: map[string]wantWorkload{
-				"first":  {refName: new("high"), priority: new(int32(100))},
-				"second": {refName: new("high"), priority: new(int32(100))},
+				"first":  {refName: new("high"), priority: new(int32(100)), queue: new(kueue.LocalQueueName("old-queue"))},
+				"second": {refName: new("high"), priority: new(int32(100)), queue: new(kueue.LocalQueueName("old-queue"))},
 			},
 			wantClassReads:   new(1),
 			wantDistinctRefs: true,
@@ -401,6 +405,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 					if persisted.Spec.Priority == nil || *persisted.Spec.Priority != *want.priority {
 						t.Errorf("%s priority = %v, want %d", n, persisted.Spec.Priority, *want.priority)
 					}
+				}
+				if want.queue != nil && persisted.Spec.QueueName != *want.queue {
+					t.Errorf("%s queue = %q, want %q", n, persisted.Spec.QueueName, *want.queue)
 				}
 			}
 

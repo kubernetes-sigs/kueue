@@ -28,8 +28,10 @@ import (
 )
 
 const (
-	minMaxValueErrorMessage   = "minValue must be less than or equal to maxValue"
-	negativeValueErrorMessage = "should be greater than or equal to 0"
+	minMaxValueErrorMessage               = "minValue must be less than or equal to maxValue"
+	negativeValueErrorMessage             = "should be greater than or equal to 0"
+	podPriorityClassKindErrorMessage      = "only the PriorityClass kind is allowed for the scheduling.k8s.io group"
+	workloadPriorityClassKindErrorMessage = "only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group"
 )
 
 func makePreemptionConfigWithNumericLabel(name string, minValue, maxValue *int32) *kueuealpha.PreemptionConfig {
@@ -88,6 +90,168 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.Entry("Disallow negative maxValue", nil, ptr.To[int32](-1), negativeValueErrorMessage),
 			ginkgo.Entry("Disallow negative minValue with non-negative maxValue", ptr.To[int32](-1), ptr.To[int32](5), negativeValueErrorMessage),
 			ginkgo.Entry("Disallow negative minValue and maxValue", ptr.To[int32](-5), ptr.To[int32](-1), negativeValueErrorMessage),
+		)
+
+		ginkgo.DescribeTable("Validate priority constraint and priority class selectors",
+			func(
+				preemptorSelector *kueuealpha.PreemptionConfigPriorityClassSelector,
+				priority *kueuealpha.PreemptionConfigPriorityConstraint,
+				candidateSelector *kueuealpha.PreemptionConfigPriorityClassSelector,
+				wantErrMessage string,
+			) {
+				pc := &kueuealpha.PreemptionConfig{
+					Name: "pc-priority-validation",
+					Spec: kueuealpha.PreemptionConfigSpec{
+						Rules: []kueuealpha.PreemptionConfigPreemptionRule{{
+							Name:                           "rule",
+							PreemptorPriorityClassSelector: preemptorSelector,
+							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{
+								Trigger: kueuealpha.Always,
+							},
+							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{{
+								Scope:                 kueuealpha.WithinClusterQueue,
+								Priority:              priority,
+								PriorityClassSelector: candidateSelector,
+							}},
+						}},
+					},
+				}
+
+				err := k8sClient.Create(ctx, pc)
+				if wantErrMessage != "" {
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
+					return
+				}
+				gomega.Expect(err).To(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+			},
+			ginkgo.Entry("Allow preemptorPriorityClassSelector with WorkloadPriorityClass sourceRef and In/NotIn nameExpressions",
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.WorkloadPriorityClassGroup,
+						Kind:  kueuealpha.WorkloadPriorityClassKind,
+					},
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"high-priority", "critical-priority"},
+						},
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+							Values:   []string{"mid-priority"},
+						},
+					},
+				},
+				nil,
+				nil,
+				"",
+			),
+			ginkgo.Entry("Allow candidate priorityClassSelector with PriorityClass sourceRef and In/NotIn nameExpressions",
+				nil,
+				nil,
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.PodPriorityClassGroup,
+						Kind:  kueuealpha.PodPriorityClassKind,
+					},
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority", "default"},
+						},
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpNotIn,
+							Values:   []string{"high-priority"},
+						},
+					},
+				},
+				"",
+			),
+			ginkgo.Entry("Allow candidate priority constraint combined with priorityClassSelector",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode:       kueuealpha.Base,
+					Comparison: kueuealpha.LessThan,
+				},
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.WorkloadPriorityClassGroup,
+						Kind:  kueuealpha.WorkloadPriorityClassKind,
+					},
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+				"",
+			),
+			ginkgo.Entry("Disallow sourceRef with group scheduling.k8s.io and kind WorkloadPriorityClass",
+				nil,
+				nil,
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.PodPriorityClassGroup,
+						Kind:  kueuealpha.WorkloadPriorityClassKind,
+					},
+				},
+				podPriorityClassKindErrorMessage,
+			),
+			ginkgo.Entry("Disallow sourceRef with group kueue.x-k8s.io and kind PriorityClass",
+				nil,
+				nil,
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					SourceRef: &kueuealpha.PriorityClassSourceRef{
+						Group: kueuealpha.WorkloadPriorityClassGroup,
+						Kind:  kueuealpha.PodPriorityClassKind,
+					},
+				},
+				workloadPriorityClassKindErrorMessage,
+			),
+			ginkgo.Entry("Disallow invalid DNS-subdomain name in nameExpressions[0].values[0]",
+				nil,
+				nil,
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{"Invalid_Name"},
+						},
+					},
+				},
+				"spec.rules[0].candidateSelectors[0].priorityClassSelector.nameExpressions[0].values[0]",
+			),
+			ginkgo.Entry("Disallow empty values in nameExpressions[0]",
+				nil,
+				nil,
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOpIn,
+							Values:   []string{},
+						},
+					},
+				},
+				"spec.rules[0].candidateSelectors[0].priorityClassSelector.nameExpressions[0].values",
+			),
+			ginkgo.Entry("Disallow priority.mode without priority.comparison",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode: kueuealpha.Base,
+				},
+				nil,
+				"spec.rules[0].candidateSelectors[0].priority.comparison",
+			),
+			ginkgo.Entry("Disallow priority.comparison without priority.mode",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Comparison: kueuealpha.LessThan,
+				},
+				nil,
+				"spec.rules[0].candidateSelectors[0].priority.mode",
+			),
 		)
 	})
 

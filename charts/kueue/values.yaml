@@ -116,102 +116,21 @@ controllerManager:
     enabled: false
     # -- PodDisruptionBudget's minAvailable
     minAvailable: 1
-managerConfig:
-  # -- controller_manager_config.yaml.
-  # ControllerManager utilizes this yaml via manager-config Configmap.
-  # @default -- controllerManagerConfigYaml
-  controllerManagerConfigYaml: |-
-    apiVersion: config.kueue.x-k8s.io/v1beta2
-    kind: Configuration
-    health:
-      healthProbeBindAddress: :8081
-    metrics:
-      bindAddress: :8443
-    # enableClusterQueueResources: true
-    webhook:
-      port: 9443
-    leaderElection:
-      leaderElect: true
-      resourceName: c1f6bfd2.kueue.x-k8s.io
-    controller:
-      groupKindConcurrency:
-        Job.batch: 5
-        Pod: 5
-        Workload.kueue.x-k8s.io: 10
-        LocalQueue.kueue.x-k8s.io: 5
-        Cohort.kueue.x-k8s.io: 1
-        ClusterQueue.kueue.x-k8s.io: 5
-        ResourceFlavor.kueue.x-k8s.io: 1
-    clientConnection:
-      qps: 300
-      burst: 500
-    #pprofBindAddress: :8083
-    #waitForPodsReady:
-    #  timeout: 30m
-    #  recoveryTimeout: 5m
-    #  unscheduledTimeout: 5m
-    #  blockAdmission: false
-    #  requeuingStrategy:
-    #    timestamp: Eviction
-    #    backoffLimitCount: null # null indicates infinite requeuing
-    #    backoffBaseSeconds: 60
-    #    backoffMaxSeconds: 3600
-    #manageJobsWithoutQueueName: true
-    # See "Opt-in Namespace Management" for guidance on namespace management:
-    # https://kueue.sigs.k8s.io/docs/tasks/manage/enforce_job_management/opt_in_namespace_management/
-    #managedJobsNamespaceSelector:
-    #  matchExpressions:
-    #    - key: kubernetes.io/metadata.name
-    #      operator: NotIn
-    #      values: [ kube-system, kueue-system ]
-    #internalCertManagement:
-    #  enable: false
-    #  webhookServiceName: ""
-    #  webhookSecretName: ""
-    integrations:
-      frameworks:
-      - "batch/job"
-      - "kubeflow.org/mpijob"
-      - "ray.io/rayjob"
-      - "ray.io/rayservice"
-      - "ray.io/raycluster"
-      - "jobset.x-k8s.io/jobset"
-    #  - "kubeflow.org/paddlejob"
-    #  - "kubeflow.org/pytorchjob"
-    #  - "kubeflow.org/tfjob"
-    #  - "kubeflow.org/xgboostjob"
-    #  - "kubeflow.org/jaxjob"
-      - "workload.codeflare.dev/appwrapper"
-      - "trainer.kubeflow.org/trainjob"
-    #  - "sparkoperator.k8s.io/sparkapplication"
-      - "pod"
-      - "deployment"
-      - "statefulset"
-      - "leaderworkerset.x-k8s.io/leaderworkerset"
-    #  externalFrameworks:
-    #  - "Foo.v1.example.com"
-    #fairSharing:
-    #  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
-    #admissionFairSharing:
-    #  usageHalfLifeTime: "168h" # 7 days
-    #  usageSamplingInterval: "5m"
-    #  resourceWeights: # optional, defaults to 1 for all resources if not specified
-    #    cpu: 0    # if you want to completely ignore cpu usage
-    #    memory: 0 # ignore completely memory usage
-    #    example.com/gpu: 100 # and you care only about GPUs usage
-    #resources:
-    #  excludeResourcePrefixes: []
-    #  quotaCheckStrategy: "BlockUndeclared"
-    # transformations:
-    # - input: nvidia.com/mig-4g.5gb
-    #   strategy: Replace | Retain
-    #   outputs:
-    #     example.com/accelerator-memory: 5Gi
-    #     example.com/accelerator-gpc: 4
-    #objectRetentionPolicies:
-    #  workloads:
-    #    afterFinished: null # null indicates infinite retention, 0s means no retention at all
-    #    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all
+# -- Manager configuration inputs. Defaults are defined in templates/manager/_config.tpl.
+managerConfig: {}
+# Replace {} above with a mapping and uncomment the settings you want to use.
+# With mode omitted, supplied YAML takes precedence, including ""; otherwise,
+# structured overrides merge with defaults. Optional mode selects an input explicitly.
+# See README.md#manager-configuration for migration and upgrade guidance.
+#   structuredOverrides:
+#     clientConnection:
+#       qps: 600
+# Set mode explicitly to ignore retained YAML when migrating with --reuse-values.
+#   mode: structured
+# Alternatively, supply the manager configuration as YAML; chart defaults are not merged.
+#   controllerManagerConfigYaml: |-
+#     <manager configuration YAML>
+
 metricsService:
   # -- metricsService's ports
   ports:
@@ -243,6 +162,14 @@ webhookService:
 mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
+networkPolicy:
+  # -- Enable ingress NetworkPolicies for the Kueue components. Requires NetworkPolicy
+  # enforcement. ControllerManager policies are skipped when controllerManager.hostNetwork
+  # is enabled because enforcement for host-network pods depends on the CNI plugin.
+  enabled: false
+  # -- Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress
+  # rules are additive, so these permit extra traffic and cannot narrow the built-in rules.
+  extraIngress: []
 kueueViz:
   ingress:
     # -- Enable a single path-routed ingress serving the KueueViz dashboard and its
