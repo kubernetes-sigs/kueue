@@ -21,8 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -30,13 +28,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	util "sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", ginkgo.Label("job:batch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", ginkgo.Label("job:batch", "area:jobs"), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -44,22 +43,18 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		localQueue     *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil,
 			jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 		))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 
-	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "partial-scaleup-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "partial-scaleup-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "7").Obj()).
@@ -67,16 +62,16 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
 	// scaleJob emulates an external actor scaling an Elastic Indexed Job, where both fields must
@@ -87,7 +82,7 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			job.Spec.Parallelism = new(replicas)
 			job.Spec.Completions = new(replicas)
 			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	ginkgo.It("Should partially admit a batch Job scale-up when quota is insufficient", func() {
@@ -107,13 +102,14 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		// (Non-Goal).
 		// -------------------------------------------------------------------------------------
 		ginkgo.By("creating the job with 5 replicas")
-		util.MustCreate(ctx, k8sClient, testJob)
+		behavioral.MustCreate(ctx, k8sClient, testJob)
 
 		ginkgo.By("admitting the job's workload fully")
-		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 		gomega.Expect(initialSlice.Spec.PodSets).Should(gomega.HaveLen(1))
 		gomega.Expect(initialSlice.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
 
 		// -------------------------------------------------------------------------------------
 		// KEP Step 1: scale up from 5 to 10. The full request (10 pods) exceeds the 7-pod
@@ -124,27 +120,28 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		scaleJob(testJob, 10)
 
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 10 replicas")
-		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[0].Count).Should(gomega.Equal(int32(10)))
-		// MinCount is the baseline: the previously-admitted count, which the scale-up may not
-		// go below.
+		// MinCount is copied forward from the previous slice's MinCount, which for the initial
+		// slice is the Job's initial parallelism.
 		gomega.Expect(partialSlice.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(5))))
 
 		ginkgo.By("only 7 of the 10 requested replicas fit the quota")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
 
 		ginkgo.By("the old (pre-scale-up) slice is finished")
-		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
 
 		// Alongside the partially-admitted slice, a probe workload is created for the full
 		// request. It is what lets the remaining replicas be admitted later, with no further
 		// scale event.
 		ginkgo.By("a scale-up probe workload is created for the full 10 replicas")
-		probe := util.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
 		gomega.Expect(probe.Spec.PodSets[0].Count).Should(gomega.Equal(int32(10)))
+		gomega.Expect(probe.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(5))))
 
 		ginkgo.By("the probe workload stays pending while the quota is exhausted")
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		// -------------------------------------------------------------------------------------
 		// KEP Step 2: capacity appears and the probe is admitted opportunistically, replacing
@@ -153,15 +150,15 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 		ginkgo.By("raising the ClusterQueue's CPU quota from 7 to 10")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			util.SetResourceNominalQuota(clusterQueue, corev1.ResourceCPU, "10")
+			behavioral.SetResourceNominalQuota(clusterQueue, corev1.ResourceCPU, "10")
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the probe workload is admitted with the full 10 replicas")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, kueue.DefaultPodSetName, 10)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, kueue.DefaultPodSetName, 10)
 
 		ginkgo.By("the partially-admitted slice is finished, having been replaced by the probe")
-		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
 	})
 
 	ginkgo.DescribeTable("Should partially admit a scale-up of parallelism alone, below completions, when quota is insufficient", func(indexed bool) {
@@ -176,12 +173,13 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			Obj()
 
 		ginkgo.By("creating the job with 5 replicas")
-		util.MustCreate(ctx, k8sClient, testJob)
+		behavioral.MustCreate(ctx, k8sClient, testJob)
 
 		ginkgo.By("admitting the job's workload fully")
-		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 		gomega.Expect(initialSlice.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
 
 		ginkgo.By("scaling parallelism alone to 10, leaving completions at 50 untouched")
 
@@ -189,20 +187,20 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 			testJob.Spec.Parallelism = new(int32(10))
 			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 10 replicas")
-		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[0].Count).Should(gomega.Equal(int32(10)))
-		// MinCount is the baseline: the previously-admitted count, which the scale-up may not
-		// go below.
+		// MinCount is copied forward from the previous slice's MinCount, which for the initial
+		// slice is the Job's initial parallelism.
 		gomega.Expect(partialSlice.Spec.PodSets[0].MinCount).Should(gomega.Equal(new(int32(5))))
 
 		ginkgo.By("only 7 of the 10 requested replicas fit the quota")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
 
 		ginkgo.By("the old (pre-scale-up) slice is finished")
-		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
 	},
 		ginkgo.Entry("NonIndexed", false),
 		ginkgo.Entry("Indexed", true),
@@ -220,17 +218,18 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			Obj()
 
 		ginkgo.By("creating and fully admitting the job at 3 replicas")
-		util.MustCreate(ctx, k8sClient, testJob)
-		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 3)
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 3)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
 
 		ginkgo.By("scaling the job to 10 replicas, which only partially fits the 7-pod quota")
 		scaleJob(testJob, 10)
-		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
 
 		ginkgo.By("the old (pre-scale-up) slice is finished")
-		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
 
 		jobKey := client.ObjectKeyFromObject(testJob)
 		wlKey := client.ObjectKeyFromObject(partialSlice)
@@ -242,14 +241,14 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			testJob.Status.Active = 10
 			testJob.Status.Ready = new(int32(6))
 			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Consistently(func(g gomega.Gomega) {
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		notReady := func(g gomega.Gomega) {
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-			if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); cond != nil {
-				g.Expect(cond.Status).ShouldNot(gomega.Equal(metav1.ConditionTrue))
-			}
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusFalse(kueue.WorkloadPodsReady))
+		}
+		gomega.Eventually(notReady, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(notReady, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("reaching the granted count (7), not the full scale-up target (10), reports PodsReady")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -257,7 +256,7 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			testJob.Status.Active = 10
 			testJob.Status.Ready = new(int32(7))
 			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		util.ExpectPodsReadyCondition(ctx, k8sClient, wlKey)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectPodsReadyCondition(ctx, k8sClient, wlKey)
 	})
 })
