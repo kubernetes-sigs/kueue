@@ -1667,7 +1667,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"workload admitted without TAS matches a running job that requests a topology": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job:          preferredTASJob(false),
-			wl:           wlAdmittedWithoutTAS.Clone().Obj(),
+			wl:           wlAdmittedWithoutTAS.DeepCopy(),
 			want:         true,
 		},
 		"workload with quota reserved without TAS but not admitted does not match a job that requests a topology": {
