@@ -366,17 +366,16 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 	assignedDomains := sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...)
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
-		if utilpod.IsTerminated(pod) {
-			// ignore failed or succeeded pods as they need to be replaced, and
-			// so we don't want to count them as already ungated Pods.
+		if !pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod) {
+			// Deleting or terminated pods must not hold slots or conflict
+			// with the ranks of their replacements.
 			continue
 		}
 		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			domainID := utiltas.DomainID(utiltas.LevelValues(psa.TopologyAssignment.Levels, pod.Spec.NodeSelector))
 			if !assignedDomains.Has(domainID) {
 				// ignore ungated pods assigned to domains outside the current
-				// TopologyAssignment (e.g. pods stuck terminating on a failed node
-				// after node replacement or workload re-admission).
+				// TopologyAssignment.
 				log.V(3).Info("ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
 					"pod", klog.KObj(pod), "domain", domainID)
 				continue
