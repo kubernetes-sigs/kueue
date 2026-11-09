@@ -387,6 +387,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 			e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": highJob.Name})
 		})
 	})
+
 	ginkgo.It("Should preempt a lower-priority Job to defragment a topology block when free slots are split across blocks", func() {
 		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
 		blockB2 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b2"}
@@ -449,6 +450,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+
 	ginkgo.Context("Multi-PodSet (JobSet) preemption", func() {
 		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
 
@@ -557,6 +559,124 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": lowJob.Name})
 				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": highJob.Name})
+			})
+		})
+
+		ginkgo.It("Should abort preemption (all-or-nothing) when one PodSet cannot fit across distinct ResourceFlavors", func() {
+			tasFlavorA := utiltestingapi.MakeResourceFlavor("tas-flavor-a-"+ns.Name).
+				TopologyName(topology.Name).
+				NodeLabel(tasNodeGroupLabel, instanceType).
+				NodeLabel(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, tasFlavorA)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavorA, true)
+			}()
+
+			tasFlavorB := utiltestingapi.MakeResourceFlavor("tas-flavor-b-"+ns.Name).
+				TopologyName(topology.Name).
+				NodeLabel(tasNodeGroupLabel, instanceType).
+				NodeLabel(utiltesting.DefaultBlockTopologyLevel, "b2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, tasFlavorB)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavorB, true)
+			}()
+
+			cqMultiFlavor := utiltestingapi.MakeClusterQueue("cq-multi-flavor-"+ns.Name).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(tasFlavorA.Name).
+						Resource(extraResource, "4").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas(tasFlavorB.Name).
+						Resource(extraResource, "4").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cqMultiFlavor)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqMultiFlavor, true)
+			}()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqMultiFlavor)
+
+			lqMultiFlavor := utiltestingapi.MakeLocalQueue("lq-multi-flavor-"+ns.Name, ns.Name).ClusterQueue(cqMultiFlavor.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqMultiFlavor)
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqMultiFlavor, true)
+			}()
+
+			defer func() {
+				gomega.Expect(behavioral.DeleteAllJobSetsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			}()
+
+			blockB2 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b2"}
+
+			// Low-priority job fills block b1 on Flavor A
+			lowJobB1, lowB1WlKey := admitJobAndExpectRunning("low-b1-flavor", lqMultiFlavor.Name, lowPriorityClass.Name, 4, blockB1)
+
+			// High-priority job fills block b2 on Flavor B
+			highJobB2, _ := admitJobAndExpectRunning("high-b2-flavor", lqMultiFlavor.Name, highPriorityClass.Name, 4, blockB2)
+
+			// JobSet has 2 PodSets on different flavors:
+			// - PodSet 1 (rj1 on b1): can fit after preempting low-b1-flavor on Flavor A
+			// - PodSet 2 (rj2 on b2): cannot fit because high-b2-flavor on Flavor B has higher priority
+			impossibleJobSet := testingjobset.MakeJobSet("impossible-distinct-flavors", ns.Name).
+				Queue(lqMultiFlavor.Name).
+				WorkloadPriorityClass(midPriorityClass.Name).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name: "rj1", Image: e2e.GetAgnHostImage(), Args: e2e.BehaviorExitFast,
+						Replicas: 1, Parallelism: 2, Completions: 2,
+						NodeSelector: blockB1,
+						PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+					testingjobset.ReplicatedJobRequirements{
+						Name: "rj2", Image: e2e.GetAgnHostImage(), Args: e2e.BehaviorExitFast,
+						Replicas: 1, Parallelism: 2, Completions: 2,
+						NodeSelector: blockB2,
+						PodAnnotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						},
+					},
+				).
+				RequestAndLimit("rj1", extraResource, "1").
+				RequestAndLimit("rj2", extraResource, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, impossibleJobSet)
+
+			impossibleWlKey := types.NamespacedName{
+				Name:      jobset.GetWorkloadNameForJobSet(impossibleJobSet.Name, impossibleJobSet.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("verify mid-priority JobSet remains unadmitted", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, impossibleWlKey, wl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeFalse())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, impossibleWlKey, wl)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeFalse())
+				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verify low-priority Job on Flavor A was NOT preempted and high-priority Job on Flavor B remains running", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					wl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, lowB1WlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
+				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": lowJobB1.Name})
+				e2e.ExpectPodsRunningOrSucceeded(ctx, k8sClient, ns.Name, 4, client.MatchingLabels{"job-name": highJobB2.Name})
 			})
 		})
 	})
