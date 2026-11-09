@@ -80,6 +80,9 @@ type tasScheduleForTASCase struct {
 	eventCmpOpts cmp.Options
 
 	featureGates map[featuregate.Feature]bool
+
+	// scheduleCycles sets how many consecutive schedule cycles to execute (defaults to 1).
+	scheduleCycles int
 }
 
 // runScheduleForTASCases runs the shared "build client → schedule → assert" procedure for
@@ -261,8 +264,13 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					go qManager.CleanUpOnContext(ctx)
 					defer cancel()
 
-					scheduler.schedule(ctx)
-					wg.Wait()
+					for i := range max(1, tc.scheduleCycles) {
+						if i > 0 {
+							fakeClock.Step(time.Second)
+						}
+						scheduler.schedule(ctx)
+						wg.Wait()
+					}
 					snapshot, err := cqCache.Snapshot(ctx)
 					if err != nil {
 						t.Fatalf("unexpected error while building snapshot: %v", err)
