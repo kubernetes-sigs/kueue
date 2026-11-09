@@ -143,6 +143,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithPendingStop = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -153,34 +154,53 @@ func fromObject(o runtime.Object) *Job {
 }
 
 func (j *Job) IsSuspended() bool {
-	return j.Spec.Suspend != nil && *j.Spec.Suspend && j.Annotations[StoppingAnnotation] != "true"
+	return j.Spec.Suspend != nil && *j.Spec.Suspend && !j.IsStopPending()
 }
 
 func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
 }
 
+// IsStopPending reports whether a Stop is waiting for the Job's active Pods to
+// terminate before it restores the PodSetsInfo. The job controller's status
+// update when status.active reaches 0 triggers the reconcile that completes it.
+func (j *Job) IsStopPending() bool {
+	return j.Annotations[StoppingAnnotation] == "true"
+}
+
 func (j *Job) Suspend() {
 	j.Spec.Suspend = new(true)
 }
 
+// Stop suspends the Job, resets its start time and restores the PodSetsInfo
+// recorded at admission.
+//
+// The restore waits until the Job has no active Pods: with
+// MutableSchedulingDirectivesForSuspendedJobs the API server rejects changes to
+// scheduling directives while Pods are still active. Until then Stop keeps the
+// stopping annotation (IsStopPending reports true) and returns without an
+// error, and a later call completes the restore. It reports true only for the
+// call that suspends the Job.
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
 	object := j.Object()
-	stoppedNow := false
+	// IsSuspended is false for a Job an earlier, unfinished Stop already
+	// suspended (its stopping annotation is still set), so read Spec.Suspend
+	// directly: that Job was stopped then, not now.
+	wasSuspended := ptr.Deref(j.Spec.Suspend, false)
+	stoppedNow := !wasSuspended
 
-	if !j.IsSuspended() {
+	// One patch suspends the Job and marks the stop as pending. The annotation
+	// makes sure all updates finished successfully, and it keeps the restore
+	// pending while the Job still has active Pods. A Job that is suspended and
+	// already marked, or suspended with no active Pods left, needs no patch.
+	if !wasSuspended || (j.IsActive() && !j.IsStopPending()) {
 		if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
 			j.Suspend()
-			if j.Annotations == nil {
-				j.Annotations = map[string]string{}
-			}
-			// We are using annotation to be sure that all updates finished successfully.
-			j.Annotations[StoppingAnnotation] = "true"
+			metav1.SetMetaDataAnnotation(&j.ObjectMeta, StoppingAnnotation, "true")
 			return true, nil
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = true
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
@@ -191,6 +211,15 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}); err != nil {
 			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
+	}
+
+	// With MutableSchedulingDirectivesForSuspendedJobs (beta, on by default in
+	// Kubernetes 1.36) the API server rejects scheduling directive changes while
+	// the Job still has active Pods. Keep the stopping annotation and wait: the
+	// job controller's status update to active == 0 triggers the next reconcile,
+	// which restores the PodSets info.
+	if j.IsActive() {
+		return stoppedNow, nil
 	}
 
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {

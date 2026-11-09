@@ -89,7 +89,10 @@ var (
 	ErrManagedOwnersChainLimitReached = errors.New("managed owner chain limit reached")
 	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
 	ErrExtraWorkloads                 = errors.New("extra workloads")
-	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
+	// errWorkloadKeptForPendingStop ends a reconcile that keeps a non-matching
+	// Workload because the job's stop still has to restore its PodSetsInfo.
+	errWorkloadKeptForPendingStop = errors.New("workload kept for a pending stop")
+	ErrPrebuiltWorkloadNotFound   = errors.New("prebuilt workload not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -475,6 +478,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
 	wl, err := r.ensureOneWorkload(ctx, job, object)
+	if errors.Is(err, errWorkloadKeptForPendingStop) {
+		return ctrl.Result{}, nil
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -520,6 +526,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(3).Info("Workload has a deletion timestamp")
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted"); err != nil {
 			return ctrl.Result{}, fmt.Errorf("suspending job with deleted Workload: %w", err)
+		}
+		if jps, ok := job.(JobWithPendingStop); ok && jps.IsStopPending() {
+			// The job's stop has not restored the PodSetsInfo yet, and it is
+			// read from this Workload. JobWithPendingStop requires the job to
+			// be reconciled again once the stop can complete.
+			log.V(3).Info("Keeping the deleted workload's finalizer until the job's stop completes")
+			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
@@ -627,6 +640,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 		requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
 		return ctrl.Result{RequeueAfter: requeueAfter}, err
+	}
+
+	// 6.1 complete a pending stop. While it is pending the job does not count
+	// as suspended, so a Workload admitted in the meantime would otherwise be
+	// taken for a running job in step 8 and the job would stay suspended.
+	if jps, ok := job.(JobWithPendingStop); ok && jps.IsStopPending() {
+		if err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Completing a pending stop"); err != nil {
+			return ctrl.Result{}, fmt.Errorf("completing a pending stop: %w", err)
+		}
+		if jps.IsStopPending() {
+			log.V(3).Info("Job's stop is waiting for its active Pods to terminate")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// 7. handle job is suspended.
@@ -1290,6 +1316,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
+			}
+			if jps, ok := job.(JobWithPendingStop); ok && w != nil && jps.IsStopPending() {
+				// w holds the only copy of the PodSetsInfo the pending stop
+				// restores, so it is not deleted yet. JobWithPendingStop
+				// requires the job to be reconciled again once the stop can
+				// complete; that reconcile restores from w and deletes it.
+				ctrl.LoggerFrom(ctx).V(3).Info("Keeping the non-matching workload until the job's stop completes", "workload", klog.KObj(w))
+				return nil, errWorkloadKeptForPendingStop
 			}
 		}
 	}
