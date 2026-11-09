@@ -224,6 +224,65 @@ kueue_cluster_queue_nominal_quota{cluster_queue="team-b",cohort="org",flavor="de
 kueue_cohort_subtree_quota{cohort="org",flavor="default-flavor",replica_role="leader",resource="cpu"} 48
 ```
 
+## Derive capacity from Nodes
+
+Instead of writing the CapacityProvider status yourself, you can let Kueue
+derive the capacity from the Nodes of the cluster. This uses the built-in
+`kueue.x-k8s.io/local-capacity` provider, which is behind the alpha
+`DQOLocalCapacityProvider` feature gate. Enable it together with
+`DynamicQuotaOrchestration`. Kueue does not start if only the first one is
+enabled.
+
+Create a CapacityProvider with `controllerName: kueue.x-k8s.io/local-capacity`
+and list the ResourceFlavors to track:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: h100
+spec:
+  nodeLabels:
+    example.com/gpu-type: h100
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: CapacityProvider
+metadata:
+  name: nodes
+spec:
+  controllerName: kueue.x-k8s.io/local-capacity
+  orchestratedFlavors:
+  - name: h100
+```
+
+For each listed flavor, Kueue sums `status.allocatable` of the Nodes that match
+the flavor's `nodeLabels` and publishes the totals in the CapacityProvider
+status. A DynamicQuotaOrchestrator then distributes them as usual.
+
+- A Node counts only if it is `Ready`, not cordoned (`unschedulable`) and not
+  being deleted. For a flavor with a `topologyName`, the Node also needs a label
+  for every level of the Topology.
+- Taints do not exclude a Node. A workload can use a tainted Node only if its
+  tolerations cover the taints.
+- A flavor without eligible Nodes is published with no resources, so its quota
+  becomes 0.
+- Running workloads are not subtracted. To keep headroom, set
+  `effectiveCapacityMultiplier` on the provider in the DynamicQuotaOrchestrator's
+  `spec.capacityDiscovery.providers`.
+- Set the flavor's `nodeLabels` only from a trusted source, for example labels
+  under the `node-restriction.kubernetes.io/` prefix. A kubelet that can label
+  its own Node can move that Node's capacity into a flavor.
+- This provider is for fixed or externally scaled node pools. Quota that never
+  exceeds the current Nodes cannot trigger a ProvisioningRequest scale-up.
+
+If the provider cannot compute a correct result, it keeps the last published
+capacity and sets `CapacitySynchronized=False`, so quota does not change:
+
+| Reason | What to check |
+|---|---|
+| `SourceUnavailable` | Kueue could not list Nodes. |
+| `Misconfigured` | A flavor or its Topology does not exist, a flavor is listed by more than one local-capacity CapacityProvider, a Node matches more than one orchestrated flavor, a flavor has more than 64 resources, or `spec.parameters` is set. The message names the flavor or Node. |
+
 ## Troubleshooting
 
 | Condition | Reason | What to check |

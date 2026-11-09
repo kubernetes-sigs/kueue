@@ -104,9 +104,9 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 }
 
 // WithClusterProfileCRDPresent records whether the ClusterProfile CRD is
-// installed. The ClusterProfile watch is only registered when the CRD exists,
-// otherwise the watch would sync against a cache entry that was never
-// configured and the manager would exit.
+// installed at startup. When it is, the ClusterProfile watch uses the manager
+// cache. Otherwise, the watch is added once the CRD is served, using a cache
+// scoped to the Kueue namespace.
 func WithClusterProfileCRDPresent(present bool) SetupOption {
 	return func(o *SetupOptions) {
 		o.clusterProfileCRDPresent = present
@@ -194,9 +194,9 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
-		cqRec := newCQReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
-		err = cqRec.setupWithManager(mgr)
+	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
+		cpRec := newCPReconciler(mgr.GetClient(), helper, cRec, options.roleTracker, options.eventsBatchPeriod)
+		err = cpRec.setupWithManager(mgr)
 		if err != nil {
 			return err
 		}

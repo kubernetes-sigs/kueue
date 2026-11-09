@@ -58,6 +58,10 @@ See [Run A RayCluster](/docs/tasks/run/rayclusters)
 
 See [Run A RayService](/docs/tasks/run/rayservices)
 
+## SparkApplication
+
+See [Run A SparkApplication](/docs/tasks/run/kubeflow/sparkapplications#d-dynamic-allocation)
+
 ## Feature Gate
 
 Elastic Workloads via Workload Slices are gated by the following feature flag:
@@ -65,6 +69,8 @@ Elastic Workloads via Workload Slices are gated by the following feature flag:
 ```yaml
 ElasticJobsViaWorkloadSlices: true
 ```
+
+SparkApplication additionally requires the `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate.
 
 Additionally, Elastic Job behavior must be explicitly enabled on a per-job basis via annotation:
 
@@ -84,6 +90,7 @@ The admission webhook validates this annotation only when the `ElasticJobsViaWor
    * `ray.io/v1.RayJob`
    * `ray.io/v1.RayCluster`
    * `ray.io/v1.RayService`
+   * `sparkoperator.k8s.io/v1beta2.SparkApplication`
 * Elastic workloads are not supported for jobs with partial admission enabled.
 
     * Attempting to scale jobs with partial admission enabled will result in an admission validation error similar to the following:

@@ -31,7 +31,7 @@ RBAC_DIR="${ROOT_DIR}/config/components/rbac"
 # API groups whose resources need no editor/viewer ClusterRole.
 excluded_groups=(
   # Used by the controller itself, not submitted by users.
-  admissionregistration.k8s.io apiextensions.k8s.io events.k8s.io flowcontrol.apiserver.k8s.io
+  admissionregistration.k8s.io apiextensions.k8s.io apiregistration.k8s.io events.k8s.io flowcontrol.apiserver.k8s.io
   # Only read or created by Kueue.
   autoscaling.x-k8s.io node.k8s.io resource.k8s.io scheduling.k8s.io
 )
@@ -47,6 +47,7 @@ excluded_resources=(
   trainer.kubeflow.org/trainingruntimes trainer.kubeflow.org/clustertrainingruntimes
   # Alpha APIs that do not ship editor/viewer roles yet. Remove once they do.
   kueue.x-k8s.io/capacityproviders kueue.x-k8s.io/dynamicquotaorchestrators
+  kueue.x-k8s.io/multikueuecapacityproviderconfigs
 )
 # Entries that are no longer granted to the manager, or that already have an
 # editor or viewer role, fail the check so this list does not go stale.

@@ -302,7 +302,11 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
-	stats  *tasExclusionStats
+	// affinityScores are the scores of leaves, by index. The leaves read their score
+	// from domain state, which every pass clears. The leader's entry has none, because
+	// only its leaves are read.
+	affinityScores []int64
+	stats          *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -1679,8 +1683,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	for ; currentLevelIdx < min(len(s.domainsPerLevel)-1, state.sliceLevelIdx) && !useBalancedPlacement; currentLevelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
+		// Parent domainStates already hold assigned counts from updateCountsToMinimumGeneric above, so skip ancestor tie-breaking here.
 		lowerDomains := s.lowerLevelDomains(currFitDomain)
-		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained, state.spreadRules)
+		sortedLowerDomains := s.sortedDomainsWithAncestorTieBreak(lowerDomains, state.unconstrained, false, state.spreadRules)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.shape(), state.unconstrained, true)
 	}
 
@@ -2550,6 +2555,35 @@ func compareDomainLevelValues(a, b *domain) int {
 	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
 }
 
+// compareAncestorCapacity breaks ties between two domains at the same topology
+// level by preferring the domain whose enclosing ancestor domains have less
+// free capacity (walking bottom-up from parent to root). This packs smaller
+// requests into already partially-occupied or smaller parent domains (e.g., an
+// 8-GPU single-rack block or half-used 16-GPU block) before splitting larger
+// intact ancestor blocks. Must only be called before Phase 2b mutates ancestor
+// domainStates to assigned counts.
+func (s *TASFlavorSnapshot) compareAncestorCapacity(a, b *domain, withLeader bool) int {
+	for pa, pb := a.parent, b.parent; pa != nil && pb != nil && pa != pb; pa, pb = pa.parent, pb.parent {
+		paState, pbState := s.domainStateOf(pa), s.domainStateOf(pb)
+		if withLeader {
+			if c := cmp.Compare(paState.sliceCount[obligationLeader], pbState.sliceCount[obligationLeader]); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(paState.podCountWithLeader, pbState.podCountWithLeader); c != 0 {
+				return c
+			}
+		} else {
+			if c := cmp.Compare(paState.sliceCount[obligationNone], pbState.sliceCount[obligationNone]); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(paState.podCount, pbState.podCount); c != 0 {
+				return c
+			}
+		}
+	}
+	return 0
+}
+
 func domainIDs(domains []*domain) []string {
 	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
 }
@@ -2557,6 +2591,7 @@ func domainIDs(domains []*domain) []string {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
+	ancestorTieBreak := features.Enabled(features.TASAncestorCapacityTieBreak)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		aDomainState, bDomainState := s.domainStateOf(a), s.domainStateOf(b)
@@ -2581,6 +2616,15 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(aDomainState.podCountWithLeader, bDomainState.podCountWithLeader)
 		}
 
+		if ancestorTieBreak {
+			// When neither domain can host a leader (leaderCount == 0), ancestors may
+			// also have no leader-capable children (leaving podCountWithLeader == 0),
+			// so compare worker-only ancestor capacities instead.
+			if c := s.compareAncestorCapacity(a, b, aDomainState.leaderCount > 0); c != 0 {
+				return c
+			}
+		}
+
 		return s.compareDomainLevelValues(a, b)
 	})
 	return s.sortedBySpreadPriority(result, spreadRules)
@@ -2589,14 +2633,21 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
 //
 // The sorting criteria are:
-// - **BestFit**: `sliceCount` (descending), `podCount` (ascending), `levelValues` (ascending)
-// - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), `levelValues` (ascending)
+// - **BestFit**: `sliceCount` (descending), `podCount` (ascending), ancestor free capacity (ascending), `levelValues` (ascending)
+// - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), ancestor free capacity (ascending), `levelValues` (ascending)
 //
-// `podCount` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
+// `podCount` and ancestor free capacity are always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity while preserving larger intact ancestor blocks.
 //
 // Any spreadRules are applied last and take precedence over all of the above,
 // so a domain does not win a spreading decision just by having more room.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
+	return s.sortedDomainsWithAncestorTieBreak(domains, unconstrained, features.Enabled(features.TASAncestorCapacityTieBreak), spreadRules)
+}
+
+// sortedDomainsWithAncestorTieBreak sorts domains using BestFit or LeastFreeCapacity
+// and optionally breaks equal-capacity ties by comparing ancestor free capacity
+// bottom-up when packAncestors is true.
+func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain, unconstrained, packAncestors bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -2617,6 +2668,12 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 
 		if aDomainState.podCount != bDomainState.podCount {
 			return cmp.Compare(aDomainState.podCount, bDomainState.podCount)
+		}
+
+		if packAncestors {
+			if c := s.compareAncestorCapacity(a, b, false); c != 0 {
+				return c
+			}
 		}
 
 		return s.compareDomainLevelValues(a, b)
@@ -2644,9 +2701,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
@@ -2658,9 +2713,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
@@ -2821,7 +2874,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
 	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
 	}
 	return nil
 }
@@ -2899,6 +2952,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
+			for i, leaf := range cached.leaves {
+				leaf.SetAffinityScore(cached.affinityScores[i])
+			}
 			return cached.leaves, cached.stats, nil
 		}
 	}
@@ -2910,18 +2966,26 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+}
+
+func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
+	scores := make([]int64, len(leaves))
+	for i, leaf := range leaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	return scores
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
@@ -3043,7 +3107,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
 		}
-		affinityScore += childDomainState.affinityScore
+		// A child with no room for the PodSet's Pods adds no score, so a domain
+		// does not win only because it has more nodes.
+		if childPodCount > 0 {
+			affinityScore += childDomainState.affinityScore
+		}
 	}
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity

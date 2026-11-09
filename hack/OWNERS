@@ -2,3 +2,5 @@
 
 approvers:
 - infra-approvers
+reviewers:
+- infra-reviewers

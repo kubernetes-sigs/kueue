@@ -51,6 +51,15 @@ func SetFlavorResourceNominalQuota(cq *kueue.ClusterQueue, flavorName string, re
 	return cq
 }
 
+func UpdateClusterQueueResourceNominalQuota(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) {
+	ginkgo.GinkgoHelper()
+	var cqCopy kueue.ClusterQueue
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
+		g.Expect(k8sClient.Update(ctx, SetResourceNominalQuota(&cqCopy, resourceName, value))).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to update cluster queue nominal quota", &cqCopy))
+}
+
 func setClusterQueueStopPolicy(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, policy *kueue.StopPolicy) {
 	ginkgo.GinkgoHelper()
 	var cqCopy kueue.ClusterQueue

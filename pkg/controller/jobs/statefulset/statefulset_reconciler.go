@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -72,6 +73,7 @@ var (
 
 type Reconciler struct {
 	integrationManager           *jobframework.IntegrationManager
+	queues                       *qcache.Manager
 	client                       client.Client
 	record                       events.EventRecorder
 	logName                      string
@@ -98,13 +100,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var wlName string
 	var wl *kueue.Workload
 	if sts != nil {
+		if _, managed := managedByAnotherFramework(sts); managed {
+			return ctrl.Result{}, nil
+		}
 		var err error
 		wlName, wl, err = findWorkload(ctx, r.client, sts)
 		if err != nil {
 			return ctrl.Result{}, err
-		}
-		if _, managed := managedByAnotherFramework(sts); managed {
-			return ctrl.Result{}, nil
 		}
 		if wl == nil {
 			shouldManage, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, sts, r.client,
@@ -465,7 +467,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
-	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+	jobframework.RecordWorkloadCreationLatency(ctx, sts, sts.GroupVersionKind().Kind, createdWorkload, r.queues, r.customLabels, r.roleTracker)
 
 	return nil
 }
@@ -537,6 +539,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		client:                       client,
 		record:                       eventRecorder,
 		logName:                      "statefulset-reconciler",

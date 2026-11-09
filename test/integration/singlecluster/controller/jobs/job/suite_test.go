@@ -144,7 +144,7 @@ func managerAndControllersSetup(
 		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
+		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues), jobframework.WithCustomLabels(customLabels))
 		managerSetupWithConfiguration(configuration, opts...)(ctx, mgr)
 
 		failedCtrl, err := core.SetupControllers(

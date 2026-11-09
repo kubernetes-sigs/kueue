@@ -1030,7 +1030,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
 	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
 		Migration: kueue.ConcurrentAdmissionMigration{
-			Mode: mode,
+			Mode: &mode,
 		},
 	}
 	return c
@@ -1707,7 +1707,7 @@ func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConf
 }
 
 func (mkc *MultiKueueConfigWrapper) QuotaManagement(mode kueue.MultiKueueConfigQuotaManagementMode) *MultiKueueConfigWrapper {
-	mkc.Spec.QuotaManagement = &mode
+	mkc.Spec.QuotaManagement = &mode //nolint:staticcheck // SA1019: kept to test that deprecated field is ignored
 	return mkc
 }
 
