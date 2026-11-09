@@ -708,6 +708,78 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			behavioral.ExpectLQPendingWorkloadsMetric(queueDeleteMetrics, 0, 0)
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should filter unadmitted workload metrics after LocalQueue label changes", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+		queue := utiltestingapi.MakeLocalQueue("queue-unadmitted-metrics", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			Label("metrics-test", "false").
+			Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, queue)
+
+		lqLabels := map[string]string{"name": queue.Name, "namespace": ns.Name}
+		cqLabels := map[string]string{"cluster_queue": clusterQueue.Name}
+		expectCQCount := func(want float64) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, cqLabels)
+				g.Expect(got).To(gomega.HaveLen(1))
+				g.Expect(got[0].Value).To(gomega.Equal(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		expectLQCount := func(want float64) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels)
+				g.Expect(got).To(gomega.HaveLen(1))
+				g.Expect(got[0].Value).To(gomega.Equal(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		updateLabel := func(value string) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updated)).To(gomega.Succeed())
+				updated.Labels["metrics-test"] = value
+				g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		wl := utiltestingapi.MakeWorkload("wl-unadmitted-metrics", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		expectCQCount(1)
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		updateLabel("true")
+		expectLQCount(1)
+
+		updateLabel("false")
+		gomega.Eventually(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeZero())
+
+		secondWL := utiltestingapi.MakeWorkload("wl-unadmitted-metrics-2", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, secondWL)
+		expectCQCount(2)
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		qManager.ResyncGaugeMetrics()
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		updateLabel("true")
+		expectLQCount(2)
+	})
 })
 
 var _ = ginkgo.Describe("LocalQueue counters across a stop", ginkgo.Label("controller:localqueue", "area:core"), func() {
@@ -829,77 +901,5 @@ var _ = ginkgo.Describe("LocalQueue counters across a stop", ginkgo.Label("contr
 		behavioral.MustCreate(ctx, k8sClient, second)
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, second)
 		behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 2)
-	})
-
-	ginkgo.It("Should filter unadmitted workload metrics after LocalQueue label changes", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
-
-		queue := utiltestingapi.MakeLocalQueue("queue-unadmitted-metrics", ns.Name).
-			ClusterQueue(clusterQueue.Name).
-			Label("metrics-test", "false").
-			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, queue)
-
-		lqLabels := map[string]string{"name": queue.Name, "namespace": ns.Name}
-		cqLabels := map[string]string{"cluster_queue": clusterQueue.Name}
-		expectCQCount := func(want float64) {
-			gomega.Eventually(func(g gomega.Gomega) {
-				got := testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, cqLabels)
-				g.Expect(got).To(gomega.HaveLen(1))
-				g.Expect(got[0].Value).To(gomega.Equal(want))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
-		expectLQCount := func(want float64) {
-			gomega.Eventually(func(g gomega.Gomega) {
-				got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels)
-				g.Expect(got).To(gomega.HaveLen(1))
-				g.Expect(got[0].Value).To(gomega.Equal(want))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
-		updateLabel := func(value string) {
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updated kueue.LocalQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updated)).To(gomega.Succeed())
-				updated.Labels["metrics-test"] = value
-				g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		}
-
-		wl := utiltestingapi.MakeWorkload("wl-unadmitted-metrics", ns.Name).
-			Queue(kueue.LocalQueueName(queue.Name)).
-			Request(resourceGPU, "1").
-			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
-		expectCQCount(1)
-		gomega.Consistently(func() int {
-			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.BeZero())
-
-		updateLabel("true")
-		expectLQCount(1)
-
-		updateLabel("false")
-		gomega.Eventually(func() int {
-			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
-		}, util.Timeout, util.Interval).Should(gomega.BeZero())
-
-		secondWL := utiltestingapi.MakeWorkload("wl-unadmitted-metrics-2", ns.Name).
-			Queue(kueue.LocalQueueName(queue.Name)).
-			Request(resourceGPU, "1").
-			Obj()
-		util.MustCreate(ctx, k8sClient, secondWL)
-		expectCQCount(2)
-		gomega.Consistently(func() int {
-			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.BeZero())
-
-		qManager.ResyncGaugeMetrics()
-		gomega.Consistently(func() int {
-			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.BeZero())
-
-		updateLabel("true")
-		expectLQCount(2)
 	})
 })
