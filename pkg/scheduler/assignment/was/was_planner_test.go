@@ -467,6 +467,7 @@ func TestPlan(t *testing.T) {
 		// failAddCPGAt and failAddPGAt make the N-th Add call fail, counting from 1. 0 means no failure.
 		failAddCPGAt, failAddPGAt int
 		removeErr                 error
+		omitPreemptionFilter      bool
 
 		wantMode        flavorassigner.FlavorAssignmentMode
 		wantFit         bool
@@ -477,13 +478,25 @@ func TestPlan(t *testing.T) {
 		// wantPreemptionTargets checks the workload keys of the PreemptionTargets returned in Plan.
 		wantPreemptionTargets []workload.Reference
 		// wantResolvedNoFitReason configures what should be the NoFitReason
-		// the Assignemtn resolves to when the UnadmittedWorkloadsObservability
+		// the Assignment resolves to when the UnadmittedWorkloadsObservability
 		// FG ius enabled.
 		// When set the UnadmittedWorkloadsObservability feature will be enabled in the test.
 		wantResolvedNoFitReason string
 		wantPodSets             []flavorassigner.PodSetAssignment
 		wantAdded               *addedPodGroups
 	}{
+		"PreemptionFilter option not configured: planning error": {
+			flavorQuotas:         []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
+			podSets:              []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "1"}},
+			initialMode:          flavorassigner.Fit,
+			omitPreemptionFilter: true,
+			wantMode:             flavorassigner.Fit,
+			wantErrs:             []string{"PreemptionFilter option not configured for wasPlanner"},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:                     kueue.DefaultPodSetName,
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
+			}},
+		},
 		"initial assignment does not fit the quota: returned as is, without scheduling": {
 			flavorQuotas:            []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
 			podSets:                 []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "4"}},
@@ -1268,6 +1281,9 @@ func TestPlan(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			var opts []assignment.PlannerOption
+			if !tc.omitPreemptionFilter {
+				opts = append(opts, assignment.WithPreemptionFilter(filter))
+			}
 			var revertRemoval func()
 			if len(tc.committedVictims) > 0 {
 				var toRemove []*workload.Info
@@ -1296,7 +1312,7 @@ func TestPlan(t *testing.T) {
 			}
 
 			// When
-			planner := NewPlanner(wl, snapshot, preemptor, filter)
+			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
 			if revertRemoval != nil {
 				revertRemoval()
@@ -1419,10 +1435,10 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 		preemption.NewOracle(preemptor, snapshot), nil,
 		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 	)
-	assignment := assigner.AssignFlavors(ctx, log, nil)
+	initialAssignment := assigner.AssignFlavors(ctx, log, nil)
 
-	planner := NewPlanner(wl, snapshot, preemptor, preemption.BuildFilter(log, snapshot, wl))
-	plan := planner.Plan(ctx, &assignment)
+	planner := NewPlanner(wl, snapshot, preemptor)
+	plan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snapshot, wl)))
 	if plan.Error != nil {
 		t.Fatalf("Plan() unexpected error: %v", plan.Error)
 	}
@@ -1778,8 +1794,8 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			}
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
-			planner := NewPlanner(wl, snapshot, preemptor, preemption.BuildFilter(log, snapshot, wl))
-			gotPlan := planner.Plan(ctx, &initialAssignment)
+			planner := NewPlanner(wl, snapshot, preemptor)
+			gotPlan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snapshot, wl)))
 
 			if gotPlan.Error != nil {
 				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
@@ -2081,11 +2097,11 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
 			}
 
-			var opts []assignment.PlannerOption
+			opts := []assignment.PlannerOption{assignment.WithPreemptionFilter(filter)}
 			if len(committedMap) > 0 {
 				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 			}
-			planner := NewPlanner(wl, snapshot, preemptor, filter)
+			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
 			if revertRemoval != nil {
 				revertRemoval()
@@ -2185,8 +2201,11 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			preemption.NewOracle(preemptor, snapshot), nil,
 			configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 		)
-		planner := NewPlanner(wl, snapshot, preemptor, filter)
-		opts := []assignment.PlannerOption{assignment.WithCommittedPreemptionVictims(committedMap)}
+		planner := NewPlanner(wl, snapshot, preemptor)
+		opts := []assignment.PlannerOption{
+			assignment.WithCommittedPreemptionVictims(committedMap),
+			assignment.WithPreemptionFilter(filter),
+		}
 
 		// Full count (3 CPU) fits on testNode1's 3 free CPU for node placement, EXCEPT CQ quota is 9
 		// and blocker (6) + committed-victim (6) = 12 in filter, so 3 CPU needs committed-victim for quota -> DeferredFit!
@@ -2200,7 +2219,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 		}
 
 		// Second call on the SAME planner with a reduced count (1 CPU): blocker (6) + committed-victim (6) = 12 > 9 in filter,
-		// verifying p.filter.Reset() restored committed-victim's usage cleanly after the first Plan() call.
+		// verifying filter.Reset() restored committed-victim's usage cleanly after the first Plan() call.
 		reducedCounts := workload.PodSetsCounts{kueue.DefaultPodSetName: 1}
 		reducedAsgn := assigner.AssignFlavors(ctx, log, reducedCounts)
 		reducedPlan := planner.Plan(ctx, &reducedAsgn, opts...)

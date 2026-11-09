@@ -1673,10 +1673,17 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	plannerOptions := []assignment.PlannerOption{}
-	if len(inCycleCommittedVictims) > 0 {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		// The Planner uses a preemption filter built on a clean copy of the snapshot.
+		// When committed victims are removed from the Kueue snapshot, the filter will remain unaffected.
+		plannerOptions = append(plannerOptions, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snap, wl)))
 		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
+	}
+	if len(inCycleCommittedVictims) > 0 {
 		var revertRemoval func()
 		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+			// For wasPlanner we only remove the quota from the snapshot.
+			// The Pods are handled by scheduler-library.
 			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
 		} else {
 			revertRemoval = simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
@@ -1684,19 +1691,20 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		defer revertRemoval()
 	}
 
+	// The ReplacedWorkloadSlice call and the configuration of FlavorAssigner
+	// have to happen after committed victims are removed from the snapshot.
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
+	// The preemptor sees the state of the cluster without committed victims.
+	// The strategy it generates will yield candidates based on an assumption
+	// that all committed victims have been removed.
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		// Was Planner uses a preemption filter built on a clean copy of the snapshot.
-		// When committed victims are removed from the active snapshot, the filter will remain unaffected.
-		// The preemption strategy will generate candidates based on an assumption
-		// that all committed victims have been removed.
-		planner = wasplanner.NewPlanner(wl, snap, s.preemptor, preemption.BuildFilter(log, snap, wl))
+		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}

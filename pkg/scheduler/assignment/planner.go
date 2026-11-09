@@ -62,6 +62,9 @@ type Options struct {
 	// for preemption by preemptors (workloads) already processed within
 	// the ongoing scheduler cycle.
 	CommittedPreemptionVictims preemption.PreemptedWorkloads
+	// PreemptionFilter allows performing preempt/unpreempt workload operations
+	// on a copy of the snapshot and a fit check based on its updated state.
+	PreemptionFilter *preemption.PreemptionFilter
 }
 
 type PlannerOption func(*Options)
@@ -79,5 +82,11 @@ func BuildOptions(options ...PlannerOption) *Options {
 func WithCommittedPreemptionVictims(preemptionVictims preemption.PreemptedWorkloads) PlannerOption {
 	return func(opts *Options) {
 		opts.CommittedPreemptionVictims = preemptionVictims
+	}
+}
+
+func WithPreemptionFilter(filter *preemption.PreemptionFilter) PlannerOption {
+	return func(opts *Options) {
+		opts.PreemptionFilter = filter
 	}
 }

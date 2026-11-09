@@ -107,6 +107,8 @@ func TestBuildOptions(t *testing.T) {
 	wl2Ref := workload.NewReference("ns", "wl-2")
 	wl1Info := &workload.Info{ClusterQueue: "cq-1"}
 	wl2Info := &workload.Info{ClusterQueue: "cq-2"}
+	filter1 := &preemption.PreemptionFilter{}
+	filter2 := &preemption.PreemptionFilter{}
 
 	cases := map[string]struct {
 		options []PlannerOption
@@ -139,21 +141,47 @@ func TestBuildOptions(t *testing.T) {
 				},
 			},
 		},
+		"WithPreemptionFilter sets filter": {
+			options: []PlannerOption{
+				WithPreemptionFilter(filter1),
+			},
+			want: &Options{
+				PreemptionFilter: filter1,
+			},
+		},
+		"multiple options set both victims and filter": {
+			options: []PlannerOption{
+				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
+				WithPreemptionFilter(filter1),
+			},
+			want: &Options{
+				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl1Ref: wl1Info},
+				PreemptionFilter:           filter1,
+			},
+		},
 		"later option overrides earlier option": {
 			options: []PlannerOption{
 				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
+				WithPreemptionFilter(filter1),
 				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl2Ref: wl2Info}),
+				WithPreemptionFilter(filter2),
 			},
 			want: &Options{
 				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl2Ref: wl2Info},
+				PreemptionFilter:           filter2,
 			},
 		},
+	}
+
+	cmpOpts := cmp.Options{
+		cmp.AllowUnexported(workload.Info{}),
+		cmp.Comparer(func(a, b *preemption.PreemptionFilter) bool { return a == b }),
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := BuildOptions(tc.options...)
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(workload.Info{})); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmpOpts); diff != "" {
 				t.Errorf("BuildOptions() (-want,+got):\n%s", diff)
 			}
 		})
