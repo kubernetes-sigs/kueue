@@ -1027,6 +1027,8 @@ admission penalties, divided by the LocalQueue's fair sharing weight`,
 			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
 quota to the lendable resources in the cohort, among all the resources provided by
 the ClusterQueue, and divided by the weight.
+If the ClusterQueue has a positive weight and borrows a resource that its parent
+Cohort has nothing lendable for, this will return +Inf.
 If zero, it means that the usage of the ClusterQueue is below the nominal quota.
 If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cluster_queue", "cohort", "replica_role"}, clusterQueueMetricsLabels...),
@@ -1040,6 +1042,8 @@ If the ClusterQueue has a weight of zero and is borrowing, this will return NaN.
 			Help: `Reports a value that representing the maximum of the ratios of usage above nominal
 quota to the lendable resources in the Cohort, among all the resources provided by
 the Cohort, and divided by the weight.
+If the Cohort has a positive weight and borrows a resource that its parent
+Cohort has nothing lendable for, this will return +Inf.
 If zero, it means that the usage of the Cohort is below the nominal quota.
 If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "replica_role"}, cohortMetricLabels...),

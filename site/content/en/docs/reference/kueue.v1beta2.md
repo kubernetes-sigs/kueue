@@ -1587,7 +1587,10 @@ Cohort, among all the resources provided by the Node, and
 divided by the weight.  If zero, it means that the usage of
 the Node is below the nominal quota.  If the Node has a
 weight of zero and is borrowing, this will return
-9223372036854775807, the maximum possible share value.</p>
+9223372036854775807, the maximum possible share value.
+If the Node has a positive weight and borrows a resource
+that its parent Cohort has nothing lendable for, this will
+also return 9223372036854775807.</p>
 </td>
 </tr>
 </tbody>
