@@ -2278,6 +2278,40 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
 	}
 
+	// Regenerates pods when admission changes with same ResourceVersion
+	wlNode2 := wl.DeepCopy()
+	wlNode2.Status.Admission.PodSetAssignments[0].TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
+		Obj()
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlNode2})); err != nil {
+		t.Fatalf("NewSimulator failed on admission change: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	cachedNode2 := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if len(cachedNode2.pods) != 1 || cachedNode2.pods[0].Spec.NodeName != "node2" {
+		t.Errorf("expected virtual pods to update node assignment on admission change")
+	}
+
+	// Caches nil pods for non-TAS workloads
+	wlNoTAS := utiltestingapi.MakeWorkload("wl-notas", "default").UID("wl-notas-uid").Obj()
+	wlNoTAS.Generation = 1
+	wlNoTAS.ResourceVersion = "200"
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
+		t.Fatalf("NewSimulator with non-TAS workload failed: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	cachedNil, okNil := factory.virtualPodsCache[wlNoTAS.UID]
+	factory.virtualPodsMu.RUnlock()
+	if !okNil || cachedNil.pods != nil {
+		t.Fatalf("expected nil pods to be cached, got ok=%v, pods=%v", okNil, cachedNil.pods)
+	}
+
+	// Reuses cached nil pods
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
+		t.Fatalf("Second NewSimulator with non-TAS workload failed: %v", err)
+	}
+
 	// Removes unassumed workloads
 	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker); err != nil {
 		t.Fatalf("Fourth NewSimulator failed: %v", err)

@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -60,6 +61,8 @@ var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 type cachedVirtualPods struct {
 	generation      int64
 	resourceVersion string
+	workloadPtr     *kueue.Workload
+	admission       *kueue.Admission
 	pods            []*corev1.Pod
 }
 
@@ -206,22 +209,28 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 		}
 
 		var vPods []*corev1.Pod
+		cacheHit := false
 		if wl.UID != "" {
 			s.virtualPodsMu.RLock()
 			cached, ok := s.virtualPodsCache[wl.UID]
 			if ok && cached.generation == wl.Generation && cached.resourceVersion == wl.ResourceVersion {
-				vPods = cached.pods
+				if cached.workloadPtr == wl || equality.Semantic.DeepEqual(cached.admission, wl.Status.Admission) {
+					vPods = cached.pods
+					cacheHit = true
+				}
 			}
 			s.virtualPodsMu.RUnlock()
 		}
 
-		if vPods == nil {
+		if !cacheHit {
 			vPods = VirtualPodsForWorkload(wl)
 			if wl.UID != "" {
 				s.virtualPodsMu.Lock()
 				s.virtualPodsCache[wl.UID] = cachedVirtualPods{
 					generation:      wl.Generation,
 					resourceVersion: wl.ResourceVersion,
+					workloadPtr:     wl,
+					admission:       wl.Status.Admission.DeepCopy(),
 					pods:            vPods,
 				}
 				s.virtualPodsMu.Unlock()
