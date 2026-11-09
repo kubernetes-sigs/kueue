@@ -55,15 +55,31 @@ import (
 type testDomainSpec struct {
 	domain domain
 	state  domainState
+	parent *testDomainSpec
 }
 
+// addDomainsWithState populates s.domainStates for specs and their ancestor
+// chain, returning the allocated domain pointers in the same order as specs.
 func addDomainsWithState(s *TASFlavorSnapshot, specs []testDomainSpec) []*domain {
-	result := make([]*domain, len(specs))
-	for i, spec := range specs {
+	added := make(map[*testDomainSpec]*domain)
+	var addSpec func(spec *testDomainSpec) *domain
+	addSpec = func(spec *testDomainSpec) *domain {
+		if existing, ok := added[spec]; ok {
+			return existing
+		}
 		d := spec.domain
+		if spec.parent != nil {
+			d.parent = addSpec(spec.parent)
+		}
 		d.idx = len(s.domainStates)
 		s.domainStates = append(s.domainStates, spec.state)
-		result[i] = &d
+		ptr := &d
+		added[spec] = ptr
+		return ptr
+	}
+	result := make([]*domain, len(specs))
+	for i := range specs {
+		result[i] = addSpec(&specs[i])
 	}
 	return result
 }
@@ -727,16 +743,63 @@ func TestHasLevel(t *testing.T) {
 
 // TestSortedDomainsWithLeader verifies the sorting criteria (in order of priority):
 // 1. leaderCount - descending (always)
-// 2. sliceCount[obligationLeader] - descending (BestFit) or ascending (LeastFreeCapacity)
-// 3. podCountWithLeader - ascending (always, as tiebreaker)
-// 4. levelValues - ascending (always, as final tiebreaker)
+// 2. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
+// 3. sliceCount[obligationLeader] - descending (BestFit) or ascending (LeastFreeCapacity)
+// 4. podCountWithLeader - ascending (always, as tiebreaker)
+// 5. ancestor free capacity (sliceCount[obligationLeader], then podCountWithLeader) - ascending bottom-up
+// 6. levelValues - ascending (always, as final tiebreaker)
 func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
+
+	blockLargeLeader := &testDomainSpec{
+		domain: domain{id: "b1", levelValues: []string{"b1"}},
+		state: domainState{
+			leaderCount:        1,
+			sliceCount:         [4]int32{obligationLeader: 2},
+			podCountWithLeader: 14,
+		},
+	}
+	blockSmallLeader := &testDomainSpec{
+		domain: domain{id: "b2", levelValues: []string{"b2"}},
+		state: domainState{
+			leaderCount:        1,
+			sliceCount:         [4]int32{obligationLeader: 1},
+			podCountWithLeader: 8,
+		},
+	}
+	subblockPartialLeader := &testDomainSpec{
+		domain: domain{id: "b1-sb1", levelValues: []string{"b1", "sb1"}},
+		state: domainState{
+			leaderCount:        1,
+			sliceCount:         [4]int32{obligationLeader: 2},
+			podCountWithLeader: 2,
+		},
+		parent: blockLargeLeader,
+	}
+	subblockIntactInLargeLeader := &testDomainSpec{
+		domain: domain{id: "b1-sb2", levelValues: []string{"b1", "sb2"}},
+		state: domainState{
+			leaderCount:        1,
+			sliceCount:         [4]int32{obligationLeader: 4},
+			podCountWithLeader: 4,
+		},
+		parent: blockLargeLeader,
+	}
+	subblockIntactInSmallLeader := &testDomainSpec{
+		domain: domain{id: "b2-sb1", levelValues: []string{"b2", "sb1"}},
+		state: domainState{
+			leaderCount:        1,
+			sliceCount:         [4]int32{obligationLeader: 4},
+			podCountWithLeader: 4,
+		},
+		parent: blockSmallLeader,
+	}
 
 	testCases := map[string]struct {
 		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
+		disableTASAncestorCapacityTieBreak   bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
@@ -956,6 +1019,128 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
+		"ancestor leader capacity ascending breaks equal domain ties": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockSmallLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b1-r1"},
+		},
+		"ancestor leader capacity ignored when feature gate is disabled": {
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 8,
+					},
+					parent: blockSmallLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1"},
+		},
+		"non-leader domains fall back to worker ancestor capacity": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state:  domainState{leaderCount: 0},
+					parent: &testDomainSpec{
+						domain: domain{id: "b1", levelValues: []string{"b1"}},
+						// No leader-capable nodes in b1 leaves podCountWithLeader at 0 despite 16 worker slots.
+						state: domainState{
+							sliceCount: [4]int32{obligationNone: 2, obligationLeader: 0},
+							podCount:   16,
+						},
+					},
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state:  domainState{leaderCount: 0},
+					parent: &testDomainSpec{
+						domain: domain{id: "b2", levelValues: []string{"b2"}},
+						state: domainState{
+							leaderCount:        1,
+							sliceCount:         [4]int32{obligationNone: 1, obligationLeader: 1},
+							podCount:           8,
+							podCountWithLeader: 7,
+						},
+					},
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b1-r1"},
+		},
+		"three-level hierarchy breaks leader ties bottom-up from parent to grandparent": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-sb2-h2", levelValues: []string{"b1", "sb2", "h2"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 1,
+					},
+					parent: subblockIntactInLargeLeader,
+				},
+				{
+					domain: domain{id: "b2-sb1-h1", levelValues: []string{"b2", "sb1", "h1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 1,
+					},
+					parent: subblockIntactInSmallLeader,
+				},
+				{
+					domain: domain{id: "b1-sb1-h1", levelValues: []string{"b1", "sb1", "h1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 1,
+					},
+					parent: subblockPartialLeader,
+				},
+				{
+					domain: domain{id: "b1-sb2-h1", levelValues: []string{"b1", "sb2", "h1"}},
+					state: domainState{
+						leaderCount:        1,
+						sliceCount:         [4]int32{obligationLeader: 1},
+						podCountWithLeader: 1,
+					},
+					parent: subblockIntactInLargeLeader,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-sb1-h1", "b2-sb1-h1", "b1-sb2-h1", "b1-sb2-h2"},
+		},
 		"levelValues ascending as final tiebreaker": {
 			domains: []testDomainSpec{
 				{
@@ -991,6 +1176,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 
@@ -1012,14 +1198,62 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 // 1. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
 // 2. sliceCount - descending (BestFit) or ascending (LeastFreeCapacity)
 // 3. podCount - ascending (always, as tiebreaker)
-// 4. levelValues - ascending (always, as final tiebreaker)
+// 4. ancestor free capacity (sliceCount, then podCount) - ascending bottom-up
+// 5. levelValues - ascending (always, as final tiebreaker)
 func TestSortedDomains(t *testing.T) {
 	levels := []string{"block"}
+
+	blockLarge := &testDomainSpec{
+		domain: domain{id: "b1", levelValues: []string{"b1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 2},
+			podCount:   16,
+		},
+	}
+	blockSmall := &testDomainSpec{
+		domain: domain{id: "b2", levelValues: []string{"b2"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 1},
+			podCount:   8,
+		},
+	}
+	blockMediumOneSlice := &testDomainSpec{
+		domain: domain{id: "b3", levelValues: []string{"b3"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 1},
+			podCount:   12,
+		},
+	}
+	subblockPartial := &testDomainSpec{
+		domain: domain{id: "b1-sb1", levelValues: []string{"b1", "sb1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 2},
+			podCount:   2,
+		},
+		parent: blockLarge,
+	}
+	subblockIntactInLarge := &testDomainSpec{
+		domain: domain{id: "b1-sb2", levelValues: []string{"b1", "sb2"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 4},
+			podCount:   4,
+		},
+		parent: blockLarge,
+	}
+	subblockIntactInSmall := &testDomainSpec{
+		domain: domain{id: "b2-sb1", levelValues: []string{"b2", "sb1"}},
+		state: domainState{
+			sliceCount: [4]int32{obligationNone: 4},
+			podCount:   4,
+		},
+		parent: blockSmall,
+	}
 
 	testCases := map[string]struct {
 		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
+		disableTASAncestorCapacityTieBreak   bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
@@ -1176,6 +1410,135 @@ func TestSortedDomains(t *testing.T) {
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
+		"BestFit: ancestor sliceCount and podCount ascending as tiebreaker": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b2-r1", "b3-r1", "b1-r1"},
+		},
+		"ancestor capacity ignored when feature gate is disabled": {
+			disableTASAncestorCapacityTieBreak: true,
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-r1", "b2-r1", "b3-r1"},
+		},
+		"LeastFreeCapacity: ancestor sliceCount and podCount ascending as tiebreaker": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-r1", levelValues: []string{"b1", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockLarge,
+				},
+				{
+					domain: domain{id: "b3-r1", levelValues: []string{"b3", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockMediumOneSlice,
+				},
+				{
+					domain: domain{id: "b2-r1", levelValues: []string{"b2", "r1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   8,
+					},
+					parent: blockSmall,
+				},
+			},
+			unconstrained: true,
+			wantOrder:     []string{"b2-r1", "b3-r1", "b1-r1"},
+		},
+		"three-level hierarchy breaks ties bottom-up from parent to grandparent": {
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "b1-sb2-h2", levelValues: []string{"b1", "sb2", "h2"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   1,
+					},
+					parent: subblockIntactInLarge,
+				},
+				{
+					domain: domain{id: "b2-sb1-h1", levelValues: []string{"b2", "sb1", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   1,
+					},
+					parent: subblockIntactInSmall,
+				},
+				{
+					domain: domain{id: "b1-sb1-h1", levelValues: []string{"b1", "sb1", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   1,
+					},
+					parent: subblockPartial,
+				},
+				{
+					domain: domain{id: "b1-sb2-h1", levelValues: []string{"b1", "sb2", "h1"}},
+					state: domainState{
+						sliceCount: [4]int32{obligationNone: 1},
+						podCount:   1,
+					},
+					parent: subblockIntactInLarge,
+				},
+			},
+			unconstrained: false,
+			wantOrder:     []string{"b1-sb1-h1", "b2-sb1-h1", "b1-sb2-h1", "b1-sb2-h2"},
+		},
 		"levelValues ascending as final tiebreaker": {
 			domains: []testDomainSpec{
 				{
@@ -1208,6 +1571,7 @@ func TestSortedDomains(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
+			features.SetFeatureGateDuringTest(t, features.TASAncestorCapacityTieBreak, !tc.disableTASAncestorCapacityTieBreak)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 

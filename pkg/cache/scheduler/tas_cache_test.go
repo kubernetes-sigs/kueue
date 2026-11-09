@@ -2239,7 +2239,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2263,7 +2263,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2330,7 +2330,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2354,7 +2354,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2379,7 +2379,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2404,7 +2404,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"b1",
+								"b2",
 								"r1",
 							},
 						},
@@ -7803,7 +7803,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  2,
-								Values: []string{"b1", "r1"},
+								Values: []string{"b2", "r1"},
 							},
 						},
 					},
@@ -7822,7 +7822,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
-								Values: []string{"b1", "r1"},
+								Values: []string{"b2", "r1"},
 							},
 						},
 					},
@@ -10085,7 +10085,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					count:    1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel, tasRackLabel},
-						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b2", "r1"}}},
 					},
 				},
 			},
@@ -12483,6 +12483,83 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
 				},
 			}},
+		},
+		"rack required packs smaller parent block first, preserving larger block for block-required podset": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x3").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "rack-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{"nvidia.com/gpu": 1},
+					count:           8,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 8, Values: []string{"x3"}}},
+					},
+				},
+				{
+					podSetName:      "block-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+					requests:        map[corev1.ResourceName]int64{"nvidia.com/gpu": 1},
+					count:           12,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 8, Values: []string{"x1"}},
+							{Count: 4, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+		},
+		"rack required falls back to alphabetical block order when TASAncestorCapacityTieBreak is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASAncestorCapacityTieBreak: false},
+			nodes:        defaultNodes,
+			levels:       defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "rack-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x3"}}},
+					},
+				},
+			},
 		},
 	}
 	for name, tc := range cases {
