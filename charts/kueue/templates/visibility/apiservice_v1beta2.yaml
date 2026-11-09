@@ -27,9 +27,6 @@ metadata:
   {{- include "kueue.visibilityService.labels" . | nindent 4 }}
   name: v1beta2.visibility.kueue.x-k8s.io
 spec:
-  {{- if not .Values.enableCertManager }}
-  insecureSkipTLSVerify: true
-  {{- end }}
   group: visibility.kueue.x-k8s.io
   groupPriorityMinimum: 100
   service:
