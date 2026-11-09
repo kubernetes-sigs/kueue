@@ -267,6 +267,7 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 	return simulator.SchedulingResult{
 		PodPlacements:     placements,
 		PreemptionVictims: toPreemptionVictims(wasResult.PreemptionVictims),
+		ImmediateFit:      wasResult.Status.IsSuccess(),
 	}
 }
 

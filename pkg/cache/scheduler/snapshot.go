@@ -70,53 +70,6 @@ type Snapshot struct {
 	residualTASPods []tasPodUsageValue
 }
 
-func (s *Snapshot) CopyManager() *BareManagerSnapshot {
-	dst := &BareManagerSnapshot{
-		Manager: hierarchy.NewManager(newCohortSnapshot),
-	}
-	for _, cohort := range s.Cohorts() {
-		dst.AddCohort(cohort.Name)
-		dstCohort := dst.Cohort(cohort.Name)
-		dstCohort.ResourceNode = cohort.ResourceNode.Clone()
-		dstCohort.FairWeight = cohort.FairWeight
-		if cohort.HasParent() {
-			dst.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
-		}
-	}
-	for _, cq := range s.ClusterQueues() {
-		cqCopy := &ClusterQueueSnapshot{
-			Name:         cq.Name,
-			ResourceNode: cq.ResourceNode.Clone(),
-			released:     maps.Clone(cq.released),
-			FairWeight:   cq.FairWeight,
-		}
-		dst.AddClusterQueue(cqCopy)
-		if cq.HasParent() {
-			dst.UpdateClusterQueueEdge(cq.Name, cq.Parent().Name)
-		}
-	}
-	return dst
-}
-
-// BareManagerSnapshot is a minimum copy of the snapshot required for SchedulingFilter to function.
-type BareManagerSnapshot struct {
-	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
-}
-
-func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	if cq != nil && !cq.released.Has(workload.Key(wl.Obj)) {
-		cq.RemoveUsage(wl.Usage())
-	}
-}
-
-func (s *BareManagerSnapshot) AddWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	if cq != nil && !cq.released.Has(workload.Key(wl.Obj)) {
-		cq.AddUsage(wl.Usage())
-	}
-}
-
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
 	if s.candidateOrderCache == nil {
 		s.candidateOrderCache = newCandidateOrderCache()
@@ -142,6 +95,15 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.AddUsage(cq, wl.Usage())
 	}
+}
+
+func (s *Snapshot) HasWorkload(wl *workload.Info) bool {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	_, found := cq.Workloads[workload.Key(wl.Obj)]
+	return found
 }
 
 // ReleaseWorkloadUsage removes a workload's usage while keeping the workload in

@@ -100,8 +100,7 @@ type PreemptionStrategy struct {
 type PreemptionFilter struct {
 	log       logr.Logger
 	preemptor *workload.Info
-
-	managerSnap *schdcache.BareManagerSnapshot
+	snap      *schdcache.Snapshot
 
 	initialized    bool
 	usage          workload.Usage
@@ -185,20 +184,11 @@ func BuildFilter(
 	snapshot *schdcache.Snapshot,
 	wl *workload.Info,
 ) *PreemptionFilter {
-	// TODO(#18163,#15211): Remove the copying and pass the original snapshot
-	// once was and native paths are aligned in terms of the initial state of the cluster.
-	//
-	// Right now the Filter has to operate on its own, separate copy of the snapshot.
-	// This is due to a divergence in the setup for Filter and the Strategy,
-	// as the former requires workload quota to be accounted for in the snapshot
-	// and the latter for it to be removed. The requirements for the filter will
-	// change as issues #18163 and #15211 are resolved.
-	managerSnap := snapshot.CopyManager()
 	pf := &PreemptionFilter{
-		log:         log,
-		preemptor:   wl,
-		managerSnap: managerSnap,
-		preempted:   make(map[workload.Reference]*workload.Info),
+		log:       log,
+		preemptor: wl,
+		snap:      snapshot,
+		preempted: make(map[workload.Reference]*workload.Info),
 	}
 	return pf
 }
@@ -212,7 +202,7 @@ func (pf *PreemptionFilter) MayFit() bool {
 		return true
 	}
 
-	cq := pf.managerSnap.ClusterQueue(pf.preemptor.ClusterQueue)
+	cq := pf.snap.ClusterQueue(pf.preemptor.ClusterQueue)
 	if cq == nil {
 		return false
 	}
@@ -224,11 +214,10 @@ func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference, wl *worklo
 		panic("PreemptionFilter not initialized")
 	}
 
-	if _, alreadyPreempted := pf.preempted[wlKey]; alreadyPreempted {
-		return
+	if pf.snap.HasWorkload(wl) {
+		pf.snap.RemoveWorkload(wl)
+		pf.preempted[wlKey] = wl
 	}
-	pf.managerSnap.RemoveWorkload(wl)
-	pf.preempted[wlKey] = wl
 }
 
 func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
@@ -237,7 +226,7 @@ func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
 	}
 
 	if wl, preempted := pf.preempted[wlKey]; preempted {
-		pf.managerSnap.AddWorkload(wl)
+		pf.snap.AddWorkload(wl)
 		delete(pf.preempted, wlKey)
 	}
 }

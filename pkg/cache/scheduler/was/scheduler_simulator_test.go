@@ -50,6 +50,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
+	schedLibPreemption "sigs.k8s.io/scheduler-library/pkg/preemption"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -1111,8 +1112,14 @@ func newTestSimulatorWithPodGroups(
 	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
 	_ = informerFactory.Core().V1().Nodes().Informer()
 	_ = informerFactory.Core().V1().Pods().Informer()
-	cfg := newWASSchedulerConfig()
-	registry := frameworkruntime.Registry{}
+	cfg, err := framework.UpdateSimulatorConfig(newWASSchedulerConfig())
+	if err != nil {
+		t.Fatalf("NewFrameworkComponents failed: %v", err)
+	}
+	registry, err := framework.SimulatorRegistry()
+	if err != nil {
+		t.Fatalf("NewFrameworkComponents failed: %v", err)
+	}
 	for _, opt := range opts {
 		opt(&cfg.Profiles[0], registry)
 	}
@@ -1131,7 +1138,13 @@ func newTestSimulatorWithPodGroups(
 	}
 
 	snap := cache.NewTestSnapshotWithPodGroups(existingPods, nodes, podGroups)
-	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+	profiles, err := upstreamsync.NewFrameworkMap(
+		ctx,
+		comps,
+		framework.DiscardRecorderFactory,
+		snap,
+		upstreamsync.WithPreemptionManager(schedLibPreemption.NewPrefixPreemptionManager),
+	)
 	if err != nil {
 		t.Fatalf("NewFrameworkMap failed: %v", err)
 	}
@@ -1258,18 +1271,20 @@ func TestScheduleWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		// nodes overrides the default two 4-CPU nodes when set.
-		nodes          []*corev1.Node
-		existingPods   []*corev1.Pod
-		podGroups      []*schedulingv1beta1.PodGroup
-		pods           []*corev1.Pod
-		simulatorOpts  []testSimulatorOption
-		scheduleOpts   []simulator.ScheduleOption
-		wantPlacements simulator.PodPlacements
-		wantPreempted  []workload.Reference
-		wantError      error
+		nodes            []*corev1.Node
+		existingPods     []*corev1.Pod
+		podGroups        []*schedulingv1beta1.PodGroup
+		pods             []*corev1.Pod
+		simulatorOpts    []testSimulatorOption
+		scheduleOpts     []simulator.ScheduleOption
+		wantPlacements   simulator.PodPlacements
+		wantPreempted    []workload.Reference
+		wantImmediateFit bool
+		wantError        error
 	}{
 		"no pods: no placements": {
-			wantPlacements: simulator.PodPlacements{},
+			wantPlacements:   simulator.PodPlacements{},
+			wantImmediateFit: true,
 		},
 		"pod outside any PodGroup: the result reports the error": {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
@@ -1290,6 +1305,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node2"},
 			},
+			wantImmediateFit: true,
 		},
 		// The simulator builds one profile, so a workload naming a profile it does
 		// not build is judged by that profile rather than failing to schedule.
@@ -1300,6 +1316,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node2"},
 			},
+			wantImmediateFit: true,
 		},
 		"pod with no feasible node fails": {
 			existingPods: []*corev1.Pod{node1Blocker},
@@ -1319,6 +1336,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
+			wantImmediateFit: true,
 		},
 		// Both Pods want host port 8080 on node1, so only one of them could go
 		// there. The library fails the whole workload when any of its Pods does
@@ -1330,16 +1348,31 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p1"): failedPlacement("minCount (2) cannot be satisfied: 1 scheduled, 0 remaining"),
 				key("p2"): failedPlacement("0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."),
 			},
 		},
-		// The library tries the Pods in order and stops at the first one that
-		// does not fit:
+		// The library tries the Pods in order and stops as soon as gang quorum
+		// (minCount=4) can no longer be satisfied:
 		//   - "fits" fits tentatively, then gets the PodGroup's unschedulable status;
-		//   - "errors" fails with preFilterErrorPlugin's error;
+		//   - "rejected" fails with its own node-affinity status;
 		//   - "skipped1" and "skipped2" are not tried and also get the PodGroup's status.
-		"pods placed, errored and skipped by the library": {
+		"pods placed, rejected and skipped by the library": {
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
+			pods: []*corev1.Pod{
+				workloadPod("fits", "pg").Obj(),
+				workloadPod("rejected", "pg").NodeSelector(corev1.LabelHostname, "missing").Obj(),
+				workloadPod("skipped1", "pg").Obj(),
+				workloadPod("skipped2", "pg").Obj(),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("fits"):     failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+				key("rejected"): failedPlacement("0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector."),
+				key("skipped1"): failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+				key("skipped2"): failedPlacement("minCount (4) cannot be satisfied: 1 scheduled, 2 remaining"),
+			},
+		},
+		"PreFilter plugin error surfaces as SchedulingResult.Error": {
 			podGroups:     []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
 			simulatorOpts: []testSimulatorOption{withPreFilterErrorPlugin},
 			pods: []*corev1.Pod{
@@ -1348,12 +1381,7 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("skipped1", "pg").Obj(),
 				workloadPod("skipped2", "pg").Obj(),
 			},
-			wantPlacements: simulator.PodPlacements{
-				key("fits"):     failedPlacement("pod group is unschedulable"),
-				key("errors"):   failedPlacement(`running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
-				key("skipped1"): failedPlacement("pod group is unschedulable"),
-				key("skipped2"): failedPlacement("pod group is unschedulable"),
-			},
+			wantError: errors.New(`failed to schedule other pod from a pod group: running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
 		},
 		"node resources: only one of two pods fits: the workload fails": {
 			nodes:     []*corev1.Node{makeNode("node1", "4"), makeNode("node2", "8")},
@@ -1371,7 +1399,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): failedPlacement("pod group is unschedulable"),
+				key("p1"): failedPlacement("minCount (2) cannot be satisfied: 1 scheduled, 0 remaining"),
 				key("p2"): failedPlacement("0/2 nodes are available: 2 Insufficient cpu."),
 			},
 		},
@@ -1395,6 +1423,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node2"},
 				key("p2"): {Node: "node1"},
 			},
+			wantImmediateFit: true,
 		},
 		"node resources: pods filling a node each are placed on different nodes": {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
@@ -1415,6 +1444,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
+			wantImmediateFit: true,
 		},
 		"pods blocked by committed preemption targets are placed correctly": {
 			existingPods: []*corev1.Pod{
@@ -1449,7 +1479,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2")},
+			wantImmediateFit: false,
 		},
 		"preemption filter receives workload info for committed and candidate victims": {
 			nodes: []*corev1.Node{makeNode("node1", "4")},
@@ -1493,7 +1523,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("committed-info"), wlRef("candidate-info")},
+			wantPreempted: []workload.Reference{wlRef("candidate-info")},
 		},
 		"committed victims are used before potential victims": {
 			existingPods: []*corev1.Pod{
@@ -1559,7 +1589,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim1"), wlRef("victim2"), wlRef("candidate1")},
+			wantPreempted: []workload.Reference{wlRef("candidate1")},
 		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
@@ -1609,7 +1639,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/2 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector."),
-				key("p2"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("minCount (2) cannot be satisfied: 0 scheduled, 1 remaining"),
 			},
 		},
 		"preemption: pod fits on node after preempting candidate workload": {
@@ -1751,7 +1781,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): failedPlacement("0/1 nodes are available: 1 Insufficient cpu."),
-				key("p2"): failedPlacement("pod group is unschedulable"),
+				key("p2"): failedPlacement("minCount (2) cannot be satisfied: 0 scheduled, 1 remaining"),
 			},
 		},
 		"preemption with filter: pod fits on free node, filter selects minimal initial segment of victims and reprieves unneeded ones": {
@@ -1868,7 +1898,6 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node2"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-1")},
 		},
 		"committed victim and candidates with filter: stops preempting candidates once committed plus candidate satisfy filter": {
 			nodes: []*corev1.Node{makeNode("node1", "4")},
@@ -1922,7 +1951,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("committed-1"), wlRef("candidate-1")},
+			wantPreempted: []workload.Reference{wlRef("candidate-1")},
 		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
@@ -1943,6 +1972,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
+			wantImmediateFit: true,
 		},
 		"simulate empty: keeps pods not managed by Kueue": {
 			existingPods: []*corev1.Pod{node1Blocker},
@@ -1972,12 +2002,23 @@ func TestScheduleWorkload(t *testing.T) {
 			}
 			schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, caseNodes, tc.existingPods, tc.podGroups, tc.simulatorOpts...)
 
+			schedOpts := simulator.BuildScheduleOptions(tc.scheduleOpts...)
+			for wlKey := range schedOpts.CommittedPreemptionVictims {
+				if _, err := schedulerSimulator.PreemptWorkload(ctx, wlKey); err != nil {
+					t.Fatalf("PreemptWorkload(%s) failed: %v", wlKey, err)
+				}
+			}
+
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:
 			// the first call must not leave its Pods on the nodes, nor keep the
 			// committed targets released.
 			for attempt := range 2 {
-				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
-					clear(opts.PreemptionFilter.(*fakePreemptionFilter).preempted)
+				if schedOpts.PreemptionFilter != nil {
+					f := schedOpts.PreemptionFilter.(*fakePreemptionFilter)
+					clear(f.preempted)
+					for wlKey, wlInfo := range schedOpts.CommittedPreemptionVictims {
+						f.PreemptWorkload(wlKey, wlInfo)
+					}
 				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)
 				if diff := cmp.Diff(&tc.wantError, &got.Error, cmpErrorMessage); diff != "" {
@@ -1988,6 +2029,9 @@ func TestScheduleWorkload(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.wantPreempted, got.PreemptionVictims, cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b })); diff != "" {
 					t.Errorf("attempt %d: unexpected preemption victims (-want,+got):\n%s", attempt, diff)
+				}
+				if tc.wantImmediateFit != got.ImmediateFit {
+					t.Errorf("attempt %d: expected ImmediateFit to be - %t, but was + %t", attempt, tc.wantImmediateFit, got.ImmediateFit)
 				}
 			}
 		})

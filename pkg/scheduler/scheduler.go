@@ -1671,22 +1671,8 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
-	plannerOptions := []assignment.PlannerOption{}
-	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		// The Planner uses a preemption filter built on a clean copy of the snapshot.
-		// When committed victims are removed from the Kueue snapshot, the filter will remain unaffected.
-		plannerOptions = append(plannerOptions, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snap, wl)))
-		plannerOptions = append(plannerOptions, assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims))
-	}
 	if len(inCycleCommittedVictims) > 0 {
-		var revertRemoval func()
-		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-			// For wasPlanner we only remove the workloads form the kueue snapshot.
-			// The Pods are handled by scheduler-library.
-			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
-		} else {
-			revertRemoval = simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
-		}
+		revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
 		defer revertRemoval()
 	}
 
@@ -1702,8 +1688,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// The strategy it generates will yield candidates based on an assumption
 	// that all committed victims have been removed.
 	var planner assignment.Planner
+	plannerOptions := []assignment.PlannerOption{}
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
+		plannerOptions = append(
+			plannerOptions,
+			assignment.WithPreemptionFilter(preemption.BuildFilter(log, snap, wl)),
+			assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims),
+		)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
