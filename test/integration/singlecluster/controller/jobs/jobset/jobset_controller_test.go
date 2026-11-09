@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,21 +59,16 @@ const (
 	priorityValue     int32 = 10
 )
 
-var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jobs"), func() {
 	var (
-		ns *corev1.Namespace
+		ns              *corev1.Namespace
+		unmanagedNsName string
 	)
 	ginkgo.BeforeEach(func() {
+		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName))))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
@@ -276,8 +272,14 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 		})
 
 		ginkgo.It("A jobset created in an unmanaged namespace is not suspended and a workload is not created", func() {
-			ginkgo.By("Creating an unsuspended job without a queue-name in unmanaged-ns")
-			jobSet := testingjobset.MakeJobSet(jobSetName, "unmanaged-ns").ReplicatedJobs(
+			unmanagedNs := utiltesting.MakeNamespace(unmanagedNsName)
+			behavioral.MustCreate(ctx, k8sClient, unmanagedNs)
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating an unsuspended job without a queue-name in an unmanaged namespace")
+			jobSet := testingjobset.MakeJobSet(jobSetName, unmanagedNs.Name).ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
 					Replicas:    1,
@@ -687,18 +689,13 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with queue are managed", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with queue are managed", ginkgo.Label("job:jobset", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
@@ -746,7 +743,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkgo.Label("job:jobset", "area:jobs"), func() {
 	type podsReadyTestSpec struct {
 		beforeJobSetStatus *jobsetapi.JobSetStatus
 		beforeCondition    *metav1.Condition
@@ -755,28 +752,22 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		wantCondition      *metav1.Condition
 	}
 
-	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
-
-	ginkgo.BeforeAll(func() {
+	var (
+		ns            *corev1.Namespace
+		defaultFlavor *kueue.ResourceFlavor
+	)
+	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
 
 		ginkgo.By("Create a resource flavor")
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-	})
-
-	ginkgo.AfterAll(func() {
-		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
-	})
-
-	var (
-		ns *corev1.Namespace
-	)
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
@@ -957,14 +948,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 	)
 })
 
-var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Label("job:jobset", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.Label("job:jobset", "area:jobs"), func() {
 	var (
 		ns                  *corev1.Namespace
 		onDemandFlavor      *kueue.ResourceFlavor
@@ -974,6 +958,9 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 	)
 
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
@@ -1139,7 +1126,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 	})
 })
 
-var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo.Label("job:jobset", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo.Label("job:jobset", "area:jobs", "feature:tas"), func() {
 	const (
 		nodeGroupLabel = "node-group"
 	)
@@ -1153,15 +1140,10 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
 
 		nodes = []corev1.Node{
