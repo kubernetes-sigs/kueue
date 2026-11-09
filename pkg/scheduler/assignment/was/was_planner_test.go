@@ -674,7 +674,7 @@ func TestPlan(t *testing.T) {
 				}},
 			}},
 		},
-		"initial assignment fits quota, committed victims passed but reprieved: stays Fit": {
+		"initial assignment fits quota, committed victims forwarded to the simulator but not needed for fitting: stays Fit": {
 			flavorQuotas:     []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
