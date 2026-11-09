@@ -59,7 +59,6 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -487,7 +486,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 	log.V(3).Info("Reconcile Workload")
 
-	if isOrphanedWorkload(&wl) {
+	if workload.IsOrphanedPendingFinalization(&wl) {
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, &wl, true)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -948,29 +947,6 @@ func (r *WorkloadReconciler) reconcileQuotaReserved(
 		recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
 	}
 	return ctrl.Result{RequeueAfter: recheckAfter}, nil
-}
-
-// isOrphanedWorkload determines if a workload is orphaned and should be finalized.
-//
-// A workload is considered orphaned when it meets **both** of the following conditions:
-//  1. It has no OwnerReferences.
-//  2. Either:
-//     - Its DeletionTimestamp is set (it's in the process of being deleted), OR
-//     - It has a JobUIDLabel (controllerconsts.JobUIDLabel), meaning it was
-//     previously owned by a Job whose OwnerReference was later removed.
-func isOrphanedWorkload(wl *kueue.Workload) bool {
-	// If it has an owner, it cannot be orphaned.
-	if len(wl.OwnerReferences) > 0 {
-		return false
-	}
-
-	// Check if the workload is actively being deleted.
-	if !wl.DeletionTimestamp.IsZero() {
-		return true
-	}
-
-	// Check if the workload is associated with a specific Job UID.
-	return features.Enabled(features.FinishOrphanedWorkloads) && wl.Labels[controllerconsts.JobUIDLabel] != ""
 }
 
 // isDisabledRequeuedByClusterQueueStopped returns true if the workload is unset requeued by cluster queue stopped.

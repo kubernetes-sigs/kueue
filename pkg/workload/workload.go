@@ -1603,6 +1603,29 @@ func CurrentPodsScheduledCondition(wl *kueue.Workload, admittedAt time.Time) *me
 	return nil
 }
 
+// IsOrphanedPendingFinalization reports whether the workload lost the owner reference to its
+// job and the workload controller is going to finalize it with FinalizeOrphanedWorkload.
+//
+// This is the case when the workload has no OwnerReferences and either:
+//   - its DeletionTimestamp is set (it's in the process of being deleted), OR
+//   - the FinishOrphanedWorkloads feature is enabled and it has a JobUIDLabel, meaning it was
+//     previously owned by a job whose OwnerReference was later removed, e.g. when the job was
+//     deleted with the orphan propagation policy.
+func IsOrphanedPendingFinalization(wl *kueue.Workload) bool {
+	// If it has an owner, it cannot be orphaned.
+	if len(wl.OwnerReferences) > 0 {
+		return false
+	}
+
+	// Check if the workload is actively being deleted.
+	if !wl.DeletionTimestamp.IsZero() {
+		return true
+	}
+
+	// Check if the workload is associated with a specific Job UID.
+	return features.Enabled(features.FinishOrphanedWorkloads) && wl.Labels[controllerconstants.JobUIDLabel] != ""
+}
+
 func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
 	log := ctrl.LoggerFrom(ctx)
 
