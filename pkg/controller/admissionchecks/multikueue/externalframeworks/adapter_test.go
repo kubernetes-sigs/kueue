@@ -499,8 +499,11 @@ func TestAdapter_WorkloadKeysFor(t *testing.T) {
 					},
 				},
 			},
-			want:       nil,
-			wantErrMsg: "no prebuilt workload found for TestJob: test-ns/test-job",
+			want: []types.NamespacedName{{
+				Name:      "testjob-test-job-6ed1d",
+				Namespace: "test-ns",
+			}},
+			wantErrMsg: "",
 		},
 	}
 

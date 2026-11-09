@@ -1897,6 +1897,10 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
+	if prebuiltWl := PrebuiltWorkloadNameFor(job.Object()); prebuiltWl != "" && wl.Name != prebuiltWl {
+		return false, nil
+	}
+
 	if features.Enabled(features.FinishOrphanedWorkloads) && owner.UID != job.Object().GetUID() {
 		return false, nil
 	}
