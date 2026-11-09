@@ -4,6 +4,7 @@ authors:
   - "@zhengchenyu"
   - "@sweinberg-netflix"
   - "@Pradeep39"
+  - "@reruno"
 status: provisional
 creation-date: 2026-08-18
 reviewers:
@@ -14,7 +15,6 @@ reviewers:
   - "@mrajashree"
   - "@yaroslava-serdiuk"
   - "@vladikkuzn"
-  - "@reruno"
   - "@dkaluza"
   - "@j-skiba"
   - "@tenzen-y"
