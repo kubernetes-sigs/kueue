@@ -51,15 +51,12 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference], committedVictims sets.Set[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for wlKey := range candidates {
-			if committedVictims.Has(wlKey) {
-				continue
-			}
 			// Pods with DeletionTimestamp count as individual
 			// committed victims and not actual pods of the workload.
 			// If all pods of the workload are filtered out,
@@ -80,9 +77,19 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 	}
 }
 
-func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Reference]) []schedlib.PreemptionVictim {
-	cv := make([]schedlib.PreemptionVictim, 0)
-	for preemptedWlKey := range victimWorkloads {
+func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []schedlib.PreemptionVictim {
+	if len(victimWorkloads) == 0 {
+		return nil
+	}
+	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
+	recordedVictims := sets.New[workload.Reference]()
+	// Process victim Workloads
+	for _, preemptedWlKey := range victimWorkloads {
+		if recordedVictims.Has(preemptedWlKey) {
+			continue
+		}
+		recordedVictims.Insert(preemptedWlKey)
+		// TODO: Handle podless committed victims.
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
 				wlKey:      preemptedWlKey,
@@ -91,12 +98,13 @@ func (s *wasSimulator) committedVictims(victimWorkloads sets.Set[workload.Refere
 			})
 		}
 	}
+	// Process victim Pods not belonging to a victim Workload
 	for _, pod := range s.pods.Pods() {
 		if pod.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if wlName := pod.Annotations[kueue.WorkloadAnnotation]; wlName != "" && victimWorkloads.Has(workload.NewReference(pod.Namespace, wlName)) {
-			// victimWorkloads are already accounted for in their entirety
+		if wlName := pod.Annotations[kueue.WorkloadAnnotation]; wlName != "" && recordedVictims.Has(workload.NewReference(pod.Namespace, wlName)) {
+			// victim Workloads are already accounted for in their entirety
 			continue
 		}
 		cv = append(cv, &preemptionVictim{

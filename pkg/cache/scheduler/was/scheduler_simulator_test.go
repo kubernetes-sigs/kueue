@@ -1783,6 +1783,76 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []workload.Reference{wlRef("victim-1"), wlRef("victim-2")},
 		},
+		"committed victim with filter: node placement fits on free node, filter forces one victim for quota": {
+			existingPods: []*corev1.Pod{
+				node1Blocker,
+				testingpod.MakePod("victim-1-pod", ns).
+					UID("victim-1-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim-1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "4").
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p1", "pg").Request(corev1.ResourceCPU, "2").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("victim-1")}),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
+					return preempted.Has(wlRef("victim-1"))
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node2"},
+			},
+			wantPreempted: []workload.Reference{wlRef("victim-1")},
+		},
+		"committed victim and candidates with filter: stops preempting candidates once committed plus candidate satisfy filter": {
+			nodes: []*corev1.Node{makeNode("node1", "4")},
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("committed-pod", ns).
+					UID("committed-uid").
+					Annotation(kueue.WorkloadAnnotation, "committed-1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+				testingpod.MakePod("candidate-1-pod", ns).
+					UID("candidate-1-uid").
+					Annotation(kueue.WorkloadAnnotation, "candidate-1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("candidate-2-pod", ns).
+					UID("candidate-2-uid").
+					Annotation(kueue.WorkloadAnnotation, "candidate-2").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", ns).
+					UID("p1-uid").
+					Request(corev1.ResourceCPU, "2").
+					SchedulingGroup("pg").
+					NodeSelector(corev1.LabelHostname, "node1").
+					Obj(),
+			},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithCommittedPreemptionVictims([]workload.Reference{wlRef("committed-1")}),
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("candidate-1"), wlRef("candidate-2")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
+					return preempted.HasAll(wlRef("committed-1"), wlRef("candidate-1"))
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node1"},
+			},
+			wantPreempted: []workload.Reference{wlRef("committed-1"), wlRef("candidate-1")},
+		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("managed-pod", ns).
