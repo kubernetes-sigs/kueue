@@ -63,12 +63,12 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 		"redundant annotation removed silently when spec already matches": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
 				Annotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`).
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 50}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(50))}).
 				Obj(),
 			job: testingjob.MakeJob(jobName, namespace).
 				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`).
 				Obj(),
-			wantSpec:  &kueue.WaitForPodsReady{TimeoutSeconds: 50},
+			wantSpec:  &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(50))},
 			wantEvent: nil,
 		},
 		"no annotation on workload and job; no event": {
@@ -81,12 +81,12 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 		},
 		"no annotation on workload, job annotation changes": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 50}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(50))}).
 				Obj(),
 			job: testingjob.MakeJob(jobName, namespace).
 				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`).
 				Obj(),
-			wantSpec: &kueue.WaitForPodsReady{TimeoutSeconds: 100},
+			wantSpec: &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(100))},
 			wantEvent: &utiltesting.EventRecord{
 				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
 				EventType: corev1.EventTypeNormal,
@@ -94,9 +94,38 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=100",
 			},
 		},
+		"recovery timeout only": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"recoveryTimeoutSeconds":120}`).
+				Obj(),
+			wantSpec: &kueue.WaitForPodsReady{RecoveryTimeoutSeconds: new(int64(120))},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to recoveryTimeoutSeconds=120",
+			},
+		},
+		"timeout and recovery timeout": {
+			workload: utiltestingapi.MakeWorkload(workloadName, namespace).Obj(),
+			job: testingjob.MakeJob(jobName, namespace).
+				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"recoveryTimeoutSeconds":120}`).
+				Obj(),
+			wantSpec: &kueue.WaitForPodsReady{
+				TimeoutSeconds:         new(int64(60)),
+				RecoveryTimeoutSeconds: new(int64(120)),
+			},
+			wantEvent: &utiltesting.EventRecord{
+				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
+				EventType: corev1.EventTypeNormal,
+				Reason:    ReasonUpdatedWorkload,
+				Message:   "Updated workload spec WaitForPodsReady to timeoutSeconds=60, recoveryTimeoutSeconds=120",
+			},
+		},
 		"no annotation on workload, job annotation removed, spec cleared": {
 			workload: utiltestingapi.MakeWorkload(workloadName, namespace).
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 50}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(50))}).
 				Obj(),
 			job: testingjob.MakeJob(jobName, namespace).Obj(),
 			// The job no longer configures WaitForPodsReady, so the spec is cleared to nil.
@@ -116,7 +145,7 @@ func TestUpdateWaitForPodsReady(t *testing.T) {
 			job: testingjob.MakeJob(jobName, namespace).
 				SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`).
 				Obj(),
-			wantSpec: &kueue.WaitForPodsReady{TimeoutSeconds: 100},
+			wantSpec: &kueue.WaitForPodsReady{TimeoutSeconds: new(int64(100))},
 			wantEvent: &utiltesting.EventRecord{
 				Key:       types.NamespacedName{Namespace: namespace, Name: workloadName},
 				EventType: corev1.EventTypeNormal,

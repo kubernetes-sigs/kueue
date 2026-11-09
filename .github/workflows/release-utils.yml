@@ -65,6 +65,7 @@ jobs:
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
             "hack/releasing/log_to_issue.py"
+            "hack/releasing/mark_step_done.py"
             "hack/releasing/requirements.txt"
           )
           MISSING=()
@@ -301,10 +302,15 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Determine Go minor version
+        id: go-minor
+        run: echo "minor=$(awk '/^go /{split($2, v, "."); print v[1] "." v[2]; exit}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '${{ steps.go-minor.outputs.minor }}.x'
+          check-latest: true
 
       - name: Calculate Release Candidate Version
         id: rc-version
@@ -644,10 +650,15 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Determine Go minor version
+        id: go-minor
+        run: echo "minor=$(awk '/^go /{split($2, v, "."); print v[1] "." v[2]; exit}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '${{ steps.go-minor.outputs.minor }}.x'
+          check-latest: true
 
       - name: Create Draft Release
         id: draft

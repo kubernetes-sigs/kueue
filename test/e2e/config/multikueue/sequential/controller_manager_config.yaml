@@ -22,5 +22,4 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
-  MultiKueueManagerQuotaAutomation: true
   

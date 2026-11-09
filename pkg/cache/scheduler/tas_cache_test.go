@@ -1517,7 +1517,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
-		"no annotation; implied default to unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
+		"no annotation; implied default to unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; LeastFreeCapacity": {
 			nodes:  scatteredNodes,
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
@@ -2199,7 +2199,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
-		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; BestFit": {
+		"unconstrained; 6 pods fit into hosts scattered across the whole datacenter even they could fit into single rack; LeastFreeCapacity": {
 			nodes:  scatteredNodes,
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
@@ -2239,7 +2239,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2305,7 +2305,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2329,7 +2329,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"x3",
+								"x2",
 							},
 						},
 					},
@@ -2353,7 +2353,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{
 							Count: 1,
 							Values: []string{
-								"b1",
+								"b2",
 								"r1",
 							},
 						},
@@ -2717,7 +2717,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					`. Total nodes: 6; excluded: resource "cpu": 6`,
 			}},
 		},
-		"unconstrained; all nodes needed; non-hostname lowest level; BestFit": {
+		"unconstrained; all nodes needed; non-hostname lowest level; LeastFreeCapacity": {
 			// The assignment must be published at the user-specified levels
 			// with per-rack counts summed over the underlying nodes.
 			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
@@ -7751,7 +7751,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  2,
-								Values: []string{"b1", "r1"},
+								Values: []string{"b2", "r1"},
 							},
 						},
 					},
@@ -7770,7 +7770,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Domains: []tas.TopologyDomainAssignment{
 							{
 								Count:  1,
-								Values: []string{"b1", "r1"},
+								Values: []string{"b2", "r1"},
 							},
 						},
 					},
@@ -9094,6 +9094,226 @@ func TestFindTopologyAssignments(t *testing.T) {
 					TopologyAssignment,
 			}},
 		},
+		"with preferred affinity, a node without DRA devices does not add to its rack's score": {
+			// a1 matches the highest-weight term but has no device. Its score must not
+			// lift rack-a above rack-b, so the Pod goes to b1, not to a2.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred:     true,
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("a1").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a1").
+					Label("tier", "gold").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("a2").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1").
+					Label(tasRackLabel, "rack-b").
+					Label(corev1.LabelHostname, "b1").
+					Label("tier", "silver").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+				testingdra.MakeResourceSlice("a2-gpus", "gpu.example.com").
+					NodeName("a2").
+					Pool("a2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+				testingdra.MakeResourceSlice("b1-gpus", "gpu.example.com").
+					NodeName("b1").
+					Pool("b1-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new(tasRackLabel),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(100, "tier", corev1.NodeSelectorOpIn, "gold").
+						Term(75, "tier", corev1.NodeSelectorOpIn, "silver").
+						Obj(),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+				count:             1,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"b1"}}).
+					TopologyAssignment,
+			}},
+		},
+		"with preferred affinity, a node whose DRA allocation fails does not add to its rack's score": {
+			// a1's device lacks the attribute the DeviceClass selects on, so evaluating the
+			// selector fails on a1 only. Its score must not lift rack-a above rack-b.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRespectNodeAffinityPreferred:     true,
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("a1").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a1").
+					Label("tier", "gold").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("a2").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1").
+					Label(tasRackLabel, "rack-b").
+					Label(corev1.LabelHostname, "b1").
+					Label("tier", "silver").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					CELSelector(`device.attributes["gpu.example.com"].model == "h100"`).
+					Obj(),
+				testingdra.MakeResourceSlice("a1-gpus", "gpu.example.com").
+					NodeName("a1").
+					Pool("a1-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+				testingdra.MakeResourceSlice("a2-gpus", "gpu.example.com").
+					NodeName("a2").
+					Pool("a2-pool", 1, 1).
+					Device("gpu-0").
+					Attribute("model", "h100").
+					Obj(),
+				testingdra.MakeResourceSlice("b1-gpus", "gpu.example.com").
+					NodeName("b1").
+					Pool("b1-pool", 1, 1).
+					Device("gpu-0").
+					Attribute("model", "h100").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new(tasRackLabel),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(100, "tier", corev1.NodeSelectorOpIn, "gold").
+						Term(75, "tier", corev1.NodeSelectorOpIn, "silver").
+						Obj(),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+				count:             1,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"b1"}}).
+					TopologyAssignment,
+			}},
+		},
+		"with preferred affinity, a node with no room does not add to its rack's score": {
+			// a1 matches the highest-weight term but has no CPU left. Its score must not
+			// lift rack-a above rack-b, so the Pod goes to b1, not to a2.
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			levels:       []string{tasRackLabel, corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("a1").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a1").
+					Label("tier", "gold").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("0"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("a2").
+					Label(tasRackLabel, "rack-a").
+					Label(corev1.LabelHostname, "a2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1").
+					Label(tasRackLabel, "rack-b").
+					Label(corev1.LabelHostname, "b1").
+					Label("tier", "silver").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new(tasRackLabel),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(100, "tier", corev1.NodeSelectorOpIn, "gold").
+						Term(75, "tier", corev1.NodeSelectorOpIn, "silver").
+						Obj(),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				wantAssignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"b1"}}).
+					TopologyAssignment,
+			}},
+		},
 		"with required and preferred affinity": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
@@ -9810,7 +10030,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					count:    1,
 					wantAssignment: &tas.TopologyAssignment{
 						Levels:  []string{tasBlockLabel, tasRackLabel},
-						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b2", "r1"}}},
 					},
 				},
 			},
@@ -12208,6 +12428,83 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
 				},
 			}},
+		},
+		"rack required packs smaller parent block first, preserving larger block for block-required podset": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b2-r1-x3").
+					Label(tasBlockLabel, "b2").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						"nvidia.com/gpu":    resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "rack-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{"nvidia.com/gpu": 1},
+					count:           8,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 8, Values: []string{"x3"}}},
+					},
+				},
+				{
+					podSetName:      "block-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+					requests:        map[corev1.ResourceName]int64{"nvidia.com/gpu": 1},
+					count:           12,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 8, Values: []string{"x1"}},
+							{Count: 4, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+		},
+		"rack required falls back to alphabetical block order when TASAncestorCapacityTieBreak is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASAncestorCapacityTieBreak: false},
+			nodes:        defaultNodes,
+			levels:       defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "rack-job",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x3"}}},
+					},
+				},
+			},
 		},
 	}
 	for name, tc := range cases {

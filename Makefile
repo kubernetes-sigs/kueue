@@ -72,9 +72,6 @@ YAML_PROCESSOR_LOG_LEVEL ?= info
 IMAGE_BUILD_RETRIABLE_ERRORS := context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout
 
 IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
-	--attempts 7 \
-	--delay 2 \
-	--exponential \
 	--stream \
 	--continue-if "grep -qiE '($(IMAGE_BUILD_RETRIABLE_ERRORS))' {output}" \
 	-- env
@@ -114,7 +111,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.20.4
+RELEASE_VERSION=v0.20.5
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -245,6 +242,13 @@ image-local-build:
 	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
 	$(MAKE) image-build PUSH="$(PUSH)" IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS)"
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
+
+# Keep compiler caches available until every presubmit image has been built.
+.PHONY: image-presubmit
+image-presubmit:
+	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
+	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
+	BUILDX_BUILDER="$$builder" $(MAKE) -j1 image-build importer-image kueueviz-image kueue-populator-image kueue-priority-booster-image
 
 # Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push

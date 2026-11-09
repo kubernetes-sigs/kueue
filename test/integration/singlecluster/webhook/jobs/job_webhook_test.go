@@ -310,15 +310,15 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 	})
 })
 
-var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enabled", func() {
 	var ns *corev1.Namespace
 	var defaultWPC *kueue.WorkloadPriorityClass
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook))
-	})
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
 		defaultWPC = utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultWPC)
@@ -326,9 +326,6 @@ var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enable
 	ginkgo.AfterEach(func() {
 		gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should set the default WorkloadPriorityClass label when the default WPC exists", func() {

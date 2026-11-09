@@ -11,4 +11,4 @@ spec:
         args:
         - "--config=/controller_manager_config.yaml"
         - "--zap-log-level=2"
-        - "--feature-gates=AllAlpha=true"
+        - "--feature-gates=AllAlpha=true,AllBeta=true,DisableWaitForPodsReady=false"

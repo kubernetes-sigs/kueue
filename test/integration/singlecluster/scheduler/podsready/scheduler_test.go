@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			blockingWl := utiltestingapi.MakeWorkload("blocking-wl", ns.Name).
 				Queue(kueue.LocalQueueName(prodQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
-				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 3600}).
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: new(int64(3600))}).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, blockingWl)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, blockingWl)
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
 				waitForPodsReady := &kueue.WaitForPodsReady{
-					TimeoutSeconds: 1,
+					TimeoutSeconds: new(int64(1)),
 				}
 				blockingWl.Spec.WaitForPodsReady = waitForPodsReady
 				g.Expect(k8sClient.Update(ctx, blockingWl)).Should(gomega.Succeed())

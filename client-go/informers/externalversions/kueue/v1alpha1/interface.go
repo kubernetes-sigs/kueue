@@ -28,6 +28,8 @@ type Interface interface {
 	CapacityProviders() TypedCapacityProviderInformer
 	// DynamicQuotaOrchestrators returns a DynamicQuotaOrchestratorInformer.
 	DynamicQuotaOrchestrators() TypedDynamicQuotaOrchestratorInformer
+	// MultiKueueCapacityProviderConfigs returns a MultiKueueCapacityProviderConfigInformer.
+	MultiKueueCapacityProviderConfigs() TypedMultiKueueCapacityProviderConfigInformer
 	// PreemptionConfigs returns a PreemptionConfigInformer.
 	PreemptionConfigs() TypedPreemptionConfigInformer
 }
@@ -51,6 +53,11 @@ func (v *version) CapacityProviders() TypedCapacityProviderInformer {
 // DynamicQuotaOrchestrators returns a TypedDynamicQuotaOrchestratorInformer.
 func (v *version) DynamicQuotaOrchestrators() TypedDynamicQuotaOrchestratorInformer {
 	return &dynamicQuotaOrchestratorInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// MultiKueueCapacityProviderConfigs returns a TypedMultiKueueCapacityProviderConfigInformer.
+func (v *version) MultiKueueCapacityProviderConfigs() TypedMultiKueueCapacityProviderConfigInformer {
+	return &multiKueueCapacityProviderConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // PreemptionConfigs returns a TypedPreemptionConfigInformer.
