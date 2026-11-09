@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -70,7 +71,7 @@ func segmentBucket(sortedWorkloads []*workload.Info, advantage bool) *bucket {
 	return b
 }
 
-func drainIter(it *cacheCandidateIterator, borrow bool) []string {
+func drainIter(it CandidateIterator, borrow bool) []string {
 	var got []string
 	for {
 		wl, _ := it.Next(borrow)
@@ -82,12 +83,138 @@ func drainIter(it *cacheCandidateIterator, borrow bool) []string {
 	return got
 }
 
+func BenchmarkCacheCandidateIteratorDrain(b *testing.B) {
+	for _, tc := range []struct {
+		clusterQueues   int
+		candidatesPerCQ int
+	}{
+		{clusterQueues: 1, candidatesPerCQ: 1},
+		{clusterQueues: 2, candidatesPerCQ: 1},
+		{clusterQueues: 4, candidatesPerCQ: 1},
+		{clusterQueues: 8, candidatesPerCQ: 1},
+		{clusterQueues: 10, candidatesPerCQ: 1},
+		{clusterQueues: 16, candidatesPerCQ: 1},
+		{clusterQueues: 100, candidatesPerCQ: 1},
+		{clusterQueues: 1, candidatesPerCQ: 10},
+		{clusterQueues: 2, candidatesPerCQ: 10},
+		{clusterQueues: 4, candidatesPerCQ: 10},
+		{clusterQueues: 8, candidatesPerCQ: 10},
+		{clusterQueues: 10, candidatesPerCQ: 10},
+		{clusterQueues: 16, candidatesPerCQ: 10},
+		{clusterQueues: 100, candidatesPerCQ: 10},
+	} {
+		b.Run(fmt.Sprintf("clusterQueues=%d/candidatesPerCQ=%d", tc.clusterQueues, tc.candidatesPerCQ), func(b *testing.B) {
+			for _, implementation := range []struct {
+				name string
+				new  func(*testing.B, int, int) CandidateIterator
+			}{
+				{name: "linear", new: newBenchmarkLinearCacheCandidateIterator},
+				{name: "hybrid", new: newBenchmarkHybridCacheCandidateIterator},
+			} {
+				b.Run(implementation.name, func(b *testing.B) {
+					it := implementation.new(b, tc.clusterQueues, tc.candidatesPerCQ)
+					candidates := tc.clusterQueues * tc.candidatesPerCQ
+
+					b.ReportAllocs()
+					for b.Loop() {
+						it.Reset()
+						for range candidates {
+							if wl, _ := it.Next(false); wl == nil {
+								b.Fatal("iterator exhausted before all candidates were returned")
+							}
+						}
+					}
+					b.ReportMetric(float64(candidates), "candidates/op")
+				})
+			}
+		})
+	}
+}
+
+func newBenchmarkHybridCacheCandidateIterator(b *testing.B, clusterQueues, candidatesPerCQ int) CandidateIterator {
+	return benchmarkCacheCandidateIterator(b, clusterQueues, candidatesPerCQ)
+}
+
+func newBenchmarkLinearCacheCandidateIterator(b *testing.B, clusterQueues, candidatesPerCQ int) CandidateIterator {
+	return &linearCacheCandidateIterator{cacheCandidateIterator: benchmarkCacheCandidateIterator(b, clusterQueues, candidatesPerCQ)}
+}
+
+func benchmarkCacheCandidateIterator(b *testing.B, clusterQueues, candidatesPerCQ int) *cacheCandidateIterator {
+	b.Helper()
+	segments := [numSegments][]*bucket{}
+	segments[0] = make([]*bucket, 0, clusterQueues)
+	for cq := range clusterQueues {
+		workloads := make([]*workload.Info, 0, candidatesPerCQ)
+		for candidate := range candidatesPerCQ {
+			workloads = append(workloads, candidateInfo(b,
+				fmt.Sprintf("cq-%04d-workload-%04d", cq, candidate), preemptorCQName, 1))
+		}
+		segments[0] = append(segments[0], segmentBucket(workloads, false))
+	}
+	return &cacheCandidateIterator{
+		segments:               segments,
+		cmp:                    byName,
+		hierarchicalReclaimCtx: preemptorCtx(b, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil),
+	}
+}
+
+// linearCacheCandidateIterator is the pre-heap implementation, kept in test
+// code as a benchmark baseline for the heap-backed production iterator.
+type linearCacheCandidateIterator struct{ *cacheCandidateIterator }
+
+func (c *linearCacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
+	for c.segmentIndex < numSegments {
+		if wl, variant, ok := c.nextFromSegment(c.segments[c.segmentIndex], borrow); ok {
+			return wl, variant.PreemptionReason()
+		}
+		c.segmentIndex++
+	}
+	return nil, ""
+}
+
+func (c *linearCacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
+	var bestBucket *bucket
+	var bestVariant preemptionVariant
+	for _, b := range buckets {
+		variant, ok := c.advanceToEligible(b, borrow)
+		if !ok {
+			continue
+		}
+		if bestBucket == nil || c.cmp(b.top(), bestBucket.top()) < 0 {
+			bestBucket = b
+			bestVariant = variant
+		}
+	}
+	if bestBucket == nil {
+		return nil, Never, false
+	}
+	wl := bestBucket.top()
+	bestBucket.advance()
+	return wl, bestVariant, true
+}
+
+func cloneSegments(segments [numSegments][]*bucket) [numSegments][]*bucket {
+	var cloned [numSegments][]*bucket
+	for i, segment := range segments {
+		cloned[i] = make([]*bucket, len(segment))
+		for j, bucket := range segment {
+			bucketCopy := *bucket
+			cloned[i][j] = &bucketCopy
+		}
+	}
+	return cloned
+}
+
 func TestCacheIterator(t *testing.T) {
 	// shared workloads
 	a := candidateInfo(t, "a", preemptorCQName, 1)
 	b := candidateInfo(t, "b", preemptorCQName, 1)
 	c := candidateInfo(t, "c", preemptorCQName, 1)
 	d := candidateInfo(t, "d", preemptorCQName, 1)
+	e := candidateInfo(t, "e", preemptorCQName, 1)
+	f := candidateInfo(t, "f", preemptorCQName, 1)
+	g := candidateInfo(t, "g", preemptorCQName, 1)
+	h := candidateInfo(t, "h", preemptorCQName, 1)
 	z := candidateInfo(t, "z", preemptorCQName, 1)
 	real1 := candidateInfo(t, "real1", preemptorCQName, 1)
 	real2 := candidateInfo(t, "real2", preemptorCQName, 1)
@@ -116,18 +243,20 @@ func TestCacheIterator(t *testing.T) {
 		resetBorrow    bool
 		wantAfterReset []string
 	}{
-		"merges buckets from the same segment in comparator order": {
+		"heap merges buckets from the same segment in comparator order": {
 			ctx: ctxWithin,
 			segments: func() [numSegments][]*bucket {
 				var s [numSegments][]*bucket
 				s[0] = []*bucket{
 					segmentBucket([]*workload.Info{a, c}, false),
 					segmentBucket([]*workload.Info{b, d}, false),
+					segmentBucket([]*workload.Info{e, g}, false),
+					segmentBucket([]*workload.Info{f, h}, false),
 				}
 				return s
 			}(),
 			borrow: false,
-			want:   []string{"a", "b", "c", "d"},
+			want:   []string{"a", "b", "c", "d", "e", "f", "g", "h"},
 		},
 		"earlier segment always precedes a later segment regardless of element order": {
 			// "z" sits in segment 2, "a" in segment 3: segment index must win over cmp.
@@ -205,13 +334,25 @@ func TestCacheIterator(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			it := &cacheCandidateIterator{segments: tc.segments, cmp: byName, hierarchicalReclaimCtx: tc.ctx}
+			linear := &linearCacheCandidateIterator{cacheCandidateIterator: &cacheCandidateIterator{
+				segments:               cloneSegments(tc.segments),
+				cmp:                    byName,
+				hierarchicalReclaimCtx: tc.ctx,
+			}}
 			if got := drainIter(it, tc.borrow); !slices.Equal(got, tc.want) {
 				t.Errorf("first pass = %v, want %v", got, tc.want)
 			}
+			if got := drainIter(linear, tc.borrow); !slices.Equal(got, tc.want) {
+				t.Errorf("linear first pass = %v, want %v", got, tc.want)
+			}
 			if tc.doReset {
 				it.Reset()
+				linear.Reset()
 				if got := drainIter(it, tc.resetBorrow); !slices.Equal(got, tc.wantAfterReset) {
 					t.Errorf("after Reset = %v, want %v", got, tc.wantAfterReset)
+				}
+				if got := drainIter(linear, tc.resetBorrow); !slices.Equal(got, tc.wantAfterReset) {
+					t.Errorf("linear after Reset = %v, want %v", got, tc.wantAfterReset)
 				}
 			}
 		})

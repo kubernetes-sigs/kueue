@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"container/heap"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -29,7 +30,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const numSegments = 6
+const (
+	numSegments         = 6
+	minHeapMergeBuckets = 4
+)
 
 // cacheCandidateIterator is the cache-backed implementation of CandidateIterator.
 // It consumes a per-CQ sorted order from CandidateOrderCache through a
@@ -41,6 +45,9 @@ type cacheCandidateIterator struct {
 	// segment's output is the ordered merge of its buckets.
 	segments     [numSegments][]*bucket
 	segmentIndex int
+	segmentHeap  bucketHeap
+	segmentReady bool
+	useHeap      bool
 	cmp          schdcache.CandidateOrderComparator
 
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
@@ -70,6 +77,43 @@ type bucket struct {
 	hasHierarchicalAdvantage bool
 	sortedWorkloads          []*workload.Info
 	idx                      int
+	heapOrder                int
+}
+
+// bucketHeap merges the current candidate of each ClusterQueue bucket. The
+// heap order is stable when the workload comparator ties, matching the linear
+// scan it replaces.
+type bucketHeap struct {
+	buckets []*bucket
+	cmp     schdcache.CandidateOrderComparator
+}
+
+func (h bucketHeap) Len() int {
+	return len(h.buckets)
+}
+
+func (h bucketHeap) Less(i, j int) bool {
+	cmp := h.cmp(h.buckets[i].top(), h.buckets[j].top())
+	if cmp != 0 {
+		return cmp < 0
+	}
+	return h.buckets[i].heapOrder < h.buckets[j].heapOrder
+}
+
+func (h bucketHeap) Swap(i, j int) {
+	h.buckets[i], h.buckets[j] = h.buckets[j], h.buckets[i]
+}
+
+func (h *bucketHeap) Push(x any) {
+	h.buckets = append(h.buckets, x.(*bucket))
+}
+
+func (h *bucketHeap) Pop() any {
+	last := len(h.buckets) - 1
+	b := h.buckets[last]
+	h.buckets[last] = nil
+	h.buckets = h.buckets[:last]
+	return b
 }
 
 func (b *bucket) empty() bool {
@@ -183,22 +227,47 @@ func newCacheCandidateIterator(
 
 func (c *cacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
 	for c.segmentIndex < numSegments {
-		if wl, variant, ok := c.nextFromSegment(c.segments[c.segmentIndex], borrow); ok {
+		if !c.segmentReady {
+			c.segmentReady = true
+			c.useHeap = len(c.segments[c.segmentIndex]) >= minHeapMergeBuckets
+			if c.useHeap {
+				c.initSegmentHeap(borrow)
+			}
+		}
+		if c.useHeap {
+			for c.segmentHeap.Len() > 0 {
+				b := heap.Pop(&c.segmentHeap).(*bucket)
+				variant, ok := c.advanceToEligible(b, borrow)
+				if !ok {
+					continue
+				}
+
+				// A bucket's head can change while earlier preemptions update the
+				// snapshot. Reinsert it when its new head is no longer the minimum.
+				if c.segmentHeap.Len() > 0 && c.cmp(b.top(), c.segmentHeap.buckets[0].top()) > 0 {
+					heap.Push(&c.segmentHeap, b)
+					continue
+				}
+
+				wl := b.top()
+				b.advance()
+				if _, ok := c.advanceToEligible(b, borrow); ok {
+					heap.Push(&c.segmentHeap, b)
+				}
+				return wl, variant.PreemptionReason()
+			}
+		} else if wl, variant, ok := c.nextFromSegment(c.segments[c.segmentIndex], borrow); ok {
 			return wl, variant.PreemptionReason()
 		}
 		c.segmentIndex++
+		c.segmentReady = false
 	}
 	return nil, ""
 }
 
-// nextFromSegment returns the next valid candidate from a single segment, merging
-// the segment's per-CQ buckets on the fly. It selects the current minimum bucket
-// head by CandidatesOrdering, scanning the buckets on each pop.
-//
-// TODO: each pop costs O(K), where K is the number of candidate ClusterQueues, so
-// merging a segment is O(K×L) over its L candidates. Candidates are usually few, so
-// this simple scan is enough; if needed we may later heap or merge-sort the bucket
-// tops to lower the per-pop cost.
+// nextFromSegment returns the next valid candidate from a single segment by
+// scanning each bucket head. This has lower fixed cost than a heap for the
+// small segments selected by minHeapMergeBuckets.
 func (c *cacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
 	var bestBucket *bucket
 	var bestVariant preemptionVariant
@@ -218,6 +287,23 @@ func (c *cacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool)
 	wl := bestBucket.top()
 	bestBucket.advance()
 	return wl, bestVariant, true
+}
+
+func (c *cacheCandidateIterator) initSegmentHeap(borrow bool) {
+	buckets := c.segments[c.segmentIndex]
+	if cap(c.segmentHeap.buckets) < len(buckets) {
+		c.segmentHeap.buckets = make([]*bucket, 0, len(buckets))
+	} else {
+		c.segmentHeap.buckets = c.segmentHeap.buckets[:0]
+	}
+	c.segmentHeap.cmp = c.cmp
+	for i, b := range buckets {
+		b.heapOrder = i
+		if _, ok := c.advanceToEligible(b, borrow); ok {
+			c.segmentHeap.buckets = append(c.segmentHeap.buckets, b)
+		}
+	}
+	heap.Init(&c.segmentHeap)
 }
 
 // advanceToEligible skips candidates that cannot be returned in the current run
@@ -266,6 +352,8 @@ func (c *cacheCandidateIterator) cqIsPruned(b *bucket) bool {
 
 func (c *cacheCandidateIterator) Reset() {
 	c.segmentIndex = 0
+	c.segmentReady = false
+	c.useHeap = false
 	for _, seg := range c.segments {
 		for _, b := range seg {
 			b.reset()
