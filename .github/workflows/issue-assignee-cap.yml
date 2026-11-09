@@ -1,0 +1,83 @@
+# This workflow enforces a maximum cap on open assigned issues for contributors.
+name: Issue Assignee Cap
+
+on:
+  issues:
+    types: [assigned]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  enforce-contributor-cap:
+    if: github.repository == 'kubernetes-sigs/kueue'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check assignee role and enforce issue cap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSIGNEE: ${{ github.event.assignee.login }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          MAX_CAP: "5"
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ASSIGNEE}" ]]; then
+            echo "No assignee found in event payload."
+            exit 0
+          fi
+
+          ASSIGNEE_LOWER=$(echo "${ASSIGNEE}" | tr '[:upper:]' '[:lower:]')
+
+          # 1. Extract all reviewers and approvers from OWNERS_ALIASES and all OWNERS files
+          PRIVILEGED_USERS=$(
+            find . \( -name "OWNERS" -o -name "OWNERS_ALIASES" \) \
+              -not -path "./.git/*" \
+              -not -path "./vendor/*" \
+              -not -path "./site/*" \
+              -exec awk '
+                /^[[:space:]]*-[[:space:]]+[a-zA-Z0-9_-]+[[:space:]]*(#.*)?$/ {
+                  sub(/^[[:space:]]*-[[:space:]]+/, "")
+                  sub(/[[:space:]]*(#.*)?$/, "")
+                  print tolower($0)
+                }
+              ' {} + | sort -u
+          )
+
+          if [[ -z "${PRIVILEGED_USERS}" ]]; then
+            echo "::error::Failed to extract privileged users from OWNERS files."
+            exit 1
+          fi
+
+          # 2. Exempt reviewers and maintainers/approvers completely
+          if echo "${PRIVILEGED_USERS}" | grep -Fxq "${ASSIGNEE_LOWER}"; then
+            echo "User @${ASSIGNEE} is a reviewer/approver in OWNERS. Exempt from contributor issue cap."
+            exit 0
+          fi
+
+          # 3. Count open issues assigned to this contributor (excluding PRs)
+          OPEN_ISSUES_COUNT=$(gh api --paginate "/repos/${REPO}/issues?state=open&assignee=${ASSIGNEE}&per_page=100" \
+            --jq '[.[] | select(.pull_request == null)] | length' | awk '{s+=$1} END {print s+0}')
+
+          echo "Contributor @${ASSIGNEE} currently has ${OPEN_ISSUES_COUNT} open assigned issues (cap: ${MAX_CAP})."
+
+          # 4. If cap is exceeded, unassign the issue and post a comment
+          if (( OPEN_ISSUES_COUNT > MAX_CAP )); then
+            echo "Cap exceeded (${OPEN_ISSUES_COUNT} > ${MAX_CAP}). Unassigning @${ASSIGNEE} from issue #${ISSUE_NUMBER}."
+
+            gh api --method DELETE "/repos/${REPO}/issues/${ISSUE_NUMBER}/assignees" \
+              -f "assignees[]=${ASSIGNEE}"
+
+            COMMENT_BODY="@${ASSIGNEE}: Contributors are limited to a maximum of **${MAX_CAP}** open assigned issues at a time (you currently have **$((OPEN_ISSUES_COUNT - 1))** other open issues assigned).
+
+          You have been automatically unassigned from this issue so others can work on it. Please finish or \`/unassign\` one of your existing issues before assigning a new one."
+
+            gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body "${COMMENT_BODY}"
+          fi
