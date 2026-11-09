@@ -2696,6 +2696,9 @@ func TestSnapshotCopyManager(t *testing.T) {
 	if got, want := copyMgr.ClusterQueue("cq-a").Available(cpu), snap.ClusterQueue("cq-a").Available(cpu); got.Cmp(want) != 0 {
 		t.Fatalf("initial cq-a Available = %v, want %v", got, want)
 	}
+	if copyMgr.ClusterQueue("cq-a").Workloads != nil {
+		t.Errorf("expected copyMgr ClusterQueue Workloads map to be nil, got %v", copyMgr.ClusterQueue("cq-a").Workloads)
+	}
 
 	// Mutating Snapshot does not affect BareManagerSnapshot.
 	// Note: cq-a has NominalQuota=2 and LendingLimit=1 (localQuota=1), so cq-a's 2 CPU usage
@@ -2706,9 +2709,6 @@ func TestSnapshotCopyManager(t *testing.T) {
 	}
 	if got := copyMgr.Cohort("root").ResourceNode.Usage[cpu]; got.CmpInt64(2_000) != 0 {
 		t.Errorf("Snapshot removal mutated copyMgr root cohort usage: got %v, want 2000", got)
-	}
-	if _, ok := copyMgr.ClusterQueue("cq-a").Workloads["/wl-kept"]; !ok {
-		t.Error("Snapshot removal deleted workload from copyMgr")
 	}
 	revert()
 

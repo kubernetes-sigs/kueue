@@ -5658,19 +5658,12 @@ func TestPreemptionFilter(t *testing.T) {
 			}
 
 			var gotPreempted []workload.Reference
-			for _, entry := range []struct {
-				cq    kueue.ClusterQueueReference
-				wlKey workload.Reference
-			}{
-				{cq: "cq", wlKey: vLowKey},
-				{cq: "cq", wlKey: vMidKey},
-				{cq: "cq-other", wlKey: vOtherCQKey},
-			} {
-				cqSnap := filter.managerSnap.ClusterQueue(entry.cq)
-				if cqSnap != nil {
-					if _, inFilterCq := cqSnap.Workloads[entry.wlKey]; !inFilterCq {
-						gotPreempted = append(gotPreempted, entry.wlKey)
+			for _, wlKey := range []workload.Reference{vLowKey, vMidKey, vOtherCQKey} {
+				if _, isPreempted := filter.preempted[wlKey]; isPreempted {
+					if _, stillActive := filter.workloads[wlKey]; stillActive {
+						t.Errorf("workload %q is in both filter.preempted and filter.workloads", wlKey)
 					}
+					gotPreempted = append(gotPreempted, wlKey)
 				}
 			}
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {

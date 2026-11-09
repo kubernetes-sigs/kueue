@@ -654,8 +654,7 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 		return false
 	}
 	// To get the projected cluster state after the in-flight evictions complete,
-	// simulate the removal of their workloads and their Pods. The simulation is
-	// reverted below as the snapshot is shared across the scheduling cycle.
+	// pass their workloads (and, by extension, their Pods) as committed victims.
 	victims := inFlightEvictionVictims(snapshot)
 	if len(victims) == 0 {
 		return false

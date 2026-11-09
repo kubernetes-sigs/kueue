@@ -84,14 +84,9 @@ func (s *Snapshot) CopyManager() *BareManagerSnapshot {
 		}
 	}
 	for _, cq := range s.ClusterQueues() {
-		workloads := maps.Clone(cq.Workloads)
-		if workloads == nil {
-			workloads = make(map[workload.Reference]*workload.Info)
-		}
 		cqCopy := &ClusterQueueSnapshot{
 			Name:         cq.Name,
 			ResourceNode: cq.ResourceNode.Clone(),
-			Workloads:    workloads,
 			released:     maps.Clone(cq.released),
 			FairWeight:   cq.FairWeight,
 		}
@@ -109,7 +104,6 @@ type BareManagerSnapshot struct {
 
 func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	delete(cq.Workloads, workload.Key(wl.Obj))
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		cq.RemoveUsage(wl.Usage())
 	}
@@ -117,7 +111,6 @@ func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
 
 func (s *BareManagerSnapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	cq.Workloads[workload.Key(wl.Obj)] = wl
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		cq.AddUsage(wl.Usage())
 	}
