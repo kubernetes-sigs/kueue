@@ -1944,24 +1944,27 @@ func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
 			disableElasticJobs: true,
 			wantErr:            true,
 		},
-		"cap a stored minimum with partial scale-up disabled": {
+		"reject capping a stored minimum with partial scale-up disabled": {
 			oldMinCount:           new(int32(4)),
 			newCount:              1,
 			newMinCount:           new(int32(1)),
 			disablePartialScaleUp: true,
+			wantErr:               true,
 		},
-		"preserve a stored minimum with partial scale-up disabled": {
+		"reject retaining a stored minimum with partial scale-up disabled": {
 			oldMinCount:           new(int32(4)),
 			newCount:              4,
 			newMinCount:           new(int32(4)),
 			disablePartialScaleUp: true,
+			wantErr:               true,
 		},
-		"cap a pending minimum with partial scale-up disabled": {
+		"reject capping a pending minimum with partial scale-up disabled": {
 			oldMinCount:           new(int32(4)),
 			newCount:              1,
 			newMinCount:           new(int32(1)),
 			disablePartialScaleUp: true,
 			pending:               true,
+			wantErr:               true,
 		},
 		"reject adding a pending minimum with partial scale-up disabled": {
 			newCount:              4,

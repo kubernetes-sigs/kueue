@@ -41,7 +41,7 @@ import (
 // mutating and validating webhooks installed (see util.WebhookPath in the
 // suite setup): those shapes must be admitted while the partial scale-up
 // feature gate is on, with and without the classic PartialAdmission gate, and
-// new shapes must stay rejected while the partial scale-up gate is off.
+// must stay rejected while the partial scale-up gate is off.
 // See https://github.com/kubernetes-sigs/kueue/issues/15249.
 var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shapes", func() {
 	var (
@@ -162,10 +162,10 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 		gomega.Expect(err.Error()).To(gomega.ContainSubstring("partial admission and elastic job cannot be used together"))
 	})
 
-	ginkgo.It("allows stored elastic minimums to be retained and capped after the partial scale-up gate is disabled", func() {
+	ginkgo.It("allows elastic minimums to be capped during scale-down", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, false)
 
 		wl := utiltestingapi.MakeWorkload("elastic-partial-stored-minimums", ns.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -181,9 +181,7 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 			).Obj())
 		uid := wl.UID
 
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, false)
-		ginkgo.By("scaling down through the validating webhook with both partial admission gates disabled")
+		ginkgo.By("scaling down through the validating webhook with the partial scale-up gate enabled")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
@@ -200,35 +198,6 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			wl.Annotations["example.com/updated"] = "true"
 			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("rejects new elastic minimums and lower floors on pending Workloads after the partial scale-up gate is disabled", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, true)
-
-		wl := utiltestingapi.MakeWorkload("elastic-partial-pending-minimums", ns.Name).
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			PodSets(
-				*utiltestingapi.MakePodSet("workers-group-0", 4).SetMinimumCount(4).Obj(),
-				*utiltestingapi.MakePodSet("workers-group-1", 3).Obj(),
-			).Obj()
-		behavioral.MustCreate(ctx, k8sClient, wl)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, false)
-
-		ginkgo.By("rejecting a minimum added to another PodSet")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-			wl.Spec.PodSets[1].MinCount = new(int32(2))
-			g.Expect(k8sClient.Update(ctx, wl)).To(utiltesting.BeForbiddenError())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("rejecting a lower minimum without a corresponding scale-down")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-			wl.Spec.PodSets[0].MinCount = new(int32(2))
-			g.Expect(k8sClient.Update(ctx, wl)).To(utiltesting.BeForbiddenError())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

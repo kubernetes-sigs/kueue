@@ -66,7 +66,11 @@ func (r *Manager) EnsureWorkloadSlices(
 		for i := range wl.Spec.PodSets {
 			for _, jobPodSet := range jobPodSets {
 				if wl.Spec.PodSets[i].Name == jobPodSet.Name {
-					wl.Spec.PodSets[i].MinCount = jobPodSet.MinCount
+					if jobPodSet.MinCount == nil {
+						wl.Spec.PodSets[i].MinCount = nil
+					} else {
+						wl.Spec.PodSets[i].MinCount = new(min(*jobPodSet.MinCount, wl.Spec.PodSets[i].Count))
+					}
 					break
 				}
 			}

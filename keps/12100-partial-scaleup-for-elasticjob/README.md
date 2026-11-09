@@ -96,6 +96,11 @@ Every Workload is defined by two per-PodSet count vectors, read for every PodSet
 
 The job controller (the per-job-kind reconciler that builds the Workload for `batch/v1 Job`, `RayJob`, `RayCluster`, and `RayService`) sets `minCount` to the initial count for the initial Workload. While the initial Workload has never been admitted and holds no quota reservation, replica updates refresh `minCount` from the job's current PodSets so initial admission remains all-or-nothing. Scale-down caps the stored `minCount` at the new `count`. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies this possibly lowered `minCount` from the replaced Workload, matching PodSets by name and capping at the new `count`. This stored minimum is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
 
+A later scale-up does not restore the originally admitted minimum.
+For example, a worker PodSet admitted at 4, scaled down to 1, then scaled up to 5 keeps `minCount: 1`.
+After eviction, it can be readmitted with only 1 of the 5 requested workers.
+If scaled down to 0, it can later be readmitted with zero workers in that PodSet.
+
 The reducer returns an assignment (`granted[i]`) satisfying, for every PodSet `i`:
 
 ```

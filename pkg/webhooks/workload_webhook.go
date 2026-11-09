@@ -116,7 +116,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 
 	variableCountPodSets := 0
-	compatibleElasticMinCounts := oldObj != nil && workloadslicing.Enabled(oldObj)
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
 		psPath := specPath.Child("podSets").Index(i)
@@ -134,25 +133,21 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
-			if oldPS == nil || oldPS.MinCount == nil || ps.Count > oldPS.Count ||
-				*ps.MinCount != min(*oldPS.MinCount, ps.Count) {
-				compatibleElasticMinCounts = false
-			}
 		}
 	}
 
 	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
 
-	// Gate-off updates may retain stored elastic minimums or cap them during
-	// scale-down, but must not introduce new partial scale-up behavior.
-	allowElasticMinCounts := workloadslicing.Enabled(obj) &&
-		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) || compatibleElasticMinCounts)
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
 
-	if variableCountPodSets > 1 && !allowElasticMinCounts {
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && !allowElasticMinCounts && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 

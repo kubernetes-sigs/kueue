@@ -1871,6 +1871,7 @@ func TestEnsureWorkloadSlicesPendingMinCount(t *testing.T) {
 		replacement     bool
 		readmission     bool
 		atomic          bool
+		jobMinCount     *int32
 		wantMinCount    *int32
 	}{
 		"initial pending slice": {
@@ -1879,6 +1880,15 @@ func TestEnsureWorkloadSlicesPendingMinCount(t *testing.T) {
 		"multiple initial pending slices": {
 			additionalSlice: true,
 			wantMinCount:    new(int32(5)),
+		},
+		"initial pending slice with runtime count below the job minimum": {
+			jobMinCount:  new(int32(4)),
+			wantMinCount: new(int32(4)),
+		},
+		"multiple initial pending slices with runtime count below the job minimum": {
+			additionalSlice: true,
+			jobMinCount:     new(int32(4)),
+			wantMinCount:    new(int32(4)),
 		},
 		"pending replacement": {
 			replacement:  true,
@@ -1936,6 +1946,9 @@ func TestEnsureWorkloadSlicesPendingMinCount(t *testing.T) {
 				jobWorkers.Count = count
 				if !tc.atomic {
 					jobWorkers.MinCount = new(count)
+					if tc.jobMinCount != nil {
+						jobWorkers.MinCount = tc.jobMinCount
+					}
 				}
 				jobPodSets := []kueue.PodSet{*jobWorkers, *head}
 				got, compatible, err := manager.EnsureWorkloadSlices(ctx, jobPodSets, testJobObject, testJobGVK)
@@ -1946,6 +1959,9 @@ func TestEnsureWorkloadSlicesPendingMinCount(t *testing.T) {
 					t.Fatalf("EnsureWorkloadSlices() workload = %v, compatible = %v", got, compatible)
 				}
 				wantPodSets := []kueue.PodSet{*head, *jobWorkers.DeepCopy()}
+				if !tc.atomic {
+					wantPodSets[1].MinCount = new(count)
+				}
 				if count == 5 {
 					wantPodSets[1].MinCount = tc.wantMinCount
 				}
