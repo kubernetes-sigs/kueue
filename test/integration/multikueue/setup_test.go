@@ -159,6 +159,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
 	})
 	ginkgo.It("Should properly manage the active condition of AdmissionChecks and MultiKueueClusters, kubeconfig provided by secret", func() {
+		const testClusterName = "testing-cluster-secret-config"
 		ac := utiltestingapi.MakeAdmissionCheck("testing-ac").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "testing-config").
@@ -210,7 +211,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			})
 		})
 
-		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
+		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters(testClusterName).Obj()
 		ginkgo.By("creating the config, the admission check's state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, config) })
@@ -224,13 +225,13 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "NoUsableClusters",
-						Message: `Missing clusters: [testing-cluster]`,
+						Message: "Missing clusters: [" + testClusterName + "]",
 					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
-		cluster := utiltestingapi.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
+		cluster := utiltestingapi.MakeMultiKueueCluster(testClusterName).KubeConfig(kueue.SecretLocationType, "testing-secret").Obj()
 		ginkgo.By("creating the cluster, its Active state is updated, the admission check's state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
@@ -258,7 +259,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "NoUsableClusters",
-						Message: `Inactive clusters: [testing-cluster]`,
+						Message: "Inactive clusters: [" + testClusterName + "]",
 					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

@@ -304,6 +304,10 @@ func isExpectedIntegrationErrorLog(le observer.LoggedEntry) bool {
 		strings.Contains(errLog, "ResourceClaimTemplate.resource.k8s.io") &&
 		strings.Contains(errLog, "not found"):
 		return true
+	case le.LoggerName == "multikueue-multikueuecluster-reconciler" && le.Message == "Reconciler error" &&
+		le.ContextMap()["name"] == "testing-cluster-secret-config" &&
+		errLog == `failed to update MultiKueueCluster status: multikueueclusters.kueue.x-k8s.io "testing-cluster-secret-config" not found after failing to load client config: Secret "testing-secret" not found`:
+		return true
 	case le.LoggerName == "multikueue-multikueuecluster-reconciler" &&
 		strings.Contains(errLog, "kubeconfig path is not under the allowed prefix"):
 		context := le.ContextMap()
