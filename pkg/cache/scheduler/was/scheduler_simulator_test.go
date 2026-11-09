@@ -1807,7 +1807,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []workload.Reference{wlRef("victim-1")},
 		},
-		"committed victim and candidates with filter: stops pulling candidates once committed plus candidate satisfy filter": {
+		"committed victim and candidates with filter: stops preempting candidates once committed plus candidate satisfy filter": {
 			nodes: []*corev1.Node{makeNode("node1", "4")},
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("committed-pod", ns).
