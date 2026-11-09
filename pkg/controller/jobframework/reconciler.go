@@ -1774,7 +1774,6 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
-	// Check `admittedWithoutTAS(wl)` to handle TAS-annotated workloads admitted when the TAS gate was disabled.
 	if !features.Enabled(features.TopologyAwareScheduling) || admittedWithoutTAS(wl) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
 	}
@@ -1796,6 +1795,9 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, opts...), nil
 }
 
+// admittedWithoutTAS reports whether wl was admitted without TAS, for example
+// while the TopologyAwareScheduling gate was disabled. Its topology request
+// did not affect where its Pods run, so a mismatch must not stop the job.
 func admittedWithoutTAS(wl *kueue.Workload) bool {
 	return workload.IsAdmitted(wl) && !workload.IsAdmittedByTAS(wl)
 }
