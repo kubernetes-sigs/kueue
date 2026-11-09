@@ -27,10 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -113,38 +115,48 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 	)
 
 	testCases := map[string]struct {
-		jobKind         string
-		makeJob         func() client.Object
-		expectedLatency float64
+		jobKind                   string
+		job                       client.Object
+		localQueue                *kueue.LocalQueue
+		expectedLatency           float64
+		expectedLocalQueueLatency *float64
 	}{
 		"LeaderWorkerSet": {
 			jobKind: "LeaderWorkerSet",
-			makeJob: func() client.Object {
-				return leaderworkersettesting.MakeLeaderWorkerSet(testJobName, metav1.NamespaceDefault).
-					UID(testJobName).
-					Queue(string(testLocalQueueName)).
-					Obj()
-			},
-			expectedLatency: 5.0,
+			job: leaderworkersettesting.MakeLeaderWorkerSet(testJobName, metav1.NamespaceDefault).
+				UID(testJobName).
+				Queue(string(testLocalQueueName)).
+				Obj(),
+			localQueue:                utiltestingapi.MakeLocalQueue(string(testLocalQueueName), metav1.NamespaceDefault).Obj(),
+			expectedLatency:           5.0,
+			expectedLocalQueueLatency: new(5.0),
 		},
 		"GenericJob": {
 			jobKind: "Job",
-			makeJob: func() client.Object {
-				return testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
-					UID(testJobName).
-					Queue(testLocalQueueName).
-					Obj()
-			},
-			expectedLatency: 5.0,
+			job: testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+				UID(testJobName).
+				Queue(testLocalQueueName).
+				Obj(),
+			localQueue:                utiltestingapi.MakeLocalQueue(string(testLocalQueueName), metav1.NamespaceDefault).Obj(),
+			expectedLatency:           5.0,
+			expectedLocalQueueLatency: new(5.0),
 		},
 		"StatefulSet": {
 			jobKind: "StatefulSet",
-			makeJob: func() client.Object {
-				return statefulsettesting.MakeStatefulSet(testJobName, metav1.NamespaceDefault).
-					UID(testJobName).
-					Queue(string(testLocalQueueName)).
-					Obj()
-			},
+			job: statefulsettesting.MakeStatefulSet(testJobName, metav1.NamespaceDefault).
+				UID(testJobName).
+				Queue(string(testLocalQueueName)).
+				Obj(),
+			localQueue:                utiltestingapi.MakeLocalQueue(string(testLocalQueueName), metav1.NamespaceDefault).Obj(),
+			expectedLatency:           5.0,
+			expectedLocalQueueLatency: new(5.0),
+		},
+		"unknown LocalQueue": {
+			jobKind: "Job",
+			job: testingjob.MakeJob(testJobName, metav1.NamespaceDefault).
+				UID(testJobName).
+				Queue(testLocalQueueName).
+				Obj(),
 			expectedLatency: 5.0,
 		},
 	}
@@ -152,24 +164,37 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			metrics.WorkloadCreationLatency.Reset()
+			metrics.LocalQueueWorkloadCreationLatency.Reset()
+
+			queues := qcache.NewManagerForUnitTests(utiltesting.NewClientBuilder().Build(), nil)
+			if tc.localQueue != nil {
+				if err := queues.AddLocalQueue(t.Context(), tc.localQueue); err != nil {
+					t.Fatalf("Failed to add LocalQueue: %v", err)
+				}
+			}
 
 			baseTime := time.Now().Truncate(time.Second)
 			jobCreationTime := baseTime.Add(-5 * time.Second)
 
-			job := tc.makeJob()
-			job.SetCreationTimestamp(metav1.NewTime(jobCreationTime))
+			tc.job.SetCreationTimestamp(metav1.NewTime(jobCreationTime))
 
-			wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).Obj()
+			wl := utiltestingapi.MakeWorkload("job-test-job", metav1.NamespaceDefault).Queue(testLocalQueueName).Obj()
 			wl.CreationTimestamp = metav1.NewTime(baseTime)
 
-			job.SetGeneration(2)
-			jobframework.RecordWorkloadCreationLatency(t.Context(), job, tc.jobKind, wl, nil, nil)
+			// Absence is checked by collecting the series; WithLabelValues would create it.
+			lqLabels := map[string]string{"name": string(testLocalQueueName), "namespace": metav1.NamespaceDefault}
+
+			tc.job.SetGeneration(2)
+			jobframework.RecordWorkloadCreationLatency(t.Context(), tc.job, tc.jobKind, wl, queues, nil, nil)
 			if count, err := testutil.GetHistogramMetricCount(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone)); err != nil || count != 0 {
 				t.Errorf("Expecting metric count 0 for generation > 1, got count %d, err %v", count, err)
 			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueWorkloadCreationLatency, lqLabels); len(got) != 0 {
+				t.Errorf("Expecting no LocalQueue series for generation > 1, got %v", got)
+			}
 
-			job.SetGeneration(1)
-			jobframework.RecordWorkloadCreationLatency(t.Context(), job, tc.jobKind, wl, nil, nil)
+			tc.job.SetGeneration(1)
+			jobframework.RecordWorkloadCreationLatency(t.Context(), tc.job, tc.jobKind, wl, queues, nil, nil)
 
 			val, err := testutil.GetHistogramMetricValue(metrics.WorkloadCreationLatency.WithLabelValues(tc.jobKind, roletracker.RoleStandalone))
 			if err != nil {
@@ -177,6 +202,20 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			}
 			if val != tc.expectedLatency {
 				t.Errorf("Expecting metric value %f, got %f", tc.expectedLatency, val)
+			}
+			if tc.expectedLocalQueueLatency == nil {
+				if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueWorkloadCreationLatency, lqLabels); len(got) != 0 {
+					t.Errorf("Expecting no LocalQueue series, got %v", got)
+				}
+			} else {
+				lqVal, err := testutil.GetHistogramMetricValue(metrics.LocalQueueWorkloadCreationLatency.WithLabelValues(
+					string(testLocalQueueName), metav1.NamespaceDefault, tc.jobKind, roletracker.RoleStandalone))
+				if err != nil {
+					t.Fatalf("Failed to get LocalQueue histogram metric value: %v", err)
+				}
+				if lqVal != *tc.expectedLocalQueueLatency {
+					t.Errorf("Expecting LocalQueue metric value %f, got %f", *tc.expectedLocalQueueLatency, lqVal)
+				}
 			}
 		})
 	}

@@ -166,6 +166,38 @@ func TestGate(t *testing.T) {
 	}
 }
 
+func TestGateFromTemplate(t *testing.T) {
+	basePod := testingpod.MakePod("", "")
+
+	testCases := map[string]struct {
+		pod      *corev1.Pod
+		template *corev1.PodTemplateSpec
+		wantPod  *corev1.Pod
+	}{
+		"nil template": {
+			pod:     basePod.Clone().Gate("example.com/gate").Obj(),
+			wantPod: basePod.Clone().Gate("example.com/gate").Obj(),
+		},
+		"adds the template gates and keeps the pod gates": {
+			pod: basePod.Clone().Gate("example.com/gate").Obj(),
+			template: &corev1.PodTemplateSpec{Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{
+				{Name: "example.com/gate"},
+				{Name: "example.com/gate2"},
+			}}},
+			wantPod: basePod.Clone().Gate("example.com/gate", "example.com/gate2").Obj(),
+		},
+	}
+
+	for desc, tc := range testCases {
+		t.Run(desc, func(t *testing.T) {
+			GateFromTemplate(tc.pod, tc.template)
+			if diff := cmp.Diff(tc.wantPod.Spec.SchedulingGates, tc.pod.Spec.SchedulingGates); diff != "" {
+				t.Errorf("Unexpected scheduling gates\ndiff=%s", diff)
+			}
+		})
+	}
+}
+
 func TestReadUIntFromLabel(t *testing.T) {
 	basePod := testingpod.MakePod("pod", "ns")
 

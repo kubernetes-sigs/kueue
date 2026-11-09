@@ -19,6 +19,7 @@ package concurrentadmission
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -410,8 +412,8 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 	variant := &kueue.Workload{
 		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
 		Namespace:     parent.Namespace,
-		Labels:        parent.Labels,
-		Annotations:   parent.Annotations,
+		Labels:        maps.Clone(parent.Labels),
+		Annotations:   maps.Clone(parent.Annotations),
 		ManagedFields: parent.ManagedFields,
 		Spec:          parent.Spec,
 		Status:        parent.Status,
@@ -938,9 +940,12 @@ func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
 }
 
 func migrationMode(cq *kueue.ClusterQueue) kueue.ConcurrentAdmissionMigrationMode {
-	if cq.Spec.ConcurrentAdmissionPolicy == nil ||
-		cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode == "" {
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return kueue.ConcurrentAdmissionTryPreferredFlavors
 	}
-	return cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
+	mode := ptr.Deref(cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode, "")
+	if mode == "" {
+		return kueue.ConcurrentAdmissionTryPreferredFlavors
+	}
+	return mode
 }

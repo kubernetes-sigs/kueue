@@ -8802,6 +8802,7 @@ spec:
                     This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.
 
                     If unspecified, the cluster-wide WaitForPodsReady is used.
+                  minProperties: 1
                   properties:
                     recoveryTimeoutSeconds:
                       description: |-
@@ -8824,8 +8825,6 @@ spec:
                       format: int64
                       minimum: 1
                       type: integer
-                  required:
-                    - timeoutSeconds
                   type: object
               type: object
               x-kubernetes-validations:

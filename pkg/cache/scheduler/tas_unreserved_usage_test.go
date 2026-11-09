@@ -618,7 +618,7 @@ func TestDeletedTASWorkloadSliceIntentPodUpdates(t *testing.T) {
 					t.Fatal("primary Pod reference index is stale")
 				}
 				wlName := pod.Annotations[kueue.WorkloadAnnotation]
-				wlPods := cache.tasPods.PodsForWorkload(client.ObjectKey{Namespace: pod.Namespace, Name: wlName})
+				wlPods := cache.tasPods.PodsForWorkload(workload.NewReference(pod.Namespace, wlName))
 				if wlName == "" {
 					if len(wlPods) != 0 {
 						t.Fatal("unannotated Pod was indexed under an empty Workload name")

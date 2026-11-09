@@ -190,13 +190,14 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob                      = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithSkip                     = (*Pod)(nil)
-	_ jobframework.ComposableJob                   = (*Pod)(nil)
-	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
-	_ jobframework.TopLevelJob                     = (*Pod)(nil)
-	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.GenericJob                              = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                         = (*Pod)(nil)
+	_ jobframework.JobWithSkip                             = (*Pod)(nil)
+	_ jobframework.ComposableJob                           = (*Pod)(nil)
+	_ jobframework.JobWithCustomWorkloadConditions         = (*Pod)(nil)
+	_ jobframework.TopLevelJob                             = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange            = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChangePreparation = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -401,6 +402,17 @@ func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *ku
 		return nil
 	}
 	return jobframework.QueueNameChange(ctx, c, p, wl)
+}
+
+// PrepareQueueNameChange stages a queue change without writing to the API server.
+// Serving Pod groups retain their queue, matching CustomQueueNameChange.
+// The return value reports whether the workload was changed.
+func (p *Pod) PrepareQueueNameChange(wl *kueue.Workload) bool {
+	if p.isServing() || wl.Spec.QueueName == jobframework.QueueName(p) {
+		return false
+	}
+	wl.Spec.QueueName = jobframework.QueueName(p)
+	return true
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
@@ -1294,20 +1306,17 @@ func sortActivePods(activePods []corev1.Pod) {
 	})
 }
 
+// removePodFinalizers removes the Kueue finalizer from the Pod. It returns true if the Pod had this finalizer.
+//
+// The patch includes the resourceVersion of the Pod, so it cannot delete finalizers that another client
+// added after Kueue read the Pod. If the API server rejects the patch with a conflict, the function gets
+// the latest Pod and tries again, up to a limited number of times.
 func removePodFinalizers(ctx context.Context, c client.Client, pod *corev1.Pod) (bool, error) {
 	var removed bool
-	patchOptions := make([]clientutil.PatchOption, 0, 1)
-
-	if features.Enabled(features.RemoveFinalizersWithStrictPatch) {
-		patchOptions = append(patchOptions, clientutil.WithRetryOnConflict())
-	} else {
-		patchOptions = append(patchOptions, clientutil.WithLoose())
-	}
-
 	err := clientutil.Patch(ctx, c, pod, func() (bool, error) {
 		removed = controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 		return removed, nil
-	}, patchOptions...)
+	}, clientutil.WithRetryOnConflict())
 
 	return removed, err
 }

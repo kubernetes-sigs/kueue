@@ -47,6 +47,7 @@ excluded_resources=(
   trainer.kubeflow.org/trainingruntimes trainer.kubeflow.org/clustertrainingruntimes
   # Alpha APIs that do not ship editor/viewer roles yet. Remove once they do.
   kueue.x-k8s.io/capacityproviders kueue.x-k8s.io/dynamicquotaorchestrators
+  kueue.x-k8s.io/multikueuecapacityproviderconfigs
 )
 # Entries that are no longer granted to the manager, or that already have an
 # editor or viewer role, fail the check so this list does not go stale.

@@ -24,7 +24,8 @@ integrations:
   - "deployment"
   - "statefulset"
 featureGates:
-  MultiKueueManagerQuotaAutomation: true
+  DynamicQuotaOrchestration: true
+  DQOMultiKueueCapacityProvider: true
 tls:
   minVersion: "VersionTLS12"
   cipherSuites:

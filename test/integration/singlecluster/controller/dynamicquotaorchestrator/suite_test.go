@@ -26,12 +26,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -47,6 +54,7 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicQuotaOrchestration, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DQOLocalCapacityProvider, true)
 	fwk = &framework.Framework{}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -62,10 +70,30 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	// The scheduler runs next to the core controllers, which also serve
+	// DynamicQuotaOrchestrator and the local-capacity CapacityProvider, so that
+	// tests cover the flow from Nodes to admission.
+	cCache := schdcache.New(mgr.GetClient())
+	preemptionExpectations := preemptexpectations.New()
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, qcache.WithPreemptionExpectations(preemptionExpectations))
+
+	configuration := &config.Configuration{}
+	mgr.GetScheme().Default(configuration)
+
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration,
+		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations})
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	dqoRec := dqo.NewReconciler(mgr.GetClient())
-	err = dqoRec.SetupWithManager(mgr)
+	sched := scheduler.New(
+		queues,
+		cCache,
+		mgr.GetClient(),
+		mgr.GetEventRecorder(constants.AdmissionName),
+		scheduler.WithPreemptionExpectations(preemptionExpectations),
+	)
+	err = mgr.Add(sched)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

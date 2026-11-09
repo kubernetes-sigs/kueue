@@ -32,7 +32,7 @@ import (
 // run before the first cycle. With TopologyAwareScheduling off no Topology
 // controller runs, as in this suite, so a leftover Topology must not hold
 // that wait.
-var _ = ginkgo.Describe("Scheduler startup with a leftover Topology and TopologyAwareScheduling off", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Scheduler startup with a leftover Topology and TopologyAwareScheduling off", func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -41,10 +41,14 @@ var _ = ginkgo.Describe("Scheduler startup with a leftover Topology and Topology
 		localQueue   *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
 		topology = utiltestingapi.MakeTopology("startup-leftover").Levels(corev1.LabelHostname).Obj()
 		behavioral.MustCreate(ctx, k8sClient, topology)
+		ginkgo.DeferCleanup(func() {
+			fwk.StopManager(ctx)
+			metrics.InitMetricVectors(nil)
+		})
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scheduler-startup-")
@@ -59,14 +63,12 @@ var _ = ginkgo.Describe("Scheduler startup with a leftover Topology and Topology
 		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
-	ginkgo.AfterAll(func() {
+	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("admits a plain workload before and after a manager restart", func() {

@@ -167,9 +167,8 @@ Whether a PodSet without an explicit TAS annotation can use a TAS
 If **every** `ResourceFlavor` referenced across all `spec.resourceGroups` of the
 `ClusterQueue` has `.spec.topologyName` set (a TAS-only `ClusterQueue`),
 unannotated PodSets implicitly use TAS with unconstrained placement at the
-lowest topology level (using the `LeastFreeCapacity` strategy when
-`TASProfileMixed` is enabled, as opposed to `BestFit` used by `required` and
-`preferred` annotations).
+lowest topology level (using the `LeastFreeCapacity` strategy, as opposed to
+`BestFit` used by `required` and `preferred` annotations).
 
 If any `ResourceFlavor` listed in the `ClusterQueue` (even one with `0`
 `nominalQuota`) does not set `.spec.topologyName`, implicit TAS is disabled:

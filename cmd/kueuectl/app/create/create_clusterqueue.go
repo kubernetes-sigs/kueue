@@ -80,10 +80,9 @@ var (
 )
 
 var (
-	errMisconfiguredFlavor  = errors.New("misconfigured flavor")
-	errInvalidResourceGroup = errors.New("invalid resource group")
-	errInvalidResourceQuota = errors.New("invalid resource quota")
-	errInvalidResourcesSpec = errors.New("invalid resources specification")
+	errMisconfiguredFlavor = errors.New("misconfigured flavor")
+
+	flavorQuotaSpecRegexp = regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;)*(\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;?$`)
 )
 
 type ClusterQueueOptions struct {
@@ -316,10 +315,9 @@ func (o *ClusterQueueOptions) parseResourceGroups() error {
 func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]kueue.ResourceGroup, error) {
 	var resourceGroups []kueue.ResourceGroup
 
-	regex := regexp.MustCompile(`^([a-z0-9][a-z0-9\-\.]{0,252}):((\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;)*(\w+[\.-]?)*\/?[\w\.-]+=[\w.]+;?$`)
 	for _, r := range resources {
-		if !regex.MatchString(r) {
-			return resourceGroups, errInvalidResourcesSpec
+		if !flavorQuotaSpecRegexp.MatchString(r) {
+			return resourceGroups, errors.New("invalid resources specification")
 		}
 
 		rg, err := toResourceGroup(r, quotaType)
@@ -391,7 +389,7 @@ func toResourceQuota(spec, quotaType string) (kueue.ResourceQuota, error) {
 
 	quantity, err := resource.ParseQuantity(quota)
 	if err != nil {
-		return kueue.ResourceQuota{}, errInvalidResourceQuota
+		return kueue.ResourceQuota{}, errors.New("invalid resource quota")
 	}
 
 	switch quotaType {
@@ -523,8 +521,8 @@ func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kue
 
 		existing := mergedResources[idx]
 		if !resourceGroupResources.Equal(sets.New(existing.CoveredResources...)) {
-			return mergedResources, fmt.Errorf("%w: flavor %q covers %v but flavor %q covers %v; flavors that share a resource must cover the same resources",
-				errInvalidResourceGroup, rg.Flavors[0].Name, rg.CoveredResources, existing.Flavors[0].Name, existing.CoveredResources)
+			return mergedResources, fmt.Errorf("invalid resource group: flavor %q covers %v but flavor %q covers %v; flavors that share a resource must cover the same resources",
+				rg.Flavors[0].Name, rg.CoveredResources, existing.Flavors[0].Name, existing.CoveredResources)
 		}
 
 		// The webhook requires resources in coveredResources order.
