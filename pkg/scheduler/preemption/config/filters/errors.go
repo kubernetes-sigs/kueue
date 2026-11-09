@@ -22,17 +22,20 @@ import (
 )
 
 const (
-	FilterScope                = "Scope"
-	FilterClusterQueueSelector = "ClusterQueueSelector"
-	FilterLabelSelector        = "LabelSelector"
-	FilterPriority             = "Priority"
-	FilterNumericLabels        = "NumericLabels"
-	FilterPreemptorSelector    = "PreemptorSelector"
+	FilterScope                          = "Scope"
+	FilterClusterQueueSelector           = "ClusterQueueSelector"
+	FilterLabelSelector                  = "LabelSelector"
+	FilterPriority                       = "Priority"
+	FilterPriorityClassSelector          = "PriorityClassSelector"
+	FilterNumericLabels                  = "NumericLabels"
+	FilterPreemptorSelector              = "PreemptorSelector"
+	FilterPreemptorPriorityClassSelector = "PreemptorPriorityClassSelector"
 
 	ReasonUnsupportedScope      = "UnsupportedScope"
 	ReasonInvalidSelector       = "InvalidSelector"
 	ReasonUnsupportedMode       = "UnsupportedMode"
 	ReasonUnsupportedComparison = "UnsupportedComparison"
+	ReasonUnsupportedOperator   = "UnsupportedOperator"
 )
 
 // FilterBuildError describes a failure while building a candidate filter.

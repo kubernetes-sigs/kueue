@@ -443,6 +443,7 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 		podSetsInfo    []podset.PodSetInfo
 		wantErr        bool
 		wantAssignedTo kfmpi.MPIReplicaType
+		wantJob        *MPIJob
 	}{
 		"mismatched length returns an error": {
 			job:         (*MPIJob)(baseJob.Clone().Obj()),
@@ -481,6 +482,38 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 			wantErr:        false,
 			wantAssignedTo: kfmpi.MPIReplicaTypeLauncher,
 		},
+		"pod-index-offset 0 is set on Pod templates in a PodSet group": {
+			job: (*MPIJob)(testingmpijob.MakeMPIJob("mpijob", "ns").
+				GenericLauncherAndWorker().
+				PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group").
+				PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantJob: (*MPIJob)(testingmpijob.MakeMPIJob("mpijob", "ns").
+				GenericLauncherAndWorker().
+				PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group").
+				PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodIndexOffsetAnnotation, "0").
+				PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "0").
+				Suspend(false).
+				Obj()),
+		},
+		"pod-index-offset is not set on Pod templates in a PodSet group with runLauncherAsWorker": {
+			job: (*MPIJob)(testingmpijob.MakeMPIJob("mpijob", "ns").
+				GenericLauncherAndWorker().
+				RunLauncherAsWorker(true).
+				PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group").
+				PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantJob: (*MPIJob)(testingmpijob.MakeMPIJob("mpijob", "ns").
+				GenericLauncherAndWorker().
+				RunLauncherAsWorker(true).
+				PodAnnotation(kfmpi.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "group").
+				PodAnnotation(kfmpi.MPIReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				Suspend(false).
+				Obj()),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -494,6 +527,11 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 				gotNodeSelector := tc.job.Spec.MPIReplicaSpecs[tc.wantAssignedTo].Template.Spec.NodeSelector
 				if diff := cmp.Diff(map[string]string{"assigned": "true"}, gotNodeSelector); diff != "" {
 					t.Errorf("NodeSelector for %s mismatch (-want +got):\n%s", tc.wantAssignedTo, diff)
+				}
+			}
+			if tc.wantJob != nil {
+				if diff := cmp.Diff(tc.wantJob, tc.job); diff != "" {
+					t.Errorf("Unexpected job after RunWithPodSetsInfo (-want +got):\n%s", diff)
 				}
 			}
 		})

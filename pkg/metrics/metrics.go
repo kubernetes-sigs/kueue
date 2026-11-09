@@ -101,10 +101,6 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",reason="the eviction reason reported by the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
 
-	// +metricsdoc:group=health
-	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
-	MultiKueueClusterByStatus *prometheus.GaugeVec
-
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
@@ -253,6 +249,10 @@ var (
 	// +metricsdoc:labels=job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadCreationLatency *prometheus.HistogramVec
 
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",job_kind="the kind of the job",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueWorkloadCreationLatency *prometheus.HistogramVec
+
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
@@ -373,7 +373,6 @@ const (
 	gaugeCleanupScopeLocalQueueCache
 	gaugeCleanupScopeLocalQueueResource
 	gaugeCleanupScopeCohort
-	gaugeCleanupScopeMultiKueueCluster
 )
 
 var gaugeVecsByScope map[gaugeCleanupScope][]*prometheus.GaugeVec
@@ -439,17 +438,6 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
 		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
 	)
-	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Subsystem: constants.MultiKueueName,
-			Name:      "cluster_status",
-			Help: `Reports a MultiKueue worker 'cluster' with its 'active' status (with possible values 'True', 'False', or 'Unknown'), per manager 'cluster_queue' referencing it, mirroring the Active condition of the MultiKueueCluster, whose reason explains why a cluster is not active.
-For a pair of 'cluster_queue' and worker cluster, the metric only reports a value of 1 for one of the statuses.
-A worker cluster shared by several ClusterQueues is reported once per ClusterQueue, so use 'max by (cluster)' rather than 'sum' to count distinct workers.`,
-		}, []string{"cluster_queue", "cluster", "active", "replica_role"},
-	)
-	trackGaugeVec(MultiKueueClusterByStatus, gaugeCleanupScopeMultiKueueCluster)
-
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -634,7 +622,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'cluster_queue'",
-		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 
 	LocalQueueAdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -651,7 +639,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'cluster_queue'",
 			Buckets:   generateExponentialBuckets(16),
-		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 
 	QueuedUntilReadyWaitTime = prometheus.NewHistogramVec(
@@ -741,7 +729,16 @@ The label 'underlying_cause' can have the following values:
 			Name:      "workload_creation_latency_seconds",
 			Help:      "The time between a job was created until its workload was created, per 'job_kind'. Entries are only recorded for objects with generation 1.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
-		}, append([]string{"job_kind", "replica_role"}, localQueueMetricsLabels...),
+		}, []string{"job_kind", "replica_role"},
+	)
+
+	LocalQueueWorkloadCreationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_workload_creation_latency_seconds",
+			Help:      "The time between a job was created until its workload was created, per 'local_queue'. Entries are only recorded for objects with generation 1 whose LocalQueue exists and is not stopped.",
+			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 11),
+		}, append([]string{"name", "namespace", "job_kind", "replica_role"}, localQueueMetricsLabels...),
 	)
 
 	PodSchedulingGateRemovalSeconds = prometheus.NewHistogramVec(
@@ -1123,41 +1120,17 @@ func ReportMultiKueueWorkloadAdmitted(cqName kueue.ClusterQueueReference, cluste
 	MultiKueueWorkloadsAdmittedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
 
-// ReportMultiKueueClusterStatus reports the Active status of a worker cluster as
-// seen by the manager ClusterQueue referencing it. A cluster shared by several
-// ClusterQueues is reported once per ClusterQueue.
-func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster string, conditionStatus metav1.ConditionStatus, tracker *roletracker.RoleTracker) {
-	role := roletracker.GetRole(tracker)
-	for _, status := range ConditionStatusValues {
-		var v float64
-		if status == conditionStatus {
-			v = 1
-		}
-		MultiKueueClusterByStatus.WithLabelValues(string(cqName), cluster, string(status), role).Set(v)
-	}
-}
-
-// ClearMultiKueueClusterMetrics drops every series reported for a worker cluster,
-// across all ClusterQueues. Called when the cluster is removed.
-func ClearMultiKueueClusterMetrics(cluster string) {
-	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
-}
-
-// ClearMultiKueueClusterQueueMetrics drops every series reported for a manager
-// ClusterQueue, across all worker clusters. Called when the ClusterQueue is deleted,
-// stops using MultiKueue, or before re-reporting its current set of workers so that
-// clusters it no longer references do not linger.
-func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
-	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster_queue": string(cqName)})
-}
-
 func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster, reason string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
-func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
-	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
+func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, tracker *roletracker.RoleTracker) {
+	WorkloadCreationLatency.WithLabelValues(jobKind, roletracker.GetRole(tracker)).Observe(latency.Seconds())
+}
+
+func RecordLocalQueueWorkloadCreationLatency(lq LocalQueueReference, jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueueWorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1387,9 +1360,14 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
-func ClearLocalQueueMetrics(lq LocalQueueReference) {
+func ClearLocalQueueGaugeMetrics(lq LocalQueueReference) {
 	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
 	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+}
+
+func ClearLocalQueueMetrics(lq LocalQueueReference) {
+	ClearLocalQueueGaugeMetrics(lq)
+	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
@@ -1401,6 +1379,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQueuedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmittedUntilReadyWaitTime.DeletePartialMatch(lbls)
 	LocalQueueEvictedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueWorkloadCreationLatency.DeletePartialMatch(lbls)
 }
 
 func ClearCohortMetrics(cohortName kueue.CohortReference) {
@@ -1711,7 +1690,6 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		MultiKueueWorkloadsEvictedTotal,
-		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
@@ -1781,6 +1759,7 @@ func RegisterLQMetrics() {
 		LocalQueueAdmissionFairSharingUsage,
 		LocalQueueUnadmittedWorkloads,
 		LocalQueueExecutionTimeSeconds,
+		LocalQueueWorkloadCreationLatency,
 	)
 }
 

@@ -23,11 +23,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingspark "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -45,53 +47,52 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 			fwk.StopManager(ctx)
 		})
 
-		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {
+		ginkgo.It("should reject removing the queue name from an unsuspended SparkApplication", func() {
+			app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
+			behavioral.MustCreate(ctx, k8sClient, app)
+
+			lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
+			createdApp := &sparkappv1beta2.SparkApplication{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
+
+			// Simulate an unsuspended application updating other fields while retaining the queue name.
+			createdApp.Spec.Suspend = new(false)
+			gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
+
+			// Simulate an unsuspended application dropping its queue name to become unmanaged.
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
+			delete(createdApp.Labels, controllerconstants.QueueLabel)
+			err := k8sClient.Update(ctx, createdApp)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+		})
+
+		ginkgo.When("ElasticJobsViaWorkloadSlicesForSparkApplication is enabled", func() {
 			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			})
 
-			ginkgo.It("should reject removing the queue name from an unsuspended SparkApplication", func() {
-				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
+			ginkgo.It("should gate the executors of an elastic SparkApplication and keep the gate on update", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).
+					Queue("queue-name").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(4))}).
+					Obj()
 				behavioral.MustCreate(ctx, k8sClient, app)
 
+				ginkgo.By("checking the executor template has the ElasticJobSchedulingGate")
 				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
 				createdApp := &sparkappv1beta2.SparkApplication{}
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
+				gomega.Expect(createdApp.Spec.Executor.Template).ShouldNot(gomega.BeNil())
+				gomega.Expect(createdApp.Spec.Executor.Template.Spec.SchedulingGates).Should(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
 
-				// Simulate an unsuspended application updating other fields while retaining the queue name.
-				createdApp.Spec.Suspend = new(false)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-				delete(createdApp.Labels, controllerconstants.QueueLabel)
+				ginkgo.By("checking the ElasticJobSchedulingGate cannot be removed")
+				createdApp.Spec.Executor.Template.Spec.SchedulingGates = nil
 				err := k8sClient.Update(ctx, createdApp)
 				gomega.Expect(err).Should(gomega.HaveOccurred())
 				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
-			})
-		})
-
-		ginkgo.When("ValidateRayAndSparkJobUpdates is disabled", func() {
-			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, false)
-			})
-
-			ginkgo.It("should allow removing the queue name from an unsuspended SparkApplication", func() {
-				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
-				behavioral.MustCreate(ctx, k8sClient, app)
-
-				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
-				createdApp := &sparkappv1beta2.SparkApplication{}
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application updating other fields while retaining the queue name.
-				createdApp.Spec.Suspend = new(false)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
-
-				// Simulate an unsuspended application dropping its queue name to become unmanaged.
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdApp)).Should(gomega.Succeed())
-				delete(createdApp.Labels, controllerconstants.QueueLabel)
-				gomega.Expect(k8sClient.Update(ctx, createdApp)).Should(gomega.Succeed())
 			})
 		})
 	})

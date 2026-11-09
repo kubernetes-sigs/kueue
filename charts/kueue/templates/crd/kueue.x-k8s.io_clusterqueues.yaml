@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: clusterqueues.kueue.x-k8s.io
 spec:
   conversion:
@@ -210,6 +210,7 @@ spec:
                               type: string
                           type: object
                         mode:
+                          default: TryPreferredFlavors
                           description: |-
                             mode defines the mode of Workload's migration.
                             The possible values are:
@@ -220,8 +221,6 @@ spec:
                             - RetainFirstAdmission
                           maxLength: 253
                           type: string
-                      required:
-                        - mode
                       type: object
                   required:
                     - migration

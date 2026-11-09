@@ -711,6 +711,32 @@ func TestLabelValsTracker(t *testing.T) {
 			},
 			expectedTotal: 9,
 		},
+		"merge in place": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				other := NewLabelValsTracker()
+				other.Add(k2, 5)
+				other.Add(k3, 10)
+				t.Merge(other)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 12,
+				k3: 10,
+			},
+			expectedTotal: 24,
+		},
+		"merge in place nil": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Merge(nil)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+			},
+			expectedTotal: 2,
+		},
 	}
 
 	for name, tc := range cases {
@@ -724,6 +750,16 @@ func TestLabelValsTracker(t *testing.T) {
 				t.Errorf("unexpected total: %s", diff)
 			}
 		})
+	}
+}
+
+func TestValsSetFrom(t *testing.T) {
+	got := ValsSetFrom([]string{"v1", "v2"})
+	if diff := cmp.Diff([]string{"v1", "v2"}, got.OrderedList()); diff != "" {
+		t.Errorf("unexpected OrderedList: %s", diff)
+	}
+	if ValsSetFrom(nil) != EmptyValsSet() {
+		t.Error("expected ValsSetFrom(nil) to equal EmptyValsSet")
 	}
 }
 

@@ -1467,6 +1467,37 @@ func TestClusterProfileCRDPresent(t *testing.T) {
 	}
 }
 
+func TestClusterProfileCredentialsProviderAlias(t *testing.T) {
+	acceptAccessProviders := func(providers []configapi.ClusterProfileAccessProvider) []configapi.ClusterProfileAccessProvider {
+		return providers
+	}
+	acceptCredentialsProviders := func(providers []configapi.ClusterProfileCredentialsProvider) []configapi.ClusterProfileCredentialsProvider {
+		return providers
+	}
+
+	credentialsProviders := []configapi.ClusterProfileCredentialsProvider{
+		{
+			Name: "secretreader",
+			ExecConfig: clientcmdapi.ExecConfig{
+				Command: "command",
+			},
+		},
+	}
+	accessProviders := acceptAccessProviders(credentialsProviders)
+	credentialsProviders = acceptCredentialsProviders(accessProviders)
+
+	if diff := cmp.Diff([]configapi.ClusterProfileAccessProvider{
+		{
+			Name: "secretreader",
+			ExecConfig: clientcmdapi.ExecConfig{
+				Command: "command",
+			},
+		},
+	}, credentialsProviders); diff != "" {
+		t.Errorf("Unexpected providers (-want,+got):\n%s", diff)
+	}
+}
+
 func TestDefaultTransformStripsManagedFields(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	if err := configapi.AddToScheme(testScheme); err != nil {

@@ -1,0 +1,177 @@
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: test manager configuration precedence
+templates:
+  - manager/manager-config.yaml
+tests:
+  - it: should use chart defaults when neither input is supplied
+    asserts: &chartDefaults
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 300"
+
+  - it: should use chart defaults with empty structured overrides
+    set:
+      managerConfig.structuredOverrides: {}
+    asserts: *chartDefaults
+
+  - it: should apply structured overrides when YAML is absent
+    set:
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+
+  - it: should use supplied YAML as a complete replacement even with structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: |
+        clientConnection:
+          qps: 123
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 123"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst:|qps: 600"
+
+  - it: should give explicitly empty YAML precedence over structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "apiVersion:|clientConnection:|integrations:"
+
+  - it: should reject an unknown mode
+    set:
+      managerConfig.mode: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*must be one of"
+
+  - it: should reject an unknown manager input with YAML present
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should validate unused structured overrides with YAML present
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML even with valid structured overrides
+    set:
+      managerConfig.controllerManagerConfigYaml: 123
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should ignore retained YAML when structured mode is selected
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: |
+        clientConnection:
+          qps: 123
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: &structuredConfig
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+
+  - it: should ignore empty YAML when structured mode is selected
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *structuredConfig
+
+  - it: should use defaults when structured mode has no overrides despite supplied YAML
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+    asserts: *chartDefaults
+
+  - it: should ignore structured overrides when YAML mode has no YAML input
+    set:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *chartDefaults
+
+  - it: should use YAML as a complete replacement in explicit YAML mode
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 123"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst:|qps: 600"
+
+  - it: should preserve explicitly empty YAML in YAML mode
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "apiVersion:|clientConnection:|integrations:"
+
+  - it: should validate the unused YAML type in structured mode
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should validate unused structured overrides in YAML mode
+    set:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject an empty mode
+    set:
+      managerConfig.mode: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*must be one of"
+
+  - it: should reject a non-string mode
+    set:
+      managerConfig.mode: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*string"

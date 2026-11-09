@@ -381,10 +381,10 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
-			for tasFlavor, topology := range c.tasFlavors {
+			for _, tasFlavor := range slices.Sorted(maps.Keys(c.tasFlavors)) {
 				if c.tasCache.Get(tasFlavor) == nil {
 					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
-					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", topology, tasFlavor))
+					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", c.tasFlavors[tasFlavor], tasFlavor))
 				}
 			}
 		}
@@ -568,7 +568,11 @@ func (c *clusterQueue) reportActiveWorkloads() {
 func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 	clVals := c.GetCustomLabelValues()
 	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+		count := ancestor.admittedWorkloadsCount
+		if features.Enabled(features.CustomMetricLabels) && len(clVals) > 0 {
+			count = ancestor.admittedWorkloadsInCQsWithLabels(clVals)
+		}
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, count, clVals, c.roleTracker)
 	}
 }
 

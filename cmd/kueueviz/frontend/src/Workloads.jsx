@@ -106,9 +106,9 @@ const Workloads = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {Object.entries(workloadsByNamespace).map(([namespace, workloads]) => (
+              {Object.entries(workloadsByNamespace).flatMap(([namespace, workloads]) => (
                 workloads.map((workload, index) => (
-                  <TableRow key={workload.metadata.name}>
+                  <TableRow key={`${namespace}/${workload.metadata.name}`}>
                     {index === 0 && (
                       <TableCell rowSpan={workloads.length}>
                         {namespace}
@@ -119,10 +119,10 @@ const Workloads = () => {
                         title={
                           <div>
                             <div><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</div>
-                            <div><strong>Owner Reference: {workload.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
-                            <div>API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
-                            <div>Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</div>
-                            <div>Name: {workload.ownerReferences?.[0]?.name || 'N/A'}</div>
+                            <div><strong>Owner Reference: {workload.metadata?.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
+                            <div>API Version: {workload.metadata?.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
+                            <div>Kind: {workload.metadata?.ownerReferences?.[0]?.kind || 'N/A'}</div>
+                            <div>Name: {workload.metadata?.ownerReferences?.[0]?.name || 'N/A'}</div>
                           </div>
                         }
                         arrow

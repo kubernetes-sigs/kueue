@@ -41,6 +41,12 @@ const (
 	hashLength       = 5
 )
 
+var (
+	errWorkloadOrPodSetIsNil = errors.New("workload and podset must not be nil")
+	errMergeResourceFlavor   = errors.New("failed to merge ResourceFlavor")
+	errMergePodSetUpdate     = errors.New("failed to merge PodSetUpdate")
+)
+
 // virtualPodName returns a collision-free name for a virtual pod
 // following the standard naming convention in Kueue
 func virtualPodName(wlName, podSetName string, index int) string {
@@ -139,13 +145,14 @@ type CandidatePodOptions struct {
 	FlavorNodeLabels  map[string]string
 	FlavorTolerations []corev1.Toleration
 	PodSetUpdates     []kueue.PodSetUpdate
+	LeafPGForPod      func(replicaIdx int) string
 }
 
 // CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
 // of replicas for a PodSet, merging PodSet templates, assigned flavor details, and admission check updates.
 func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) ([]*corev1.Pod, error) {
 	if wl == nil || ps == nil {
-		return nil, errors.New("workload and podset must be non-nil")
+		return nil, errWorkloadOrPodSetIsNil
 	}
 
 	info := podset.FromPodSet(ps)
@@ -162,13 +169,13 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 			Tolerations:  opts.FlavorTolerations,
 		}
 		if err := info.Merge(flavorInfo); err != nil {
-			return nil, fmt.Errorf("failed to merge ResourceFlavor for PodSet %s: %w", ps.Name, err)
+			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergeResourceFlavor, ps.Name, err)
 		}
 	}
 
 	for _, u := range opts.PodSetUpdates {
 		if err := info.Merge(podset.FromUpdate(&u)); err != nil {
-			return nil, fmt.Errorf("failed to merge PodSetUpdate for PodSet %s: %w", ps.Name, err)
+			return nil, fmt.Errorf("%w for PodSet %s: %w", errMergePodSetUpdate, ps.Name, err)
 		}
 	}
 
@@ -182,6 +189,13 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	pods := make([]*corev1.Pod, 0, count)
 	for replicaIdx := range int(count) {
 		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, info.Labels, info.Annotations, spec, corev1.PodPending)
+		if opts.LeafPGForPod != nil {
+			if leafPG := opts.LeafPGForPod(replicaIdx); leafPG != "" {
+				pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{
+					PodGroupName: new(leafPG),
+				}
+			}
+		}
 		pods = append(pods, pod)
 	}
 	return pods, nil

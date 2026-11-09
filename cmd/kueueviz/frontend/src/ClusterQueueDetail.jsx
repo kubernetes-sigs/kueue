@@ -218,7 +218,7 @@ const ClusterQueueDetail = () => {
           <TableBody>
             {clusterQueue.queues && clusterQueue.queues.length > 0 ? (
               clusterQueue.queues.map((queue) => (
-                <React.Fragment key={queue.name}>
+                <React.Fragment key={`${queue.namespace}/${queue.name}`}>
                   {queue.reservation?.map((reservation, resIndex) => (
                     <React.Fragment key={`${queue.name}-reservation-${resIndex}`}>
                       {reservation.resources?.map((resource, resResourceIndex) => (

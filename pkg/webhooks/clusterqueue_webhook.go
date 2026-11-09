@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -248,8 +249,11 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 	}
 
 	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {
-		mode := cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
-		if mode != "" && mode != kueue.ConcurrentAdmissionTryPreferredFlavors {
+		mode := ptr.Deref(cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode, kueue.ConcurrentAdmissionTryPreferredFlavors)
+		if mode == "" {
+			mode = kueue.ConcurrentAdmissionTryPreferredFlavors
+		}
+		if mode != kueue.ConcurrentAdmissionTryPreferredFlavors {
 			allErrs = append(allErrs, field.Forbidden(
 				path.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints"),
 				fmt.Sprintf("may only be set when migration.mode is %q (got %q)",

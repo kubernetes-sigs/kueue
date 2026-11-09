@@ -1,0 +1,260 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package networkpolicy
+
+import (
+	"fmt"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
+)
+
+const (
+	managerPolicyName = "kueue-controller-manager-ingress"
+	listenerName      = "netpol-listener"
+	metricsPort       = 8443
+	unlistedPort      = 9999
+	connectTimeout    = "5s"
+)
+
+var managerSelector = map[string]string{
+	"app.kubernetes.io/name": "kueue",
+	"control-plane":          "controller-manager",
+}
+
+var _ = ginkgo.Describe("NetworkPolicies", func() {
+	const defaultFlavor = "default-flavor"
+
+	var (
+		defaultRF    *kueue.ResourceFlavor
+		localQueue   *kueue.LocalQueue
+		clusterQueue *kueue.ClusterQueue
+		ns           *corev1.Namespace
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-netpol-")
+		defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
+		behavioral.MustCreate(ctx, k8sClient, defaultRF)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(defaultFlavor).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
+	})
+
+	ginkgo.It("should have the ControllerManager policy applied", func() {
+		policy := &networkingv1.NetworkPolicy{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+			Namespace: kueueNS, Name: managerPolicyName,
+		}, policy)).To(gomega.Succeed())
+
+		for key, value := range managerSelector {
+			gomega.Expect(policy.Spec.PodSelector.MatchLabels).To(gomega.HaveKeyWithValue(key, value))
+		}
+		gomega.Expect(policy.Spec.PolicyTypes).To(gomega.Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeIngress}))
+
+		var allowed []int32
+		for _, rule := range policy.Spec.Ingress {
+			for _, port := range rule.Ports {
+				allowed = append(allowed, port.Port.IntVal)
+			}
+		}
+		gomega.Expect(allowed).To(gomega.ConsistOf(int32(9443), int32(8082), int32(metricsPort), int32(8081)))
+	})
+
+	ginkgo.It("should still admit a Job, so the webhook stays reachable", func() {
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+
+		ginkgo.By("Creating the job, which the mutating webhook has to admit", func() {
+			behavioral.MustCreate(ctx, k8sClient, job)
+		})
+
+		ginkgo.By("Waiting for the workload to be admitted", func() {
+			createdJob := &batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+			wlKey := client.ObjectKey{
+				Namespace: ns.Name,
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			}
+			wl := &kueue.Workload{}
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+	})
+
+	ginkgo.It("should serve the visibility API, so the aggregator stays reachable", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			_, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(
+				ctx, clusterQueue.Name, metav1.GetOptions{})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should keep a listed port reachable from another pod", func() {
+		managerIP := managerPodIP()
+
+		probe := testingpod.MakePod("netpol-probe", ns.Name).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, probe)
+		e2e.WaitForPodRunning(ctx, k8sClient, probe)
+
+		container := probe.Spec.Containers[0].Name
+
+		ginkgo.By("Connecting to the metrics port, which the policy allows", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+					connectCmd(managerIP, metricsPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should deny a port the policy does not list", func() {
+		listener := newPolicyCoveredListener()
+		behavioral.MustCreate(ctx, k8sClient, listener)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, listener)).To(gomega.Succeed())
+		})
+		e2e.WaitForPodRunning(ctx, k8sClient, listener)
+
+		listenerIP := podIP(listener)
+		ginkgo.By("Confirming the unlisted port is listening inside the pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, listener.Name,
+					listener.Spec.Containers[0].Name, connectCmd("127.0.0.1", unlistedPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		probe := testingpod.MakePod("netpol-probe", ns.Name).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, probe)
+		e2e.WaitForPodRunning(ctx, k8sClient, probe)
+
+		container := probe.Spec.Containers[0].Name
+
+		ginkgo.By("Reaching the listed port, which shows the listener is up", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+					connectCmd(listenerIP, metricsPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Failing to reach the unlisted port on the same pod", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+					connectCmd(listenerIP, unlistedPort))
+				g.Expect(err).To(gomega.HaveOccurred())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+})
+
+// The listener carries the labels the ControllerManager policy selects on, so the policy
+// covers it. It serves one listed and one unlisted port, which keeps the denial scoped to
+// the port rather than to whether the pod is up. The failing readiness probe keeps it out
+// of the Kueue Services, which select on those same labels.
+func newPolicyCoveredListener() *corev1.Pod {
+	policy := &networkingv1.NetworkPolicy{}
+	gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+		Namespace: kueueNS, Name: managerPolicyName,
+	}, policy)).To(gomega.Succeed())
+	wrapper := testingpod.MakePod(listenerName, kueueNS).
+		Image(e2e.GetAgnHostImage(), []string{"netexec", fmt.Sprintf("--http-port=%d", metricsPort), "--udp-port=-1"}).
+		TerminationGracePeriod(1)
+	for key, value := range policy.Spec.PodSelector.MatchLabels {
+		wrapper.Label(key, value)
+	}
+	listener := wrapper.Obj()
+	listener.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
+		Exec: &corev1.ExecAction{Command: []string{"false"}},
+	}
+	listener.Spec.Containers = append(listener.Spec.Containers, corev1.Container{
+		Name:  "unlisted",
+		Image: e2e.GetAgnHostImage(),
+		Args:  []string{"netexec", fmt.Sprintf("--http-port=%d", unlistedPort), "--udp-port=-1"},
+	})
+	return listener
+}
+
+// The listener carries the same labels, so it is skipped by name.
+func managerPodIP() string {
+	pods := &corev1.PodList{}
+	gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(kueueNS),
+		client.MatchingLabels(managerSelector))).To(gomega.Succeed())
+	for _, pod := range pods.Items {
+		if pod.Name != listenerName {
+			return pod.Status.PodIP
+		}
+	}
+	ginkgo.Fail("no ControllerManager pod found")
+	return ""
+}
+
+func podIP(pod *corev1.Pod) string {
+	created := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), created)).To(gomega.Succeed())
+		g.Expect(created.Status.PodIP).NotTo(gomega.BeEmpty())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	return created.Status.PodIP
+}
+
+func connectCmd(host string, port int) []string {
+	return []string{"/agnhost", "connect", fmt.Sprintf("%s:%d", host, port), "--timeout=" + connectTimeout}
+}

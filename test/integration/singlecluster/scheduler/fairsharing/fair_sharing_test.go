@@ -32,6 +32,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1521,11 +1522,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 		ginkgo.It("admits one workload from each LocalQueue when quota is limited", framework.SlowSpec, func() {
 			ginkgo.By("Pausing admissions to CQ")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.Hold)
 
 			// this sync step is to stop a (rare, 2/1024 runs) race, where one of the
 			// workloads admits before the CQ is stoppped.
@@ -1550,11 +1547,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectPendingWorkloadsMetric(cq1, 0, 4)
 
 			ginkgo.By("Resuming admissions to CQ")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.None)
 
 			ginkgo.By("Verifying one workload from each lq is admitted")
 			behavioral.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqAWls...)
@@ -1900,6 +1893,176 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
 				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 1}))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and the preemptor's cohort has nominal quota", func() {
+		// Hierarchy:
+		//
+		//                    root
+		//                 /        \
+		//   cohort-a (1 flavor1)    b (0 flavor1, 6 flavor2)
+		//        /        \
+		//   a (flavor1)   a-noisy (flavor2)
+		//
+		// CQ "a" has no nominal quota of its own — the 1 CPU of flavor1 it
+		// draws on belongs to its parent cohort "cohort-a". Sibling
+		// "a-noisy" borrows flavor2 heavily from "b", which inflates
+		// cohort-a's aggregate DominantResourceShare far above "b"'s.
+		//
+		// A workload in "a" requesting flavor1 is borrowing at the
+		// ClusterQueue level, but stays within cohort-a's nominal flavor1
+		// quota (0 used + 1 requested <= 1). It should therefore reclaim
+		// that CPU from "b" — which holds it only by borrowing cohort-a's
+		// lendable flavor1 quota — regardless of cohort-a's high DRS from
+		// borrowing flavor2.
+		var (
+			cqA      *kueue.ClusterQueue
+			cqANoisy *kueue.ClusterQueue
+			cqB      *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("cohort-a").
+				Parent("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("a").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			// Only offers flavor2, so its workloads cannot consume the
+			// flavor1 quota that cqA is meant to reclaim.
+			cqANoisy = createQueue(utiltestingapi.MakeClusterQueue("a-noisy").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
+				Cohort("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "6").Obj(),
+				).
+				Obj())
+		})
+
+		ginkgo.It("Should preempt a workload borrowing cohort nominal quota, despite the preemptor's high aggregate DRS", func() {
+			ginkgo.By("Admitting a workload in cqB that borrows cohort-a's nominal flavor1 quota")
+			wlB := createWorkload("b", "1")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqB, "", 1)
+
+			ginkgo.By("Admitting workloads in cq-a-noisy that borrow flavor2 from cqB, inflating cohort-a's DRS")
+			for range 5 {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createWorkload("a-noisy", "1"))
+			}
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqANoisy, "", 5)
+
+			ginkgo.By("Creating a workload in cqA that needs flavor1, within cohort-a's nominal 1 CPU")
+			wlA := createWorkload("a", "1")
+
+			ginkgo.By("The workload in cqB should be preempted to reclaim cohort-a's nominal flavor1 quota")
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlB)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 1)
+		})
+	})
+
+	ginkgo.When("Preemption is enabled in fairsharing and the preemptor exceeds its cohort's nominal quota", func() {
+		// The boundary counterpart of the case above. Hierarchy:
+		//
+		//                 root-over (1 flavor1)
+		//                 /              \
+		//   cohort-a (1 flavor1)          b (0 flavor1, 6 flavor2)
+		//        /        \
+		//   a (flavor1)   a-noisy (flavor2)
+		//
+		// "a" first takes cohort-a's whole nominal flavor1 CPU, so a
+		// second workload in "a" would put cohort-a at 2 against a nominal
+		// of 1. cohort-a is a's AlmostLCA with "b", so "a" has no nominal
+		// claim and the preemption must win on DRS alone - which
+		// cohort-a's flavor2 borrowing loses. The flavor1 CPU that "b"
+		// borrows from root-over must therefore stay put.
+		var (
+			cqA      *kueue.ClusterQueue
+			cqANoisy *kueue.ClusterQueue
+			cqB      *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("root-over").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj())
+
+			createCohort(utiltestingapi.MakeCohort("cohort-a").
+				Parent("root-over").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("a").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			cqANoisy = createQueue(utiltestingapi.MakeClusterQueue("a-noisy").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
+				Cohort("root-over").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "6").Obj(),
+				).
+				Obj())
+		})
+
+		ginkgo.It("Should not preempt once the preemptor's cohort is past its nominal quota", func() {
+			ginkgo.By("Admitting a workload in cqB that borrows root-over's flavor1 quota")
+			wlB := createWorkload("b", "1")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+
+			ginkgo.By("Admitting a workload in cqA that consumes cohort-a's whole nominal flavor1 quota")
+			wlA1 := createWorkload("a", "1")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+
+			ginkgo.By("Admitting workloads in cq-a-noisy that borrow flavor2 from cqB, inflating cohort-a's DRS")
+			for range 5 {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createWorkload("a-noisy", "1"))
+			}
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqANoisy, "", 5)
+
+			ginkgo.By("Creating a second workload in cqA, which would push cohort-a past its nominal 1 CPU")
+			wlA2 := createWorkload("a", "1")
+
+			ginkgo.By("The workload in cqB should be left alone and the new workload should stay pending")
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlA2)
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(wlB.Status.Conditions, kueue.WorkloadEvicted)
+				g.Expect(cond == nil || cond.Reason != kueue.WorkloadPreempted).To(gomega.BeTrue(),
+					"a preemptor past its cohort's nominal quota must not reclaim on DRS alone")
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 1)
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqB, "", 1)
 		})
 	})
 
@@ -2367,6 +2530,95 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("A ClusterQueue borrows from a Cohort tree whose lendable quota changes", func() {
+		var (
+			cqA *kueue.ClusterQueue
+			cqB *kueue.ClusterQueue
+			cqC *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			treeRoot := utiltestingapi.MakeCohort("tree-root").Obj()
+			treeLeft := utiltestingapi.MakeCohort("tree-left").Parent("tree-root").Obj()
+			treeRight := utiltestingapi.MakeCohort("tree-right").Parent("tree-root").Obj()
+			for _, cohort := range []*kueue.Cohort{treeRoot, treeLeft, treeRight} {
+				behavioral.MustCreate(ctx, k8sClient, cohort)
+			}
+			cohorts = append(cohorts, treeRoot, treeLeft, treeRight)
+
+			cqA = utiltestingapi.MakeClusterQueue("borrowing-cq-a").
+				Cohort("tree-left").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
+			cqB = utiltestingapi.MakeClusterQueue("lending-cq-b").
+				Cohort("tree-right").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			cqC = utiltestingapi.MakeClusterQueue("lending-cq-c").
+				Cohort("tree-root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA, cqB, cqC)
+			cqs = append(cqs, cqA, cqB, cqC)
+
+			lqA := utiltestingapi.MakeLocalQueue(cqA.Name, ns.Name).ClusterQueue(cqA.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
+			lqs = append(lqs, lqA)
+		})
+
+		// The weighted share divides borrowing by the tree's lendable quota,
+		// so a quota change anywhere in the tree changes it.
+		ginkgo.It("should update the borrowing ClusterQueue's weighted share", func() {
+			ginkgo.By("Admitting a workload in cqA that borrows 5 of the tree's 20 CPUs")
+			wlA1 := createWorkloadWithPriority(cqA.Name, "5", 100)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+			behavioral.ExpectClusterQueueWeightedShare(ctx, k8sClient, cqA, 250)
+			// Outlast the batched requeues the admission left behind, so only
+			// the changes below can refresh the status.
+			gomega.Consistently(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 250}))
+			}, 3*constants.UpdatesBatchPeriod, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Raising the nominal quota of cqB in the other branch to 20 CPUs")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqB := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqB), createdCqB)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Update(ctx, behavioral.SetResourceNominalQuota(createdCqB, corev1.ResourceCPU, "20"))).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueWeightedShare(ctx, k8sClient, cqA, 167)
+
+			ginkgo.By("Giving the other branch's Cohort 10 CPUs of its own")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCohort := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "tree-right"}, createdCohort)).Should(gomega.Succeed())
+				createdCohort.Spec.ResourceGroups = utiltestingapi.MakeCohort("tree-right").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj().Spec.ResourceGroups
+				g.Expect(k8sClient.Update(ctx, createdCohort)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueWeightedShare(ctx, k8sClient, cqA, 125)
+
+			ginkgo.By("Raising the nominal quota of cqC, directly under the root, to 20 CPUs")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqC := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqC), createdCqC)).Should(gomega.Succeed())
+				g.Expect(k8sClient.Update(ctx, behavioral.SetResourceNominalQuota(createdCqC, corev1.ResourceCPU, "20"))).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueWeightedShare(ctx, k8sClient, cqA, 100)
+
+			ginkgo.By("Moving the other branch's Cohort, with its 30 CPUs, to another tree")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCohort := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "tree-right"}, createdCohort)).Should(gomega.Succeed())
+				createdCohort.Spec.ParentName = "other-root"
+				g.Expect(k8sClient.Update(ctx, createdCohort)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueWeightedShare(ctx, k8sClient, cqA, 250)
+		})
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {

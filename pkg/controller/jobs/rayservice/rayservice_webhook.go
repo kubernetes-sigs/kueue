@@ -64,9 +64,6 @@ func fromObject(obj runtime.Object) *RayService {
 // SetupRayServiceWebhook configures the webhook for rayv1 RayService.
 func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	for _, opt := range opts {
-		opt(&options)
-	}
 	wh := &RayServiceWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),

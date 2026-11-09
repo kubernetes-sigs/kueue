@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
@@ -30,7 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -46,6 +52,20 @@ const (
 	FrameworkName      = "sparkoperator.k8s.io/sparkapplication"
 	driverPodSetName   = "driver"
 	executorPodSetName = "executor"
+
+	// maxExecutorIDAnnotation records the highest executor ID of the current
+	// submission, which feeds the elastic workload-slice name.
+	maxExecutorIDAnnotation = "kueue.x-k8s.io/spark-max-executor-id"
+	// maxExecutorIDSubmissionAnnotation records the submission that
+	// maxExecutorIDAnnotation belongs to.
+	maxExecutorIDSubmissionAnnotation = "kueue.x-k8s.io/spark-max-executor-id-submission"
+)
+
+// The driver and executor PodSets are always present, in this order.
+const (
+	driverPodSetIndex   = 0
+	executorPodSetIndex = 1
+	podSetsCount        = 2
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -66,11 +86,38 @@ func NewJob() jobframework.GenericJob {
 	return &SparkApplication{}
 }
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
+	func(b *builder.Builder, _ client.Client) *builder.Builder {
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) {
+			return b
+		}
+		// An elastic job counts its executors from pods, and the Spark Operator does not
+		// report every executor in the SparkApplication status.
+		return b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(executorPodToSparkApplication),
+			builder.WithPredicates(predicate.Funcs{UpdateFunc: podPhaseChanged}))
+	},
+)
+
+func executorPodToSparkApplication(_ context.Context, obj client.Object) []reconcile.Request {
+	labels := obj.GetLabels()
+	appName := labels[sparkcommon.LabelSparkAppName]
+	if labels[sparkcommon.LabelSparkRole] != sparkcommon.SparkRoleExecutor || appName == "" {
+		return nil
+	}
+	return []reconcile.Request{{Namespace: obj.GetNamespace(), Name: appName}}
+}
+
+func podPhaseChanged(e event.UpdateEvent) bool {
+	oldPod, isOldPod := e.ObjectOld.(*corev1.Pod)
+	newPod, isNewPod := e.ObjectNew.(*corev1.Pod)
+	return !isOldPod || !isNewPod || oldPod.Status.Phase != newPod.Status.Phase
+}
 
 type SparkApplication sparkv1beta2.SparkApplication
 
 var _ jobframework.GenericJob = (*SparkApplication)(nil)
+var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
+var _ jobframework.JobWithCustomAnnotations = (*SparkApplication)(nil)
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
@@ -96,9 +143,8 @@ func (j *SparkApplication) PodLabelSelector() string {
 	return fmt.Sprintf("%s=%s", sparkcommon.LabelSparkAppName, j.Name)
 }
 
-func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	// driver and executor
-	podSets := make([]kueue.PodSet, 2)
+func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	podSets := make([]kueue.PodSet, podSetsCount)
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -117,14 +163,14 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[0] = kueue.PodSet{
+	podSets[driverPodSetIndex] = kueue.PodSet{
 		Name:     driverPodSetName,
 		Template: *driverPodTemplateSpec,
 		Count:    1,
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[0], driverPodTemplateSpec,
+		&podSets[driverPodSetIndex], driverPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -134,14 +180,18 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	if err != nil {
 		return nil, err
 	}
-	podSets[1] = kueue.PodSet{
+	executorCount, err := j.numExecutors(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	podSets[executorPodSetIndex] = kueue.PodSet{
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
-		Count:    j.numInitialExecutors(),
+		Count:    executorCount,
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
-		&podSets[1], executorPodTemplateSpec,
+		&podSets[executorPodSetIndex], executorPodTemplateSpec,
 	); err != nil {
 		return nil, err
 	}
@@ -150,9 +200,8 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 }
 
 func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	expectedLen := 2 // driver + executor
-	if len(podSetsInfo) != expectedLen {
-		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
+	if len(podSetsInfo) != podSetsCount {
+		return podset.BadPodSetsInfoLenError(podSetsCount, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = new(false)
@@ -166,7 +215,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			if j.Spec.Driver.Template == nil {
 				j.Spec.Driver.Template = emptyDriverPodTemplateSpec.DeepCopy()
 			}
@@ -177,7 +226,7 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 			}
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			if j.Spec.Executor.Template == nil {
 				j.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
@@ -224,11 +273,10 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 }
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	expectedLength := 2 // driver + executor
-	if len(podSetsInfo) != expectedLength {
+	if len(podSetsInfo) != podSetsCount {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
-			"expectedCount", expectedLength,
+			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
 		)
 		return false
@@ -244,11 +292,11 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 
 		switch role {
 		case sparkcommon.SparkRoleDriver:
-			podSetInfo = podSetsInfo[0]
+			podSetInfo = podSetsInfo[driverPodSetIndex]
 			sparkPodSpec = &j.Spec.Driver.SparkPodSpec
 			emptyPodTemplate = emptyDriverPodTemplateSpec
 		case sparkcommon.SparkRoleExecutor:
-			podSetInfo = podSetsInfo[1]
+			podSetInfo = podSetsInfo[executorPodSetIndex]
 			sparkPodSpec = &j.Spec.Executor.SparkPodSpec
 			emptyPodTemplate = emptyExecutorPodTemplateSpec
 		default:
@@ -279,7 +327,10 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 			changed = true
 		}
 
-		if role == sparkcommon.SparkRoleExecutor {
+		// An elastic job's executor count follows the running executors, not
+		// spec.executor.instances, and Kueue never changes instances when it
+		// starts the job, so there is nothing to restore.
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -316,7 +367,7 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
 	// Driver must be running.
 	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
 		return false
@@ -344,6 +395,150 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 		}
 	}
 	return ready >= expected
+}
+
+// numExecutors returns the executor count to request quota for. With dynamic
+// allocation, an elastic job follows the executors the driver keeps (pending or
+// running), so terminating executors hold quota until they stop. Without a
+// client (the webhook), the count follows the spec only.
+func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (int32, error) {
+	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		return j.numInitialExecutors(), nil
+	}
+	// The driver starts with the largest of instances, minExecutors and initialExecutors.
+	initialExecutors := max(j.numInitialExecutors(),
+		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
+		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+	if c == nil || !j.driverStarted() {
+		return initialExecutors, nil
+	}
+	count, maxID, err := j.countExecutorPods(ctx, c)
+	if err != nil {
+		return 0, err
+	}
+	// The driver creates its initial executors in batches, so fewer executors before
+	// it has created them all are not a scale-down. Spark numbers the executors of a
+	// submission from 1 and never reuses an ID, so the highest executor ID is the
+	// number of executors the driver has created. The driver can lower its target
+	// before it creates them all, and it stops an executor only after lowering its
+	// target, so once one has stopped the driver is no longer ramping up. The pods
+	// of stopped executors can be deleted, so the highest ID also comes from
+	// maxExecutorIDAnnotation.
+	created := max(j.recordedMaxExecutorID(), maxID)
+	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
+	if !createdAll && created <= int(count) {
+		return initialExecutors, nil
+	}
+	// Clamp the count to [minExecutors, maxExecutors].
+	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+		count = max(count, *minExecutors)
+	}
+	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
+		count = min(count, *maxExecutors)
+	}
+	return count, nil
+}
+
+// countExecutorPods returns the number of executor pods of the current
+// submission that the driver keeps, pending or running, and the highest
+// executor ID among all of them. It reads pods rather than
+// status.executorState, because the Spark Operator stops adding executors
+// there once their ID exceeds its tracking limit.
+func (j *SparkApplication) countExecutorPods(ctx context.Context, c client.Client) (int32, int, error) {
+	pods, err := j.listExecutorPods(ctx, c)
+	if err != nil {
+		return 0, 0, err
+	}
+	var active int32
+	var maxID int
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
+			active++
+		}
+		if id, err := strconv.Atoi(pod.Labels[sparkcommon.LabelSparkExecutorID]); err == nil {
+			maxID = max(maxID, id)
+		}
+	}
+	return active, maxID, nil
+}
+
+// recordedMaxExecutorID returns the highest executor ID recorded in
+// maxExecutorIDAnnotation for the current submission, or 0 if the record
+// belongs to a previous one.
+func (j *SparkApplication) recordedMaxExecutorID() int {
+	if j.Annotations[maxExecutorIDSubmissionAnnotation] != j.Status.SubmissionID {
+		return 0
+	}
+	id, _ := strconv.Atoi(j.Annotations[maxExecutorIDAnnotation])
+	return id
+}
+
+// listExecutorPods lists the executor pods of the current submission.
+func (j *SparkApplication) listExecutorPods(ctx context.Context, c client.Client) (*corev1.PodList, error) {
+	var pods corev1.PodList
+	if err := c.List(ctx, &pods, client.InNamespace(j.Namespace), client.MatchingLabels{
+		sparkcommon.LabelSparkAppName: j.Name,
+		sparkcommon.LabelSparkRole:    sparkcommon.SparkRoleExecutor,
+		sparkcommon.LabelSubmissionID: j.Status.SubmissionID,
+	}, client.UnsafeDisableDeepCopy); err != nil {
+		return nil, err
+	}
+	return &pods, nil
+}
+
+// driverStarted reports whether the driver of the current submission has started,
+// so the executor count follows its executor pods. It includes the states after
+// RUNNING: falling back to the initial executors there would look like a scale-up,
+// and the job reconciler would then not find the active workload slice to finish it.
+// It also includes UNKNOWN, which the Spark Operator sets while the driver pod phase
+// is unknown and which is usually temporary.
+func (j *SparkApplication) driverStarted() bool {
+	switch j.Status.AppState.State {
+	case sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ApplicationStateUnknown,
+		sparkv1beta2.ApplicationStateSucceeding, sparkv1beta2.ApplicationStateCompleted,
+		sparkv1beta2.ApplicationStateFailing, sparkv1beta2.ApplicationStateFailed:
+		return true
+	}
+	return false
+}
+
+// GetCustomAnnotations records the highest executor ID of the current
+// submission of an elastic job in maxExecutorIDAnnotation, for numExecutors and
+// GetWorkloadNameExtraPart. The recorded ID never decreases within a
+// submission, so it survives the deletion of executor pods.
+func (j *SparkApplication) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
+	if !isAnElasticJob(j) || j.Status.SubmissionID == "" {
+		return nil, nil
+	}
+	_, maxID, err := j.countExecutorPods(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		maxExecutorIDAnnotation:           strconv.Itoa(max(j.recordedMaxExecutorID(), maxID)),
+		maxExecutorIDSubmissionAnnotation: j.Status.SubmissionID,
+	}, nil
+}
+
+// GetWorkloadNameExtraPart folds the submission attempt and the highest
+// executor ID into the elastic workload-slice name. The Spark driver scales
+// executors without bumping metadata.generation; without this the slice name
+// would key on that generation alone, so a second scale-up would recompute an
+// already-existing slice name and fail to mint its replacement. Spark never
+// reuses an executor ID within a submission, and a scale-up adds executors with
+// new IDs, so the ID grows with every scale-up. status.executorState can't be
+// used, as the Spark Operator stops adding executors there once their ID
+// exceeds its tracking limit.
+func (j *SparkApplication) GetWorkloadNameExtraPart() string {
+	extra := strconv.FormatInt(j.Generation, 10)
+	if j.Status.SubmissionAttempts > 0 {
+		extra += "_" + strconv.Itoa(int(j.Status.SubmissionAttempts))
+		maxExecutorID := j.Annotations[maxExecutorIDAnnotation]
+		if maxExecutorID != "" {
+			extra += "_" + maxExecutorID
+		}
+	}
+	return extra
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

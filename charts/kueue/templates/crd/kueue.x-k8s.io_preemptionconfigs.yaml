@@ -26,7 +26,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: preemptionconfigs.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -108,7 +108,9 @@ spec:
                           Candidates resulting from multiple selectors are summed into one set.
                           No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
                         items:
-                          description: PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+                          description: |-
+                            PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+                            All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).
                           properties:
                             clusterQueueSelector:
                               description: |-
@@ -301,6 +303,90 @@ spec:
                                 - comparison
                                 - mode
                               type: object
+                            priorityClassSelector:
+                              description: |-
+                                priorityClassSelector filters candidate workloads by their priority class
+                                (matched against spec.priorityClassRef).
+                                Accepts all if not set.
+                              properties:
+                                nameExpressions:
+                                  description: |-
+                                    nameExpressions is a list of priority class name selector requirements
+                                    (matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+                                    If omitted, no priority class name restrictions are enforced.
+                                    When set, nameExpressions must contain at least one requirement.
+                                  items:
+                                    description: |-
+                                      PriorityClassSelectorRequirement is a selector that contains values and an operator
+                                      that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.
+                                    properties:
+                                      operator:
+                                        description: |-
+                                          operator represents a priority class name's relationship to a set of values.
+                                          Valid operators are In and NotIn.
+                                        enum:
+                                          - In
+                                          - NotIn
+                                        type: string
+                                      values:
+                                        description: |-
+                                          values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+                                          For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
+                                          (workloads without a priorityClassRef do not match).
+                                          For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
+                                          in this list (workloads without a priorityClassRef always match).
+                                        items:
+                                          maxLength: 253
+                                          minLength: 1
+                                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                          type: string
+                                        maxItems: 16
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    required:
+                                      - operator
+                                      - values
+                                    type: object
+                                  maxItems: 16
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                sourceRef:
+                                  description: |-
+                                    sourceRef filters workloads by the API group and kind of their priority class
+                                    (matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+                                    workloads without a priorityClassRef do not match when sourceRef is set).
+                                    If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.
+                                  properties:
+                                    group:
+                                      description: |-
+                                        group is the API group of the PriorityClass object.
+                                        Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+                                        Use "scheduling.k8s.io" for Pod PriorityClass.
+                                      enum:
+                                        - kueue.x-k8s.io
+                                        - scheduling.k8s.io
+                                      type: string
+                                    kind:
+                                      description: |-
+                                        kind is the kind of the PriorityClass object.
+                                        Use "WorkloadPriorityClass" for group "kueue.x-k8s.io".
+                                        Use "PriorityClass" for group "scheduling.k8s.io".
+                                      enum:
+                                        - WorkloadPriorityClass
+                                        - PriorityClass
+                                      type: string
+                                  required:
+                                    - group
+                                    - kind
+                                  type: object
+                                  x-kubernetes-validations:
+                                    - message: only the PriorityClass kind is allowed for the scheduling.k8s.io group
+                                      rule: '(self.group == ''scheduling.k8s.io'') ? self.kind == ''PriorityClass'' : true'
+                                    - message: only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group
+                                      rule: '(self.group == ''kueue.x-k8s.io'') ? self.kind == ''WorkloadPriorityClass'' : true'
+                              type: object
                             scope:
                               description: scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
                               enum:
@@ -322,6 +408,91 @@ spec:
                         minLength: 1
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                         type: string
+                      preemptorPriorityClassSelector:
+                        description: |-
+                          preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+                          based on their priority class (matched against spec.priorityClassRef).
+                          When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
+                          If omitted or empty, workloads of any priority class can trigger this rule.
+                        properties:
+                          nameExpressions:
+                            description: |-
+                              nameExpressions is a list of priority class name selector requirements
+                              (matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+                              If omitted, no priority class name restrictions are enforced.
+                              When set, nameExpressions must contain at least one requirement.
+                            items:
+                              description: |-
+                                PriorityClassSelectorRequirement is a selector that contains values and an operator
+                                that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.
+                              properties:
+                                operator:
+                                  description: |-
+                                    operator represents a priority class name's relationship to a set of values.
+                                    Valid operators are In and NotIn.
+                                  enum:
+                                    - In
+                                    - NotIn
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+                                    For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
+                                    (workloads without a priorityClassRef do not match).
+                                    For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
+                                    in this list (workloads without a priorityClassRef always match).
+                                  items:
+                                    maxLength: 253
+                                    minLength: 1
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                    type: string
+                                  maxItems: 16
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: set
+                              required:
+                                - operator
+                                - values
+                              type: object
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          sourceRef:
+                            description: |-
+                              sourceRef filters workloads by the API group and kind of their priority class
+                              (matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+                              workloads without a priorityClassRef do not match when sourceRef is set).
+                              If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.
+                            properties:
+                              group:
+                                description: |-
+                                  group is the API group of the PriorityClass object.
+                                  Use "kueue.x-k8s.io" for WorkloadPriorityClass.
+                                  Use "scheduling.k8s.io" for Pod PriorityClass.
+                                enum:
+                                  - kueue.x-k8s.io
+                                  - scheduling.k8s.io
+                                type: string
+                              kind:
+                                description: |-
+                                  kind is the kind of the PriorityClass object.
+                                  Use "WorkloadPriorityClass" for group "kueue.x-k8s.io".
+                                  Use "PriorityClass" for group "scheduling.k8s.io".
+                                enum:
+                                  - WorkloadPriorityClass
+                                  - PriorityClass
+                                type: string
+                            required:
+                              - group
+                              - kind
+                            type: object
+                            x-kubernetes-validations:
+                              - message: only the PriorityClass kind is allowed for the scheduling.k8s.io group
+                                rule: '(self.group == ''scheduling.k8s.io'') ? self.kind == ''PriorityClass'' : true'
+                              - message: only the WorkloadPriorityClass kind is allowed for the kueue.x-k8s.io group
+                                rule: '(self.group == ''kueue.x-k8s.io'') ? self.kind == ''WorkloadPriorityClass'' : true'
+                        type: object
                       preemptorSelector:
                         description: |-
                           preemptorSelector is a label selector indicating which workloads can trigger preemptions

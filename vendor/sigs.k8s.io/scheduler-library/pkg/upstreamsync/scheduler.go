@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	extenderv1 "k8s.io/kube-scheduler/extender/v1"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -82,6 +84,7 @@ type schedulerOptions struct {
 	profiles                   []schedulerapi.KubeSchedulerProfile
 	extenders                  []schedulerapi.Extender
 	frameworkOutOfTreeRegistry frameworkruntime.Registry
+	kubeConfig                 *restclient.Config
 	parallelism                int32
 	applyDefaultProfile        bool
 }
@@ -112,9 +115,21 @@ func WithParallelism(threads int32) Option {
 }
 
 // WithFrameworkOutOfTreeRegistry registers out-of-tree plugins with the in-tree registry.
+//
+// UPSTREAM-DIFF: clones registry with maps.Clone so that mutating the caller's map after
+// passing it to this option cannot alter the stored registry across subsequent NewFrameworkMap calls.
+// Tracked upstream in https://github.com/kubernetes/kubernetes/pull/142968.
 func WithFrameworkOutOfTreeRegistry(registry frameworkruntime.Registry) Option {
+	cloned := maps.Clone(registry)
 	return func(o *schedulerOptions) {
-		o.frameworkOutOfTreeRegistry = registry
+		o.frameworkOutOfTreeRegistry = cloned
+	}
+}
+
+// WithKubeConfig sets the client config exposed to plugins via fwk.Handle.KubeConfig().
+func WithKubeConfig(cfg *restclient.Config) Option {
+	return func(o *schedulerOptions) {
+		o.kubeConfig = cfg
 	}
 }
 

@@ -50,7 +50,10 @@ import (
 )
 
 var (
-	errCodeAssumptionsViolated = errors.New("code assumptions violated")
+	errCodeAssumptionsViolated  = errors.New("code assumptions violated")
+	errInvalidNodeSelector      = errors.New("invalid node selectors")
+	errInvalidRequiredAffinity  = errors.New("invalid affinity node selectors")
+	errInvalidPreferredAffinity = errors.New("invalid preferred node affinity terms")
 )
 
 // obligationMask identifies what else a domain must hold alongside whole slices.
@@ -241,7 +244,7 @@ type TASFlavorSnapshot struct {
 	// domainFreeCapacities caches the summed free capacity of each usage
 	// domain's leaves. It is filled on first read and never invalidated, which
 	// holds because addNonTASUsage is the only writer of leaf free capacity and
-	// snapshot() calls it before the snapshot is used.
+	// Cache.Snapshot calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
@@ -299,7 +302,11 @@ type podSetMatchKey struct {
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
 	leaves []simulator.MatchedCandidate
-	stats  *tasExclusionStats
+	// affinityScores are the scores of leaves, by index. The leaves read their score
+	// from domain state, which every pass clears. The leader's entry has none, because
+	// only its leaves are read.
+	affinityScores []int64
+	stats          *tasExclusionStats
 }
 
 type tasFlavorSnapshotOptions struct {
@@ -370,6 +377,21 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
 }
 
+// adjustNonTASUsage is used only by a temporary scheduling probe, after the
+// initial snapshot has been built. Cached capacities must be invalidated on
+// both the release and its restoration.
+func (s *TASFlavorSnapshot) adjustNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, release bool) {
+	leafCapacity := s.leafCapacityOf(s.leaves[domainID])
+	if release {
+		leafCapacity.freeCapacity.Add(usage)
+	} else {
+		leafCapacity.freeCapacity.Sub(usage)
+	}
+	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
+	s.domainFreeCapacities = make(map[utiltas.TopologyDomainID]resources.Requests)
+	s.forgetMatchingLeaves()
+}
+
 func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(count)}))
@@ -419,8 +441,8 @@ func (s *TASFlavorSnapshot) usageDomain(domainID utiltas.TopologyDomainID) *doma
 }
 
 // addTASUsageForHeldDomains adds usage only for the usage domains this snapshot
-// holds. With TASHandleOverlappingFlavors, usages can cover far more domains
-// than the flavor selects, so it walks whichever side is smaller.
+// holds. Cross-flavor aggregation can cover far more domains than the flavor
+// selects, so it walks whichever side is smaller.
 func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
 	if len(s.usageDomains()) < len(usages) {
 		for domainID := range s.usageDomains() {
@@ -612,52 +634,6 @@ type TASPodSetRequests struct {
 
 func (t *TASPodSetRequests) TotalRequests() resources.Requests {
 	return t.SinglePodRequests.ScaledUp(int64(t.Count))
-}
-
-type FailureInfo struct {
-	// PodSetName indicates the name of the PodSet for which computing the
-	// TAS assignment failed.
-	PodSetName kueue.PodSetReference
-
-	// Reason indicates the reason why computing the TAS assignment failed.
-	Reason string
-
-	// Flavor indicates the resource flavor associated with the failure.
-	Flavor kueue.ResourceFlavorReference
-}
-
-type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
-
-func (r TASAssignmentsResult) Failure() *FailureInfo {
-	for psName, psAssignment := range r {
-		if psAssignment.FailureReason != "" {
-			return &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			}
-		}
-	}
-	return nil
-}
-
-func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
-	for psName, psAssignment := range r {
-		if psAssignment.FailureReason != "" {
-			failures = append(failures, &FailureInfo{
-				PodSetName: psName,
-				Reason:     psAssignment.FailureReason,
-				Flavor:     psAssignment.Flavor,
-			})
-		}
-	}
-	return
-}
-
-type tasPodSetAssignmentResult struct {
-	TopologyAssignment *utiltas.TopologyAssignment
-	FailureReason      string
-	Flavor             kueue.ResourceFlavorReference
 }
 
 type FlavorTASRequests []TASPodSetRequests
@@ -906,11 +882,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
-	var sharedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
-	if features.Enabled(features.TASHandleOverlappingFlavors) {
-		sharedDomainUsages = opts.aggregatedDomainUsages
-	}
-	assumedUsage := newAssumedUsage(sharedDomainUsages)
+	assumedUsage := newAssumedUsage(opts.aggregatedDomainUsages)
 
 	// opts.workload is unset on some call paths (e.g. simulateEmpty probing).
 	var wlObj *kueue.Workload
@@ -935,6 +907,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		trs := groupedTASRequests[groupKey]
 		// Without an admission there is nothing to replace; take the fresh-placement path.
 		if workload.HasUnhealthyNodes(wlObj) && wlObj.Status.Admission != nil {
+			unhealthyNodeName := workload.FirstUnhealthyNodeName(wlObj)
+			// When no Pod of the PodSet group remains on a healthy node, nothing pins the
+			// group to a domain. Replacing each PodSet on its own could then pick a different
+			// domain for each, so the group is placed again as a whole. A single PodSet has
+			// no siblings to split from, so the per-PodSet replacement below suffices.
+			wholeGroupOnUnhealthyNodes := len(trs) > 1 && len(groupDomainsOnHealthyNodes(wlObj, groupKey, "")) == 0
+			if wholeGroupOnUnhealthyNodes {
+				log.V(3).Info("Placing the PodSet group again, none of its Pods remain on a healthy node", "unhealthyNode", unhealthyNodeName)
+				trs = withAdmittedCounts(wlObj, trs)
+				// Node replacement repairs an admitted Workload, so it does not apply topology spreading.
+				if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, nil, result); reason != "" {
+					return result
+				}
+				continue
+			}
 			for _, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
@@ -947,7 +934,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// We deepCopy the existing TopologyAssignment, so if we delete unwanted domain,
 				// And there is no fit, we have the original newAssignment to retry with
 				existingAssignment := psa.TopologyAssignment
-				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, &tr, utiltas.InternalFrom(existingAssignment), opts.workload, assumedUsage)
+				groupAnchor := groupDomainsOnHealthyNodes(wlObj, groupKey, tr.PodSet.Name)
+				newAssignment, replacementAssignment, reason := s.findReplacementAssignment(ctx, &tr, utiltas.InternalFrom(existingAssignment), groupAnchor, opts.workload, assumedUsage)
 				result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: newAssignment, FailureReason: reason}
 				if reason != "" {
 					return result
@@ -971,22 +959,86 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			}
 
 			// Normal path: no previous assignment or stale assignment
-			assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCounts)
-			for _, tr := range trs {
-				podSetName := tr.PodSet.Name
-				result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
-			}
-
-			if reason != "" {
+			if reason := s.assignPodSetGroup(ctx, trs, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
 				return result
-			}
-			for _, tr := range trs {
-				s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 			}
 		}
 	}
 
 	return result
+}
+
+// assignPodSetGroup places the PodSets of one group together, records their
+// assignments in result and returns the failure reason, if any.
+func (s *TASFlavorSnapshot) assignPodSetGroup(
+	ctx context.Context,
+	trs FlavorTASRequests,
+	assumedUsage *assumedUsage,
+	opts *findTopologyAssignmentsOption,
+	podSetGroupCounts *SpreadTreeCount,
+	result map[kueue.PodSetReference]tasPodSetAssignmentResult,
+) string {
+	leader, workers := findLeaderAndWorkers(trs)
+	assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, workers, leader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCounts)
+	for _, tr := range trs {
+		podSetName := tr.PodSet.Name
+		result[podSetName] = tasPodSetAssignmentResult{TopologyAssignment: assignments[podSetName], FailureReason: reason}
+	}
+
+	if reason != "" {
+		return reason
+	}
+	for _, tr := range trs {
+		s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
+	}
+	return ""
+}
+
+// groupDomainsOnHealthyNodes returns the domains that the PodSets of the
+// group, other than skip, keep in their topology assignments once the unhealthy
+// nodes are removed. They pin the topology domain of the whole group during a node
+// replacement. An empty skip includes every PodSet of the group.
+// The PodSets are read from the Workload, because a PodSet that has no Pod on
+// the unhealthy node is not among the TAS requests of the second pass.
+func groupDomainsOnHealthyNodes(
+	wl *kueue.Workload,
+	group utiltas.PodSetGroupKey,
+	skip kueue.PodSetReference,
+) []utiltas.TopologyDomainAssignment {
+	var domains []utiltas.TopologyDomainAssignment
+	for _, ps := range wl.Spec.PodSets {
+		if utiltas.GroupKeyForPodSet(&ps) != group || ps.Name == skip {
+			continue
+		}
+
+		psa := findPSA(wl, ps.Name)
+		if psa == nil || psa.TopologyAssignment == nil {
+			continue
+		}
+		ta := utiltas.InternalFrom(psa.TopologyAssignment)
+		for _, node := range wl.Status.UnhealthyNodes {
+			deleteDomain(ta, node.Name)
+		}
+		domains = append(domains, ta.Domains...)
+	}
+
+	return domains
+}
+
+// withAdmittedCounts returns a copy of trs in which each PodSet requests as many
+// Pods as its previous topology assignment held. tr.Count excludes reclaimable Pods,
+// but the admission still counts them.
+func withAdmittedCounts(wl *kueue.Workload, trs FlavorTASRequests) FlavorTASRequests {
+	trs = slices.Clone(trs)
+	for i := range trs {
+		psa := findPSA(wl, trs[i].PodSet.Name)
+		if psa == nil || psa.TopologyAssignment == nil {
+			continue
+		}
+
+		trs[i].Count = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+	}
+	return trs
 }
 
 // BuildTopologyAssignmentsForPodSet returns TAS assignment based on the registered
@@ -1073,10 +1125,13 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 // UnhealthyNodes is populated behind an IsLowestLevelHostname gate; the
 // assignment values here and in its helpers are therefore node-scoped even
 // when the topology has a virtual hostname level.
+// groupAnchor holds the domains that the other PodSets of the same PodSet group
+// keep on healthy nodes, see groupDomainsOnHealthyNodes.
 func (s *TASFlavorSnapshot) findReplacementAssignment(
 	ctx context.Context,
 	tr *TASPodSetRequests,
 	existingAssignment *utiltas.TopologyAssignment,
+	groupAnchor []utiltas.TopologyDomainAssignment,
 	wl *workload.Info,
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
@@ -1086,8 +1141,8 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
-	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
-	if isRequired(tr.PodSet.TopologyRequest) && len(existingAssignment.Domains) > 0 && requiredReplacementDomain == "" {
+	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment, groupAnchor)
+	if isRequired(tr.PodSet.TopologyRequest) && (len(existingAssignment.Domains) > 0 || len(groupAnchor) > 0) && requiredReplacementDomain == "" {
 		return nil, nil, "cannot replace the node: required topology domain of the remaining assignment cannot be determined"
 	}
 	trCopy := *tr
@@ -1095,7 +1150,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if reason != "" {
 		return nil, nil, reason
 	}
-	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
+	if len(existingAssignment.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		// Find the innermost constraint whose size divides the number of replacement
 		// pods to preserve leaf-level grouping
@@ -1169,9 +1224,9 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 // TopologyAssignment names; a node named after a domain would otherwise share
 // its entry.
 type assumedUsage struct {
-	// perDomain is keyed the way TopologyAssignment values are. With
-	// TASHandleOverlappingFlavors it is shared with the sibling flavors, see
-	// WithAggregatedDomainUsages.
+	// perDomain is keyed the way TopologyAssignment values are, and is shared
+	// with the sibling flavors when cross-flavor aggregation is active (see
+	// WithAggregatedDomainUsages).
 	perDomain map[utiltas.TopologyDomainID]resources.Requests
 
 	// perLeaf is keyed by leaf, and is filled only when the hostname level is
@@ -1243,7 +1298,7 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, groupAnchor []utiltas.TopologyDomainAssignment) utiltas.TopologyDomainID {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
 		return ""
@@ -1255,7 +1310,8 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
-	if len(ta.Domains) == 0 {
+	// of the PodSet and of the rest of its PodSet group
+	if len(ta.Domains) == 0 && len(groupAnchor) == 0 {
 		return ""
 	}
 
@@ -1263,7 +1319,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	if reason != "" {
 		return ""
 	}
-	if slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
+	if len(ta.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
 		// that needs repair, preserving intermediate grouping invariants.
@@ -1282,9 +1338,15 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		return ""
 	}
 
+	domains := ta.Domains
+	if len(domains) == 0 {
+		// The PodSet lost its only node, but the rest of its PodSet group still
+		// pins the domain the whole group must stay in.
+		domains = groupAnchor
+	}
 	nodeLevel := len(s.levelKeys) - 1
 	// Queued failed nodes may be missing, but a surviving assignment still pins the required domain.
-	for _, assignment := range ta.Domains {
+	for _, assignment := range domains {
 		domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(assignment.Values)]
 		if !found {
 			continue
@@ -1541,9 +1603,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet, workloadNamespace(wl))
-	if reason != "" {
-		return nil, nil, reason
+	podRequirements, err := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet, workloadNamespace(wl))
+	if err != nil {
+		return nil, nil, err.Error()
 	}
 	// buildPodRequirements only knows the PodSet, so the caller's question is carried
 	// over rather than overwritten.
@@ -1564,16 +1626,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, nil, reason
 		}
-		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
-		if reason != "" {
-			return nil, nil, reason
+		leaderPodRequirements, err := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
+		if err != nil {
+			return nil, nil, err.Error()
 		}
 		leaderPodRequirements.SimulateEmpty = simulateEmpty
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
-	err := s.fillInCounts(ctx, requirements, state)
+	err = s.fillInCounts(ctx, requirements, state)
 	if err != nil {
 		return nil, nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
@@ -2159,7 +2221,7 @@ func useBestFitAlgorithm(unconstrained bool) bool {
 
 func useLeastFreeCapacityAlgorithm(unconstrained bool) bool {
 	// following the matrix from KEP#2724
-	return unconstrained && features.Enabled(features.TASProfileMixed)
+	return unconstrained
 }
 
 // consumeWithLeadersGeneric handles the case when leaders still need to be assigned
@@ -2586,9 +2648,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
@@ -2600,9 +2660,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		for _, ml := range feasibleLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.fillLeafCounts(s.leaves[ml.GetID()], requirements, state, cachingRemainingResourcesEnabled)
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
@@ -2674,15 +2732,16 @@ func workloadNamespace(wl *workload.Info) string {
 
 // buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
 // field form the default simulator reads and in the Pod template the scheduler library
-// reads. A non-empty second return value is the reason the PodSet cannot be placed.
-func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet, namespace string) (simulator.PodRequirements, string) {
+// reads. A non-nil second return value is the error explaining why the PodSet cannot be
+// placed.
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet, namespace string) (simulator.PodRequirements, error) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
 	if s.leafIsNode() {
 		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
 		if err != nil {
-			return podRequirements, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
+			return podRequirements, fmt.Errorf("%w: %s, reason: %w", errInvalidNodeSelector, info.NodeSelector, err)
 		}
 		podRequirements.Selector = sel
 	} else {
@@ -2693,7 +2752,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
 			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
 			if err != nil {
-				return podRequirements, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
+				return podRequirements, fmt.Errorf("%w: %s, reason: %w", errInvalidRequiredAffinity, requiredAffinity, err)
 			}
 			podRequirements.AffinitySelector = affinitySelector
 		}
@@ -2702,7 +2761,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 			if len(preferredAffinity) > 0 {
 				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
 				if err != nil {
-					return podRequirements, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+					return podRequirements, fmt.Errorf("%w: %v, reason: %w", errInvalidPreferredAffinity, preferredAffinity, err)
 				}
 				podRequirements.PreferredSchedulingTerms = prefTerms
 			}
@@ -2718,7 +2777,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	// A PodSet template carries no namespace, and the simulator resolves the
 	// Workload's namespaced ResourceClaims through it.
 	podRequirements.PodTemplate.Namespace = namespace
-	return podRequirements, ""
+	return podRequirements, nil
 }
 
 // fillLeaderFeasibleLeaves records which leaves suit the leader. It asks about every
@@ -2762,7 +2821,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
 	if key, ok := requirements.leaderMatchKey(); ok {
-		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+		s.storeMatchingLeaves(key, leaderLeaves, nil, leaderStats)
 	}
 	return nil
 }
@@ -2840,6 +2899,9 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if requirements.matchKey != nil {
 		cached, found := s.matchingLeavesCache[*requirements.matchKey]
 		if found {
+			for i, leaf := range cached.leaves {
+				leaf.SetAffinityScore(cached.affinityScores[i])
+			}
 			return cached.leaves, cached.stats, nil
 		}
 	}
@@ -2851,18 +2913,26 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		return nil, nil, err
 	}
 	if requirements.matchKey != nil {
-		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, affinityScoresOf(feasibleLeaves), leafStats)
 	}
 	return feasibleLeaves, leafStats, nil
 }
 
 // storeMatchingLeaves records what the simulator reported for one key. The workers' and
 // the leader's passes both go through here, so every entry carries its stats.
-func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, affinityScores []int64, stats *tasExclusionStats) {
 	if s.matchingLeavesCache == nil {
 		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
 	}
-	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, affinityScores: affinityScores, stats: stats}
+}
+
+func affinityScoresOf(leaves []simulator.MatchedCandidate) []int64 {
+	scores := make([]int64, len(leaves))
+	for i, leaf := range leaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	return scores
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
@@ -2984,7 +3054,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 		if tracksTail {
 			tailPenalties.add(childIdx, childDomainState, leaderEligible)
 		}
-		affinityScore += childDomainState.affinityScore
+		// A child with no room for the PodSet's Pods adds no score, so a domain
+		// does not win only because it has more nodes.
+		if childPodCount > 0 {
+			affinityScore += childDomainState.affinityScore
+		}
 	}
 	domainState.podCount = childrenCapacity
 	domainState.sliceCount[obligationNone] = sliceCapacity

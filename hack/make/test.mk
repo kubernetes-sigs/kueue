@@ -24,15 +24,16 @@ ENVTEST_K8S_VERSION ?= 1.37
 ENVTEST_RETRY_ATTEMPTS ?= 7
 ENVTEST_RETRY_DELAY ?= 2
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) --exponential -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
 
 # Number of processes to use during integration tests to run specs within a
-# suite in parallel. Suites still run sequentially. User may set this value to 1
-# to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+# suite in parallel. Five workers limit concurrent API server initialization to
+# reduce OOM risk in the seven-CPU CI jobs. Suites still run sequentially. User may
+# set this value to 1 to run without parallelism.
+INTEGRATION_NPROCS ?= 5
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
 ifdef INTEGRATION_TOTAL_SHARDS
@@ -40,8 +41,12 @@ INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGR
 ifeq ($(INTEGRATION_TARGET),)
 $(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
 endif
+# Shards list packages explicitly, so only the shard with the kueuectl suite
+# needs the kubectl-kueue binary.
+INTEGRATION_KUEUECTL_DEP := $(if $(findstring /kueuectl,$(INTEGRATION_TARGET)),kueuectl)
 else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_KUEUECTL_DEP := kueuectl
 endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
@@ -50,7 +55,7 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.34.11 1.35.8 1.36.4 1.37.0
+E2E_K8S_VERSIONS ?= 1.35.8 1.36.4 1.37.0
 E2E_K8S_VERSION ?= 1.36
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
@@ -93,6 +98,12 @@ endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
+# Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
+# $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
+# generated, client-go, mock, and kueuectl test helper code so it does not
+# inflate the denominator.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -111,9 +122,14 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # fails under -race without an attributed test failure (kueue issue 13290). The file is
 # written only when a race is actually detected, so green runs stay clean.
 	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+# -coverpkg repeats each block once per test binary, so merge duplicate blocks by
+# summing their counts to keep filtered.cov small. Local sharded runs overwrite filtered.cov.
+	grep -Ev '$(UNIT_COVERAGE_EXCLUDE)' "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" \
+		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
+	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
 
 # Time budget for fuzzing each individual fuzz target.
-# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
 FUZZTIME ?= 1000x
 
 .PHONY: test-fuzz
@@ -145,7 +161,7 @@ test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
 ##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
-test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
+test-integration: compile-crd-manifests envtest ginkgo dep-crds $(INTEGRATION_KUEUECTL_DEP) ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
 
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
@@ -185,11 +201,11 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 
 .PHONY: test-e2e-baseline-helm
 test-e2e-baseline-helm: E2E_USE_HELM=true
-test-e2e-baseline-helm: test-e2e-baseline
+test-e2e-baseline-helm: helm test-e2e-baseline
 
 .PHONY: test-e2e-extended-helm
 test-e2e-extended-helm: E2E_USE_HELM=true
-test-e2e-extended-helm: test-e2e-extended
+test-e2e-extended-helm: helm test-e2e-extended
 
 .PHONY: test-multikueue-e2e-baseline
 test-multikueue-e2e-baseline: E2E_NPROCS := 5
@@ -236,7 +252,7 @@ test-multikueue-e2e-extended-ray-autoscaling: E2E_CONFIG_FOLDER=multikueue/ray-a
 test-multikueue-e2e-extended-ray-autoscaling: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue Ray autoscaling e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential
-test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
+test-multikueue-e2e-sequential: setup-e2e-env run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential-shard-0
 test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
@@ -248,7 +264,7 @@ test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-helm
 test-multikueue-e2e-helm: E2E_USE_HELM=true
-test-multikueue-e2e-helm: test-multikueue-e2e
+test-multikueue-e2e-helm: helm test-multikueue-e2e
 
 # Assign Shard 0 variables to all parent suites AND all shard-0 targets
 TEST_E2E_SHARD_0_TARGETS := test-e2e-extended test-e2e-extended-shard-0 test-tas-e2e-extended test-tas-e2e-extended-shard-0
@@ -321,11 +337,11 @@ test-tas-e2e-extended-shard-1: setup-e2e-env run-test-tas-e2e-extended-$(E2E_KIN
 
 .PHONY: test-tas-e2e-baseline-helm
 test-tas-e2e-baseline-helm: E2E_USE_HELM=true
-test-tas-e2e-baseline-helm: test-tas-e2e-baseline
+test-tas-e2e-baseline-helm: helm test-tas-e2e-baseline
 
 .PHONY: test-tas-e2e-extended-helm
 test-tas-e2e-extended-helm: E2E_USE_HELM=true
-test-tas-e2e-extended-helm: test-tas-e2e-extended
+test-tas-e2e-extended-helm: helm test-tas-e2e-extended
 
 # Aliases for TAS e2e tests
 .PHONY: test-e2e-tas-baseline
@@ -381,6 +397,9 @@ test-e2e-was-deep-tas-baseline-basic-fit: GINKGO_ARGS=--label-filter="feature:ta
 test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-deepintegration
 
 .PHONY: test-tas-e2e-deepintegration
+test-tas-e2e-deepintegration: export JOBSET_VERSION := $(JOBSET_VERSION)
+test-tas-e2e-deepintegration: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+test-tas-e2e-deepintegration: GINKGO_ARGS ?= --label-filter="feature:was-deepintegration"
 test-tas-e2e-deepintegration: setup-e2e-env run-test-tas-e2e-deepintegration-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-was-deep-tas-extended
@@ -417,6 +436,9 @@ test-tas-was-e2e-extended-helm: test-e2e-was-tas-extended-helm
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
 
+.PHONY: test-e2e-networkpolicy
+test-e2e-networkpolicy: setup-e2e-env run-test-e2e-networkpolicy-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the NetworkPolicy e2e test suite.
+
 ## Label Taxonomy:
 ##   Features: admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, managejobswithoutqueuename, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready
 ## Examples:
@@ -438,7 +460,7 @@ test-e2e-sequential-baseline-shard-1: test-e2e-sequential-baseline
 
 .PHONY: test-e2e-sequential-baseline-helm
 test-e2e-sequential-baseline-helm: E2E_USE_HELM=true
-test-e2e-sequential-baseline-helm: test-e2e-sequential-baseline
+test-e2e-sequential-baseline-helm: helm test-e2e-sequential-baseline
 
 # Assign Shard 0 variables to the shard-0 target
 TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_0_TARGETS := test-e2e-sequential-extended test-e2e-sequential-extended-shard-0
@@ -455,7 +477,7 @@ $(TEST_E2E_SEQUENTIAL_EXTENDED_SHARD_1_TARGETS): export SPARKOPERATOR_VERSION :=
 ## Examples:
 ##   Run only Spark Integration tests: GINKGO_ARGS="--label-filter=feature:spark" make test-e2e-sequential-extended
 .PHONY: test-e2e-sequential-extended
-test-e2e-sequential-extended: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
+test-e2e-sequential-extended: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended sequential e2e test suite.
 
 .PHONY: test-e2e-sequential-extended-shard-0
 test-e2e-sequential-extended-shard-0: GINKGO_ARGS=--label-filter=feature:managejobswithoutqueuename,feature:workloadidentifierannotations
@@ -463,17 +485,17 @@ test-e2e-sequential-extended-shard-0: setup-e2e-env run-test-e2e-sequential-exte
 
 .PHONY: test-e2e-sequential-extended-shard-1
 test-e2e-sequential-extended-shard-1: GINKGO_ARGS=--label-filter=feature:spark
-test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-sequential-extended-shard-1: setup-e2e-env helm run-test-e2e-sequential-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
-test-e2e-sequential-extended-helm: test-e2e-sequential-extended
+test-e2e-sequential-extended-helm: helm test-e2e-sequential-extended
 
 .PHONY: test-e2e-dra-baseline
-test-e2e-dra-baseline: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
+test-e2e-dra-baseline: setup-e2e-env helm run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
-test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
+test-e2e-multikueue-dra: setup-e2e-env helm run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
 
 run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
 run-test-e2e-baseline-%:
@@ -486,6 +508,8 @@ run-test-e2e-baseline-%:
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
+		E2E_NETWORK_POLICIES=true \
+		E2E_EXTRA_TARGET_FOLDER="networkpolicy" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
@@ -556,7 +580,7 @@ run-test-tas-e2e-deepintegration-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/deepintegration" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi" \
 		E2E_CONFIG_FOLDER="tasapi/deepintegration" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -588,6 +612,7 @@ run-test-e2e-sequential-baseline-%:
 	E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
 	E2E_CONFIG_FOLDER="baseline" \
+	E2E_NETWORK_POLICIES=true \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 	E2E_USE_HELM=$(E2E_USE_HELM) \
 	./hack/testing/e2e-test.sh
@@ -621,6 +646,21 @@ run-test-e2e-certmanager-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
+run-test-e2e-networkpolicy-%: K8S_VERSION = $(@:run-test-e2e-networkpolicy-%=%)
+run-test-e2e-networkpolicy-%:
+	@echo Running NetworkPolicy e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="networkpolicy" \
+		E2E_CONFIG_FOLDER="baseline" \
+		E2E_NETWORK_POLICIES=true \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
 run-test-e2e-dra-baseline-%: K8S_VERSION = $(@:run-test-e2e-dra-baseline-%=%)
 run-test-e2e-dra-baseline-%:
 	@echo Running DRA e2e for k8s ${K8S_VERSION}
@@ -648,7 +688,7 @@ run-test-e2e-multikueue-dra-%:
 		./hack/testing/e2e-multikueue-test.sh
 
 .PHONY: test-e2e-dra-counter
-test-e2e-dra-counter: setup-e2e-env run-test-e2e-dra-counter-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-dra-counter: setup-e2e-env helm run-test-e2e-dra-counter-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-dra-counter-%: K8S_VERSION = $(@:run-test-e2e-dra-counter-%=%)
 run-test-e2e-dra-counter-%:
@@ -665,7 +705,7 @@ run-test-e2e-dra-counter-%:
 		./hack/testing/e2e-test.sh
 
 .PHONY: test-e2e-dra-capacity
-test-e2e-dra-capacity: setup-e2e-env run-test-e2e-dra-capacity-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e-dra-capacity: setup-e2e-env helm run-test-e2e-dra-capacity-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 run-test-e2e-dra-capacity-%: K8S_VERSION = $(@:run-test-e2e-dra-capacity-%=%)
 run-test-e2e-dra-capacity-%:
@@ -693,21 +733,22 @@ run-test-e2e-multikueue-sequential-%:
 		E2E_CONFIG_FOLDER="multikueue/sequential" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
-		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-main-was
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
 	@echo "Fetching latest Kubernetes CI build version..."
-	$(eval K8S_CI_VERSION := $(shell curl -sL https://dl.k8s.io/ci/latest.txt))
+	$(eval K8S_CI_VERSION := $(or \
+		$(shell $(PROJECT_DIR)/hack/testing/retry.sh -- curl -fsSL https://dl.k8s.io/ci/latest.txt), \
+		$(error failed to fetch latest Kubernetes CI version)))
 	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
-	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
+	$(NETWORK_RETRY) $(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
 .PHONY: run-test-e2e-k8s-main-was
@@ -971,7 +1012,8 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
+# helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.
+setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),helm) ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local

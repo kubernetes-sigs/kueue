@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -85,14 +86,17 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
-		return err
-	}
 	oldLWSObj, err := webhook.OldObjectFromContext[leaderworkersetv1.LeaderWorkerSet](ctx)
 	if err != nil {
 		return err
 	}
-	// ValidateUpdate rejects adding the label to a running LeaderWorkerSet that did not have it.
+	// ValidateUpdate rejects adding the queue-name and priority class labels
+	// to a running LeaderWorkerSet that did not have them.
+	if oldLWSObj == nil || jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
+	}
 	if oldLWSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
 			return err
@@ -233,14 +237,17 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		return nil, err
 	}
 	if suspend {
+		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
 			oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			partition,
 			leaderTemplatePath,
 		)...)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			&newLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			partition,
 			workerTemplatePath,
 		)...)
 		if features.Enabled(features.LWSImmutableGroupSize) {
@@ -309,8 +316,7 @@ func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {
 func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	lwsv1 := leaderworkersetv1.LeaderWorkerSet(*lws)
-	podSets, podSetsErr := podSets(&lwsv1)
+	podSets, podSetsErr := podSets(new(leaderworkersetv1.LeaderWorkerSet(*lws)))
 
 	defaultPodSetName := kueue.DefaultPodSetName
 
@@ -342,12 +348,41 @@ func validateTopologyRequest(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	return nil, podSetsErr
 }
 
-func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, fieldPath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec, oldPodTemplateSpec *corev1.PodTemplateSpec, partition int32, fieldPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
+		newPodSpec, oldPodSpec := newPodTemplateSpec.Spec, oldPodTemplateSpec.Spec
+		if features.Enabled(features.AllowAddingPodTemplateTolerations) {
+			// Admitted Workloads keep their admission, so only additions are allowed:
+			// removing a toleration could stop the new pods from running on the nodes
+			// that Kueue assigned.
+			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, partition, fieldPath.Child("spec", "tolerations"))...)
+			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
+}
+
+func validateOnlyAddedTolerations(newTolerations, oldTolerations []corev1.Toleration, partition int32, fieldPath *field.Path) field.ErrorList {
+	if !utiltolerations.ContainsAll(newTolerations, oldTolerations) {
+		return field.ErrorList{field.Forbidden(fieldPath, "existing tolerations cannot be removed or changed while the LeaderWorkerSet is managed by Kueue, only new tolerations can be added")}
+	}
+	// Kueue copies the added tolerations to the Workloads of all groups, but
+	// LeaderWorkerSet keeps the Pods of the groups below the partition on the
+	// previous revision. Topology Aware Scheduling would then treat the node
+	// taints as tolerated by Pods that do not tolerate them.
+	if partition > 0 && !utiltolerations.ContainsAll(oldTolerations, newTolerations) {
+		return field.ErrorList{field.Forbidden(fieldPath, "tolerations cannot be added while rolloutStrategy.rollingUpdateConfiguration.partition is greater than 0")}
+	}
+	return nil
+}
+
+func rollingUpdatePartition(lws *LeaderWorkerSet) int32 {
+	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
+		return 0
+	}
+	return ptr.Deref(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.Partition, 0)
 }

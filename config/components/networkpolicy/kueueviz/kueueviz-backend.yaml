@@ -1,0 +1,23 @@
+---
+# Restricts ingress to the KueueViz dashboard backend.
+#
+# Inert unless the KueueViz components are also deployed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kueueviz-backend
+  namespace: system
+spec:
+  podSelector:
+    matchLabels:
+      app: kueueviz-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Browser traffic arrives through the ingress controller rather than from
+    # the frontend pods: the websocket URL served to the browser points at the
+    # backend's own Ingress host. Ingress controllers vary in namespace and
+    # labels, so this rule is scoped by port. kubelet probes this same port.
+    - ports:
+        - protocol: TCP
+          port: 8080

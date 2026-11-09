@@ -122,7 +122,7 @@ type DynamicQuotaOrchestratorStatus struct {
 	// effectiveCapacity is the combined capacity from the referenced providers.
 	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
 	// DQO clears this field if any referenced provider is missing or does not
-	// have CapacitySynchronized=True.
+	// report CapacitySynchronized=True for its current generation.
 	//
 	// +optional
 	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
@@ -151,7 +151,10 @@ type EffectiveCapacityFlavor struct {
 	// +required
 	Name ResourceFlavorReference `json:"name"`
 
-	// resources contains total capacity by resource name.
+	// resources contains total capacity by resource name, up to 64 distinct
+	// resources. If the referenced providers together report more distinct
+	// resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+	// with reason AggregationFailed and clears status.effectiveCapacity.
 	// A resource that is not listed, including when the map is empty, has zero
 	// capacity for the flavor.
 	//
@@ -169,7 +172,8 @@ const (
 	// DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
 	DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+	// or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
 	DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
 	// DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).
