@@ -294,14 +294,13 @@ func buildExtenders(logger klog.Logger, extenders []schedulerapi.Extender, profi
 // ProfileMap embeds profile.Map to attach FrameworkForPod and FrameworkForPodGroup.
 type ProfileMap struct {
 	profile.Map
-	// PreemptionFrameworks stores one PreemptionFramework wrapper per profile so that
-	// FrameworkForPodGroup, ApplySimulationNeutralizers, and plugin handles share the same
-	// PreemptionFramework instance.
+	// preemptionFrameworks stores one PreemptionFramework wrapper per profile so that
+	// FrameworkForPodGroup and plugin handles share the same PreemptionFramework instance.
 	//
 	// UPSTREAM-DIFF: Temporary 1.37 wrapper map.
-	// Migration Plan (1.38): Remove PreemptionFrameworks once framework.Framework in 1.38
-	// implements PreemptionManager() and SetPreemptionManager() directly.
-	PreemptionFrameworks map[string]*preemption.PreemptionFramework
+	// Migration Plan (1.38): Remove preemptionFrameworks once framework.Framework in 1.38
+	// implements PreemptionManager() directly.
+	preemptionFrameworks map[string]*preemption.PreemptionFramework
 }
 
 func getProfileName(pod *v1.Pod) string {
@@ -338,7 +337,7 @@ func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) 
 		return nil, fmt.Errorf("no pods in pod group")
 	}
 	name := getProfileName(pods[0])
-	f, ok := p.PreemptionFrameworks[name]
+	f, ok := p.preemptionFrameworks[name]
 	if !ok {
 		return nil, fmt.Errorf("profile not found for scheduler name %q", name)
 	}
@@ -351,10 +350,12 @@ func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) 
 //  2. The in-tree DefaultPreemption plugin is wrapped with preemption.NewDefaultPreemption so
 //     PodGroupPostFilter uses the 1.38 PodGroupEvaluator.
 //
+// Each profile's PreemptionFramework gets its own PreemptionManager from pmFactory, if it is not nil.
+//
 // UPSTREAM-DIFF: Temporary 1.37 bridge for PodGroup preemption and out-of-tree PodGroupPostFilter plugins.
 // Migration Plan (1.38): Delete wrapRegistryForPreemption completely once k8s.io/kubernetes 1.38
-// provides PreemptionManager() and SetPreemptionManager() on framework.Framework.
-func wrapRegistryForPreemption(registry frameworkruntime.Registry, numProfiles int) map[string]*preemption.PreemptionFramework {
+// provides PreemptionManager() on framework.Framework.
+func wrapRegistryForPreemption(registry frameworkruntime.Registry, numProfiles int, pmFactory preemption.PreemptionManagerFactory) map[string]*preemption.PreemptionFramework {
 	preemptionFrameworks := make(map[string]*preemption.PreemptionFramework, numProfiles)
 	for name, factory := range registry {
 		origFactory := factory
@@ -362,7 +363,7 @@ func wrapRegistryForPreemption(registry frameworkruntime.Registry, numProfiles i
 		registry[name] = func(ctx context.Context, args runtime.Object, fh fwk.Handle) (fwk.Plugin, error) {
 			pf, ok := preemptionFrameworks[fh.ProfileName()]
 			if !ok {
-				pf = preemption.NewPreemptionFramework(fh.(framework.Framework), nil)
+				pf = preemption.NewPreemptionFramework(fh.(framework.Framework), pmFactory)
 				preemptionFrameworks[fh.ProfileName()] = pf
 			}
 			pl, err := origFactory(ctx, args, pf)
@@ -444,7 +445,7 @@ func NewFrameworkMap(
 		frameworkruntime.WithPodGroupManager(snapshot),
 	}
 
-	preemptionFrameworks := wrapRegistryForPreemption(registry, len(c.options.profiles))
+	preemptionFrameworks := wrapRegistryForPreemption(registry, len(c.options.profiles), mapOptions.preemptionManagerFactory)
 
 	profiles, err := profile.NewMap(ctx, c.options.profiles, registry, recorderFactory, opts...)
 	if err != nil {
@@ -456,7 +457,7 @@ func NewFrameworkMap(
 
 	return &ProfileMap{
 		Map:                  profiles,
-		PreemptionFrameworks: preemptionFrameworks,
+		preemptionFrameworks: preemptionFrameworks,
 	}, nil
 }
 

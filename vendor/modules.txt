@@ -1984,7 +1984,7 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
-# sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261023141556-a0b18991a269
+# sigs.k8s.io/scheduler-library v0.2.0-alpha4.0.20261109091356-4ef2c07bbddc
 ## explicit; go 1.26.0
 sigs.k8s.io/scheduler-library/pkg/framework
 sigs.k8s.io/scheduler-library/pkg/preemption
