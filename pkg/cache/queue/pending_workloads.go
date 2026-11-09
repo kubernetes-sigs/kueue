@@ -116,6 +116,13 @@ func (p *PendingWorkloads) GetActive(key workload.Reference) *workload.Info {
 	return p.active.GetByKey(key)
 }
 
+// peekActive observes the first active workload without checking it out.
+func (p *PendingWorkloads) peekActive() *workload.Info {
+	p.RLock()
+	defer p.RUnlock()
+	return p.active.Peek()
+}
+
 // PopActive pops the first workload on the active workloads heap.
 func (p *PendingWorkloads) PopActive() *workload.Info {
 	p.Lock()

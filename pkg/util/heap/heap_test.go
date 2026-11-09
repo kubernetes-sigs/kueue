@@ -40,6 +40,22 @@ func compareInts(obj1, obj2 *testHeapObject) bool {
 	return obj1.val < obj2.val
 }
 
+func TestHeapPeek(t *testing.T) {
+	h := New(testHeapObjectKeyFunc, compareInts)
+	if h.Peek() != nil {
+		t.Fatal("empty Peek must be nil")
+	}
+	a, b := mkHeapObj("a", 2), mkHeapObj("b", 1)
+	h.PushOrUpdate(a)
+	h.PushOrUpdate(b)
+	if h.Peek() != b || h.Len() != 2 {
+		t.Fatal("Peek changed heap or returned wrong head")
+	}
+	if h.Pop() != b || h.Peek() != a {
+		t.Fatal("Peek did not follow Pop")
+	}
+}
+
 // TestHeapBasic tests Heap invariant
 func TestHeapBasic(t *testing.T) {
 	h := New(testHeapObjectKeyFunc, compareInts)

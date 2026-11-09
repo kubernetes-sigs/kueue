@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -184,6 +186,10 @@ type ClusterQueue struct {
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
 
+	// A NoFit head remains in the heap: sleeping must not let its successors
+	// bypass StrictFIFO. Resource notifications clear this bounded fallback.
+	noFitRetry *strictFIFORetry
+
 	compareFunc  func(a, b *workload.Info) int
 	snapshotSort func(elements []*workload.Info, lqWeights map[utilqueue.LocalQueueReference]float64)
 
@@ -206,6 +212,17 @@ type ClusterQueue struct {
 	pw *preemptorWorkload
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+}
+
+// Notifications normally retry a blocked head immediately. One second bounds
+// recovery from a missing notification without re-solving unchanged input at
+// the scheduler's global 10ms interval.
+const strictFIFONoFitRetryInterval = time.Second
+
+type strictFIFORetry struct {
+	key   workload.Reference
+	uid   types.UID
+	until time.Time
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -325,6 +342,9 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.name = kueue.ClusterQueueReference(apiCQ.Name)
+	if c.queueingStrategy != apiCQ.Spec.QueueingStrategy {
+		c.noFitRetry = nil
+	}
 	c.queueingStrategy = apiCQ.Spec.QueueingStrategy
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
@@ -388,23 +408,19 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	if c.workloads.HasInflight(key) {
 		return
 	}
+	if c.noFitRetry != nil && c.noFitRetry.key == key {
+		old := c.workloads.GetActive(key)
+		if old == nil || schedulingInputsChanged(old, wInfo) {
+			c.noFitRetry = nil
+		}
+	}
 	if oldInfo := c.workloads.GetInadmissible(key); oldInfo != nil {
 		specChangedSinceEval := oldInfo.LastEvaluatedGeneration != 0 &&
 			wInfo.Obj.Generation != oldInfo.LastEvaluatedGeneration
 
 		// Update in place if the workload didn't change to potentially become admissible,
 		// unless Eviction/Requeued status changed which can affect queue order.
-		if !specChangedSinceEval &&
-			equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
-			!priorityBoostAnnotationChanged(oldInfo, wInfo) &&
-			equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, wInfo.Obj.Status.ReclaimablePods) &&
-			equality.Semantic.DeepEqual(oldInfo.Obj.Status.RequeueState, wInfo.Obj.Status.RequeueState) &&
-			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
-				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) &&
-			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
-				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
-			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
-			!draRequestsChanged(oldInfo, wInfo) {
+		if !specChangedSinceEval && !schedulingInputsChanged(oldInfo, wInfo) {
 			c.workloads.UpdateInadmissible(key, oldInfo, wInfo)
 			return
 		}
@@ -433,14 +449,21 @@ func priorityBoostAnnotationChanged(oldInfo, newInfo *workload.Info) bool {
 	return oldInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey] != newInfo.Obj.Annotations[controllerconstants.PriorityBoostAnnotationKey]
 }
 
-// draRequestsChanged returns true if DRA preprocessing changed TotalRequests.
-// DRA extended resources are resolved in Reconcile, which can modify TotalRequests
-// without changing the workload Spec.
-func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
-	if !features.Enabled(features.KueueDRAIntegration) {
-		return false
-	}
-	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+// Ignore status-only informer echoes, but retry changes which affect fit or order.
+func schedulingInputsChanged(oldInfo, newInfo *workload.Info) bool {
+	return oldInfo.Obj.UID != newInfo.Obj.UID ||
+		!equality.Semantic.DeepEqual(oldInfo.Obj.Spec, newInfo.Obj.Spec) ||
+		priorityBoostAnnotationChanged(oldInfo, newInfo) ||
+		!workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests) ||
+		!equality.Semantic.DeepEqual(oldInfo.Obj.Status.ReclaimablePods, newInfo.Obj.Status.ReclaimablePods) ||
+		!equality.Semantic.DeepEqual(oldInfo.Obj.Status.RequeueState, newInfo.Obj.Status.RequeueState) ||
+		!equality.Semantic.DeepEqual(
+			apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
+			apimeta.FindStatusCondition(newInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) ||
+		!equality.Semantic.DeepEqual(
+			apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
+			apimeta.FindStatusCondition(newInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) ||
+		workload.HasClosedPreemptionGate(oldInfo.Obj) != workload.HasClosedPreemptionGate(newInfo.Obj)
 }
 
 func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {
@@ -549,6 +572,10 @@ func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason 
 // PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
 // to inadmissible.
 func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	return c.requeueIfNotPresentWithInputs(log, wInfo, immediate, reason, quotaReservedReason, false)
+}
+
+func (c *ClusterQueue) requeueIfNotPresentWithInputs(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason, skipNoFitRetry bool) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
@@ -571,6 +598,11 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 	if c.backoffWaitingTimeExpired(wInfo) &&
 		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.FlavorScanState.PendingFlavors()) {
+		if !skipNoFitRetry && c.queueingStrategy == kueue.StrictFIFO && reason == RequeueReasonNoFit &&
+			c.queueInadmissibleCycle < c.popCycle && !wInfo.FlavorScanState.PendingFlavors() &&
+			wInfo.LastEvaluatedGeneration == wInfo.Obj.Generation {
+			c.noFitRetry = &strictFIFORetry{key: key, uid: wInfo.Obj.UID, until: c.clock.Now().Add(strictFIFONoFitRetryInterval)}
+		}
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			return c.workloads.MoveToActive(key, inadmissibleWl)
@@ -708,10 +740,27 @@ func (c *ClusterQueue) pop(newCycle bool) *workload.Info {
 		c.workloads.RebuildActiveHeap()
 	}
 
+	head := c.workloads.peekActive()
+	if c.noFitRetry != nil {
+		if head != nil && workload.Key(head.Obj) == c.noFitRetry.key && head.Obj.UID == c.noFitRetry.uid &&
+			c.queueingStrategy == kueue.StrictFIFO && c.clock.Now().Before(c.noFitRetry.until) {
+			return nil
+		}
+		c.noFitRetry = nil
+	}
 	if newCycle {
 		c.popCycle++
 	}
 	return c.workloads.PopActive()
+}
+
+func (c *ClusterQueue) noFitRetryDelay() (time.Duration, bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	if c.noFitRetry == nil {
+		return 0, false
+	}
+	return max(0, c.noFitRetry.until.Sub(c.clock.Now())), true
 }
 
 func (c *ClusterQueue) hasPendingPenalties() bool {
@@ -848,6 +897,10 @@ func (c *ClusterQueue) Active() bool {
 // quotaReservedReason represents the WorkloadQuotaReserved condition reason computed by the scheduler.
 // Returns true if the workload was inserted.
 func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	return c.requeueWithSchedulingInputs(ctx, wInfo, reason, quotaReservedReason, false)
+}
+
+func (c *ClusterQueue) requeueWithSchedulingInputs(ctx context.Context, wInfo *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason, skipNoFitRetry bool) bool {
 	log := ctrl.LoggerFrom(ctx)
 	var immediate bool
 	if c.queueingStrategy == kueue.StrictFIFO {
@@ -859,7 +912,18 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
 	}
-	return c.requeueIfNotPresent(log, wInfo, immediate, reason, quotaReservedReason)
+	return c.requeueIfNotPresentWithInputs(log, wInfo, immediate, reason, quotaReservedReason, skipNoFitRetry)
+}
+
+// invalidateNoFitRetry also records resource changes for checked-out heads, so a
+// stale NoFit result cannot reinstall the wait after the notification.
+func (c *ClusterQueue) invalidateNoFitRetry() {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	if c.queueingStrategy == kueue.StrictFIFO {
+		c.queueInadmissibleCycle = c.popCycle
+		c.noFitRetry = nil
+	}
 }
 
 // baseCompareFunc orders workloads by sticky status, priority, timestamp, and UID.
