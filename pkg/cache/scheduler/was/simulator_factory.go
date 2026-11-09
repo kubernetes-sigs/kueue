@@ -20,10 +20,12 @@ package was
 
 import (
 	"context"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -55,8 +57,16 @@ import (
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
+type cachedVirtualPods struct {
+	generation      int64
+	resourceVersion string
+	pods            []*corev1.Pod
+}
+
 type wasSimulatorFactory struct {
-	newSnapshot snapshotFactory
+	newSnapshot      snapshotFactory
+	virtualPodsMu    sync.RWMutex
+	virtualPodsCache map[types.UID]cachedVirtualPods
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedlib.ClusterSnapshot, error)
@@ -98,7 +108,8 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 	}
 
 	return &wasSimulatorFactory{
-		newSnapshot: snapshotFn,
+		newSnapshot:      snapshotFn,
+		virtualPodsCache: make(map[types.UID]cachedVirtualPods),
 	}, nil
 }
 
@@ -186,8 +197,37 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, pods *podtracker.Tracker, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
 	tracker := pods.Clone()
 
-	for _, wl := range simulator.AssumedWorkloads(options...) {
-		vPods := VirtualPodsForWorkload(wl)
+	assumedWls := simulator.AssumedWorkloads(options...)
+	activeUIDs := make(map[types.UID]struct{}, len(assumedWls))
+
+	for _, wl := range assumedWls {
+		if wl.UID != "" {
+			activeUIDs[wl.UID] = struct{}{}
+		}
+
+		var vPods []*corev1.Pod
+		if wl.UID != "" {
+			s.virtualPodsMu.RLock()
+			cached, ok := s.virtualPodsCache[wl.UID]
+			if ok && cached.generation == wl.Generation && cached.resourceVersion == wl.ResourceVersion {
+				vPods = cached.pods
+			}
+			s.virtualPodsMu.RUnlock()
+		}
+
+		if vPods == nil {
+			vPods = VirtualPodsForWorkload(wl)
+			if wl.UID != "" {
+				s.virtualPodsMu.Lock()
+				s.virtualPodsCache[wl.UID] = cachedVirtualPods{
+					generation:      wl.Generation,
+					resourceVersion: wl.ResourceVersion,
+					pods:            vPods,
+				}
+				s.virtualPodsMu.Unlock()
+			}
+		}
+
 		if len(vPods) == 0 {
 			continue
 		}
@@ -199,6 +239,15 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			tracker.Track(vPod)
 		}
 	}
+
+	// Prune workloads that are no longer assumed active
+	s.virtualPodsMu.Lock()
+	for uid := range s.virtualPodsCache {
+		if _, ok := activeUIDs[uid]; !ok {
+			delete(s.virtualPodsCache, uid)
+		}
+	}
+	s.virtualPodsMu.Unlock()
 
 	allPods := tracker.Pods()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
