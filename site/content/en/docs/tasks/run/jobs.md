@@ -310,3 +310,25 @@ workload.kueue.x-k8s.io/job-sample-elastic-job-992ea   user-queue  user-queue   
 * New Pods are created and running.
 * A **new Workload** is created with the updated Pod count.
 * The **old Workload** is marked as `Finished`.
+
+### Partial scale-up
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+By default, Kueue admits a scale-up only when all the added Pods fit in the quota.
+With partial scale-up, Kueue admits as many of the added Pods as the quota allows.
+
+To enable partial scale-up, set up the Job as an ElasticJob as described above, and also do the following:
+
+* Set the `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate to `true`
+* Annotate the Job with `kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"`
+
+If only some of the added Pods fit in the quota, Kueue does the following:
+
+* Admits the new Workload for only the Pods that fit. The Job's `parallelism` stays the same.
+* Removes the `kueue.x-k8s.io/elastic-job` scheduling gate from only as many Pods as it admitted. The other Pods stay `SchedulingGated`.
+* Keeps a separate Workload for the full `parallelism` pending, and admits more of the remaining Pods as quota is freed.
+
+For an `Indexed` Job, Kueue removes the scheduling gate in ascending completion index order.
+This order needs the `TopologyAwareScheduling` feature gate, which is enabled by default.
+Without that gate, Kueue uses Pod name order.
