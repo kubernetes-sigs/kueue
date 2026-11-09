@@ -22,7 +22,6 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -30,8 +29,9 @@ import (
 )
 
 type preemptionVictim struct {
-	wlKey workload.Reference
-	pods  []*corev1.Pod
+	wlKey  workload.Reference
+	wlInfo *workload.Info
+	pods   []*corev1.Pod
 }
 
 var _ schedlib.PreemptionVictim = (*preemptionVictim)(nil)
@@ -40,20 +40,21 @@ func (v *preemptionVictim) Pods() []*corev1.Pod {
 	return v.pods
 }
 
-func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference]) iter.Seq[schedlib.PreemptionVictim] {
+func (s *wasSimulator) potentialVictims(candidates iter.Seq2[workload.Reference, *workload.Info]) iter.Seq[schedlib.PreemptionVictim] {
 	if candidates == nil {
 		return nil
 	}
 	return func(yield func(schedlib.PreemptionVictim) bool) {
-		for wlKey := range candidates {
+		for wlKey, wlInfo := range candidates {
 			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
 			pods := s.pods.PodsForWorkload(wlKey)
 			if len(pods) == 0 {
 				continue
 			}
 			v := &preemptionVictim{
-				wlKey: wlKey,
-				pods:  pods,
+				wlKey:  wlKey,
+				wlInfo: wlInfo,
+				pods:   pods,
 			}
 			if !yield(v) {
 				return
@@ -62,22 +63,18 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference])
 	}
 }
 
-func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []schedlib.PreemptionVictim {
+func (s *wasSimulator) committedVictims(victimWorkloads map[workload.Reference]*workload.Info) []schedlib.PreemptionVictim {
 	if len(victimWorkloads) == 0 {
 		return nil
 	}
 	cv := make([]schedlib.PreemptionVictim, 0, len(victimWorkloads))
-	present := sets.New[workload.Reference]()
-	for _, preemptedWlKey := range victimWorkloads {
-		if present.Has(preemptedWlKey) {
-			continue
-		}
-		present.Insert(preemptedWlKey)
+	for preemptedWlKey, wlInfo := range victimWorkloads {
 		// TODO: Handle podless committed victims.
 		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
 			cv = append(cv, &preemptionVictim{
-				wlKey: preemptedWlKey,
-				pods:  victimPods,
+				wlKey:  preemptedWlKey,
+				wlInfo: wlInfo,
+				pods:   victimPods,
 			})
 		}
 	}
@@ -105,7 +102,7 @@ var _ schedlib.PreemptionFilter = (*preemptionFilterAdapter)(nil)
 
 func (a *preemptionFilterAdapter) PreemptVictim(victim schedlib.PreemptionVictim) {
 	if wlVictim, ok := victim.(*preemptionVictim); ok {
-		a.PreemptWorkload(wlVictim.wlKey)
+		a.PreemptWorkload(wlVictim.wlKey, wlVictim.wlInfo)
 	}
 }
 

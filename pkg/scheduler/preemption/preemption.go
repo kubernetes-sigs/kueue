@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -108,7 +107,6 @@ type PreemptionFilter struct {
 	usage          workload.Usage
 	allowBorrowing bool
 
-	workloads map[workload.Reference]*workload.Info
 	preempted map[workload.Reference]*workload.Info
 }
 
@@ -146,13 +144,13 @@ func (ps *PreemptionStrategy) AllowBorrowing() bool {
 	return ps.allowBorrowing
 }
 
-// Candidates returns a lazy sequence of candidate workload keys for this strategy.
-func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
-	return func(yield func(workload.Reference) bool) {
+// Candidates returns a lazy sequence of candidate workloads.
+func (ps *PreemptionStrategy) Candidates() iter.Seq2[workload.Reference, *workload.Info] {
+	return func(yield func(workload.Reference, *workload.Info) bool) {
 		for target := range ps.candidates {
 			wlKey := workload.Key(target.WorkloadInfo.Obj)
 			ps.targetsByKey[wlKey] = target
-			if !yield(wlKey) {
+			if !yield(wlKey, target.WorkloadInfo) {
 				return
 			}
 		}
@@ -200,11 +198,7 @@ func BuildFilter(
 		log:         log,
 		preemptor:   wl,
 		managerSnap: managerSnap,
-		workloads:   make(map[workload.Reference]*workload.Info),
 		preempted:   make(map[workload.Reference]*workload.Info),
-	}
-	for _, cq := range snapshot.ClusterQueues() {
-		maps.Copy(pf.workloads, cq.Workloads)
 	}
 	return pf
 }
@@ -225,16 +219,16 @@ func (pf *PreemptionFilter) MayFit() bool {
 	return usageFits(pf.usage, cq, pf.allowBorrowing)
 }
 
-func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
+func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference, wl *workload.Info) {
 	if !pf.initialized {
 		panic("PreemptionFilter not initialized")
 	}
 
-	if wl, ok := pf.workloads[wlKey]; ok {
-		pf.managerSnap.RemoveWorkload(wl)
-		pf.preempted[wlKey] = wl
-		delete(pf.workloads, wlKey)
+	if _, alreadyPreempted := pf.preempted[wlKey]; alreadyPreempted {
+		return
 	}
+	pf.managerSnap.RemoveWorkload(wl)
+	pf.preempted[wlKey] = wl
 }
 
 func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
@@ -244,7 +238,6 @@ func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
 
 	if wl, preempted := pf.preempted[wlKey]; preempted {
 		pf.managerSnap.AddWorkload(wl)
-		pf.workloads[wlKey] = wl
 		delete(pf.preempted, wlKey)
 	}
 }

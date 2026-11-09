@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"testing"
@@ -5301,9 +5302,13 @@ func TestPreemptionStrategy(t *testing.T) {
 	t.Run("Candidates", func(t *testing.T) {
 		t.Run("yields lazily and removes only yielded candidates from snapshot", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
+			wantLowInfo := snapshot.ClusterQueue("cq").Workloads[vLowKey]
 			var yielded []workload.Reference
-			for wlKey := range strategy.Candidates() {
+			for wlKey, wlInfo := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
+				if wlInfo != wantLowInfo {
+					t.Errorf("Candidates() yielded wlInfo = %p, want %p", wlInfo, wantLowInfo)
+				}
 				break
 			}
 			if diff := cmp.Diff([]workload.Reference{vLowKey}, yielded); diff != "" {
@@ -5319,9 +5324,13 @@ func TestPreemptionStrategy(t *testing.T) {
 
 		t.Run("yields all candidates in priority order", func(t *testing.T) {
 			strategy, snapshot := setupStrategy(t)
+			wantInfos := maps.Clone(snapshot.ClusterQueue("cq").Workloads)
 			var yielded []workload.Reference
-			for wlKey := range strategy.Candidates() {
+			for wlKey, wlInfo := range strategy.Candidates() {
 				yielded = append(yielded, wlKey)
+				if wlInfo != wantInfos[wlKey] {
+					t.Errorf("Candidates() yielded wlInfo for %v = %p, want %p", wlKey, wlInfo, wantInfos[wlKey])
+				}
 			}
 			if diff := cmp.Diff([]workload.Reference{vLowKey, vMidKey}, yielded); diff != "" {
 				t.Errorf("Candidates() full sequence mismatch (-want +got):\n%s", diff)
@@ -5490,10 +5499,18 @@ func TestPreemptionFilter(t *testing.T) {
 			wantMayFit:     false,
 			wantPreempted:  []workload.Reference{vLowKey},
 		},
-		"preempting unknown workload is a no-op": {
+		"preempting workload outside snapshot ClusterQueues does not free quota": {
 			incomingCPU:    "2",
 			allowBorrowing: true,
 			preempt:        []workload.Reference{unknownKey},
+			wantMayFit:     false,
+			wantPreempted:  []workload.Reference{unknownKey},
+		},
+		"unpreempting workload outside snapshot ClusterQueues is a safe no-op on quota": {
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{unknownKey},
+			unpreempt:      []workload.Reference{unknownKey},
 			wantMayFit:     false,
 		},
 		"reset restores all preempted workloads": {
@@ -5623,6 +5640,15 @@ func TestPreemptionFilter(t *testing.T) {
 				corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
 			})
 
+			workloadsByKey := map[workload.Reference]*workload.Info{
+				unknownKey: workload.NewInfo(log, utiltestingapi.MakeWorkload("unknown", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
+					Obj()),
+			}
+			for _, cqSnap := range snapshot.ClusterQueues() {
+				maps.Copy(workloadsByKey, cqSnap.Workloads)
+			}
+
 			filter := BuildFilter(log, snapshot, wlInfo)
 
 			var revertRemoval func()
@@ -5640,13 +5666,13 @@ func TestPreemptionFilter(t *testing.T) {
 
 			filter.Initialize(&assignment, tc.allowBorrowing)
 			for _, wlKey := range tc.preempt {
-				filter.PreemptWorkload(wlKey)
+				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
 			for _, wlKey := range tc.unpreempt {
 				filter.UnpreemptWorkload(wlKey)
 			}
 			for _, wlKey := range tc.repreempt {
-				filter.PreemptWorkload(wlKey)
+				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
 			if tc.resetAndReinit {
 				filter.Reset()
@@ -5658,13 +5684,8 @@ func TestPreemptionFilter(t *testing.T) {
 			}
 
 			var gotPreempted []workload.Reference
-			for _, wlKey := range []workload.Reference{vLowKey, vMidKey, vOtherCQKey} {
-				if _, isPreempted := filter.preempted[wlKey]; isPreempted {
-					if _, stillActive := filter.workloads[wlKey]; stillActive {
-						t.Errorf("workload %q is in both filter.preempted and filter.workloads", wlKey)
-					}
-					gotPreempted = append(gotPreempted, wlKey)
-				}
+			if len(filter.preempted) > 0 {
+				gotPreempted = slices.Sorted(maps.Keys(filter.preempted))
 			}
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
 				t.Errorf("workloads preempted in filter mismatch (-want +got):\n%s", diff)
@@ -5681,6 +5702,7 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 	_, snapshot := setupPreemptionStrategy(t, "2")
 	_, log := utiltesting.ContextWithLog(t)
 	vLowKey := workload.NewReference("default", "v-low")
+	vLowInfo := snapshot.ClusterQueue("cq").Workloads[vLowKey]
 
 	wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
 		Priority(50).
@@ -5707,11 +5729,11 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 		filter.Reset()
 
 		expectPanic(t, "MayFit before Initialize", func() { _ = filter.MayFit() })
-		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey) })
+		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
 		expectPanic(t, "UnpreemptWorkload before Initialize", func() { filter.UnpreemptWorkload(vLowKey) })
 
 		filter.Initialize(&assignment, true)
-		filter.PreemptWorkload(vLowKey)
+		filter.PreemptWorkload(vLowKey, vLowInfo)
 		if !filter.MayFit() {
 			t.Fatal("expected MayFit() = true after preempting v-low")
 		}
@@ -5721,14 +5743,14 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 		filter.Reset()
 
 		expectPanic(t, "MayFit after Reset", func() { _ = filter.MayFit() })
-		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey) })
+		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
 		expectPanic(t, "UnpreemptWorkload after Reset", func() { filter.UnpreemptWorkload(vLowKey) })
 	})
 
 	t.Run("re-Initialize without Reset restores preempted workloads", func(t *testing.T) {
 		filter := BuildFilter(log, snapshot, wlInfo)
 		filter.Initialize(&assignment, true)
-		filter.PreemptWorkload(vLowKey)
+		filter.PreemptWorkload(vLowKey, vLowInfo)
 		if !filter.MayFit() {
 			t.Fatal("expected MayFit() = true after preempting v-low")
 		}

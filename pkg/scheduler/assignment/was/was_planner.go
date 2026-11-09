@@ -190,7 +190,7 @@ func (p *wasPlanner) scheduleWithoutPreemption(
 		// The borrowing param holds no meaning here
 		// as the workload will not be preempting anything on this call.
 		planOpts.PreemptionFilter.Initialize(assignment, true)
-		opts = append(opts, simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims.References()))
+		opts = append(opts, simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims))
 		opts = append(opts, simulator.WithPreemptionFilter(planOpts.PreemptionFilter))
 	}
 	placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
@@ -221,7 +221,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
 			simulator.WithPreemptionFilter(planOpts.PreemptionFilter),
-			simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims.References()),
+			simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims),
 		)
 		planOpts.PreemptionFilter.Reset()
 		strategy.Reset()

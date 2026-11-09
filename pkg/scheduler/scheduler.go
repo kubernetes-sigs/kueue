@@ -1681,7 +1681,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	if len(inCycleCommittedVictims) > 0 {
 		var revertRemoval func()
 		if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-			// For wasPlanner we only remove the quota from the snapshot.
+			// For wasPlanner we only remove the workloads form the kueue snapshot.
 			// The Pods are handled by scheduler-library.
 			revertRemoval = snap.SimulateWorkloadRemoval(inCycleCommittedVictims.Workloads())
 		} else {

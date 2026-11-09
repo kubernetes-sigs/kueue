@@ -60,7 +60,3 @@ func (p PreemptedWorkloads) MergeWithTargets(targets []*Target) PreemptedWorkloa
 func (p PreemptedWorkloads) Workloads() []*workload.Info {
 	return slices.Collect(maps.Values(p))
 }
-
-func (p PreemptedWorkloads) References() []workload.Reference {
-	return slices.Sorted(maps.Keys(p))
-}

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -157,28 +158,35 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 
 	victims := slices.Clone(step.nodeVictims)
 	if scheduleOpts.PreemptionFilter != nil {
-		for _, cv := range scheduleOpts.CommittedPreemptionVictims {
-			scheduleOpts.PreemptionFilter.PreemptWorkload(cv)
+		for wlKey, wlInfo := range scheduleOpts.CommittedPreemptionVictims {
+			scheduleOpts.PreemptionFilter.PreemptWorkload(wlKey, wlInfo)
 		}
 	}
 	var consumedCandidates []workload.Reference
 	if scheduleOpts.PreemptionCandidates != nil {
 		allPlaced := step.allPodsPlaced()
-		var nodeVictimsSeen bool
-		consumedCandidates, nodeVictimsSeen = consumePreemptionCandidates(
+		consumed, nodeVictimsSeen := consumePreemptionCandidates(
 			scheduleOpts.PreemptionCandidates,
 			scheduleOpts.PreemptionFilter,
 			step.nodeVictims,
 			allPlaced,
 		)
+		consumedCandidates = make([]workload.Reference, len(consumed))
+		for i, c := range consumed {
+			consumedCandidates[i] = c.key
+		}
 		if allPlaced && nodeVictimsSeen && scheduleOpts.PreemptionFilter != nil {
-			victims = reprievePreemptionCandidates(consumedCandidates, step.nodeVictims, scheduleOpts.PreemptionFilter)
+			victims = reprievePreemptionCandidates(consumed, step.nodeVictims, scheduleOpts.PreemptionFilter)
 		}
 	}
 
+	var committedVictims []workload.Reference
+	if len(scheduleOpts.CommittedPreemptionVictims) > 0 {
+		committedVictims = slices.Sorted(maps.Keys(scheduleOpts.CommittedPreemptionVictims))
+	}
 	f.receivedCalls = append(f.receivedCalls, scheduleWorkloadCall{
 		consumedCandidates: consumedCandidates,
-		committedVictims:   scheduleOpts.CommittedPreemptionVictims,
+		committedVictims:   committedVictims,
 		simulateEmpty:      scheduleOpts.SimulateEmpty,
 	})
 	return simulator.SchedulingResult{
@@ -188,23 +196,28 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 	}
 }
 
+type candidateEntry struct {
+	key  workload.Reference
+	info *workload.Info
+}
+
 // consumePreemptionCandidates emulates scheduler-library's lazy prefix search over
 // PreemptionCandidates: candidates are pulled one by one (populating PreemptionStrategy's
 // internal state and removing each candidate from the quota snapshot via PreemptionFilter)
 // until both node-level placement (nodeVictims) and quota (pf.MayFit()) are satisfied.
 func consumePreemptionCandidates(
-	candidates iter.Seq[workload.Reference],
+	candidates iter.Seq2[workload.Reference, *workload.Info],
 	pf simulator.PreemptionFilter,
 	nodeVictims []workload.Reference,
 	allPlaced bool,
-) ([]workload.Reference, bool) {
-	var consumed []workload.Reference
+) ([]candidateEntry, bool) {
+	var consumed []candidateEntry
 	seen := sets.New[workload.Reference]()
-	for wlKey := range candidates {
-		consumed = append(consumed, wlKey)
+	for wlKey, wlInfo := range candidates {
+		consumed = append(consumed, candidateEntry{key: wlKey, info: wlInfo})
 		seen.Insert(wlKey)
 		if pf != nil {
-			pf.PreemptWorkload(wlKey)
+			pf.PreemptWorkload(wlKey, wlInfo)
 		}
 		if allPlaced && seen.HasAll(nodeVictims...) && (pf == nil || pf.MayFit()) {
 			return consumed, true
@@ -218,21 +231,21 @@ func consumePreemptionCandidates(
 // preempted, while quota-only candidates are unpreempted and kept reprieved if pf.MayFit()
 // still holds without them.
 func reprievePreemptionCandidates(
-	consumedCandidates []workload.Reference,
+	consumedCandidates []candidateEntry,
 	nodeVictims []workload.Reference,
 	pf simulator.PreemptionFilter,
 ) []workload.Reference {
 	requiredOnNodes := sets.New(nodeVictims...)
 	var finalPreempted []workload.Reference
-	for _, wlKey := range slices.Backward(consumedCandidates) {
-		if requiredOnNodes.Has(wlKey) {
-			finalPreempted = append(finalPreempted, wlKey)
+	for _, c := range slices.Backward(consumedCandidates) {
+		if requiredOnNodes.Has(c.key) {
+			finalPreempted = append(finalPreempted, c.key)
 			continue
 		}
-		pf.UnpreemptWorkload(wlKey)
+		pf.UnpreemptWorkload(c.key)
 		if !pf.MayFit() {
-			pf.PreemptWorkload(wlKey)
-			finalPreempted = append(finalPreempted, wlKey)
+			pf.PreemptWorkload(c.key, c.info)
+			finalPreempted = append(finalPreempted, c.key)
 		}
 	}
 	slices.Reverse(finalPreempted)
@@ -1290,10 +1303,12 @@ func TestPlan(t *testing.T) {
 				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
 				for _, cv := range tc.committedVictims {
 					wlInfo := snapshot.ClusterQueue(testCQ).Workloads[cv]
-					committedMap[cv] = wlInfo
 					if wlInfo != nil {
 						toRemove = append(toRemove, wlInfo)
+					} else {
+						wlInfo = workload.NewInfo(log, utiltestingapi.MakeWorkload(strings.TrimPrefix(string(cv), testNamespace+"/"), testNamespace).Obj())
 					}
+					committedMap[cv] = wlInfo
 				}
 				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 				if len(toRemove) > 0 {

@@ -105,14 +105,14 @@ type BareManagerSnapshot struct {
 
 func (s *BareManagerSnapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	if !cq.released.Has(workload.Key(wl.Obj)) {
+	if cq != nil && !cq.released.Has(workload.Key(wl.Obj)) {
 		cq.RemoveUsage(wl.Usage())
 	}
 }
 
 func (s *BareManagerSnapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	if !cq.released.Has(workload.Key(wl.Obj)) {
+	if cq != nil && !cq.released.Has(workload.Key(wl.Obj)) {
 		cq.AddUsage(wl.Usage())
 	}
 }
