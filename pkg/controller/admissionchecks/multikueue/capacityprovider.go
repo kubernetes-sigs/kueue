@@ -108,7 +108,7 @@ func (r *cpReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	log.V(2).Info("Reconcile MultiKueue CapacityProvider")
+	log.V(3).Info("Reconcile MultiKueue CapacityProvider")
 
 	cq, mkConfig, err := r.resolveManagerClusterQueue(ctx, cp)
 	if err != nil {
@@ -130,29 +130,9 @@ func (r *cpReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonSourceUnavailable, msg)
 	}
 
-	covered := sets.New(cq.Spec.ResourceGroups[0].CoveredResources...)
-	remoteResources := sets.KeySet(agg.quotas)
-	missingResources := remoteResources.Difference(covered)
-	if missingResources.Len() > 0 {
-		msg := fmt.Sprintf("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missingResources))
-		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, msg)
-	}
-
-	resources := make(corev1.ResourceList, len(cq.Spec.ResourceGroups[0].CoveredResources))
-	for _, resName := range cq.Spec.ResourceGroups[0].CoveredResources {
-		if qty, ok := agg.quotas[resName]; ok {
-			resources[resName] = qty
-		} else {
-			resources[resName] = *resource.NewQuantity(0, resource.DecimalSI)
-		}
-	}
-	newCapacity := &kueuealpha.CapacityProviderNormalizedCapacity{
-		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{
-			{
-				Name:      cp.Spec.OrchestratedFlavors[0].Name,
-				Resources: resources,
-			},
-		},
+	newCapacity, err := normalizedCapacity(cp, cq, agg.quotas)
+	if err != nil {
+		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, err.Error())
 	}
 
 	msg := "Capacity synchronized from MultiKueue worker clusters"
@@ -354,6 +334,34 @@ func (r *cpReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		quotas:              total,
 		connectedWorkers:    connectedWorkers,
 		disconnectedWorkers: sets.List(disconnected),
+	}, nil
+}
+
+// normalizedCapacity returns the capacity of the orchestrated ResourceFlavor: the summed worker quota
+// for each coveredResource of the manager ClusterQueue, or zero when no worker sets that resource.
+// It returns a *misconfiguredError when the workers set quota for a resource that the manager
+// ClusterQueue does not cover.
+func normalizedCapacity(cp *kueuealpha.CapacityProvider, cq *kueue.ClusterQueue, workerQuotas map[corev1.ResourceName]resource.Quantity) (*kueuealpha.CapacityProviderNormalizedCapacity, error) {
+	coveredResources := cq.Spec.ResourceGroups[0].CoveredResources
+	if missing := sets.KeySet(workerQuotas).Difference(sets.New(coveredResources...)); missing.Len() > 0 {
+		return nil, misconfigured("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missing))
+	}
+
+	resources := make(corev1.ResourceList, len(coveredResources))
+	for _, resName := range coveredResources {
+		if qty, ok := workerQuotas[resName]; ok {
+			resources[resName] = qty
+		} else {
+			resources[resName] = *resource.NewQuantity(0, resource.DecimalSI)
+		}
+	}
+	return &kueuealpha.CapacityProviderNormalizedCapacity{
+		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{
+			{
+				Name:      cp.Spec.OrchestratedFlavors[0].Name,
+				Resources: resources,
+			},
+		},
 	}, nil
 }
 
