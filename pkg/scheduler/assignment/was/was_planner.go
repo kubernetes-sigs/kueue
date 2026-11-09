@@ -134,28 +134,9 @@ func (p *wasPlanner) simulateWorkloadPlacement(
 	planOpts *assignment.Options,
 ) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, targets []*preemption.Target, err error) {
 	if assignment.RepresentativeMode() == flavorassigner.Fit {
-		var opts []simulator.ScheduleOption
-		if len(planOpts.CommittedPreemptionVictims) > 0 {
-			// The borrowing param holds no meaning here
-			// as the workload will not be preempting anything on this call.
-			planOpts.PreemptionFilter.Initialize(assignment, true)
-			opts = append(opts, simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims.References()))
-			opts = append(opts, simulator.WithPreemptionFilter(planOpts.PreemptionFilter))
-		}
-
-		var preemptionVictims []workload.Reference
-		placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
-		planOpts.PreemptionFilter.Reset()
-
+		placementSummary, failures, err = p.scheduleWithoutPreemption(ctx, pods, assignment, planOpts)
 		if err != nil {
 			return nil, nil, nil, err
-		}
-		if len(failures) == 0 && len(preemptionVictims) > 0 {
-			assignment.DemoteTo(flavorassigner.DeferredFit)
-			return placementSummary, nil, nil, nil
-		}
-		if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
-			resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
 		}
 	}
 	if assignment.RepresentativeMode() == flavorassigner.Preempt && !workload.HasUnhealthyNodes(p.wl.Obj) {
@@ -194,6 +175,37 @@ func (p *wasPlanner) schedule(
 	}
 	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
 	return placementSummary, failures, schedulingResult.PreemptionVictims, nil
+}
+
+func (p *wasPlanner) scheduleWithoutPreemption(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	assignment *flavorassigner.Assignment,
+	planOpts *assignment.Options,
+) (placementSummary podSetPlacementSummary, failures podSetFailureSummary, err error) {
+	var opts []simulator.ScheduleOption
+	var preemptionVictims []workload.Reference
+
+	if len(planOpts.CommittedPreemptionVictims) > 0 {
+		// The borrowing param holds no meaning here
+		// as the workload will not be preempting anything on this call.
+		planOpts.PreemptionFilter.Initialize(assignment, true)
+		opts = append(opts, simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims.References()))
+		opts = append(opts, simulator.WithPreemptionFilter(planOpts.PreemptionFilter))
+	}
+	placementSummary, failures, preemptionVictims, err = p.schedule(ctx, pods, opts...)
+	planOpts.PreemptionFilter.Reset()
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(failures) == 0 && len(preemptionVictims) > 0 {
+		assignment.DemoteTo(flavorassigner.DeferredFit)
+		return placementSummary, nil, nil
+	}
+	if len(failures) > 0 && !workload.HasUnhealthyNodes(p.wl.Obj) {
+		resolvePodSetFailures(assignment, failures, flavorassigner.Preempt)
+	}
+	return
 }
 
 func (p *wasPlanner) scheduleWithPreemption(
