@@ -1171,8 +1171,10 @@ if the connection with its reserving worker cluster is lost.</p>
 </td>
 <td>
    <p>WorkerWatchTimeout defines the timeout the manager requests for each watch it opens on
-a worker cluster. When a watch ends, the manager reconnects to the worker and requeues
-the workloads assigned to it, so a longer timeout makes these requeues less frequent.
+a worker cluster, plus a random jitter of up to 50% so that watches opened at the same
+time do not all end at the same time. When a watch ends, the manager reconnects to the
+worker and requeues the workloads assigned to it, so a longer timeout makes these
+requeues less frequent.
 If unset or 0, no timeout is requested and the worker's API server ends each watch after
 its --min-request-timeout times a random factor in [1, 2), 30 to 60 minutes by default.</p>
 </td>

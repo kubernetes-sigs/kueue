@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -91,6 +92,8 @@ const (
 	// not exercise that path today; the cap is a guard. See #11206.
 	initialEstablishTimeout = 1 * time.Minute
 	maxEstablishTimeout     = 10 * time.Minute
+
+	watchTimeoutJitterFactor = 0.5
 )
 
 var (
@@ -463,7 +466,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 }
 
 // establishWatch opens a MultiKueue remote watch that the API server ends after
-// watchTimeout, or after its own default if watchTimeout is 0. Opening it is
+// watchTimeout plus up to 50% jitter, or after its own default if watchTimeout is 0. Opening it is
 // bounded by the given timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
@@ -520,11 +523,14 @@ func establishWatch(
 	}
 }
 
+// watchTimeoutSeconds adds up to 50% jitter, like the API server's own default,
+// so that watches opened at the same time, e.g. after a manager restart, do not
+// all expire and reconnect at the same time.
 func watchTimeoutSeconds(d time.Duration) *int64 {
 	if d <= 0 {
 		return nil
 	}
-	return new(int64(d.Seconds()))
+	return new(int64(wait.Jitter(d, watchTimeoutJitterFactor).Seconds()))
 }
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
