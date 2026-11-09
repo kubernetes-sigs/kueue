@@ -200,6 +200,18 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Creating an unfinished parent and waiting for it to be admitted")
+			unfinishedWl := utiltestingapi.MakeWorkload("parent-wl-unfinished", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, unfinishedWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(unfinishedWl), unfinishedWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(unfinishedWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
 			ginkgo.By("Adding a flavor to the ClusterQueue")
 			additionalFlavor = utiltestingapi.MakeResourceFlavor("additional").Obj()
 			behavioral.MustCreate(ctx, k8sClient, additionalFlavor)
@@ -208,6 +220,14 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				cq.Spec.ResourceGroups[0].Flavors = append(cq.Spec.ResourceGroups[0].Flavors,
 					*utiltestingapi.MakeFlavorQuotas(additionalFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj())
 				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// The ClusterQueue update reaches the parents a batch period later.
+			ginkgo.By("Waiting for the unfinished parent to get a variant for the added flavor")
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(getVariantByFlavor(list, unfinishedWl.Name, additionalFlavor.Name)).NotTo(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Checking that no variant is created for the finished parent")
