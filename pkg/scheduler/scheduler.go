@@ -1443,8 +1443,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
+		pendingChanged := false
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
+			pendingChanged = updated
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
 				updated = true
 			}
@@ -1458,8 +1460,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 				return
 			}
 			log.Error(err, "Could not update Workload status")
+			return
 		}
-		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
+		if pendingChanged {
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
+		}
 	}
 }
 
