@@ -65,12 +65,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
@@ -177,7 +179,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	sliceCache := dra.NewResourceSliceCache(r.client)
-	skipDeviceCheck := r.skipDRADeviceAvailabilityCheck(wl)
+	skipDeviceCheck := r.skipDRADeviceAvailabilityCheck(ctx, wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
 	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
@@ -245,9 +247,11 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 
 // skipDRADeviceAvailabilityCheck reports whether the present-device ResourceSlice
 // scan should be skipped. CEL syntax and type compilation still run.
-// MultiKueue managers have no worker devices; ProvisioningRequest queues may
-// have no ResourceSlices yet when scaling from zero.
-func (r *WorkloadReconciler) skipDRADeviceAvailabilityCheck(wl *kueue.Workload) bool {
+// MultiKueue managers have no worker devices and cannot scope a check per flavor.
+// ProvisioningRequest queues may have no ResourceSlices yet when scaling from zero;
+// skip only when a ProvisioningRequest check applies to every ClusterQueue flavor
+// that could supply a DRA logical resource (or to all flavors, if that set is empty).
+func (r *WorkloadReconciler) skipDRADeviceAvailabilityCheck(ctx context.Context, wl *kueue.Workload) bool {
 	if wl.Spec.QueueName == "" {
 		return false
 	}
@@ -255,12 +259,69 @@ func (r *WorkloadReconciler) skipDRADeviceAvailabilityCheck(wl *kueue.Workload) 
 	if !ok {
 		return false
 	}
+	var hasMultiKueue, hasProvisioning bool
 	for _, ac := range r.cache.AdmissionChecksForClusterQueue(cqName) {
-		if ac.Controller == kueue.MultiKueueControllerName || ac.Controller == kueue.ProvisioningRequestControllerName {
-			return true
+		switch ac.Controller {
+		case kueue.MultiKueueControllerName:
+			hasMultiKueue = true
+		case kueue.ProvisioningRequestControllerName:
+			hasProvisioning = true
 		}
 	}
-	return false
+	if hasMultiKueue {
+		return true
+	}
+	if !hasProvisioning {
+		return false
+	}
+	cq := &kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: string(cqName)}, cq); err != nil {
+		return false
+	}
+	return r.provisioningRequestCoversDRAFlavors(ctx, cq)
+}
+
+// provisioningRequestCoversDRAFlavors reports whether ProvisioningRequest admission
+// checks cover every ClusterQueue flavor that could supply a DRA logical resource.
+// Flavor assignment has not happened yet, so a flavor-scoped check is not enough
+// unless it covers all of those candidate flavors.
+func (r *WorkloadReconciler) provisioningRequestCoversDRAFlavors(ctx context.Context, cq *kueue.ClusterQueue) bool {
+	candidateFlavors := flavorsOfferingDRAResources(cq, r.draMapper)
+	if candidateFlavors.Len() == 0 {
+		candidateFlavors = qutil.AllFlavors(resourcegroups.EffectiveResourceGroups(cq))
+	}
+	if candidateFlavors.Len() == 0 {
+		return false
+	}
+	covered := sets.New[kueue.ResourceFlavorReference]()
+	for acName, flavors := range admissioncheck.NewAdmissionChecks(cq) {
+		ac := &kueue.AdmissionCheck{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(acName)}, ac); err != nil {
+			continue
+		}
+		if ac.Spec.ControllerName != kueue.ProvisioningRequestControllerName {
+			continue
+		}
+		covered = covered.Union(flavors)
+	}
+	return covered.IsSuperset(candidateFlavors)
+}
+
+func flavorsOfferingDRAResources(cq *kueue.ClusterQueue, mapper *dra.ResourceMapper) sets.Set[kueue.ResourceFlavorReference] {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+	logical := mapper.LogicalResourceNames()
+	if logical.Len() == 0 {
+		return flavors
+	}
+	for _, rg := range resourcegroups.EffectiveResourceGroups(cq) {
+		if !slices.ContainsFunc(rg.CoveredResources, logical.Has) {
+			continue
+		}
+		for i := range rg.Flavors {
+			flavors.Insert(rg.Flavors[i].Name)
+		}
+	}
+	return flavors
 }
 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) error {

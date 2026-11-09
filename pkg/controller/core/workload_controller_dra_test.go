@@ -1279,6 +1279,270 @@ func TestReconcileDRA(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"reconcile DRA CEL with one matching device is queued when ClusterQueue has a ProvisioningRequest admission check": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			wantDRAResourceTotal: new(int64(2)),
+			wantWorkloadsInQueue: new(1),
+			workload: utiltestingapi.MakeWorkload("wlCELProvPartial", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 2).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac-prov").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Obj(),
+				testingdra.MakeResourceSlice("partial-slice", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).
+				AdmissionChecks("ac-prov").
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlCELProvPartial", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA CEL stays scanned when ProvisioningRequest check is scoped to a flavor that cannot supply the DRA resource": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlCELProvFlavorMiss", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac-prov").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-gpu").
+						Resource("gpu", "2").Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-cpu").
+						Resource(corev1.ResourceCPU, "4").Obj(),
+				).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac-prov", "flavor-cpu").Obj(),
+				).
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlCELProvFlavorMiss", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				}).
+				Obj(),
+			wantErrorMsg:         "insufficient matching devices for CEL selector",
+			wantWorkloadsInQueue: new(0),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlCELProvFlavorMiss"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+			},
+		},
+		"reconcile DRA CEL with no ResourceSlices is queued when ProvisioningRequest check is scoped to every flavor that can supply the DRA resource": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			wantDRAResourceTotal: new(int64(1)),
+			wantWorkloadsInQueue: new(1),
+			workload: utiltestingapi.MakeWorkload("wlCELProvFlavorHit", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac-prov").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-gpu").
+						Resource("gpu", "2").Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-cpu").
+						Resource(corev1.ResourceCPU, "4").Obj(),
+				).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac-prov", "flavor-gpu").Obj(),
+				).
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlCELProvFlavorHit", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA CEL stays scanned when ProvisioningRequest check is scoped to only one of the flavors that can supply the DRA resource": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlCELProvFlavorPartial", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			additionalObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac-prov").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor-a").
+						Resource("gpu", "2").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor-b").
+						Resource("gpu", "2").Obj(),
+				).
+				AdmissionCheckStrategy(
+					*utiltestingapi.MakeAdmissionCheckStrategyRule("ac-prov", "flavor-a").Obj(),
+				).
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlCELProvFlavorPartial", "ns").
+				Queue("lq").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-prov", State: kueue.CheckStatePending}).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
+					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				}).
+				Obj(),
+			wantErrorMsg:         "insufficient matching devices for CEL selector",
+			wantWorkloadsInQueue: new(0),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlCELProvFlavorPartial"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate gpu-template: insufficient matching devices for CEL selector in DeviceClass gpu.example.com: 0 device(s) match in the cluster but 1 requested",
+				},
+			},
+		},
 		"reconcile DRA invalid CEL is inadmissible even with a ProvisioningRequest admission check": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
