@@ -64,7 +64,7 @@ type claimCharges struct {
 // chargesForClaimSpec classifies every request in the provided ResourceClaimSpec
 // and returns what it costs. Returns field errors for unsupported request features
 // (AllocationMode All, and FirstAvailable unless the prioritized-list gate is on).
-// AdminAccess requests are skipped (zero quota).
+// AdminAccess requests and requests for excluded DeviceClasses are skipped (zero quota).
 func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
 	charges := claimCharges{
 		perDeviceClass:     resources.NewRequests(),
@@ -83,6 +83,16 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		var dcName string
 		var q int64
 		if req.FirstAvailable != nil {
+			if alternativesExcluded(req.FirstAvailable, mapper) {
+				for k := range req.FirstAvailable {
+					selectorsPath := devicesRequestsPath.Index(i).Child("firstAvailable").Index(k).Child("selectors")
+					if err := validateCELSelectors(req.FirstAvailable[k].Selectors, selectorsPath); err != nil {
+						allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
+						return claimCharges{}, allErrs
+					}
+				}
+				continue
+			}
 			if !features.Enabled(features.KueueDRAIntegrationPrioritizedList) {
 				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "FirstAvailable device selection is not supported"))
 				return claimCharges{}, allErrs
@@ -104,6 +114,10 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		if err := validateCELSelectors(req.Exactly.Selectors, selectorsPath); err != nil {
 			allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
 			return claimCharges{}, allErrs
+		}
+
+		if mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
+			continue
 		}
 
 		switch {
@@ -138,6 +152,20 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		charges.perDeviceClass.Set(dc, charges.perDeviceClass.ResourceValue(dc).AddInt64(q))
 	}
 	return charges, nil
+}
+
+// alternativesExcluded reports whether every alternative of a firstAvailable request
+// names an excluded DeviceClass, so Kueue charges nothing whichever one is allocated.
+func alternativesExcluded(alternatives []resourcev1.DeviceSubRequest, mapper *ResourceMapper) bool {
+	if len(alternatives) == 0 {
+		return false
+	}
+	for i := range alternatives {
+		if !mapper.isExcluded(corev1.ResourceName(alternatives[i].DeviceClassName)) {
+			return false
+		}
+	}
+	return true
 }
 
 // chargeForFirstAvailable returns the logical resource a firstAvailable request is
@@ -341,14 +369,15 @@ func validateCELSelectors(selectors []resourcev1.DeviceSelector, fldPath *field.
 	return compErrs.ToAggregate()
 }
 
-// extractCELRequests returns the device requests from a claim spec that have CEL selectors.
-func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec) []celDeviceRequest {
+// extractCELRequests returns the device requests from a claim spec that have CEL selectors,
+// leaving out requests for excluded DeviceClasses.
+func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) []celDeviceRequest {
 	if claimSpec == nil {
 		return nil
 	}
 	var result []celDeviceRequest
 	for i, req := range claimSpec.Devices.Requests {
-		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 {
+		if req.Exactly == nil || len(req.Exactly.Selectors) == 0 || mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
 			continue
 		}
 		if slices.ContainsFunc(req.Exactly.Selectors, func(sel resourcev1.DeviceSelector) bool {
@@ -515,7 +544,7 @@ func validateCELSelectorsAgainstDevices(
 	claimSpec *resourcev1.ResourceClaimSpec,
 	basePath *field.Path,
 ) field.ErrorList {
-	celReqs := extractCELRequests(claimSpec)
+	celReqs := extractCELRequests(claimSpec, mapper)
 	if len(celReqs) == 0 {
 		return nil
 	}

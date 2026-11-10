@@ -72,10 +72,14 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 	var resourceSliceAPIAvailable bool
 	var cacheOptions []schdcache.Option
 	var queueOptions []qcache.Option
-	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+	excludeDeviceClasses := features.Enabled(features.KueueDRAExcludeDeviceClasses) && cfg.Resources != nil && len(cfg.Resources.ExcludeDeviceClassNames) > 0
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && (len(cfg.Resources.DeviceClassMappings) > 0 || excludeDeviceClasses) {
 		draMapper = dra.NewResourceMapper()
 		if err := draMapper.PopulateFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 			return fmt.Errorf("populate DRA mapper: %w", err)
+		}
+		if excludeDeviceClasses {
+			draMapper.SetExcludedDeviceClasses(cfg.Resources.ExcludeDeviceClassNames)
 		}
 		draBackedResources = dra.NewExtendedResourceCache()
 		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))

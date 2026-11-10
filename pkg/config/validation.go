@@ -75,6 +75,7 @@ var (
 	internalCertManagementPath            = field.NewPath("internalCertManagement")
 	resourceTransformationPath            = field.NewPath("resources", "transformations")
 	dynamicResourceAllocationPath         = field.NewPath("resources", "deviceClassMappings")
+	excludeDeviceClassNamesPath           = field.NewPath("resources", "excludeDeviceClassNames")
 	objectRetentionPoliciesPath           = field.NewPath("objectRetentionPolicies")
 	objectRetentionPoliciesWorkloadsPath  = objectRetentionPoliciesPath.Child("workloads")
 	tlsPath                               = field.NewPath("tls")
@@ -106,6 +107,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
+	allErrs = append(allErrs, validateExcludeDeviceClassNames(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
@@ -549,6 +551,59 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 	return allErrs
 }
 
+func validateExcludeDeviceClassNames(c *configapi.Configuration) field.ErrorList {
+	if c.Resources == nil || len(c.Resources.ExcludeDeviceClassNames) == 0 {
+		return nil
+	}
+	if !features.Enabled(features.KueueDRAExcludeDeviceClasses) {
+		return field.ErrorList{field.Forbidden(excludeDeviceClassNamesPath, "requires the KueueDRAExcludeDeviceClasses feature gate")}
+	}
+
+	names := c.Resources.ExcludeDeviceClassNames
+	var allErrs field.ErrorList
+	if len(names) > 16 {
+		allErrs = append(allErrs, field.TooMany(excludeDeviceClassNamesPath, len(names), 16))
+	}
+
+	mappedTo := make(map[corev1.ResourceName]corev1.ResourceName)
+	for _, mapping := range c.Resources.DeviceClassMappings {
+		for _, deviceClass := range mapping.DeviceClassNames {
+			if _, exists := mappedTo[deviceClass]; !exists {
+				mappedTo[deviceClass] = mapping.Name
+			}
+		}
+	}
+
+	seen := make(sets.Set[corev1.ResourceName])
+	for idx, deviceClass := range names {
+		dcPath := excludeDeviceClassNamesPath.Index(idx)
+		allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
+		if seen.Has(deviceClass) {
+			allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
+		} else {
+			seen.Insert(deviceClass)
+		}
+		if resourceName, mapped := mappedTo[deviceClass]; mapped {
+			allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
+				fmt.Sprintf("device class is also mapped to resource %s in deviceClassMappings", resourceName)))
+		}
+	}
+	return allErrs
+}
+
+// validateDeviceClassName checks a DeviceClass name listed in
+// deviceClassMappings or excludeDeviceClassNames.
+func validateDeviceClassName(deviceClass corev1.ResourceName, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
+		allErrs = append(allErrs, field.Invalid(path, deviceClass, strings.Join(errs, "; ")))
+	}
+	if len(string(deviceClass)) > 253 {
+		allErrs = append(allErrs, field.Invalid(path, deviceClass, "must not exceed 253 characters"))
+	}
+	return allErrs
+}
+
 func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 	if c.Resources == nil || len(c.Resources.DeviceClassMappings) == 0 {
 		return nil
@@ -603,14 +658,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		for dcIdx, deviceClass := range mapping.DeviceClassNames {
 			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
-
-			if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
-				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
-			}
-
-			if len(string(deviceClass)) > 253 {
-				allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
-			}
+			allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
 
 			if seenDeviceClassNames.Has(deviceClass) {
 				allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))

@@ -96,8 +96,10 @@ func Test_GetResourceRequests(t *testing.T) {
 		mappings        []configapi.DeviceClassMapping
 		featureGates    map[featuregate.Feature]bool
 		skipDeviceCheck bool
-		want            map[kueue.PodSetReference]corev1.ResourceList
-		wantErr         field.ErrorList
+		// excluded lists the DeviceClasses from resources.excludeDeviceClassNames.
+		excluded []corev1.ResourceName
+		want     map[kueue.PodSetReference]corev1.ResourceList
+		wantErr  field.ErrorList
 	}{
 		{
 			name: "An Exactly request on a logical resource named cpu is charged in whole units",
@@ -1099,10 +1101,279 @@ func Test_GetResourceRequests(t *testing.T) {
 				"main": {"res-1": resource.MustParse("1")},
 			},
 		},
+		{
+			name: "AllocationMode All on an excluded DeviceClass is not charged",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic", "ns1").
+					DeviceRequest("nic", "nic.example.com", 0).
+					AllocationModeAll().
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			want:     map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
+		{
+			name: "ExactCount on an unmapped excluded DeviceClass is not charged",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-channel", "ns1").
+					DeviceRequest("channel", "channel.example.com", 1).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"channel.example.com"},
+		},
+		{
+			name: "Excluded DeviceClass is charged with the KueueDRAExcludeDeviceClasses gate off",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-channel", "ns1").
+					DeviceRequest("channel", "channel.example.com", 1).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
+				}
+			},
+			lookup:       defaultLookup,
+			excluded:     []corev1.ResourceName{"channel.example.com"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAExcludeDeviceClasses: false},
+			wantErr: field.ErrorList{
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+			},
+		},
+		{
+			name: "Unmapped DeviceClass missing from the exclude list returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-channel", "ns1").
+					DeviceRequest("channel", "channel.example.com", 1).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			wantErr: field.ErrorList{
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+			},
+		},
+		{
+			name: "CEL selector on an excluded DeviceClass skips the ResourceSlice check",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-cel", "ns1").
+					DeviceRequest("nic", "nic.example.com", 2).
+					WithCELSelectors(`device.driver == "nic-driver"`).
+					Obj(),
+				testingdra.MakeDeviceClass("nic.example.com").Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-cel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			want:     map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
+		{
+			name: "Invalid CEL selector on an excluded DeviceClass returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-badcel", "ns1").
+					DeviceRequest("nic", "nic.example.com", 1).
+					WithCELSelectors("this is not valid CEL!!!").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-badcel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "firstAvailable whose alternatives are all excluded is not charged with the prioritized-list gate off",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-fa", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("nic",
+						testingdra.MakeDeviceSubRequest("all", "nic-a.example.com", 0).AllocationModeAll().Obj(),
+						testingdra.MakeDeviceSubRequest("one", "nic-b.example.com", 1).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa")},
+				}
+			},
+			lookup:       defaultLookup,
+			excluded:     []corev1.ResourceName{"nic-a.example.com", "nic-b.example.com"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: false},
+			want:         map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
+		{
+			name: "firstAvailable whose alternatives are all excluded still compiles their CEL selectors",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-fa-badcel", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("nic",
+						testingdra.MakeDeviceSubRequest("one", "nic-a.example.com", 1).CELSelector("this is not valid CEL!!!").Obj(),
+					).Obj()).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa-badcel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic-a.example.com"},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").
+						Index(0).
+						Child("template", "spec", "resourceClaims").
+						Index(0).
+						Child("devices", "requests").
+						Index(0).
+						Child("firstAvailable").
+						Index(0).
+						Child("selectors"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			name: "firstAvailable mixing an excluded and a mapped DeviceClass returns error",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-fa", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+						testingdra.MakeDeviceSubRequest("nic", "nic-a.example.com", 1).Obj(),
+						testingdra.MakeDeviceSubRequest("gpu", "test-deviceclass-1", 1).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed", ResourceClaimTemplateName: new("claim-tmpl-mixed-fa")},
+				}
+			},
+			lookup:       defaultLookup,
+			excluded:     []corev1.ResourceName{"nic-a.example.com"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantErr: field.ErrorList{
+				field.NotFound(
+					field.NewPath("spec", "podSets").
+						Index(0).
+						Child("template", "spec", "resourceClaims").
+						Index(0).
+						Child("devices", "requests").
+						Index(0).
+						Child("firstAvailable").
+						Index(0).
+						Child("deviceClassName"),
+					"",
+				),
+			},
+		},
+		{
+			name: "Excluded request does not hide a mapped request in the same ResourceClaimTemplate",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-gpu", "ns1").
+					DeviceRequest("nic", "nic.example.com", 0).
+					AllocationModeAll().
+					DeviceRequest("gpu", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.driver == "test-driver"`).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-nic-gpu", ResourceClaimTemplateName: new("claim-tmpl-nic-gpu")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			want:     map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("1")}},
+		},
+		{
+			name: "Excluded request does not skip the ResourceSlice check of a mapped request in the same ResourceClaimTemplate",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-gpu", "ns1").
+					DeviceRequest("nic", "nic.example.com", 0).
+					AllocationModeAll().
+					DeviceRequest("gpu", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.driver == "test-driver"`).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-nic-gpu", ResourceClaimTemplateName: new("claim-tmpl-nic-gpu")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		{
+			name: "firstAvailable whose alternatives are all excluded is not charged with the prioritized-list gate on",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nic-fa", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("nic",
+						testingdra.MakeDeviceSubRequest("all", "nic-a.example.com", 0).AllocationModeAll().Obj(),
+						testingdra.MakeDeviceSubRequest("one", "nic-b.example.com", 1).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+					{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa")},
+				}
+			},
+			lookup:       defaultLookup,
+			excluded:     []corev1.ResourceName{"nic-a.example.com", "nic-b.example.com"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			want:         map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, true)
 			for fg, on := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, on)
 			}
@@ -1153,6 +1424,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			if testMapper == nil {
 				testMapper = NewResourceMapper()
 			}
+			testMapper.SetExcludedDeviceClasses(tc.excluded)
 			sliceCache := NewResourceSliceCache(baseClient)
 			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceCheck)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {

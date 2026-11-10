@@ -180,6 +180,40 @@ too. Both are on by default, `DRAPrioritizedList` since Kubernetes 1.34, so on
 [limitations](/docs/concepts/dynamic_resource_allocation/#limitations) list
 what Kueue does not check for these requests.
 
+## Exclude DeviceClasses from quota
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+Use this when Pods take companion devices that need no quota, such as RDMA NICs
+or an NVIDIA ComputeDomain channel, next to accelerators that Kueue charges.
+Without it, Kueue rejects these Workloads, because the classes are not mapped
+or because they use `allocationMode: All`.
+
+Merge the following into your Kueue Configuration, following the
+[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version),
+and restart the controller:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAExcludeDeviceClasses: true
+resources:
+  excludeDeviceClassNames:
+  - mrdma.google.com
+  - netdev.google.com
+  - compute-domain-default-channel.nvidia.com
+```
+
+The list takes up to 16 exact `DeviceClass` names. Kueue fails to start if a
+listed class is also in `deviceClassMappings`. With MultiKueue, set the same
+list on the manager and on every worker. Remove the list before you turn the
+feature gate off, because Kueue fails to start with it. Before a downgrade to a
+version without this feature, also remove the `KueueDRAExcludeDeviceClasses`
+feature gate entry. The
+[concepts page](/docs/concepts/dynamic_resource_allocation/#excluded-deviceclasses)
+describes what Kueue skips for these classes.
+
 ## Set up the extended resource path
 
 {{< feature-state state="beta" for_version="v0.19" >}}
