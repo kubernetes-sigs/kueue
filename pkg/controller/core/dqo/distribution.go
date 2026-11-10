@@ -18,6 +18,7 @@ package dqo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
