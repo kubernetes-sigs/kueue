@@ -596,11 +596,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			behavioral.MustCreate(ctx, k8sClient, cqMultiFlavor)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqMultiFlavor)
 			defer func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqMultiFlavor, true)
 			}()
-			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqMultiFlavor)
 
 			lqMultiFlavor := utiltestingapi.MakeLocalQueue("lq-multi-flavor-"+ns.Name, ns.Name).ClusterQueue(cqMultiFlavor.Name).Obj()
 			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqMultiFlavor)
