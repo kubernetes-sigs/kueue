@@ -151,23 +151,43 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
-// bestMatchByCondition returns condition if there is a workload with a specified condition type,
-// the string identifies the remote cluster.
+// bestMatchByCondition returns the condition that should drive reconciliation
+// and the remote cluster it belongs to.
+//
+// Once status.clusterName is set, that worker is the only source of truth. A
+// copy left on another worker after a partition longer than workerLostTimeout
+// must not win by having an older condition. Following that copy deletes the
+// re-dispatched workload, and the manager Job can no longer be updated from
+// the worker it is assigned to.
 func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
+	if assigned := workload.ClusterName(g.local); assigned != "" {
+		return trueCondition(g.remotes[assigned], assigned, conditionType)
+	}
+
 	var (
 		bestMatchCond   *metav1.Condition
 		bestMatchRemote string
 	)
 	for remote, wl := range g.remotes {
-		if wl != nil {
-			cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
-			if cond != nil && cond.Status == metav1.ConditionTrue && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
-				bestMatchCond = cond
-				bestMatchRemote = remote
-			}
+		cond, cluster := trueCondition(wl, remote, conditionType)
+		if cond != nil && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
+			bestMatchCond = cond
+			bestMatchRemote = cluster
 		}
 	}
 	return bestMatchCond, bestMatchRemote
+}
+
+// trueCondition returns wl's True condition of conditionType.
+func trueCondition(wl *kueue.Workload, cluster, conditionType string) (*metav1.Condition, string) {
+	if wl == nil {
+		return nil, ""
+	}
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return nil, ""
+	}
+	return cond, cluster
 }
 
 // quotaReservationFailuresMessage returns the reasons reported by the remote workloads
@@ -478,6 +498,27 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 	return false, nil
 }
 
+// deleteStaleRemotes removes remote objects on workers other than the one
+// recorded in status.clusterName. The copy on the previous worker keeps
+// running through a partition; once that worker reconnects it has to be
+// removed, including when the assigned worker's remote is already gone and
+// no later step would select a remote to converge on.
+func (w *wlReconciler) deleteStaleRemotes(ctx context.Context, group *wlGroup) error {
+	log := ctrl.LoggerFrom(ctx)
+	var errs []error
+	for remote, remoteWl := range group.remotes {
+		// The remote is already one of this workload's configured clusters.
+		if remoteWl == nil || remoteWorkloadStillRelevant(group.local, remote, []string{remote}) {
+			continue
+		}
+		if err := group.removeUnsharedRemoteObjects(ctx, remote); err != nil {
+			errs = append(errs, err)
+			log.V(2).Error(err, "Deleting remote objects on a worker other than status.clusterName", "workerCluster", remote, "clusterName", workload.ClusterName(group.local))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
 	// Record the state being transitioned away from; acs.Message is set below for callers to reuse in events.
 	message = api.TruncateConditionMessage(fmt.Sprintf("%s, Previously: %q", message, acs.State))
@@ -610,6 +651,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
 		}
 		return reconcile.Result{}, errors.Join(errs...)
+	}
+
+	if err := w.deleteStaleRemotes(ctx, group); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
