@@ -131,6 +131,12 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
+	elasticJobWithRequiredTopology := testingrayutil.MakeJob("job", "ns").Queue("queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Obj()
+	elasticJobWithRequiredTopology.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{
+		kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+	}
 
 	testcases := map[string]struct {
 		job          *rayv1.RayJob
@@ -267,6 +273,21 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			}.ToAggregate(),
+		},
+		"elastic job with required topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			job:          elasticJobWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(workerGroupSpecsPath.Index(0).Child("template", "metadata", "annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			job: elasticJobWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling:      true,
+			},
 		},
 		"valid topology request": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
