@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -1099,12 +1098,6 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	return nil
 }
 
-// simulateOtherPreemptions projects the victims of preemptions already decided this cycle
-// out of the snapshot and returns the single undo.
-func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
-}
-
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
@@ -1658,6 +1651,23 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	targets []*preemption.Target,
 	err error,
 ) {
+	if features.Enabled(features.SchedulerLibraryIntegration) && snap.SchedulerSimulator != nil {
+		simulationError := snap.SchedulerSimulator.Simulate(ctx, func() {
+			fullAssignment, targets, err = s.getAssignmentsSimulation(ctx, wl, snap, inCycleCommittedVictims)
+		})
+		snap.ForgetSimulatedFeasibility()
+		err = errors.Join(err, simulationError)
+	} else {
+		fullAssignment, targets, err = s.getAssignmentsSimulation(ctx, wl, snap, inCycleCommittedVictims)
+	}
+	return
+}
+
+func (s *Scheduler) getAssignmentsSimulation(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, inCycleCommittedVictims preemption.PreemptedWorkloads) (
+	fullAssignment flavorassigner.Assignment,
+	targets []*preemption.Target,
+	err error,
+) {
 	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
@@ -1671,9 +1681,15 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
+	preemptionManager := preemption.BuildManager(log, snap, wl, inCycleCommittedVictims)
+	// Sets the state of the snapshot to one with committed victims preempted
+	preemptionManager.ResetToDefault()
+	// Ensures all preemptions are cleaned up from the snapshot at simulation end
+	defer preemptionManager.ResetAll()
+
 	if len(inCycleCommittedVictims) > 0 {
-		revertRemoval := simulateOtherPreemptions(ctx, log, snap, inCycleCommittedVictims)
-		defer revertRemoval()
+		// Revert is handled by the Simulation.
+		snap.SimulatePodRemoval(ctx, log, inCycleCommittedVictims.Workloads())
 	}
 
 	// The ReplacedWorkloadSlice call and the configuration of FlavorAssigner
@@ -1688,16 +1704,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// The strategy it generates will yield candidates based on an assumption
 	// that all committed victims have been removed.
 	var planner assignment.Planner
-	plannerOptions := []assignment.PlannerOption{}
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
-		plannerOptions = append(
-			plannerOptions,
-			assignment.WithPreemptionFilter(preemption.BuildFilter(log, snap, wl)),
-			assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims),
-		)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	}
+	plannerOptions := []assignment.PlannerOption{
+		assignment.WithPreemptionManager(preemptionManager),
+		assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims),
 	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)

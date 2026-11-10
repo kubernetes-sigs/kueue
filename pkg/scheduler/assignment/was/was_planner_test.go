@@ -1290,14 +1290,10 @@ func TestPlan(t *testing.T) {
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
 				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
 			)
-			filter := preemption.BuildFilter(log, snapshot, wl)
-			freeCapacityBefore := freeCapacity(t, snapshot)
 
-			var opts []assignment.PlannerOption
-			if !tc.omitPreemptionFilter {
-				opts = append(opts, assignment.WithPreemptionFilter(filter))
-			}
 			var revertRemoval func()
+			var opts []assignment.PlannerOption
+			var committedMap map[workload.Reference]*workload.Info
 			if len(tc.committedVictims) > 0 {
 				var toRemove []*workload.Info
 				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
@@ -1314,6 +1310,13 @@ func TestPlan(t *testing.T) {
 				if len(toRemove) > 0 {
 					revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
 				}
+			}
+
+			filter := preemption.BuildManager(log, snapshot, wl, committedMap)
+			freeCapacityBefore := freeCapacity(t, snapshot)
+
+			if !tc.omitPreemptionFilter {
+				opts = append(opts, assignment.WithPreemptionManager(filter))
 			}
 
 			assigner := flavorassigner.New(
@@ -1453,7 +1456,7 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 	initialAssignment := assigner.AssignFlavors(ctx, log, nil)
 
 	planner := NewPlanner(wl, snapshot, preemptor)
-	plan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snapshot, wl)))
+	plan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionManager(preemption.BuildManager(log, snapshot, wl, nil)))
 	if plan.Error != nil {
 		t.Fatalf("Plan() unexpected error: %v", plan.Error)
 	}
@@ -1810,7 +1813,7 @@ func TestPlan_PreemptionStrategies(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			planner := NewPlanner(wl, snapshot, preemptor)
-			gotPlan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionFilter(preemption.BuildFilter(log, snapshot, wl)))
+			gotPlan := planner.Plan(ctx, &initialAssignment, assignment.WithPreemptionManager(preemption.BuildManager(log, snapshot, wl, nil)))
 
 			if gotPlan.Error != nil {
 				t.Fatalf("Plan() unexpected error: %v", gotPlan.Error)
@@ -2100,7 +2103,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			)
 			// Mirror scheduler.getAssignments: build PreemptionFilter on the clean snapshot,
 			// then remove committed victims from the active snapshot across both AssignFlavors and Plan.
-			filter := preemption.BuildFilter(log, snapshot, wl)
+			filter := preemption.BuildManager(log, snapshot, wl, nil)
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			var revertRemoval func()
@@ -2112,7 +2115,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
 			}
 
-			opts := []assignment.PlannerOption{assignment.WithPreemptionFilter(filter)}
+			opts := []assignment.PlannerOption{assignment.WithPreemptionManager(filter)}
 			if len(committedMap) > 0 {
 				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
 			}
@@ -2207,7 +2210,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
 			clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil,
 		)
-		filter := preemption.BuildFilter(log, snapshot, wl)
+		filter := preemption.BuildManager(log, snapshot, wl, nil)
 		revert := snapshot.SimulateWorkloadRemoval([]*workload.Info{cvInfo})
 		defer revert()
 
@@ -2219,7 +2222,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 		planner := NewPlanner(wl, snapshot, preemptor)
 		opts := []assignment.PlannerOption{
 			assignment.WithCommittedPreemptionVictims(committedMap),
-			assignment.WithPreemptionFilter(filter),
+			assignment.WithPreemptionManager(filter),
 		}
 
 		// Full count (3 CPU) fits on testNode1's 3 free CPU for node placement, EXCEPT CQ quota is 9

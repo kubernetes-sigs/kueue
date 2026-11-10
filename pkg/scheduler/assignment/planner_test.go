@@ -107,8 +107,8 @@ func TestBuildOptions(t *testing.T) {
 	wl2Ref := workload.NewReference("ns", "wl-2")
 	wl1Info := &workload.Info{ClusterQueue: "cq-1"}
 	wl2Info := &workload.Info{ClusterQueue: "cq-2"}
-	filter1 := &preemption.PreemptionFilter{}
-	filter2 := &preemption.PreemptionFilter{}
+	filter1 := &preemption.PreemptionManager{}
+	filter2 := &preemption.PreemptionManager{}
 
 	cases := map[string]struct {
 		options []PlannerOption
@@ -143,39 +143,39 @@ func TestBuildOptions(t *testing.T) {
 		},
 		"WithPreemptionFilter sets filter": {
 			options: []PlannerOption{
-				WithPreemptionFilter(filter1),
+				WithPreemptionManager(filter1),
 			},
 			want: &Options{
-				PreemptionFilter: filter1,
+				PreemptionManager: filter1,
 			},
 		},
 		"multiple options set both victims and filter": {
 			options: []PlannerOption{
 				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
-				WithPreemptionFilter(filter1),
+				WithPreemptionManager(filter1),
 			},
 			want: &Options{
 				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl1Ref: wl1Info},
-				PreemptionFilter:           filter1,
+				PreemptionManager:           filter1,
 			},
 		},
 		"later option overrides earlier option": {
 			options: []PlannerOption{
 				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl1Ref: wl1Info}),
-				WithPreemptionFilter(filter1),
+				WithPreemptionManager(filter1),
 				WithCommittedPreemptionVictims(preemption.PreemptedWorkloads{wl2Ref: wl2Info}),
-				WithPreemptionFilter(filter2),
+				WithPreemptionManager(filter2),
 			},
 			want: &Options{
 				CommittedPreemptionVictims: preemption.PreemptedWorkloads{wl2Ref: wl2Info},
-				PreemptionFilter:           filter2,
+				PreemptionManager:           filter2,
 			},
 		},
 	}
 
 	cmpOpts := cmp.Options{
 		cmp.AllowUnexported(workload.Info{}),
-		cmp.Comparer(func(a, b *preemption.PreemptionFilter) bool { return a == b }),
+		cmp.Comparer(func(a, b *preemption.PreemptionManager) bool { return a == b }),
 	}
 
 	for name, tc := range cases {

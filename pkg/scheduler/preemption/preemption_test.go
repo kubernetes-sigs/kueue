@@ -5649,7 +5649,7 @@ func TestPreemptionFilter(t *testing.T) {
 				maps.Copy(workloadsByKey, cqSnap.Workloads)
 			}
 
-			filter := BuildFilter(log, snapshot, wlInfo)
+			filter := BuildManager(log, snapshot, wlInfo, nil)
 
 			var revertRemoval func()
 			if len(tc.removeFromSnapshot) > 0 {
@@ -5664,7 +5664,7 @@ func TestPreemptionFilter(t *testing.T) {
 			cpuRes := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 			snapUsageBefore := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]
 
-			filter.Initialize(&assignment, tc.allowBorrowing)
+			filter.Configure(&assignment, tc.allowBorrowing)
 			for _, wlKey := range tc.preempt {
 				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
@@ -5675,8 +5675,8 @@ func TestPreemptionFilter(t *testing.T) {
 				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
 			if tc.resetAndReinit {
-				filter.Reset()
-				filter.Initialize(&assignment, tc.allowBorrowing)
+				filter.ResetToDefault()
+				filter.Configure(&assignment, tc.allowBorrowing)
 			}
 
 			if got := filter.MayFit(); got != tc.wantMayFit {
@@ -5724,23 +5724,23 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 	}
 
 	t.Run("uninitialized and post-Reset guards", func(t *testing.T) {
-		filter := BuildFilter(log, snapshot, wlInfo)
+		filter := BuildManager(log, snapshot, wlInfo, nil)
 		// Safe no-op
-		filter.Reset()
+		filter.ResetToDefault()
 
 		expectPanic(t, "MayFit before Initialize", func() { _ = filter.MayFit() })
 		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
 		expectPanic(t, "UnpreemptWorkload before Initialize", func() { filter.UnpreemptWorkload(vLowKey) })
 
-		filter.Initialize(&assignment, true)
+		filter.Configure(&assignment, true)
 		filter.PreemptWorkload(vLowKey, vLowInfo)
 		if !filter.MayFit() {
 			t.Fatal("expected MayFit() = true after preempting v-low")
 		}
 
 		// Reset restores preempted state and marks filter uninitialized; repeated Reset is a no-op.
-		filter.Reset()
-		filter.Reset()
+		filter.ResetToDefault()
+		filter.ResetToDefault()
 
 		expectPanic(t, "MayFit after Reset", func() { _ = filter.MayFit() })
 		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
@@ -5748,14 +5748,14 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("re-Initialize without Reset restores preempted workloads", func(t *testing.T) {
-		filter := BuildFilter(log, snapshot, wlInfo)
-		filter.Initialize(&assignment, true)
+		filter := BuildManager(log, snapshot, wlInfo, nil)
+		filter.Configure(&assignment, true)
 		filter.PreemptWorkload(vLowKey, vLowInfo)
 		if !filter.MayFit() {
 			t.Fatal("expected MayFit() = true after preempting v-low")
 		}
 
-		filter.Initialize(&assignment, true)
+		filter.Configure(&assignment, true)
 		if filter.MayFit() {
 			t.Fatal("expected MayFit() = false after re-Initialize restored v-low")
 		}

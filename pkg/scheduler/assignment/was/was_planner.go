@@ -63,7 +63,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	}
 
 	opts := assignment.BuildOptions(options...)
-	if opts.PreemptionFilter == nil {
+	if opts.PreemptionManager == nil {
 		plan.Error = errors.New("PreemptionFilter option not configured for wasPlanner")
 		return
 	}
@@ -197,12 +197,12 @@ func (p *wasPlanner) scheduleWithoutPreemption(
 	if len(planOpts.CommittedPreemptionVictims) > 0 {
 		// The borrowing param holds no meaning here
 		// as the workload will not be preempting anything on this call.
-		planOpts.PreemptionFilter.Initialize(assignment, true)
+		planOpts.PreemptionManager.Configure(assignment, true)
 		opts = append(opts, simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims))
-		opts = append(opts, simulator.WithPreemptionFilter(planOpts.PreemptionFilter))
+		opts = append(opts, simulator.WithPreemptionFilter(planOpts.PreemptionManager))
 	}
 	placementSummary, failures, immediateFit, _, err = p.schedule(ctx, pods, opts...)
-	planOpts.PreemptionFilter.Reset()
+	planOpts.PreemptionManager.ResetToDefault()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,16 +223,16 @@ func (p *wasPlanner) scheduleWithPreemption(
 	planOpts *assignment.Options,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
-		planOpts.PreemptionFilter.Initialize(&assignment, strategy.AllowBorrowing())
+		planOpts.PreemptionManager.Configure(&assignment, strategy.AllowBorrowing())
 		// We already established that both an immediate and a deferred fit are not possible.
 		placementSummary, failures, _, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
-			simulator.WithPreemptionFilter(planOpts.PreemptionFilter),
+			simulator.WithPreemptionFilter(planOpts.PreemptionManager),
 			simulator.WithCommittedPreemptionVictims(planOpts.CommittedPreemptionVictims),
 		)
-		planOpts.PreemptionFilter.Reset()
+		planOpts.PreemptionManager.ResetToDefault()
 		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err

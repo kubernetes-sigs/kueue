@@ -94,6 +94,7 @@ type PreemptionFilter interface {
 type ScheduleOptions struct {
 	// PreemptionCandidates is the ordered sequence of candidate workloads
 	// that may be preempted to make room for the scheduled workload.
+	// The yielded list of candidates cannot include workloads passed in CommittedPreemptionVictims.
 	PreemptionCandidates iter.Seq2[workload.Reference, *workload.Info]
 	// PreemptionFilter evaluates whether preempting candidate workloads
 	// satisfies non-node constraints (such as quota).
@@ -103,6 +104,7 @@ type ScheduleOptions struct {
 	SimulateEmpty bool
 	// CommittedPreemptionVictims represents workloads that have
 	// already been established as preemption targets/victims.
+	// Any items in CommittedPreemptionVictims cannot be yielded as PreemptionCandidates.
 	CommittedPreemptionVictims map[workload.Reference]*workload.Info
 }
 
