@@ -16,6 +16,8 @@
 
 # Exercise real Make recipes using stub Ginkgo and Go (no envtest needed).
 set -o errexit -o nounset -o pipefail
+# The mock must never depend on a caller-exported artifact directory.
+unset ARTIFACTS
 project=$(cd "$(dirname "$0")/../.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -61,7 +63,7 @@ chmod +x "$work/bin/"*
 cat > "$work/Makefile" <<EOF_MAKE
 PROJECT_DIR := $project
 BIN_DIR := $work/bin
-ARTIFACTS := $work/artifacts
+export ARTIFACTS := $work/artifacts
 GINKGO := $work/bin/ginkgo
 GO_CMD := $work/bin/go
 INTEGRATION_TARGET := ./test/integration/singlecluster/...
