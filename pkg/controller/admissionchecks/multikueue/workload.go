@@ -170,7 +170,8 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 
 // quotaReservationFailuresMessage returns the reasons reported by the remote workloads
 // for not reserving quota. It returns an empty string if a remote workload reserved
-// quota or no remote workload reported a reason.
+// quota or no remote workload reported a reason. It also names the unreachable
+// workers, because one of them may have reserved quota.
 func (g *wlGroup) quotaReservationFailuresMessage() string {
 	var failures []string
 	for _, remote := range slices.Sorted(maps.Keys(g.remotes)) {
@@ -187,6 +188,9 @@ func (g *wlGroup) quotaReservationFailuresMessage() string {
 	}
 	if len(failures) == 0 {
 		return ""
+	}
+	if len(g.unavailableClusters) > 0 {
+		failures = append(failures, "unreachable: "+strings.Join(g.unavailableClusters, ", "))
 	}
 	return api.TruncateConditionMessage(noWorkerReservedQuotaMessagePrefix + strings.Join(failures, "; "))
 }
