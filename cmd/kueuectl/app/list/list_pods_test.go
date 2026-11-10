@@ -1010,10 +1010,10 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 					pod = pod.DeepCopy()
 					pod.APIVersion = "v1"
 					pod.Kind = "Pod"
-					forObject = &corev1.PodList{
-						TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PodList"},
-						Items:    []corev1.Pod{*pod},
-					}
+					podList := &corev1.PodList{Items: []corev1.Pod{*pod}}
+					podList.APIVersion = "v1"
+					podList.Kind = "PodList"
+					forObject = podList
 				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
