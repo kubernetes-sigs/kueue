@@ -19,7 +19,6 @@ package leaderworkerset
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -159,7 +158,7 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	originUID, hasOriginUID := lws.Annotations[kueue.MultiKueueOriginUIDAnnotation]
 	if !hasOriginUID {
-		return nil, fmt.Errorf("no origin UID annotation found for leaderworkerset: %s", klog.KObj(lws))
+		originUID = string(lws.UID)
 	}
 
 	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)

@@ -121,6 +121,11 @@ const (
 	// Enables in-tree autoscaling for MultiKueue-managed Ray workloads.
 	MultiKueueRayInTreeAutoscaling featuregate.Feature = "MultiKueueRayInTreeAutoscaling"
 
+	// owner: @Vaishnav88sk
+	//
+	// Enables strict validation for MultiKueue workload ownership to prevent spoofing.
+	MultiKueueStrictValidation featuregate.Feature = "MultiKueueStrictValidation"
+
 	// owner: @mimowo
 	//
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
@@ -1086,6 +1091,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueRayInTreeAutoscaling: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueStrictValidation: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},

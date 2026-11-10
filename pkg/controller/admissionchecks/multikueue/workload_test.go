@@ -283,6 +283,37 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"unmanaged wl (spoofed owner annotation) is rejected": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.MultiKueueStrictValidation:    true,
+			},
+			reconcileFor: "wl1",
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotations(map[string]string{
+						constants.JobOwnerGVKAnnotation:  batchv1.SchemeGroupVersion.WithKind("Job").String(),
+						constants.JobOwnerNameAnnotation: "job1",
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateRejected, Message: `Workload is not owned by the referenced Job, Previously: "Pending"`}).
+					Obj(),
+			},
+		},
 		"failing to read from a worker": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -2583,7 +2614,9 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	// PrebuiltWorkloadLabel is required so WorkloadKeysFor can derive the owning workload key.
+	// Without it the ownership check fails closed and the test would break.
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
@@ -3206,7 +3239,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).PrebuiltWorkloadLabel("wl1")
 
 	managerWl := *baseWorkloadBuilder.Clone().
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: acState}).
@@ -4192,5 +4225,54 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	if gotResult.RequeueAfter != syncDeferredRequeueAfter {
 		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want %v (sync was deferred)",
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
+	}
+}
+
+func TestIsWorkloadOwnedByKeys(t *testing.T) {
+	cases := map[string]struct {
+		wlName      string
+		wlNamespace string
+		keys        []types.NamespacedName
+		want        bool
+	}{
+		"exact match": {
+			wlName:      "wl1",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "wl1", Namespace: "default"}},
+			want:        true,
+		},
+		"wrong namespace": {
+			wlName:      "wl1",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "wl1", Namespace: "other"}},
+			want:        false,
+		},
+		"prefix match with dash": {
+			wlName:      "job1-a1b2c",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "job1", Namespace: "default"}},
+			want:        false,
+		},
+		"prefix match for generated name": {
+			wlName:      "job-test-12345",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "job-test", Namespace: "default"}},
+			want:        false,
+		},
+		"no match": {
+			wlName:      "spoofed-wl",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "victim-wl", Namespace: "default"}},
+			want:        false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := isWorkloadOwnedByKeys(tc.wlName, tc.wlNamespace, tc.keys)
+			if got != tc.want {
+				t.Errorf("isWorkloadOwnedByKeys() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
