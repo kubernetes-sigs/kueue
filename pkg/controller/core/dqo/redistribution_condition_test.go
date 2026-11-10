@@ -19,6 +19,7 @@ package dqo
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -93,14 +94,23 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 				errors.New("injected concurrent status write"),
 			)
 			failDonor := false
+			var attemptedWrites, successfulWrites []string
 			objects := []client.Object{cp, orchestrator, root, a, b}
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objects...).
 				WithStatusSubresource(objects...).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-						if _, ok := obj.(*kueue.ClusterQueue); ok && sub == "status" && failDonor && obj.GetName() == donorName {
-							return injectedConflict
+						if _, ok := obj.(*kueue.ClusterQueue); ok && sub == "status" && failDonor {
+							attemptedWrites = append(attemptedWrites, obj.GetName())
+							if obj.GetName() == donorName {
+								return injectedConflict
+							}
+							if err := c.SubResource(sub).Update(ctx, obj, opts...); err != nil {
+								return err
+							}
+							successfulWrites = append(successfulWrites, obj.GetName())
+							return nil
 						}
 						return c.SubResource(sub).Update(ctx, obj, opts...)
 					},
@@ -135,6 +145,15 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 				}
 			}
 
+			var donor kueue.ClusterQueue
+			if err := cl.Get(ctx, client.ObjectKey{Name: donorName}, &donor); err != nil {
+				t.Fatal(err)
+			}
+			if donor.Status.EffectiveQuotas == nil {
+				t.Fatal("initial donor effective quotas not populated")
+			}
+			previousDonorQuota := donor.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota.DeepCopy()
+
 			failDonor = true
 			if _, err := r.Reconcile(ctx, req); !errors.Is(err, injectedConflict) {
 				t.Fatalf("redistribution error = %v, want injected conflict", err)
@@ -147,6 +166,38 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 			if condition == nil || condition.Status != metav1.ConditionUnknown ||
 				condition.Reason != kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete {
 				t.Fatalf("Distributed condition after interrupted update = %+v, want Unknown/DistributionIncomplete", condition)
+			}
+
+			// The fake client lists queues by name. Verify both attempted writes
+			// and the one successful write, regardless of whether the conflict
+			// happened before or after the receiver's status update.
+			if !slices.Equal(attemptedWrites, []string{"cq-a", "cq-b"}) {
+				t.Fatalf("status write attempts = %v, want [cq-a cq-b]", attemptedWrites)
+			}
+			if !slices.Equal(successfulWrites, []string{tc.receiverName}) {
+				t.Fatalf("successful status writes = %v, want [%s]", successfulWrites, tc.receiverName)
+			}
+			// Capacity is 100 CPUs and the receiver's nominal weight changed
+			// from 1 to 3. Its allocation becomes 75 while the failed donor
+			// write must leave the previously persisted allocation untouched.
+			for _, check := range []struct {
+				name string
+				want resource.Quantity
+			}{
+				{tc.receiverName, resource.MustParse("75")},
+				{donorName, previousDonorQuota},
+			} {
+				var persisted kueue.ClusterQueue
+				if err := cl.Get(ctx, client.ObjectKey{Name: check.name}, &persisted); err != nil {
+					t.Fatal(err)
+				}
+				if persisted.Status.EffectiveQuotas == nil {
+					t.Fatalf("effective quotas missing for %s", check.name)
+				}
+				got := persisted.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota
+				if got.Cmp(check.want) != 0 {
+					t.Errorf("%s quota after interrupted update = %s, want %s", check.name, got.String(), check.want.String())
+				}
 			}
 
 			failDonor = false
@@ -168,15 +219,14 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 // TestPreWriteDistributionErrorPreservesCondition verifies that read errors
 // preceding quota updates do not overwrite the previous Distributed condition.
 func TestPreWriteDistributionErrorPreservesCondition(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
+	for name, tc := range map[string]struct {
 		status metav1.ConditionStatus
 		reason string
 	}{
-		{"previously distributed", metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed},
-		{"previously deactivated", metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured},
+		"previously distributed": {metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed},
+		"previously deactivated": {metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			testPreWriteDistributionErrorPreservesCondition(t, tc.status, tc.reason)
 		})
 	}
@@ -194,7 +244,7 @@ func testPreWriteDistributionErrorPreservesCondition(t *testing.T, previousStatu
 			Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
 			Status:  previousStatus,
 			Reason:  previousReason,
-			Message: "previously deactivated",
+			Message: "previously reported",
 		}).Obj()
 	root := utiltestingapi.MakeCohort("root").Obj()
 	queue := utiltestingapi.MakeClusterQueue("cq").Cohort("root").ResourceGroup(
