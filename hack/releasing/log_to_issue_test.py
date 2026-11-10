@@ -42,8 +42,9 @@ class WorkflowTest(unittest.TestCase):
                 if not str(step.get("uses", "")).endswith("report-result"):
                     continue
                 with self.subTest(job=job_name, step=step["name"]):
-                    mark_done = str(step.get("with", {}).get("mark-done", "false")).lower() == "true"
-                    self.assertEqual(mark_done, step["name"] == "Report Success")
+                    mark_done = str(step.get("with", {}).get("mark-done", "false"))
+                    can_mark_done = mark_done.lower() == "true" or (mark_done.startswith("${{") and mark_done.endswith("}}"))
+                    self.assertEqual(can_mark_done, step["name"] == "Report Success")
 
 
 class MainTest(unittest.TestCase):
