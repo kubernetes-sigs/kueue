@@ -75,7 +75,6 @@ func (u *unadmittedWorkloads) update(
 	log logr.Logger,
 	wl *kueue.Workload,
 	cqName kueue.ClusterQueueReference,
-	lqExists bool,
 	m *Manager,
 ) {
 	u.rwm.Lock()
@@ -101,12 +100,12 @@ func (u *unadmittedWorkloads) update(
 	log.V(4).Info("Updating unadmitted workload tracking", "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
-		u.decrementStatusCounts(log, oldStatus, lqExists, m)
+		u.decrementStatusCounts(log, oldStatus, m)
 		delete(u.statuses, wlKey)
 	}
 	if status != nil {
 		u.statuses[wlKey] = *status
-		u.incrementStatusCounts(log, *status, lqExists, m)
+		u.incrementStatusCounts(log, *status, m)
 	}
 }
 
@@ -121,7 +120,7 @@ func (u *unadmittedWorkloads) remove(
 	oldStatus, ok := u.statuses[wlKey]
 	if ok {
 		log.V(4).Info("Removing workload from unadmitted tracking", "workload", wlKey, "status", oldStatus)
-		u.decrementStatusCounts(log, oldStatus, true, m)
+		u.decrementStatusCounts(log, oldStatus, m)
 		delete(u.statuses, wlKey)
 	} else {
 		log.V(4).Info("Workload to remove was not tracked as unadmitted", "workload", wlKey)
@@ -131,26 +130,23 @@ func (u *unadmittedWorkloads) remove(
 func (u *unadmittedWorkloads) incrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, 1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, 1, m)
 }
 
 func (u *unadmittedWorkloads) decrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, -1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, -1, m)
 }
 
 func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	diff int,
-	lqExists bool,
 	m *Manager,
 ) {
 	cqKey := status.ClusterQueueStatus()
@@ -199,6 +195,8 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	}
 
 	lqRefKey := queue.NewLocalQueueReference(status.LocalQueueNamespace, status.LocalQueueName)
+	// The status may name a LocalQueue that was deleted or that the Workload has left.
+	lqExists := m.LocalQueueExistsWithoutLock(lqRefKey)
 	if lqExists && status.ClusterQueue != "" {
 		lqRef := metrics.LocalQueueReference{Name: status.LocalQueueName, Namespace: status.LocalQueueNamespace}
 		lqCustomLabels := m.customLabels.LQGet(lqRefKey)
