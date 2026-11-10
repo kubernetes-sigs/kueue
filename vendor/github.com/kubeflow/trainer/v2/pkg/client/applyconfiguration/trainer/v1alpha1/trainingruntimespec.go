@@ -27,6 +27,16 @@ type TrainingRuntimeSpecApplyConfiguration struct {
 	MLPolicy *MLPolicyApplyConfiguration `json:"mlPolicy,omitempty"`
 	// podGroupPolicy defines the configuration for the PodGroup to enable gang-scheduling via supported plugins.
 	PodGroupPolicy *PodGroupPolicyApplyConfiguration `json:"podGroupPolicy,omitempty"`
+	// scheduling defines the Workload-Aware Scheduling configuration for TrainJobs which
+	// reference this runtime. When set, the TrainJob controller creates a Workload and the
+	// corresponding PodGroups for every TrainJob. When nil, no scheduling objects are created and
+	// TrainJob behavior is unchanged.
+	// This field is mutually exclusive with podGroupPolicy.
+	// This is an alpha feature and requires enabling the TrainJobWorkloadAwareScheduling feature gate.
+	// This field embeds upstream scheduling.k8s.io/v1alpha3 types and is excluded from the Trainer API
+	// stability guarantees until the upstream scheduling APIs graduate.
+	// More info: https://github.com/kubeflow/trainer/tree/master/proposals/3015-workload-aware-scheduling
+	Scheduling *TrainingRuntimeSchedulingApplyConfiguration `json:"scheduling,omitempty"`
 	// template for the JobSet which will be used by TrainJob.
 	Template *JobSetTemplateSpecApplyConfiguration `json:"template,omitempty"`
 }
@@ -50,6 +60,14 @@ func (b *TrainingRuntimeSpecApplyConfiguration) WithMLPolicy(value *MLPolicyAppl
 // If called multiple times, the PodGroupPolicy field is set to the value of the last call.
 func (b *TrainingRuntimeSpecApplyConfiguration) WithPodGroupPolicy(value *PodGroupPolicyApplyConfiguration) *TrainingRuntimeSpecApplyConfiguration {
 	b.PodGroupPolicy = value
+	return b
+}
+
+// WithScheduling sets the Scheduling field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Scheduling field is set to the value of the last call.
+func (b *TrainingRuntimeSpecApplyConfiguration) WithScheduling(value *TrainingRuntimeSchedulingApplyConfiguration) *TrainingRuntimeSpecApplyConfiguration {
+	b.Scheduling = value
 	return b
 }
 

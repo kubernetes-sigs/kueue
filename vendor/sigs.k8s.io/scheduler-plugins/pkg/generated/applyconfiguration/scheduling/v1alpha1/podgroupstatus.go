@@ -25,13 +25,22 @@ import (
 
 // PodGroupStatusApplyConfiguration represents a declarative configuration of the PodGroupStatus type for use
 // with apply.
+//
+// PodGroupStatus represents the current state of a pod group.
 type PodGroupStatusApplyConfiguration struct {
-	Phase             *schedulingv1alpha1.PodGroupPhase `json:"phase,omitempty"`
-	OccupiedBy        *string                           `json:"occupiedBy,omitempty"`
-	Running           *int32                            `json:"running,omitempty"`
-	Succeeded         *int32                            `json:"succeeded,omitempty"`
-	Failed            *int32                            `json:"failed,omitempty"`
-	ScheduleStartTime *v1.Time                          `json:"scheduleStartTime,omitempty"`
+	// Current phase of PodGroup.
+	Phase *schedulingv1alpha1.PodGroupPhase `json:"phase,omitempty"`
+	// OccupiedBy marks the workload (e.g., deployment, statefulset) UID that occupy the podgroup.
+	// It is empty if not initialized.
+	OccupiedBy *string `json:"occupiedBy,omitempty"`
+	// The number of actively running pods.
+	Running *int32 `json:"running,omitempty"`
+	// The number of pods which reached phase Succeeded.
+	Succeeded *int32 `json:"succeeded,omitempty"`
+	// The number of pods which reached phase Failed.
+	Failed *int32 `json:"failed,omitempty"`
+	// ScheduleStartTime of the group
+	ScheduleStartTime *v1.Time `json:"scheduleStartTime,omitempty"`
 }
 
 // PodGroupStatusApplyConfiguration constructs a declarative configuration of the PodGroupStatus type for use with

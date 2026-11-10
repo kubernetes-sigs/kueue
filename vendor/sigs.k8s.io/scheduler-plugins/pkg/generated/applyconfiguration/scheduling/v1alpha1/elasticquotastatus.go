@@ -24,7 +24,10 @@ import (
 
 // ElasticQuotaStatusApplyConfiguration represents a declarative configuration of the ElasticQuotaStatus type for use
 // with apply.
+//
+// ElasticQuotaStatus defines the observed use.
 type ElasticQuotaStatusApplyConfiguration struct {
+	// Used is the current observed total usage of the resource in the namespace.
 	Used *v1.ResourceList `json:"used,omitempty"`
 }
 
