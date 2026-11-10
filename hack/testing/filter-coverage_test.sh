@@ -37,6 +37,9 @@ sigs.k8s.io/kueue/pkg/controller/b.go:2.1,2.5 2 0
 PROFILE
 { head -n 1 "$work/filtered.cov"; tail -n +2 "$work/filtered.cov" | sort; } > "$work/actual"
 diff -u "$work/want" "$work/actual"
+# An output directory that does not exist yet is created safely.
+bash "$script" "$work/atomic.cov" "$work/nested/filtered.cov" "$exclude"
+cmp "$work/filtered.cov" "$work/nested/filtered.cov"
 cat > "$work/set.cov" <<'PROFILE'
 mode: set
 sigs.k8s.io/kueue/pkg/a.go:1.1,1.5 1 1

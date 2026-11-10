@@ -27,6 +27,7 @@ if [[ ! -s "$input" ]]; then
   exit 1
 fi
 # Only replace the destination after a complete successful parse.
+mkdir -p "$(dirname "$output")"
 tmp=$(mktemp "$output.tmp.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 awk -v exclude="$exclude" '
@@ -43,6 +44,7 @@ awk -v exclude="$exclude" '
     next
   }
   {
+    # Go coverage filenames here are Go import paths without spaces.
     if (NF != 3 || $1 !~ /:[0-9]+\.[0-9]+,[0-9]+\.[0-9]+$/ ||
         $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/)
       invalid("malformed block at line " NR)
