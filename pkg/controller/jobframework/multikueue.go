@@ -25,7 +25,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
+
+// IsMultiKueueQueue reports whether the LocalQueue's ClusterQueue uses MultiKueue.
+func IsMultiKueueQueue(namespace string, name kueue.LocalQueueName, queues *qcache.Manager, cache *schdcache.Cache) bool {
+	if name == "" {
+		return false
+	}
+	clusterQueue, found := queues.ClusterQueueFromLocalQueue(utilqueue.NewLocalQueueReference(namespace, name))
+	return found && cache.HasMultiKueueAdmissionCheck(clusterQueue)
+}
 
 // MultiKueueAdapter interface needed for MultiKueue job delegation.
 type MultiKueueAdapter interface {

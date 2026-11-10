@@ -22,6 +22,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -201,6 +202,12 @@ func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
 		j.Labels = make(map[string]string)
 	}
 	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
+// UID sets the UID of the job.
+func (j *JobWrapper) UID(uid string) *JobWrapper {
+	j.RayJob.UID = types.UID(uid)
 	return j
 }
 

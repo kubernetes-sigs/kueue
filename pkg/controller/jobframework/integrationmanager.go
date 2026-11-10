@@ -69,6 +69,9 @@ type IntegrationCallbacks struct {
 	SetupWebhook func(mgr ctrl.Manager, opts ...Option) error
 	// JobType holds an object of the type managed by the integration's webhook
 	JobType runtime.Object
+	// IsManagingObjectsOwner optionally excludes owners whose children need their
+	// own Workloads. An excluded owner is a boundary for ancestor traversal.
+	IsManagingObjectsOwner func(client.Object) bool
 	// SetupIndexes registers any additional indexes with the controllers manager
 	// (this callback is optional)
 	SetupIndexes func(ctx context.Context, indexer client.FieldIndexer) error
@@ -196,18 +199,39 @@ func (m *IntegrationManager) HasImplicitlyEnabledFramework(gvk schema.GroupVersi
 	return found && m.implicitlyEnabledIntegrations.Has(name)
 }
 
-// IsOwnerManagedByKueueForObject returns true if the provided object's owner
-// can be managed by Kueue through this manager.
+// IsOwnerManagedByKueueForObject reports whether the owner has an enabled built-in or external integration.
+// It checks the owner reference without reading the owner's configuration.
 func (m *IntegrationManager) IsOwnerManagedByKueueForObject(obj client.Object) bool {
 	if owner := metav1.GetControllerOf(obj); owner != nil {
-		return m.getJobTypeForOwner(owner) != nil
+		return m.getIntegrationForOwner(owner).JobType != nil
 	}
 	return false
 }
 
+// shouldDeferToOwner reports whether defaulting should leave management to the
+// owner integration. Owners excluded by that integration need independent children.
+func (m *IntegrationManager) shouldDeferToOwner(ctx context.Context, c client.Client, obj client.Object) (bool, error) {
+	owner := metav1.GetControllerOf(obj)
+	if owner == nil {
+		return false, nil
+	}
+	integration := m.getIntegrationForOwner(owner)
+	if integration.JobType == nil {
+		return false, nil
+	}
+	if integration.IsManagingObjectsOwner == nil {
+		return true, nil
+	}
+	parent := integration.JobType.DeepCopyObject().(client.Object)
+	if err := c.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: owner.Name}, parent); err != nil {
+		return false, errors.Join(ErrWorkloadOwnerNotFound, err)
+	}
+	return parent.GetUID() == owner.UID && integration.IsManagingObjectsOwner(parent), nil
+}
+
 // GetEmptyOwnerObject returns an empty object for owner when this manager can manage it.
 func (m *IntegrationManager) GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
-	if jt := m.getJobTypeForOwner(owner); jt != nil {
+	if jt := m.getIntegrationForOwner(owner).JobType; jt != nil {
 		return jt.DeepCopyObject().(client.Object)
 	}
 	return nil
@@ -341,20 +365,22 @@ func (m *IntegrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool 
 	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == appsv1.SchemeGroupVersion.String()
 }
 
-func (m *IntegrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
+// getIntegrationForOwner resolves enabled built-in integrations before external
+// types. External integrations provide only a JobType, without built-in callbacks.
+func (m *IntegrationManager) getIntegrationForOwner(ownerRef *metav1.OwnerReference) IntegrationCallbacks {
 	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
 		if found && cbs.matchingOwnerReference(ownerRef) {
-			return cbs.JobType
+			return cbs
 		}
 	}
 	for _, jt := range m.externalIntegrations {
 		if ownerReferenceMatchingGVK(ownerRef, jt.GetObjectKind().GroupVersionKind()) {
-			return jt
+			return IntegrationCallbacks{JobType: jt}
 		}
 	}
 
-	return nil
+	return IntegrationCallbacks{}
 }
 
 func (m *IntegrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
