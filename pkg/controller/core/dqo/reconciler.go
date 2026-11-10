@@ -234,14 +234,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	default:
 		if err := r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
 			log.Error(err, "Failed to distribute quotas")
-			// Preserve Distributed=False when validation or listing fails before
-			// quota writes; other DQOs may rely on it to take over retained quotas.
-			// Once status writes are attempted, report Unknown even if previously
-			// False, since the persisted allocation may now be partially applied.
-			if !isDistributedFalse(&orchestrator) || errors.Is(err, errApplyingEffectiveQuotas) {
-				r.setDistributionCondition(&orchestrator, metav1.ConditionUnknown,
-					kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
-			}
 			distributionErr = err
 		}
 	}

@@ -165,10 +165,24 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 	}
 }
 
-// TestPreWriteDistributionErrorPreservesFalse covers an error from subtree
-// discovery before any quota status write. An unrelated DQO must still be
-// allowed to take over retained quotas of this deactivated owner.
-func TestPreWriteDistributionErrorPreservesFalse(t *testing.T) {
+// TestPreWriteDistributionErrorPreservesCondition verifies that read errors
+// preceding quota updates do not overwrite the previous Distributed condition.
+func TestPreWriteDistributionErrorPreservesCondition(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status metav1.ConditionStatus
+		reason string
+	}{
+		{"previously distributed", metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed},
+		{"previously deactivated", metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testPreWriteDistributionErrorPreservesCondition(t, tc.status, tc.reason)
+		})
+	}
+}
+
+func testPreWriteDistributionErrorPreservesCondition(t *testing.T, previousStatus metav1.ConditionStatus, previousReason string) {
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
 
 	ctx, _ := utiltesting.ContextWithLog(t)
@@ -178,8 +192,8 @@ func TestPreWriteDistributionErrorPreservesFalse(t *testing.T) {
 		SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root").
 		Condition(metav1.Condition{
 			Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
-			Status:  metav1.ConditionFalse,
-			Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+			Status:  previousStatus,
+			Reason:  previousReason,
 			Message: "previously deactivated",
 		}).Obj()
 	root := utiltestingapi.MakeCohort("root").Obj()
@@ -213,9 +227,8 @@ func TestPreWriteDistributionErrorPreservesFalse(t *testing.T) {
 		t.Fatal(err)
 	}
 	condition := apimeta.FindStatusCondition(actual.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)
-	if condition == nil || condition.Status != metav1.ConditionFalse ||
-		condition.Reason != kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured {
-		t.Fatalf("Distributed condition after pre-write error = %+v, want retained False/Misconfigured", condition)
+	if condition == nil || condition.Status != previousStatus || condition.Reason != previousReason {
+		t.Fatalf("Distributed condition after pre-write error = %+v, want retained %s/%s", condition, previousStatus, previousReason)
 	}
 	var persistedQueue kueue.ClusterQueue
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(queue), &persistedQueue); err != nil {

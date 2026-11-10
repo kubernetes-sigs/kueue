@@ -513,17 +513,20 @@ Tracks whether effective quota was distributed across the subtree. **This condit
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `QuotasDistributed` | Proportional distribution calculated and `status.effectiveQuotas` updated across all subtree ClusterQueues and Cohorts. |
-| `Unknown` | `DistributionIncomplete` | A ClusterQueue or Cohort effective-quota status update failed. Some participants may have new allocations while others retain old allocations; the controller retries reconciliation. |
+| `Unknown` | `DistributionIncomplete` | A ClusterQueue or Cohort effective-quota status update failed. Some participants may have new allocations while others retain old allocations; the controller retries reconciliation. This condition is recorded only if the DQO status update succeeds. |
 | `False` | `EffectiveCapacityNotComputed` | Distribution skipped because Phase 1 discovery is not ready (`EffectiveCapacityComputed != True`). |
 | `False` | `ConflictingDynamicQuotaOrchestrator` | Deactivated by soft validation because an ancestor DQO has priority. |
 | `False` | `EffectiveQuotasConflict` | A target ClusterQueue or Cohort already has `status.effectiveQuotas.orchestratorRef` owned by a different orchestrator. |
 | `False` | `Misconfigured` | The `ClusterQueue` or `Cohort` specified in `spec.capacityDistribution.subtreeRootQuotaRef` does not exist. |
 
-When a participant quota status write fails, `Distributed=Unknown` replaces a
-stale success result rather than reporting that distribution completed. A
-successful retry restores `True/QuotasDistributed`. A failure before the quota
-write phase retains an existing `Distributed=False` condition so that an
-already-deactivated orchestrator does not unexpectedly regain ownership.
+When a participant quota status write fails, the controller attempts to report
+`Distributed=Unknown` rather than leaving a stale success result. This requires
+the DQO status update to succeed; if that update also fails, the previously
+persisted condition can remain unchanged until a later reconciliation.
+A successful retry restores `True/QuotasDistributed`. Errors before the
+participant quota write phase preserve the existing `Distributed` condition
+(including `True` or `False`) because no allocation writes have occurred.
+Preserving `False` also avoids unexpectedly reactivating a deactivated owner.
 
 `Unknown` is a reporting state, not an admission barrier or an atomic commit:
 Kueue continues using any persisted `status.effectiveQuotas` values, which may

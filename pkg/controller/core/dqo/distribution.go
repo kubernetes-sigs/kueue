@@ -18,7 +18,6 @@ package dqo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -38,10 +37,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
-
-// errApplyingEffectiveQuotas identifies errors from the quota status write phase.
-// Earlier failures must not deactivate a previously Distributed=False owner.
-var errApplyingEffectiveQuotas = errors.New("applying effective quotas")
 
 // reconcileDistribution performs Phase 2 reconciliation: validates subtree conflicts, resolves the target hierarchy, and distributes effective quotas.
 func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) error {
@@ -81,7 +76,10 @@ func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *ku
 
 	allocatedQuantities := calculateAllocations(effectiveCapacity, targetCohorts, targetClusterQueues)
 	if err := r.applyEffectiveQuotas(ctx, orchestrator.Name, targetClusterQueues, targetCohorts, allocatedQuantities); err != nil {
-		return fmt.Errorf("%w: %w", errApplyingEffectiveQuotas, err)
+		// Earlier participants may already have received new quotas.
+		r.setDistributionCondition(orchestrator, metav1.ConditionUnknown,
+			kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
+		return err
 	}
 
 	r.setDistributionCondition(orchestrator, metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed, "Quotas successfully distributed")
