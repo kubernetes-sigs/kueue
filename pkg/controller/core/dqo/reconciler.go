@@ -234,6 +234,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	default:
 		if err := r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
 			log.Error(err, "Failed to distribute quotas")
+			// An interrupted update can leave a mix of old and new quotas. Do not
+			// retain a prior Distributed=True result. Unknown (rather than False)
+			// avoids treating this transient failure as relinquishing ownership.
+			r.setDistributionCondition(&orchestrator, metav1.ConditionUnknown,
+				kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
 			distributionErr = err
 		}
 	}
