@@ -414,7 +414,22 @@ func TestReconciler(t *testing.T) {
 		RequestHead(corev1.ResourceCPU, "10").
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
+	baseWorkloadWrapper := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue(localQueueName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+				PodSpec(*baseJobWrapper.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).Obj(),
+			*utiltestingapi.MakePodSet("workers-group-0", 1).
+				PodSpec(*baseJobWrapper.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).Obj(),
+		).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+			PodSets(utiltestingapi.MakePodSetAssignment(headGroupPodSetName).Obj(),
+				utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).Obj(), now).
+		AdmittedAt(true, now)
+
 	cases := map[string]struct {
+		featureGates      map[featuregate.Feature]bool
 		reconcilerOptions []jobframework.Option
 		job               rayv1.RayCluster
 		initObjects       []client.Object
@@ -425,6 +440,62 @@ func TestReconciler(t *testing.T) {
 		runInfo           []podset.PodSetInfo
 		wantErr           error
 	}{
+		"Workload priority class pod label is set when the gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: true,
+				features.TopologyAwareScheduling:                 false,
+			},
+			job: *baseJobWrapper.Clone().
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				WorkloadPriorityClass("high-priority").
+				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "wl").
+				NodeLabel(rayv1.HeadNode, constants.WorkloadPriorityClassPodLabel, "high-priority").
+				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "wl").
+				NodeLabel(rayv1.WorkerNode, constants.WorkloadPriorityClassPodLabel, "high-priority").
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+		},
+		"Workload priority class pod label is absent when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: false,
+				features.TopologyAwareScheduling:                 false,
+			},
+			job: *baseJobWrapper.Clone().
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				WorkloadPriorityClass("high-priority").
+				NodeLabel(rayv1.HeadNode, constants.PodSetLabel, "head").
+				NodeLabel(rayv1.HeadNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.HeadNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeAnnotation(rayv1.HeadNode, kueue.WorkloadAnnotation, "wl").
+				NodeLabel(rayv1.WorkerNode, constants.PodSetLabel, "workers-group-0").
+				NodeLabel(rayv1.WorkerNode, constants.LocalQueueLabel, localQueueName).
+				NodeLabel(rayv1.WorkerNode, constants.ClusterQueueLabel, clusterQueueName).
+				NodeAnnotation(rayv1.WorkerNode, kueue.WorkloadAnnotation, "wl").
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+		},
 		"when workload is admitted, cluster is unsuspended": {
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
@@ -795,6 +866,7 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{

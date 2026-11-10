@@ -1769,6 +1769,16 @@ func TestReconciler(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
+	baseWorkloadWrapper := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue(localUserQueueName).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").Obj()).
+		ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+		AdmittedAt(true, now)
+
 	podUID := "dc85db45"
 	emptyGroupOwner := &appsv1.StatefulSet{
 		Name:      "sts",
@@ -1824,6 +1834,69 @@ func TestReconciler(t *testing.T) {
 		reconcilerOptions []jobframework.Option
 		featureGates      map[featuregate.Feature]bool
 	}{
+		"Workload priority class pod label is set when the gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: true,
+				features.TopologyAwareScheduling:                 false,
+			},
+			pods: []corev1.Pod{*basePodWrapper.Clone().
+				ManagedByKueueLabel().KueueFinalizer().KueueSchedulingGate().
+				WorkloadPriorityClass("high-priority").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.Clone().
+				ManagedByKueueLabel().KueueFinalizer().
+				WorkloadPriorityClass("high-priority").
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.WorkloadAnnotation, "wl").
+				Label(constants.WorkloadPriorityClassPodLabel, "high-priority").
+				Obj()},
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+				EventType: "Normal",
+				Reason:    "Started",
+				Message:   "Admitted by clusterQueue cq",
+			}},
+		},
+		"Workload priority class pod label is absent when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: false,
+				features.TopologyAwareScheduling:                 false,
+			},
+			pods: []corev1.Pod{*basePodWrapper.Clone().
+				ManagedByKueueLabel().KueueFinalizer().KueueSchedulingGate().
+				WorkloadPriorityClass("high-priority").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.Clone().
+				ManagedByKueueLabel().KueueFinalizer().
+				WorkloadPriorityClass("high-priority").
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.WorkloadAnnotation, "wl").
+				Obj()},
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				Obj()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+				EventType: "Normal",
+				Reason:    "Started",
+				Message:   "Admitted by clusterQueue cq",
+			}},
+		},
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
