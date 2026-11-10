@@ -561,6 +561,87 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should clean up a disconnected worker removed from the config after workload eviction", framework.SlowSpec, func() {
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		jobLookupKey := client.ObjectKeyFromObject(job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		restoreConnection := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, managersConfigNamespace.Name)
+		defer restoreConnection()
+
+		ginkgo.By("waiting for the manager workload to be evicted while worker2 is still configured", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				g.Expect(workload.HasQuotaReservation(managerWl)).To(gomega.BeFalse())
+				g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+				acs := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(f.multiKueueAC.Name))
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping worker2 configured while cleanup retries cannot reach its objects", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+			}, testingWorkerLostTimeout*2, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("removing worker2 from the config without deleting its MultiKueueCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.managerMultiKueueConfig), f.managerMultiKueueConfig)).To(gomega.Succeed())
+				f.managerMultiKueueConfig.Spec.Clusters = []string{f.workerCluster1.Name}
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, f.managerMultiKueueConfig)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("readmitting the workload on worker1 while the old worker remains disconnected", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission.Obj())
+			behavioral.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
+			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+		})
+
+		restoreConnection()
+
+		ginkgo.By("cleaning up the old worker without deleting the manager workload or the new worker's objects", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+			managerWl := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+			gomega.Expect(managerWl.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+			gomega.Expect(managerWl.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(f.workerCluster1.Name)))
+			gomega.Expect(managerWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should clean up the remote workload on a reconnected worker after the job finishes", framework.SlowSpec, func() {
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			Queue(kueue.LocalQueueName(f.managerLq.Name)).

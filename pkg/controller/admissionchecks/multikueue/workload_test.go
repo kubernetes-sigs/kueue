@@ -32,12 +32,18 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -53,12 +59,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -2474,7 +2483,20 @@ func TestWlReconcile(t *testing.T) {
 
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(
+					managerClient,
+					managerClient,
+					helper,
+					cRec,
+					defaultOrigin,
+					recorder,
+					defaultWorkerLostTimeout,
+					time.Second,
+					adapters,
+					mkDispatcherName,
+					nil,
+					WithClock(t, fakeClock),
+				)
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{
@@ -2634,6 +2656,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 	recorder := &utiltesting.EventRecorder{}
 	reconciler := newWlReconciler(
+		managerClient,
 		managerClient,
 		helper,
 		cRec,
@@ -2824,6 +2847,7 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(
 				managerClient,
+				managerClient,
 				helper,
 				cRec,
 				defaultOrigin,
@@ -2851,13 +2875,276 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 	}
 }
 
+func TestPreviousClusterCleanupWithStaleWorkloadCache(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
+	apiClient, ok := reconciler.client.(client.WithWatch)
+	if !ok {
+		t.Fatal("expected a fake client with watch support")
+	}
+	worker2 := newRemoteClient(apiClient, nil, nil, nil, defaultOrigin, "worker2", reconciler.adapters)
+	worker2.client = NewNeverCachingClient(getClientBuilder(ctx).WithStatusSubresource(&kueue.Workload{}).Build())
+	worker2.connState.markConnected()
+	reconciler.clusters.remoteClients["worker2"] = worker2
+	req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
+	cachedWl := &kueue.Workload{}
+	if err := apiClient.Get(ctx, req.NamespacedName, cachedWl); err != nil {
+		t.Fatal(err)
+	}
+	mapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{kueue.SchemeGroupVersion})
+	mapper.Add(kueue.SchemeGroupVersion.WithKind("Workload"), apimeta.RESTScopeNamespace)
+	watcher := watch.NewRaceFreeFake()
+	localCache, err := ctrlcache.New(&rest.Config{Host: "http://localhost"}, ctrlcache.Options{
+		Scheme: apiClient.Scheme(),
+		Mapper: mapper,
+		NewInformer: func(_ toolscache.ListerWatcher, obj runtime.Object, resync time.Duration, indexers toolscache.Indexers) toolscache.SharedIndexInformer {
+			return toolscache.NewSharedIndexInformer(&toolscache.ListWatch{
+				ListWithContextFunc: func(context.Context, metav1.ListOptions) (runtime.Object, error) {
+					list := &kueue.WorkloadList{Items: []kueue.Workload{*cachedWl.DeepCopy()}}
+					list.ResourceVersion = cachedWl.ResourceVersion
+					return list, nil
+				},
+				WatchFuncWithContext: func(_ context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+					if ptr.Deref(opts.SendInitialEvents, false) {
+						watcher.Add(cachedWl.DeepCopy())
+						bookmark := &kueue.Workload{}
+						bookmark.ResourceVersion = cachedWl.ResourceVersion
+						bookmark.Annotations = map[string]string{metav1.InitialEventsAnnotationKey: "true"}
+						watcher.Action(watch.Bookmark, bookmark)
+					}
+					return watcher, nil
+				},
+			}, obj, resync, indexers)
+		},
+	})
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	informer, err := localCache.GetInformer(ctx, &kueue.Workload{}, ctrlcache.BlockUntilSynced(false))
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if _, err := informer.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj any) {
+			reconciler.Update(event.UpdateEvent{ObjectOld: oldObj.(*kueue.Workload), ObjectNew: newObj.(*kueue.Workload)})
+		},
+	}); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	cacheStopped := make(chan error, 1)
+	go func() { cacheStopped <- localCache.Start(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-cacheStopped; err != nil {
+			t.Errorf("stopping workload cache: %v", err)
+		}
+	})
+	if !localCache.WaitForCacheSync(ctx) {
+		t.Fatal("workload cache did not sync")
+	}
+	reconciler.client = interceptor.NewClient(apiClient, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+				return localCache.Get(ctx, key, obj, opts...)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	remoteClient := reconciler.clusters.remoteClients["worker1"].getClient()
+	remoteJob := testingjob.MakeJob("job1", TestNamespace).
+		PrebuiltWorkloadLabel(req.Name).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Obj()
+	if err := remoteClient.Create(ctx, remoteJob); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("readmitting workload: %v", err)
+	}
+	admittedWl := &kueue.Workload{}
+	if err := apiClient.Get(ctx, req.NamespacedName, admittedWl); err != nil {
+		t.Fatal(err)
+	}
+	if workload.ClusterName(admittedWl) != "worker1" {
+		t.Fatalf("expected readmission on worker1, got %q", workload.ClusterName(admittedWl))
+	}
+	staleWl := &kueue.Workload{}
+	if err := localCache.Get(ctx, req.NamespacedName, staleWl); err != nil {
+		t.Fatal(err)
+	}
+	if workload.ClusterName(staleWl) != "" {
+		t.Fatal("expected the cache to remain stale after readmission")
+	}
+	oldAdmission := admittedWl.DeepCopy()
+	oldAdmission.ResourceVersion = "1"
+	oldEviction := oldAdmission.DeepCopy()
+	oldEviction.ResourceVersion = "2"
+	oldEviction.Status.ClusterName = nil
+	now := time.Now()
+	workloadevict.SetEvictedCondition(oldEviction, now, kueue.WorkloadEvictedByAdmissionCheck, "Earlier eviction")
+	workloadevict.ResetChecksOnEviction(oldEviction, now)
+	workload.UnsetQuotaReservationWithCondition(oldEviction, "EvictedByTest", "Earlier eviction", now)
+	reconciler.Update(event.UpdateEvent{ObjectOld: oldAdmission, ObjectNew: oldEviction})
+	cfg := &kueue.MultiKueueConfig{}
+	if err := apiClient.Get(ctx, types.NamespacedName{Name: "config1"}, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Spec.Clusters = []string{"worker2"}
+	if err := apiClient.Update(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	readerError := errFake
+	reconciler.apiReader = interceptor.NewClient(apiClient, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if readerError != nil {
+				return readerError
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	if _, err := reconciler.Reconcile(ctx, req); !errors.Is(err, errFake) {
+		t.Fatalf("expected the APIReader error to be returned, got %v", err)
+	}
+	if remaining, _ := reconciler.previousClusterNames.Get(req.String()); remaining["worker1"] != oldEviction.ResourceVersion {
+		t.Fatalf("expected cleanup to remain pending after the APIReader error, got %v", remaining)
+	}
+	readerError = nil
+	if _, err := reconciler.Reconcile(ctx, req); err != nil && !apierrors.IsConflict(err) {
+		t.Fatalf("reconciling with a stale workload cache: %v", err)
+	}
+	if err := remoteClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{}); err != nil {
+		t.Fatalf("readmitted job was removed while the cache was stale: %v", err)
+	}
+	if err := remoteClient.Get(ctx, req.NamespacedName, &kueue.Workload{}); err != nil {
+		t.Fatalf("readmitted workload was removed while the cache was stale: %v", err)
+	}
+	if remaining, _ := reconciler.previousClusterNames.Get(req.String()); remaining["worker1"] != oldEviction.ResourceVersion {
+		t.Fatalf("expected the old record to remain until the admission notification, got %v", remaining)
+	}
+	watcher.Modify(admittedWl.DeepCopy())
+	if err := wait.PollUntilContextCancel(ctx, time.Millisecond, true, func(ctx context.Context) (bool, error) {
+		remaining, _ := reconciler.previousClusterNames.Get(req.String())
+		return len(remaining) == 0, nil
+	}); err != nil {
+		t.Fatalf("waiting for the admission notification to clear the old record: %v", err)
+	}
+
+	evictedWl := admittedWl.DeepCopy()
+	now = time.Now()
+	evictedWl.Status.ClusterName = nil
+	workloadevict.SetEvictedCondition(evictedWl, now, kueue.WorkloadEvictedByAdmissionCheck, "Evicted by test")
+	workloadevict.ResetChecksOnEviction(evictedWl, now)
+	workload.UnsetQuotaReservationWithCondition(evictedWl, "EvictedByTest", "Evicted by test", now)
+	if err := apiClient.Status().Update(ctx, evictedWl); err != nil {
+		t.Fatal(err)
+	}
+	watcher.Modify(evictedWl.DeepCopy())
+	if err := wait.PollUntilContextCancel(ctx, time.Millisecond, true, func(ctx context.Context) (bool, error) {
+		remaining, _ := reconciler.previousClusterNames.Get(req.String())
+		return remaining["worker1"] == evictedWl.ResourceVersion, nil
+	}); err != nil {
+		t.Fatalf("waiting for the newer eviction notification: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("cleaning up after the newer eviction: %v", err)
+	}
+	if err := remoteClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{}); !apierrors.IsNotFound(err) {
+		t.Errorf("expected the evicted job to be deleted, got %v", err)
+	}
+	if err := remoteClient.Get(ctx, req.NamespacedName, &kueue.Workload{}); !apierrors.IsNotFound(err) {
+		t.Errorf("expected the evicted workload to be deleted, got %v", err)
+	}
+	if remaining, _ := reconciler.previousClusterNames.Get(req.String()); len(remaining) != 0 {
+		t.Errorf("unexpected pending cleanup after the newer eviction: %v", remaining)
+	}
+}
+
+func TestRemoveObjectsOnPreviousClustersContinuesAfterErrors(t *testing.T) {
+	for _, failSecondCluster := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failSecondCluster=%t", failSecondCluster), func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			localWl := utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj()
+			managerClient := getClientBuilder(ctx).Build()
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			clusters := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
+			reconciler := &wlReconciler{
+				apiReader:            managerClient,
+				clusters:             clusters,
+				previousClusterNames: utilmaps.NewSyncMap[string, map[string]string](0),
+			}
+			group := &wlGroup{
+				local:         localWl,
+				localClient:   managerClient,
+				jobAdapter:    adapters[batchv1.SchemeGroupVersion.WithKind("Job").String()],
+				controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+			}
+			deleteErrors := map[string]error{"worker1": errors.New("worker1 deletion failed")}
+			if failSecondCluster {
+				deleteErrors["worker2"] = errors.New("worker2 deletion failed")
+			}
+			previousClusters := map[string]string{}
+			for _, clusterName := range []string{"worker1", "worker2", "worker3"} {
+				remote := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, clusterName, adapters)
+				remote.client = NewNeverCachingClient(getClientBuilder(ctx).
+					WithObjects(localWl.DeepCopy()).
+					WithInterceptorFuncs(interceptor.Funcs{
+						Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+							if err := deleteErrors[clusterName]; err != nil {
+								return err
+							}
+							return c.Delete(ctx, obj, opts...)
+						},
+					}).
+					Build())
+				remote.connState.markConnected()
+				clusters.remoteClients[clusterName] = remote
+				previousClusters[clusterName] = "1"
+			}
+			key := client.ObjectKeyFromObject(localWl).String()
+			reconciler.previousClusterNames.Add(key, previousClusters)
+
+			_, err := reconciler.removeObjectsOnPreviousClusters(ctx, group, key)
+			for clusterName, deleteErr := range deleteErrors {
+				if !errors.Is(err, deleteErr) {
+					t.Errorf("expected deletion error from %s, got %v", clusterName, err)
+				}
+			}
+			for clusterName, remote := range clusters.remoteClients {
+				err := remote.getClient().Get(ctx, client.ObjectKeyFromObject(localWl), &kueue.Workload{})
+				if deleteErrors[clusterName] != nil {
+					if err != nil {
+						t.Errorf("expected workload on %s to remain, got %v", clusterName, err)
+					}
+				} else if !apierrors.IsNotFound(err) {
+					t.Errorf("expected workload on %s to be deleted, got %v", clusterName, err)
+				}
+			}
+			remaining, _ := reconciler.previousClusterNames.Get(key)
+			if diff := cmp.Diff(sets.KeySet(deleteErrors), sets.KeySet(remaining)); diff != "" {
+				t.Errorf("unexpected pending cleanup (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 	cases := map[string]struct {
 		configClusters []string
 		// evictedFrom lists the clusters the workload is evicted from, in order.
 		// The workload is reconciled after each eviction.
-		evictedFrom         []string
-		worker1Disconnected bool
+		evictedFrom                   []string
+		worker1Disconnected           bool
+		removeWorker1AndReconnect     bool
+		readmitWorker1                bool
+		failAdmissionUpdate           bool
+		evictDuringAdmissionUpdate    bool
+		delayEvictionUntilReadmission bool
+		// failDeleteAfterReconnect selects the Delete call to fail: Job first, then Workload.
+		failDeleteAfterReconnect int
 		// deleted delivers the delete event of the manager's workload after the reconciles.
 		deleted bool
 
@@ -2872,6 +3159,96 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		"remote objects on a cluster in the config are left to the regular flow": {
 			configClusters: []string{"worker1", "worker2"},
 			evictedFrom:    []string{"worker1"},
+		},
+		"a disconnected cluster in the config keeps its pending cleanup until removal and reconnection": {
+			configClusters:            []string{"worker1", "worker2"},
+			evictedFrom:               []string{"worker1"},
+			worker1Disconnected:       true,
+			removeWorker1AndReconnect: true,
+			wantWorker1Objects:        true,
+			wantPreviousClusterNames:  sets.New("worker1"),
+			wantRequeueAfter:          defaultWorkerLostTimeout,
+		},
+		"a re-admitted worker is not cleaned up before manager eviction": {
+			configClusters:            []string{"worker1", "worker2"},
+			evictedFrom:               []string{"worker1"},
+			worker1Disconnected:       true,
+			removeWorker1AndReconnect: true,
+			readmitWorker1:            true,
+			wantWorker1Objects:        true,
+			wantPreviousClusterNames:  sets.New("worker1"),
+			wantRequeueAfter:          defaultWorkerLostTimeout,
+		},
+		"a failed re-admission keeps the previous worker cleanup pending": {
+			configClusters:           []string{"worker1", "worker2"},
+			evictedFrom:              []string{"worker1"},
+			worker1Disconnected:      true,
+			readmitWorker1:           true,
+			failAdmissionUpdate:      true,
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
+			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"a new eviction before the admission update returns keeps cleanup pending": {
+			configClusters:             []string{"worker1", "worker2"},
+			evictedFrom:                []string{"worker1"},
+			worker1Disconnected:        true,
+			removeWorker1AndReconnect:  true,
+			readmitWorker1:             true,
+			evictDuringAdmissionUpdate: true,
+			wantWorker1Objects:         true,
+			wantPreviousClusterNames:   sets.New("worker1"),
+			wantRequeueAfter:           defaultWorkerLostTimeout,
+		},
+		"a late eviction is cleared by the following admission notification": {
+			configClusters:                []string{"worker1", "worker2"},
+			evictedFrom:                   []string{"worker1"},
+			worker1Disconnected:           true,
+			readmitWorker1:                true,
+			delayEvictionUntilReadmission: true,
+			wantWorker1Objects:            true,
+			wantRequeueAfter:              defaultWorkerLostTimeout,
+		},
+		"a re-admitted worker is kept while its admission notification is pending": {
+			configClusters:                []string{"worker1", "worker2"},
+			evictedFrom:                   []string{"worker1"},
+			worker1Disconnected:           true,
+			removeWorker1AndReconnect:     true,
+			readmitWorker1:                true,
+			delayEvictionUntilReadmission: true,
+			wantWorker1Objects:            true,
+			wantRequeueAfter:              defaultWorkerLostTimeout,
+		},
+		"a late eviction followed by admission and a newer eviction keeps the newer cleanup": {
+			configClusters:                []string{"worker1", "worker2"},
+			evictedFrom:                   []string{"worker1"},
+			worker1Disconnected:           true,
+			removeWorker1AndReconnect:     true,
+			readmitWorker1:                true,
+			evictDuringAdmissionUpdate:    true,
+			delayEvictionUntilReadmission: true,
+			wantWorker1Objects:            true,
+			wantRequeueAfter:              defaultWorkerLostTimeout,
+		},
+		"a job deletion error after reconnection keeps cleanup pending across config removal": {
+			configClusters:            []string{"worker1", "worker2"},
+			evictedFrom:               []string{"worker1"},
+			worker1Disconnected:       true,
+			removeWorker1AndReconnect: true,
+			failDeleteAfterReconnect:  1,
+			wantWorker1Objects:        true,
+			wantPreviousClusterNames:  sets.New("worker1"),
+			wantRequeueAfter:          defaultWorkerLostTimeout,
+		},
+		"a workload deletion error after reconnection keeps cleanup pending across config removal": {
+			configClusters:            []string{"worker1", "worker2"},
+			evictedFrom:               []string{"worker1"},
+			worker1Disconnected:       true,
+			removeWorker1AndReconnect: true,
+			failDeleteAfterReconnect:  2,
+			wantWorker1Objects:        true,
+			wantPreviousClusterNames:  sets.New("worker1"),
+			wantRequeueAfter:          defaultWorkerLostTimeout,
 		},
 		"remote objects on a disconnected cluster removed from the config are kept for a later retry": {
 			configClusters:           []string{"worker2"},
@@ -2923,9 +3300,22 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				Obj()
 
+			failAdmissionUpdate := false
+			var afterAdmissionUpdate func()
 			managerClient := getClientBuilder(ctx).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					SubResourceApply: func(ctx context.Context, c client.Client, subResource string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if failAdmissionUpdate {
+							return errFake
+						}
+						if err := utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResource, applyConf, opts...); err != nil {
+							return err
+						}
+						if afterAdmissionUpdate != nil {
+							afterAdmissionUpdate()
+						}
+						return nil
+					},
 				}).
 				WithObjects(
 					managerWl,
@@ -2941,9 +3331,21 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
 
+			deletesUntilFailure := 0
 			worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 				WithObjects(remoteWl, remoteJob).
 				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if deletesUntilFailure > 0 {
+							deletesUntilFailure--
+							if deletesUntilFailure == 0 {
+								return errFake
+							}
+						}
+						return c.Delete(ctx, obj, opts...)
+					},
+				}).
 				Build())
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
 			w1remoteClient.client = worker1Client
@@ -2960,6 +3362,7 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(
 				managerClient,
+				managerClient,
 				helper,
 				cRec,
 				defaultOrigin,
@@ -2973,12 +3376,18 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 
 			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
 			var gotResult reconcile.Result
+			var delayedEviction, admissionNotification event.UpdateEvent
 			for _, clusterName := range tc.evictedFrom {
 				// The eviction cleared the cluster name of the manager's workload.
-				reconciler.Update(event.UpdateEvent{
+				eviction := event.UpdateEvent{
 					ObjectOld: baseWorkloadBuilder.Clone().ClusterName(clusterName).Obj(),
-					ObjectNew: managerWl,
-				})
+					ObjectNew: managerWl.DeepCopy(),
+				}
+				if tc.delayEvictionUntilReadmission {
+					delayedEviction = eviction
+				} else {
+					reconciler.Update(eviction)
+				}
 				var err error
 				gotResult, err = reconciler.Reconcile(ctx, req)
 				if err != nil {
@@ -3002,8 +3411,146 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				t.Errorf("expected worker1 objects to be deleted, got workload error %v, job error %v", gotWlErr, gotJobErr)
 			}
 			gotPreviousClusterNames, _ := reconciler.previousClusterNames.Get(req.String())
-			if diff := cmp.Diff(tc.wantPreviousClusterNames, gotPreviousClusterNames); diff != "" {
+			if diff := cmp.Diff(tc.wantPreviousClusterNames, sets.KeySet(gotPreviousClusterNames), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected previousClusterNames (-want/+got):\n%s", diff)
+			}
+			if tc.readmitWorker1 {
+				if err := managerClient.Get(ctx, req.NamespacedName, managerWl); err != nil {
+					t.Fatalf("unexpected error reading manager workload: %v", err)
+				}
+				reserved := baseWorkloadBuilder.Clone().
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					Obj()
+				managerWl.Status.Admission = reserved.Status.Admission
+				managerWl.Status.Conditions = reserved.Status.Conditions
+				if err := managerClient.Status().Update(ctx, managerWl); err != nil {
+					t.Fatalf("unexpected error reserving manager quota: %v", err)
+				}
+				if err := worker1Client.Get(ctx, req.NamespacedName, remoteWl); err != nil {
+					t.Fatalf("unexpected error reading remote workload: %v", err)
+				}
+				remoteWl.Status = baseWorkloadBuilder.Clone().
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					AdmittedAt(true, time.Now()).
+					Obj().Status
+				if err := worker1Client.Status().Update(ctx, remoteWl); err != nil {
+					t.Fatalf("unexpected error admitting remote workload: %v", err)
+				}
+				w1remoteClient.connState.markConnected()
+				failAdmissionUpdate = tc.failAdmissionUpdate
+				if tc.evictDuringAdmissionUpdate || tc.delayEvictionUntilReadmission {
+					afterAdmissionUpdate = func() {
+						afterAdmissionUpdate = nil
+						admittedWl := &kueue.Workload{}
+						if err := managerClient.Get(ctx, req.NamespacedName, admittedWl); err != nil {
+							t.Fatalf("unexpected error reading admitted workload: %v", err)
+						}
+						if ptr.Deref(admittedWl.Status.ClusterName, "") != "worker1" {
+							t.Fatalf("expected admission update to select worker1, got status %+v", admittedWl.Status)
+						}
+						if tc.delayEvictionUntilReadmission {
+							reconciler.Update(delayedEviction)
+						}
+						if !tc.evictDuringAdmissionUpdate {
+							return
+						}
+						reconciler.Update(event.UpdateEvent{ObjectOld: managerWl, ObjectNew: admittedWl})
+						evictedWl := admittedWl.DeepCopy()
+						now := time.Now()
+						evictedWl.Status.ClusterName = nil
+						workloadevict.SetEvictedCondition(evictedWl, now, kueue.WorkloadEvictedByAdmissionCheck, "Evicted by test")
+						workloadevict.ResetChecksOnEviction(evictedWl, now)
+						workload.UnsetQuotaReservationWithCondition(evictedWl, "EvictedByTest", "Evicted by test", now)
+						if err := managerClient.Status().Update(ctx, evictedWl); err != nil {
+							t.Fatalf("unexpected error evicting manager workload: %v", err)
+						}
+						reconciler.Update(event.UpdateEvent{ObjectOld: admittedWl, ObjectNew: evictedWl})
+					}
+				}
+				_, err := reconciler.Reconcile(ctx, req)
+				if tc.failAdmissionUpdate {
+					if !errors.Is(err, errFake) {
+						t.Fatalf("expected admission update error, got %v", err)
+					}
+					remaining, _ := reconciler.previousClusterNames.Get(req.String())
+					if diff := cmp.Diff(sets.New("worker1"), sets.KeySet(remaining)); diff != "" {
+						t.Errorf("unexpected pending cleanup after admission update error (-want/+got):\n%s", diff)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("unexpected reconcile error on re-admission: %v", err)
+				}
+				var wantRemaining sets.Set[string]
+				if tc.evictDuringAdmissionUpdate || tc.delayEvictionUntilReadmission {
+					if afterAdmissionUpdate != nil {
+						t.Fatal("expected eviction notification before the admission update returned")
+					}
+					wantRemaining = sets.New("worker1")
+				}
+				remaining, _ := reconciler.previousClusterNames.Get(req.String())
+				if diff := cmp.Diff(wantRemaining, sets.KeySet(remaining), cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("unexpected pending cleanup after re-admission (-want/+got):\n%s", diff)
+				}
+				if err := managerClient.Get(ctx, req.NamespacedName, managerWl); err != nil {
+					t.Fatalf("unexpected error reading re-admitted workload: %v", err)
+				}
+				if tc.evictDuringAdmissionUpdate && remaining["worker1"] != managerWl.ResourceVersion {
+					t.Errorf("expected the newer eviction resourceVersion %q, got %q", managerWl.ResourceVersion, remaining["worker1"])
+				}
+				admissionNotification = event.UpdateEvent{ObjectOld: delayedEviction.ObjectNew, ObjectNew: managerWl.DeepCopy()}
+				acs := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, "ac1")
+				if !tc.evictDuringAdmissionUpdate && (ptr.Deref(managerWl.Status.ClusterName, "") != "worker1" || acs == nil || acs.State != kueue.CheckStateReady) {
+					t.Fatalf("expected workload to be re-admitted on worker1, got status %+v", managerWl.Status)
+				}
+			}
+			if tc.removeWorker1AndReconnect {
+				if tc.failDeleteAfterReconnect > 0 {
+					deletesUntilFailure = tc.failDeleteAfterReconnect
+					w1remoteClient.connState.markConnected()
+					if _, err := reconciler.Reconcile(ctx, req); !errors.Is(err, errFake) {
+						t.Fatalf("expected deletion error after reconnection, got %v", err)
+					}
+					remaining, _ := reconciler.previousClusterNames.Get(req.String())
+					if diff := cmp.Diff(sets.New("worker1"), sets.KeySet(remaining)); diff != "" {
+						t.Errorf("unexpected pending cleanup after deletion error (-want/+got):\n%s", diff)
+					}
+				}
+				cfg := &kueue.MultiKueueConfig{}
+				if err := managerClient.Get(ctx, types.NamespacedName{Name: "config1"}, cfg); err != nil {
+					t.Fatalf("unexpected error reading config: %v", err)
+				}
+				cfg.Spec.Clusters = []string{"worker2"}
+				if err := managerClient.Update(ctx, cfg); err != nil {
+					t.Fatalf("unexpected error removing worker1 from config: %v", err)
+				}
+				w1remoteClient.connState.markConnected()
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+					t.Fatalf("unexpected reconcile error after reconnection: %v", err)
+				}
+				gotWlErr = worker1Client.Get(ctx, client.ObjectKeyFromObject(remoteWl), &kueue.Workload{})
+				gotJobErr = worker1Client.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{})
+				if tc.readmitWorker1 && !tc.evictDuringAdmissionUpdate {
+					if gotWlErr != nil || gotJobErr != nil {
+						t.Errorf("expected re-admitted worker1 objects to remain before manager eviction, got workload error %v, job error %v", gotWlErr, gotJobErr)
+					}
+				} else if !apierrors.IsNotFound(gotWlErr) || !apierrors.IsNotFound(gotJobErr) {
+					t.Errorf("expected worker1 objects to be deleted after reconnection, got workload error %v, job error %v", gotWlErr, gotJobErr)
+				}
+				var wantRemaining sets.Set[string]
+				if tc.delayEvictionUntilReadmission && !tc.evictDuringAdmissionUpdate {
+					wantRemaining = sets.New("worker1")
+				}
+				remaining, _ := reconciler.previousClusterNames.Get(req.String())
+				if diff := cmp.Diff(wantRemaining, sets.KeySet(remaining), cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("unexpected pending cleanup after reconnection (-want/+got):\n%s", diff)
+				}
+			}
+			if tc.delayEvictionUntilReadmission && !tc.evictDuringAdmissionUpdate {
+				reconciler.Update(admissionNotification)
+				if remaining, _ := reconciler.previousClusterNames.Get(req.String()); len(remaining) != 0 {
+					t.Errorf("unexpected pending cleanup after the admission notification: %v", remaining)
+				}
 			}
 		})
 	}
@@ -3044,7 +3591,9 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 		// worker1Workloads all share the remote LeaderWorkerSet on worker1.
 		worker1Workloads []kueue.Workload
 		// reconcile names the Workloads to reconcile, in order.
-		reconcile []string
+		reconcile       []string
+		previousCluster bool
+		failCleanup     bool
 
 		wantWorker1Workloads      []string
 		wantRemoteLeaderWorkerSet bool
@@ -3106,12 +3655,56 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
 			reconcile:        []string{"wl0", "wl1"},
 		},
+		"a previous cluster keeps the remote LeaderWorkerSet of a running group": {
+			managerWorkloads: []kueue.Workload{
+				*admittedGroupWorkload("wl0", "0").Obj(),
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			previousCluster:           true,
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"a failed previous-cluster cleanup keeps the shared controller and retries": {
+			managerWorkloads: []kueue.Workload{
+				*admittedGroupWorkload("wl0", "0").Obj(),
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			previousCluster:           true,
+			failCleanup:               true,
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"the last evicted group deletes the remote LeaderWorkerSet on a previous cluster": {
+			managerWorkloads: []kueue.Workload{
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl1", "1")},
+			reconcile:        []string{"wl1"},
+			previousCluster:  true,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 			ctx, _ := utiltesting.ContextWithLog(t)
+			configClusters := []string{"worker1"}
+			if tc.previousCluster {
+				configClusters = []string{"worker2"}
+			}
 
 			managerClient := getClientBuilder(ctx).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -3121,7 +3714,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 				WithStatusSubresource(utilslices.Map(tc.managerWorkloads, func(w *kueue.Workload) client.Object { return w })...).
 				WithObjects(
 					testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("lws1-uid").Replicas(2).Obj(),
-					utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(configClusters...).Obj(),
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
@@ -3131,6 +3724,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("leaderworkerset.x-k8s.io/leaderworkerset"))
 			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
 
+			failCleanup := tc.failCleanup
 			worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 				WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}).
 				WithObjects(testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
@@ -3139,6 +3733,15 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 					Replicas(2).
 					Obj()).
 				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if failCleanup {
+							failCleanup = false
+							return errFake
+						}
+						return c.Delete(ctx, obj, opts...)
+					},
+				}).
 				Build())
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
 			w1remoteClient.client = worker1Client
@@ -3147,6 +3750,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(
+				managerClient,
 				managerClient,
 				helper,
 				cRec,
@@ -3163,8 +3767,34 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			}
 
 			for _, wlName := range tc.reconcile {
-				if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: wlName, Namespace: TestNamespace}); err != nil {
+				req := reconcile.Request{Name: wlName, Namespace: TestNamespace}
+				if tc.previousCluster {
+					evictedWl := &kueue.Workload{}
+					if err := managerClient.Get(ctx, req.NamespacedName, evictedWl); err != nil {
+						t.Fatalf("unexpected get evicted workload error: %v", err)
+					}
+					reconciler.Update(event.UpdateEvent{
+						ObjectOld: utiltestingapi.MakeWorkload(wlName, TestNamespace).ClusterName("worker1").Obj(),
+						ObjectNew: evictedWl,
+					})
+				}
+				if tc.failCleanup {
+					if _, err := reconciler.Reconcile(ctx, req); !errors.Is(err, errFake) {
+						t.Fatalf("expected cleanup error, got %v", err)
+					}
+					remaining, _ := reconciler.previousClusterNames.Get(req.String())
+					if diff := cmp.Diff(sets.New("worker1"), sets.KeySet(remaining)); diff != "" {
+						t.Errorf("unexpected pending cleanup after deletion error (-want/+got):\n%s", diff)
+					}
+					if err := worker1Client.Get(ctx, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, &leaderworkersetv1.LeaderWorkerSet{}); err != nil {
+						t.Fatalf("expected shared remote LeaderWorkerSet after deletion error: %v", err)
+					}
+				}
+				if _, err := reconciler.Reconcile(ctx, req); err != nil {
 					t.Fatalf("unexpected reconcile error for %q: %v", wlName, err)
+				}
+				if remaining, _ := reconciler.previousClusterNames.Get(req.String()); len(remaining) != 0 {
+					t.Errorf("unexpected pending cleanup after deletion: %v", remaining)
 				}
 			}
 
@@ -3254,6 +3884,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 	recorder := &utiltesting.EventRecorder{}
 	return newWlReconciler(
+		managerClient,
 		managerClient,
 		helper,
 		cRec,
@@ -3375,6 +4006,7 @@ func TestFinishLeaderWorkerSetGroupWhenWorkerFailsToAddTolerations(t *testing.T)
 
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(
+				managerClient,
 				managerClient,
 				helper,
 				cRec,
@@ -4174,12 +4806,13 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	}
 
 	reconciler := &wlReconciler{
-		client:            managerClient,
-		clock:             fakeClock,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		recorder:          &utiltesting.EventRecorder{},
-		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+		client:               managerClient,
+		clock:                fakeClock,
+		origin:               defaultOrigin,
+		workerLostTimeout:    defaultWorkerLostTimeout,
+		recorder:             &utiltesting.EventRecorder{},
+		dispatcherName:       config.MultiKueueDispatcherModeAllAtOnce,
+		previousClusterNames: utilmaps.NewSyncMap[string, map[string]string](0),
 	}
 
 	gotResult, gotErr := reconciler.reconcileGroup(ctx, group)
