@@ -988,6 +988,15 @@ const (
 	// Enable this gate when running on Kubernetes 1.36.2+ where the underlying issue
 	// (kubernetes/kubernetes#139281) is fixed.
 	MultiKueueJobSuspendedWorkaroundDisabled featuregate.Feature = "MultiKueueJobSuspendedWorkaroundDisabled"
+
+	// owner: @henry3260
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18250
+	//
+	// Rejects spec.groupIdentity Hash on a LeaderWorkerSet that is created under
+	// Kueue management, or that an update brings under Kueue management. Kueue does
+	// not support Hash: the leader Pods run without admission, while the worker Pods
+	// stay gated. Disable this gate to restore the previous behavior.
+	LeaderWorkerSetRejectGroupIdentityHash featuregate.Feature = "LeaderWorkerSetRejectGroupIdentityHash"
 )
 
 func init() {
@@ -1536,6 +1545,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueJobSuspendedWorkaroundDisabled: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	LeaderWorkerSetRejectGroupIdentityHash: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

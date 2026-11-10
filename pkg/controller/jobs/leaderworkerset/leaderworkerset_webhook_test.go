@@ -59,6 +59,7 @@ func TestDefault(t *testing.T) {
 		defaultLqExist             bool
 		defaultWPCExist            bool
 		enableIntegrations         []string
+		featureGates               map[featuregate.Feature]bool
 		want                       *leaderworkersetv1.LeaderWorkerSet
 		wantErr                    error
 	}{
@@ -179,6 +180,30 @@ func TestDefault(t *testing.T) {
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+		},
+		"update of a not ready groupIdentity Hash LeaderWorkerSet sets the default LocalQueue when LeaderWorkerSetRejectGroupIdentityHash is disabled": {
+			featureGates:   map[featuregate.Feature]bool{features.LeaderWorkerSetRejectGroupIdentityHash: false},
+			defaultLqExist: true,
+			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Queue("default").
+				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
+				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
+				WorkerTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
 		"update of a ready LeaderWorkerSet without the queue-name label does not set the default LocalQueue": {
@@ -368,6 +393,7 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -1027,6 +1053,14 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"groupIdentity Hash when managed and LeaderWorkerSetRejectGroupIdentityHash is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.LeaderWorkerSetRejectGroupIdentityHash: false},
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+		},
 		"groupIdentity Ordinal when managed": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1372,6 +1406,32 @@ func TestValidateUpdate(t *testing.T) {
 				Replicas(2).
 				Obj(),
 			wantWarns: admission.Warnings{groupIdentityHashWarning},
+		},
+		"groupIdentity Hash when already managed and LeaderWorkerSetRejectGroupIdentityHash is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.LeaderWorkerSetRejectGroupIdentityHash: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Replicas(2).
+				Obj(),
+		},
+		"groupIdentity Hash when queue name is added and LeaderWorkerSetRejectGroupIdentityHash is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.LeaderWorkerSetRejectGroupIdentityHash: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+				Obj(),
 		},
 		"groupIdentity Hash when queue name is added": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").

@@ -303,6 +303,21 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				})
 			})
 		})
+
+		ginkgo.When("the LeaderWorkerSetRejectGroupIdentityHash feature gate is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LeaderWorkerSetRejectGroupIdentityHash, false)
+			})
+
+			ginkgo.It("should allow groupIdentity Hash", func() {
+				lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+					Queue("user-queue").
+					GroupIdentity(leaderworkersetv1.GroupIdentityHash).
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, lws)
+			})
+		})
 	})
 
 	ginkgo.When("the LeaderWorkerSet is not managed by Kueue", func() {
