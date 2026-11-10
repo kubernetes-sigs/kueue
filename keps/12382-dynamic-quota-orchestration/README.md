@@ -520,13 +520,37 @@ Tracks whether effective quota was distributed across the subtree. **This condit
 | `False` | `Misconfigured` | The `ClusterQueue` or `Cohort` specified in `spec.capacityDistribution.subtreeRootQuotaRef` does not exist. |
 
 When a participant quota status write fails, the controller attempts to report
-`Distributed=Unknown` rather than leaving a stale success result. This requires
-the DQO status update to succeed; if that update also fails, the previously
-persisted condition can remain unchanged until a later reconciliation.
-A successful retry restores `True/QuotasDistributed`. Errors before the
-participant quota write phase preserve the existing `Distributed` condition
-(including `True` or `False`) because no allocation writes have occurred.
-Preserving `False` also avoids unexpectedly reactivating a deactivated owner.
+`Distributed=Unknown/DistributionIncomplete` instead of leaving a stale success
+result. This requires the DQO status update to succeed; if that update also
+fails, the previously persisted condition can remain unchanged until a later
+reconciliation. A successful retry restores `True/QuotasDistributed`.
+
+Read/list errors returned before `applyEffectiveQuotas` without setting a
+condition (for example, a transient DQO listing error) leave the previous
+`Distributed` condition unchanged. This is different from handled validation
+outcomes: an unsupported or missing subtree root explicitly sets
+`False/Misconfigured`, and a quota ownership conflict sets
+`False/EffectiveQuotasConflict`.
+
+A participant write failure can also move a previously `Distributed=False`
+orchestrator to `Unknown` when it reaches the quota write phase. Ownership
+checks treat only `False` as deactivated; `Unknown` is not deactivated. This
+may prevent a lower-precedence orchestrator from taking over retained quotas
+until a later reconciliation succeeds or explicitly deactivates the owner.
+The following diagram shows the relevant transitions (other validation outcomes
+can set `False`):
+
+```mermaid
+stateDiagram-v2
+    state "True / QuotasDistributed" as distributed
+    state "False / deactivated" as deactivated
+    state "Unknown / DistributionIncomplete" as incomplete
+    distributed --> incomplete: Participant quota write fails
+    deactivated --> incomplete: Participant quota write fails
+    distributed --> distributed: Pre-write read/list error
+    deactivated --> deactivated: Pre-write read/list error
+    incomplete --> distributed: Successful retry
+```
 
 `Unknown` is a reporting state, not an admission barrier or an atomic commit:
 Kueue continues using any persisted `status.effectiveQuotas` values, which may

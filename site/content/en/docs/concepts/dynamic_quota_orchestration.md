@@ -139,7 +139,6 @@ result. In discovery-only mode, the condition is not set.
 | Reason | Meaning |
 |---|---|
 | `QuotasDistributed` | Kueue wrote effective quotas to the subtree. |
-| `DistributionIncomplete` | A ClusterQueue or Cohort quota status update failed. Kueue attempts to report `Distributed=Unknown` and retries distribution; reporting depends on the DQO status update succeeding. The condition does not block admission. |
 | `EffectiveCapacityNotComputed` | Discovery failed, so there is nothing to distribute. |
 | `ConflictingDynamicQuotaOrchestrator` | An orchestrator with a higher root, or an older one with the same root, takes precedence. |
 | `EffectiveQuotasConflict` | A ClusterQueue or Cohort in the subtree has effective quotas from another active orchestrator, or from a controller that is not DQO. |
