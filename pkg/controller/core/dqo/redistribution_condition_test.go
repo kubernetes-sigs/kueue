@@ -165,7 +165,6 @@ func TestIncompleteRedistributionCondition(t *testing.T) {
 	}
 }
 
-
 // TestPreWriteDistributionErrorPreservesFalse covers an error from subtree
 // discovery before any quota status write. An unrelated DQO must still be
 // allowed to take over retained quotas of this deactivated owner.
