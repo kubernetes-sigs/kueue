@@ -710,7 +710,7 @@ TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
 
 * [x] Unconstrained topology mode supported for scale-up.
 * [x] Webhook validation to reject elastic `batch/v1.Job` with required/preferred topology annotations.
-* [ ] Webhook validation to reject elastic KubeRay jobs and `SparkApplications` with required/preferred
+* [x] Webhook validation to reject elastic KubeRay jobs and `SparkApplications` with required/preferred
   topology annotations when `ElasticJobsViaWorkloadSlicesWithTAS` is enabled.
 * [x] Integration tests for elastic workloads with unconstrained topology.
 
