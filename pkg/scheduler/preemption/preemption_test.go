@@ -5421,7 +5421,7 @@ func TestPreemptionStrategy(t *testing.T) {
 	})
 }
 
-func TestPreemptionFilter(t *testing.T) {
+func TestPreemptionManager(t *testing.T) {
 	vLowKey := workload.NewReference("default", "v-low")
 	vMidKey := workload.NewReference("default", "v-mid")
 	vOtherCQKey := workload.NewReference("default", "v-other-cq")
@@ -5433,11 +5433,11 @@ func TestPreemptionFilter(t *testing.T) {
 		allowBorrowing      bool
 		cohortNominalCPU    string
 		siblingBorrowerCPU  string
+		defaultPreempted    []workload.Reference
 		preempt             []workload.Reference
 		unpreempt           []workload.Reference
 		repreempt           []workload.Reference
 		resetAndReinit      bool
-		removeFromSnapshot  []workload.Reference
 		wantMayFit          bool
 		wantPreempted       []workload.Reference
 	}{
@@ -5504,7 +5504,6 @@ func TestPreemptionFilter(t *testing.T) {
 			allowBorrowing: true,
 			preempt:        []workload.Reference{unknownKey},
 			wantMayFit:     false,
-			wantPreempted:  []workload.Reference{unknownKey},
 		},
 		"unpreempting workload outside snapshot ClusterQueues is a safe no-op on quota": {
 			incomingCPU:    "2",
@@ -5513,18 +5512,21 @@ func TestPreemptionFilter(t *testing.T) {
 			unpreempt:      []workload.Reference{unknownKey},
 			wantMayFit:     false,
 		},
-		"reset restores all preempted workloads": {
+		"ResetToDefault with empty default state restores all preempted workloads": {
 			incomingCPU:    "4",
 			allowBorrowing: true,
 			preempt:        []workload.Reference{vLowKey, vMidKey},
 			resetAndReinit: true,
 			wantMayFit:     false,
 		},
-		"removing committed victims from active snapshot does not affect filter": {
-			incomingCPU:        "2",
-			allowBorrowing:     true,
-			removeFromSnapshot: []workload.Reference{vLowKey, vMidKey},
-			wantMayFit:         false,
+		"ResetToDefault retains default preempted workloads and reverts extra candidates": {
+			incomingCPU:      "2",
+			allowBorrowing:   true,
+			defaultPreempted: []workload.Reference{vLowKey},
+			preempt:          []workload.Reference{vMidKey},
+			resetAndReinit:   true,
+			wantMayFit:       true,
+			wantPreempted:    []workload.Reference{vLowKey},
 		},
 		"borrowing disallowed rejects workload that only fits with cohort quota": {
 			incomingCPU:      "2",
@@ -5649,66 +5651,74 @@ func TestPreemptionFilter(t *testing.T) {
 				maps.Copy(workloadsByKey, cqSnap.Workloads)
 			}
 
-			filter := BuildManager(log, snapshot, wlInfo, nil)
-
-			var revertRemoval func()
-			if len(tc.removeFromSnapshot) > 0 {
-				var toRemove []*workload.Info
-				for _, wlKey := range tc.removeFromSnapshot {
-					toRemove = append(toRemove, snapshot.ClusterQueue("cq").Workloads[wlKey])
+			var defaultState map[workload.Reference]*workload.Info
+			if len(tc.defaultPreempted) > 0 {
+				defaultState = make(map[workload.Reference]*workload.Info, len(tc.defaultPreempted))
+				for _, wlKey := range tc.defaultPreempted {
+					defaultState[wlKey] = workloadsByKey[wlKey]
 				}
-				revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
-				defer revertRemoval()
 			}
 
 			cpuRes := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 			snapUsageBefore := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]
 
-			filter.Configure(&assignment, tc.allowBorrowing)
+			manager := BuildManager(log, snapshot, wlInfo, defaultState)
+			manager.ResetToDefault()
+
+			manager.Configure(&assignment, tc.allowBorrowing)
 			for _, wlKey := range tc.preempt {
-				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
+				manager.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
 			for _, wlKey := range tc.unpreempt {
-				filter.UnpreemptWorkload(wlKey)
+				manager.UnpreemptWorkload(wlKey)
 			}
 			for _, wlKey := range tc.repreempt {
-				filter.PreemptWorkload(wlKey, workloadsByKey[wlKey])
+				manager.PreemptWorkload(wlKey, workloadsByKey[wlKey])
 			}
 			if tc.resetAndReinit {
-				filter.ResetToDefault()
-				filter.Configure(&assignment, tc.allowBorrowing)
+				manager.ResetToDefault()
+				manager.Configure(&assignment, tc.allowBorrowing)
 			}
 
-			if got := filter.MayFit(); got != tc.wantMayFit {
+			if got := manager.MayFit(); got != tc.wantMayFit {
 				t.Errorf("MayFit() = %v, want %v", got, tc.wantMayFit)
 			}
 
 			var gotPreempted []workload.Reference
-			if len(filter.preempted) > 0 {
-				gotPreempted = slices.Sorted(maps.Keys(filter.preempted))
+			if len(manager.preempted) > 0 {
+				gotPreempted = slices.Sorted(maps.Keys(manager.preempted))
 			}
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-				t.Errorf("workloads preempted in filter mismatch (-want +got):\n%s", diff)
+				t.Errorf("workloads preempted in manager mismatch (-want +got):\n%s", diff)
 			}
 
+			manager.ResetAll()
+			if len(manager.preempted) != 0 {
+				t.Errorf("expected no preempted workloads after ResetAll(), got %v", slices.Sorted(maps.Keys(manager.preempted)))
+			}
 			if gotSnapUsage := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]; gotSnapUsage.Cmp(snapUsageBefore) != 0 {
-				t.Errorf("PreemptionFilter mutated source snapshot usage: got %v, want %v", gotSnapUsage, snapUsageBefore)
+				t.Errorf("PreemptionManager did not restore source snapshot usage after ResetAll(): got %v, want %v", gotSnapUsage, snapUsageBefore)
 			}
 		})
 	}
 }
 
-func TestPreemptionFilter_Lifecycle(t *testing.T) {
+func TestPreemptionManager_Lifecycle(t *testing.T) {
 	_, snapshot := setupPreemptionStrategy(t, "2")
 	_, log := utiltesting.ContextWithLog(t)
 	vLowKey := workload.NewReference("default", "v-low")
+	vMidKey := workload.NewReference("default", "v-mid")
 	vLowInfo := snapshot.ClusterQueue("cq").Workloads[vLowKey]
+	vMidInfo := snapshot.ClusterQueue("cq").Workloads[vMidKey]
 
-	wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
-		Priority(50).
-		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
-		Obj())
-	wlInfo.ClusterQueue = "cq"
+	makeIncoming := func(cpu string) *workload.Info {
+		wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
+			Priority(50).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, cpu).Obj()).
+			Obj())
+		wlInfo.ClusterQueue = "cq"
+		return wlInfo
+	}
 	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
 		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
 	})
@@ -5717,47 +5727,86 @@ func TestPreemptionFilter_Lifecycle(t *testing.T) {
 		t.Helper()
 		defer func() {
 			if r := recover(); r == nil {
-				t.Errorf("%s did not panic when filter was uninitialized", name)
+				t.Errorf("%s did not panic when manager was unconfigured", name)
 			}
 		}()
 		fn()
 	}
 
-	t.Run("uninitialized and post-Reset guards", func(t *testing.T) {
-		filter := BuildManager(log, snapshot, wlInfo, nil)
-		// Safe no-op
-		filter.ResetToDefault()
+	t.Run("MayFit panics before Configure while preemption operations work before Configure", func(t *testing.T) {
+		manager := BuildManager(log, snapshot, makeIncoming("2"), map[workload.Reference]*workload.Info{
+			vLowKey: vLowInfo,
+		})
+		defer manager.ResetAll()
 
-		expectPanic(t, "MayFit before Initialize", func() { _ = filter.MayFit() })
-		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
-		expectPanic(t, "UnpreemptWorkload before Initialize", func() { filter.UnpreemptWorkload(vLowKey) })
+		expectPanic(t, "MayFit before Configure", func() { _ = manager.MayFit() })
 
-		filter.Configure(&assignment, true)
-		filter.PreemptWorkload(vLowKey, vLowInfo)
-		if !filter.MayFit() {
-			t.Fatal("expected MayFit() = true after preempting v-low")
+		// ResetToDefault, PreemptWorkload, and UnpreemptWorkload are valid before Configure.
+		manager.ResetToDefault()
+		manager.UnpreemptWorkload(vLowKey)
+		manager.PreemptWorkload(vLowKey, vLowInfo)
+
+		manager.Configure(&assignment, true)
+		if !manager.MayFit() {
+			t.Fatal("expected MayFit() = true after preempting v-low and configuring manager")
 		}
-
-		// Reset restores preempted state and marks filter uninitialized; repeated Reset is a no-op.
-		filter.ResetToDefault()
-		filter.ResetToDefault()
-
-		expectPanic(t, "MayFit after Reset", func() { _ = filter.MayFit() })
-		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey, vLowInfo) })
-		expectPanic(t, "UnpreemptWorkload after Reset", func() { filter.UnpreemptWorkload(vLowKey) })
 	})
 
-	t.Run("re-Initialize without Reset restores preempted workloads", func(t *testing.T) {
-		filter := BuildManager(log, snapshot, wlInfo, nil)
-		filter.Configure(&assignment, true)
-		filter.PreemptWorkload(vLowKey, vLowInfo)
-		if !filter.MayFit() {
-			t.Fatal("expected MayFit() = true after preempting v-low")
+	t.Run("ResetToDefault retains defaultPreempted while ResetAll restores clean snapshot", func(t *testing.T) {
+		// setupPreemptionStrategy("2") has CQ nominal=6, usage=6 (v-low=2, v-mid=2, v-high=2).
+		// Requesting 4 CPU requires preempting both v-low (default) and v-mid (extra candidate).
+		manager := BuildManager(log, snapshot, makeIncoming("4"), map[workload.Reference]*workload.Info{
+			vLowKey: vLowInfo,
+		})
+		manager.ResetToDefault()
+		manager.Configure(&assignment, true)
+		if manager.MayFit() {
+			t.Fatal("expected MayFit() = false when only default v-low (2 CPU) is preempted for 4 CPU request")
 		}
 
-		filter.Configure(&assignment, true)
-		if filter.MayFit() {
-			t.Fatal("expected MayFit() = false after re-Initialize restored v-low")
+		manager.PreemptWorkload(vMidKey, vMidInfo)
+		if !manager.MayFit() {
+			t.Fatal("expected MayFit() = true after preempting both v-low and v-mid")
+		}
+
+		// ResetToDefault restores v-mid while retaining v-low; repeated calls are idempotent.
+		manager.ResetToDefault()
+		manager.ResetToDefault()
+		if manager.MayFit() {
+			t.Fatal("expected MayFit() = false after ResetToDefault restored v-mid")
+		}
+		if _, ok := snapshot.ClusterQueue("cq").Workloads[vLowKey]; ok {
+			t.Fatal("expected v-low to remain preempted in snapshot after ResetToDefault")
+		}
+		if _, ok := snapshot.ClusterQueue("cq").Workloads[vMidKey]; !ok {
+			t.Fatal("expected v-mid to be restored to snapshot after ResetToDefault")
+		}
+
+		// ResetAll restores defaultPreempted workloads as well; repeated calls are idempotent.
+		manager.ResetAll()
+		manager.ResetAll()
+		if _, ok := snapshot.ClusterQueue("cq").Workloads[vLowKey]; !ok {
+			t.Fatal("expected v-low to be restored to snapshot after ResetAll")
+		}
+	})
+
+	t.Run("Configure overrides usage and allowBorrowing", func(t *testing.T) {
+		manager := BuildManager(log, snapshot, makeIncoming("4"), nil)
+		defer manager.ResetAll()
+
+		manager.PreemptWorkload(vLowKey, vLowInfo)
+		manager.Configure(&assignment, true)
+		if manager.MayFit() {
+			t.Fatal("expected MayFit() = false for 4 CPU with only 2 CPU freed")
+		}
+
+		reducedAsgn := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+			corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
+		})
+		reducedAsgn.PodSets[0].Count = 0
+		manager.Configure(&reducedAsgn, false)
+		if !manager.MayFit() {
+			t.Fatal("expected MayFit() = true after reconfiguring with zero-count assignment")
 		}
 	})
 }

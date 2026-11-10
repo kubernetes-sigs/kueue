@@ -98,8 +98,9 @@ type simulationStep struct {
 	// podPlacements to succeed. When a PreemptionFilter is passed, testSimulator
 	// may also preempt additional candidates to satisfy MayFit() and reprieve
 	// non-node victims in reverse order, producing SchedulingResult.PreemptionVictims.
-	nodeVictims []workload.Reference
-	err         error
+	nodeVictims  []workload.Reference
+	immediateFit bool
+	err          error
 }
 
 func (s simulationStep) allPodsPlaced() bool {
@@ -118,6 +119,7 @@ func stepFromSchedulingResult(res simulator.SchedulingResult) simulationStep {
 	return simulationStep{
 		podPlacements: res.PodPlacements,
 		nodeVictims:   res.PreemptionVictims,
+		immediateFit:  res.ImmediateFit,
 		err:           res.Error,
 	}
 }
@@ -192,6 +194,7 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 	return simulator.SchedulingResult{
 		PodPlacements:     step.podPlacements,
 		PreemptionVictims: victims,
+		ImmediateFit:      step.immediateFit,
 		Error:             step.err,
 	}
 }
@@ -674,7 +677,7 @@ func TestPlan(t *testing.T) {
 				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.DeferredFit,
-			wantFit:  false,
+			wantFit:  true,
 			wantCalls: []scheduleWorkloadCall{
 				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
@@ -696,6 +699,7 @@ func TestPlan(t *testing.T) {
 				PodPlacements: simulator.PodPlacements{
 					podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
 				},
+				ImmediateFit: true,
 			},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
@@ -758,7 +762,7 @@ func TestPlan(t *testing.T) {
 				PreemptionVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)},
 			},
 			wantMode: flavorassigner.DeferredFit,
-			wantFit:  false,
+			wantFit:  true,
 			wantCalls: []scheduleWorkloadCall{
 				{committedVictims: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
@@ -926,10 +930,13 @@ func TestPlan(t *testing.T) {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode:  flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
-			}},
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+					podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
+				},
+				ImmediateFit: true,
+			},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
@@ -942,11 +949,14 @@ func TestPlan(t *testing.T) {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 3, cpu: "1", requiredLevel: testBlockLabel}},
 			initialMode:  flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
-				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 2): {Node: testNode2},
-			}},
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
+					podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
+					podKey(kueue.DefaultPodSetName, 2): {Node: testNode2},
+				},
+				ImmediateFit: true,
+			},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
@@ -1004,11 +1014,14 @@ func TestPlan(t *testing.T) {
 				{name: "workers", count: 2, cpu: "1"},
 			},
 			initialMode: flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey("leader", 0):  {Node: testNode2},
-				podKey("workers", 0): {Node: testNode1},
-				podKey("workers", 1): {Node: testNode1},
-			}},
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey("leader", 0):  {Node: testNode2},
+					podKey("workers", 0): {Node: testNode1},
+					podKey("workers", 1): {Node: testNode1},
+				},
+				ImmediateFit: true,
+			},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
 			wantPodSets: []flavorassigner.PodSetAssignment{
@@ -1197,11 +1210,14 @@ func TestPlan(t *testing.T) {
 				{name: "workers", count: 2, cpu: "1"},
 			},
 			initialMode: flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey("leader", 0):  {Node: testNode2},
-				podKey("workers", 0): {Node: testNode1},
-				podKey("workers", 1): {Node: testNode1},
-			}},
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey("leader", 0):  {Node: testNode2},
+					podKey("workers", 0): {Node: testNode1},
+					podKey("workers", 1): {Node: testNode1},
+				},
+				ImmediateFit: true,
+			},
 			removeErr: errSimulator,
 			wantMode:  flavorassigner.Fit,
 			wantErrs: []string{
@@ -1291,32 +1307,26 @@ func TestPlan(t *testing.T) {
 				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
 			)
 
-			var revertRemoval func()
 			var opts []assignment.PlannerOption
 			var committedMap map[workload.Reference]*workload.Info
 			if len(tc.committedVictims) > 0 {
-				var toRemove []*workload.Info
-				committedMap := make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
+				committedMap = make(map[workload.Reference]*workload.Info, len(tc.committedVictims))
 				for _, cv := range tc.committedVictims {
 					wlInfo := snapshot.ClusterQueue(testCQ).Workloads[cv]
-					if wlInfo != nil {
-						toRemove = append(toRemove, wlInfo)
-					} else {
+					if wlInfo == nil {
 						wlInfo = workload.NewInfo(log, utiltestingapi.MakeWorkload(strings.TrimPrefix(string(cv), testNamespace+"/"), testNamespace).Obj())
 					}
 					committedMap[cv] = wlInfo
 				}
 				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
-				if len(toRemove) > 0 {
-					revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
-				}
 			}
 
-			filter := preemption.BuildManager(log, snapshot, wl, committedMap)
 			freeCapacityBefore := freeCapacity(t, snapshot)
+			manager := preemption.BuildManager(log, snapshot, wl, committedMap)
+			manager.ResetToDefault()
 
 			if !tc.omitPreemptionFilter {
-				opts = append(opts, assignment.WithPreemptionManager(filter))
+				opts = append(opts, assignment.WithPreemptionManager(manager))
 			}
 
 			assigner := flavorassigner.New(
@@ -1332,9 +1342,7 @@ func TestPlan(t *testing.T) {
 			// When
 			planner := NewPlanner(wl, snapshot, preemptor)
 			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
-			if revertRemoval != nil {
-				revertRemoval()
-			}
+			manager.ResetAll()
 
 			// Then
 			if gotPlan.Assignment != &initialAssignment {
@@ -2101,28 +2109,35 @@ func TestPlan_CommittedVictims(t *testing.T) {
 				preemption.NewOracle(preemptor, snapshot), nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 			)
-			// Mirror scheduler.getAssignments: build PreemptionFilter on the clean snapshot,
-			// then remove committed victims from the active snapshot across both AssignFlavors and Plan.
-			filter := preemption.BuildManager(log, snapshot, wl, nil)
+			// Mirror scheduler.getAssignments: run inside Simulate(), configure PreemptionManager
+			// with committedMap as default state, project committed victims out of the simulator,
+			// and restore clean snapshot state on exit.
 			freeCapacityBefore := freeCapacity(t, snapshot)
+			var gotPlan assignment.Plan
+			simErr := snapshot.SchedulerSimulator.Simulate(ctx, func() {
+				manager := preemption.BuildManager(log, snapshot, wl, committedMap)
+				manager.ResetToDefault()
+				defer manager.ResetAll()
 
-			var revertRemoval func()
-			if len(toRemove) > 0 {
-				revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
-			}
-			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
-			if gotInitialMode := initialAssignment.RepresentativeMode(); gotInitialMode != tc.initialMode {
-				t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
-			}
+				if len(toRemove) > 0 {
+					snapshot.SimulatePodRemoval(ctx, log, toRemove)
+				}
 
-			opts := []assignment.PlannerOption{assignment.WithPreemptionManager(filter)}
-			if len(committedMap) > 0 {
-				opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
-			}
-			planner := NewPlanner(wl, snapshot, preemptor)
-			gotPlan := planner.Plan(ctx, &initialAssignment, opts...)
-			if revertRemoval != nil {
-				revertRemoval()
+				initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+				if gotInitialMode := initialAssignment.RepresentativeMode(); gotInitialMode != tc.initialMode {
+					t.Fatalf("AssignFlavors() mode = %v, want %v", gotInitialMode, tc.initialMode)
+				}
+
+				opts := []assignment.PlannerOption{assignment.WithPreemptionManager(manager)}
+				if len(committedMap) > 0 {
+					opts = append(opts, assignment.WithCommittedPreemptionVictims(committedMap))
+				}
+				planner := NewPlanner(wl, snapshot, preemptor)
+				gotPlan = planner.Plan(ctx, &initialAssignment, opts...)
+			})
+			snapshot.ForgetSimulatedFeasibility()
+			if simErr != nil {
+				t.Fatalf("Simulate() unexpected error: %v", simErr)
 			}
 
 			if gotPlan.Error != nil {
@@ -2134,7 +2149,9 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			if gotFlavorMode := gotPlan.Assignment.PodSets[0].Flavors[corev1.ResourceCPU].Mode; gotFlavorMode != tc.wantMode {
 				t.Errorf("Plan() PodSets[0].Flavors[cpu].Mode = %v, want %v", gotFlavorMode, tc.wantMode)
 			}
-			wantFit := tc.wantMode == flavorassigner.Fit || (tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
+			wantFit := tc.wantMode == flavorassigner.Fit ||
+				tc.wantMode == flavorassigner.DeferredFit ||
+				(tc.wantMode == flavorassigner.Preempt && len(tc.wantPreemptionTargets) > 0)
 			if gotFit := gotPlan.CanFit(); gotFit != wantFit {
 				t.Errorf("Plan() CanFit() = %v, want %v", gotFit, wantFit)
 			}
@@ -2154,7 +2171,7 @@ func TestPlan_CommittedVictims(t *testing.T) {
 		})
 	}
 
-	t.Run("reusing planner across full and partial counts resets filter cleanly", func(t *testing.T) {
+	t.Run("reusing planner across consecutive Plan calls resets manager cleanly", func(t *testing.T) {
 		log := testr.New(t)
 		ctx := ctrllog.IntoContext(t.Context(), log)
 
@@ -2199,7 +2216,6 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			UID("incoming-uid").
 			Priority(incomingPriority).
 			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
-				SetMinimumCount(1).
 				RequiredTopologyRequest(corev1.LabelHostname).
 				Request(corev1.ResourceCPU, "1").
 				Obj()).
@@ -2210,42 +2226,48 @@ func TestPlan_CommittedVictims(t *testing.T) {
 			utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
 			clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil,
 		)
-		filter := preemption.BuildManager(log, snapshot, wl, nil)
-		revert := snapshot.SimulateWorkloadRemoval([]*workload.Info{cvInfo})
-		defer revert()
+		freeCapacityBefore := freeCapacity(t, snapshot)
 
-		assigner := flavorassigner.New(
-			wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
-			preemption.NewOracle(preemptor, snapshot), nil,
-			configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
-		)
-		planner := NewPlanner(wl, snapshot, preemptor)
-		opts := []assignment.PlannerOption{
-			assignment.WithCommittedPreemptionVictims(committedMap),
-			assignment.WithPreemptionManager(filter),
-		}
+		simErr := snapshot.SchedulerSimulator.Simulate(ctx, func() {
+			manager := preemption.BuildManager(log, snapshot, wl, committedMap)
+			manager.ResetToDefault()
+			defer manager.ResetAll()
 
-		// Full count (3 CPU) fits on testNode1's 3 free CPU for node placement, EXCEPT CQ quota is 9
-		// and blocker (6) + committed-victim (6) = 12 in filter, so 3 CPU needs committed-victim for quota -> DeferredFit!
-		fullAsgn := assigner.AssignFlavors(ctx, log, nil)
-		fullPlan := planner.Plan(ctx, &fullAsgn, opts...)
-		if fullPlan.Error != nil {
-			t.Fatalf("full Plan() unexpected error: %v", fullPlan.Error)
-		}
-		if got := fullPlan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
-			t.Fatalf("full Plan() mode = %v, want %v", got, flavorassigner.DeferredFit)
-		}
+			snapshot.SimulatePodRemoval(ctx, log, []*workload.Info{cvInfo})
 
-		// Second call on the SAME planner with a reduced count (1 CPU): blocker (6) + committed-victim (6) = 12 > 9 in filter,
-		// verifying filter.Reset() restored committed-victim's usage cleanly after the first Plan() call.
-		reducedCounts := workload.PodSetsCounts{kueue.DefaultPodSetName: 1}
-		reducedAsgn := assigner.AssignFlavors(ctx, log, reducedCounts)
-		reducedPlan := planner.Plan(ctx, &reducedAsgn, opts...)
-		if reducedPlan.Error != nil {
-			t.Fatalf("reduced Plan() unexpected error: %v", reducedPlan.Error)
+			assigner := flavorassigner.New(
+				wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
+				preemption.NewOracle(preemptor, snapshot), nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+			)
+			planner := NewPlanner(wl, snapshot, preemptor)
+			opts := []assignment.PlannerOption{
+				assignment.WithCommittedPreemptionVictims(committedMap),
+				assignment.WithPreemptionManager(manager),
+			}
+
+			// 3 CPU fits on testNode1's 3 free CPU for node placement, EXCEPT CQ quota is 9
+			// and blocker (6) + committed-victim (6) = 12 when unpreempted, so 3 CPU needs committed-victim for quota -> DeferredFit.
+			for attempt := range 2 {
+				asgn := assigner.AssignFlavors(ctx, log, nil)
+				gotPlan := planner.Plan(ctx, &asgn, opts...)
+				if gotPlan.Error != nil {
+					t.Fatalf("attempt %d: Plan() unexpected error: %v", attempt, gotPlan.Error)
+				}
+				if got := gotPlan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
+					t.Fatalf("attempt %d: Plan() mode = %v, want %v (manager must retain committed-victim in defaultPreempted after ResetToDefault)", attempt, got, flavorassigner.DeferredFit)
+				}
+				if !gotPlan.CanFit() {
+					t.Fatalf("attempt %d: Plan() CanFit() = false, want true", attempt)
+				}
+			}
+		})
+		snapshot.ForgetSimulatedFeasibility()
+		if simErr != nil {
+			t.Fatalf("Simulate() unexpected error: %v", simErr)
 		}
-		if got := reducedPlan.Assignment.RepresentativeMode(); got != flavorassigner.DeferredFit {
-			t.Fatalf("reduced Plan() mode = %v, want %v (filter must retain committed-victim usage after Reset)", got, flavorassigner.DeferredFit)
+		if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
+			t.Errorf("Simulate() modified snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
 		}
 	})
 }

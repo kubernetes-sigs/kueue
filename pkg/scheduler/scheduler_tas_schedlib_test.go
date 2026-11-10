@@ -17,10 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"iter"
 	"maps"
 	"testing"
 	"time"
@@ -29,21 +26,16 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
-	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -1266,6 +1258,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 				"tas-cq-a": {"default/wl-high-1"},
 				"tas-cq-b": {"default/wl-high-2"},
 			},
+			wantSimulatorPreemptions: []workload.Reference{"default/wl-low-admitted"},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl-low-admitted", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl-low-admitted", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -1540,6 +1533,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 				"tas-cq-a": {"default/wl-high-1"},
 				"tas-cq-b": {"default/wl-high-2"},
 			},
+			wantSimulatorPreemptions: []workload.Reference{"default/wl-low-1"},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl-low-1", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "wl-low-1", "Preempted", corev1.EventTypeNormal).Obj(),
@@ -1739,6 +1733,7 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 				features.TASFailedNodeReplacementFailFast:                           true,
 				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
 			},
+			wantSimulatorPreemptions: []workload.Reference{"default/victim"},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label("tas-node", "true").
@@ -2202,6 +2197,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 	}
 	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
 	deepIntegrationGates := map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:             true,
 		features.SchedulerLibraryIntegration:     true,
 		features.SchedulerLibraryDeepIntegration: true,
 	}
@@ -2301,13 +2297,8 @@ func TestScheduleErrorHandling(t *testing.T) {
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
-			simulatorOverride: func() simulator.SchedulerSimulator {
-				return &mockWorkloadScheduler{
-					placementNode: "x1",
-					injectError:   errors.New("injected initial assignment failure"),
-					swFailAt:      1,
-				}
-			},
+			failScheduleWorkloadAt:  1,
+			failScheduleWorkloadErr: errors.New("injected initial assignment failure"),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("high", "default").
 					Queue("tas-main").
@@ -2455,18 +2446,13 @@ func TestScheduleErrorHandling(t *testing.T) {
 			// This test case simulates an error being thrown by ScheduleWorkload
 			// during a call to wasPlanner.Plan
 			// upon recomputing the assignment (inside processEntry).
-			nodes:           singleNode,
-			topologies:      []kueue.Topology{defaultSingleLevelTopology},
-			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
-			clusterQueues:   tasConflictClusterQueues,
-			workloads:       tasConflictWorkloads,
-			simulatorOverride: func() simulator.SchedulerSimulator {
-				return &mockWorkloadScheduler{
-					placementNode: "x1",
-					injectError:   errors.New("injected recompute failure"),
-					swFailAt:      3,
-				}
-			},
+			nodes:                   singleNode,
+			topologies:              []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors:         []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:           tasConflictClusterQueues,
+			workloads:               tasConflictWorkloads,
+			failScheduleWorkloadAt:  3,
+			failScheduleWorkloadErr: errors.New("injected recompute failure"),
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
 				"default/wl-a": wl1Admission,
 			},
@@ -2503,7 +2489,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			Label("tas-node", "true").
 			Label(corev1.LabelHostname, "x1").
 			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourceCPU:  resource.MustParse("500m"),
 				corev1.ResourcePods: resource.MustParse("10"),
 			}).
 			Ready().
@@ -2534,6 +2520,7 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
 	}
 	deepIntegrationGates := map[featuregate.Feature]bool{
+		kubefeatures.GenericWorkload:             true,
 		features.SchedulerLibraryIntegration:     true,
 		features.SchedulerLibraryDeepIntegration: true,
 	}
@@ -2577,14 +2564,9 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			resourceFlavors: resourceFlavors,
 			clusterQueues:   clusterQueues,
 			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
-			simulatorOverride: func() simulator.SchedulerSimulator {
-				return &mockWorkloadScheduler{
-					placementErr: errors.New("Insufficient cpu"),
-				}
-			},
 			wantWorkloads: []kueue.Workload{
 				wlNotReserved(kueue.WorkloadQuotaReservedReasonSimulationFailed,
-					"failed to assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, error: Insufficient cpu"),
+					"failed to assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, error: 0/1 nodes are available: 1 Insufficient cpu."),
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-main": {"default/wl"},
@@ -2600,73 +2582,6 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 		queues: queues,
 		now:    now,
 	}, cases)
-}
-
-type mockWorkloadScheduler struct {
-	simulator.SchedulerSimulator
-
-	placementNode types.NodeName
-	// placementErr, when set, makes every Pod fail to be placed with this error.
-	placementErr error
-
-	injectError error
-	// swFailAt marks at and after which call should the ShceduleWorkload
-	// method return an error. When not set, ShceduleWorkload will awlays succeed.
-	swFailAt int
-
-	swCallsCount int
-}
-
-func (s *mockWorkloadScheduler) FindFeasibleNodes(
-	_ context.Context,
-	candidates iter.Seq[simulator.Candidate],
-	_ *simulator.PodRequirements,
-	_ *simulator.NodeExclusionStats,
-) ([]simulator.MatchedCandidate, error) {
-	var feasible []simulator.MatchedCandidate
-	for candidate := range candidates {
-		matched, ok := candidate.(simulator.MatchedCandidate)
-		if !ok {
-			return nil, fmt.Errorf("failed to cast candidate %T to simulator.MatchedCandidate", candidate)
-		}
-		feasible = append(feasible, matched)
-	}
-	return feasible, nil
-}
-
-func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
-	s.swCallsCount++
-	if s.swFailAt != 0 && s.swCallsCount >= s.swFailAt {
-		return simulator.SchedulingResult{Error: s.injectError}
-	}
-	placements := make(simulator.PodPlacements, len(workloadPods))
-	for _, pod := range workloadPods {
-		if s.placementErr != nil {
-			placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{
-				Error:   s.placementErr,
-				Reasons: []string{s.placementErr.Error()},
-			}
-			continue
-		}
-		placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{Node: s.placementNode}
-	}
-	return simulator.SchedulingResult{PodPlacements: placements}
-}
-
-func (s *mockWorkloadScheduler) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
-	return nil
-}
-
-func (s *mockWorkloadScheduler) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
-	return nil
-}
-
-func (s *mockWorkloadScheduler) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
-	return nil
-}
-
-func (s *mockWorkloadScheduler) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
-	return nil
 }
 
 func TestTryDeferFailedTASReplacement_DeepIntegration(t *testing.T) {
@@ -2864,13 +2779,14 @@ func TestPartialAdmissionWithCommittedVictims(t *testing.T) {
 			wantMode:     flavorassigner.DeferredFit,
 			wantCount:    3,
 		},
-		"allow partial fit without preemption": {
-			// Node "a" (2 CPU) has 1 CPU used and 1 CPU free, so reduced count=1 fits immediately on "a" without preemption.
+		"keep full DeferredFit count even when partial count fits without preemption": {
+			// Node "a" (2 CPU) has 1 CPU used and 1 CPU free, so count=1 could fit immediately on "a",
+			// but full count=3 already fits via committed victim on "b" (DeferredFit, CanFit() == true).
 			otherOnACPU:  "1",
 			otherOnAPrio: 0,
 			partial:      true,
-			wantMode:     flavorassigner.Fit,
-			wantCount:    1,
+			wantMode:     flavorassigner.DeferredFit,
+			wantCount:    3,
 		},
 		"keep full count when reduced count still needs committed victim": {
 			// Node "a" (2 CPU) is occupied by a higher-priority workload, so even count=1 needs committed victim on "b" (DeferredFit).

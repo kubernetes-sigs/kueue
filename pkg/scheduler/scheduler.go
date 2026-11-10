@@ -1720,14 +1720,13 @@ func (s *Scheduler) getAssignmentsSimulation(ctx context.Context, wl *workload.I
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
-		fullPlanMode := assignmentPlan.Assignment.RepresentativeMode()
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
 			if partialPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...); partialPlan.CanFit() {
-				// A reduced count may fit only by evicting another victim. Keep
-				// waiting for victim Pods unless it fits without preemption.
-				if fullPlanMode == flavorassigner.DeferredFit && partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+				// When WaitingForResidualTASPods, a reduced count may fit only by evicting another victim.
+				// Keep waiting for victim Pods unless it fits without preemption.
+				if assignmentPlan.Assignment.WaitingForResidualTASPods && partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
 					return false
 				}
 				bestPartialPlan = &partialPlan
