@@ -26,6 +26,7 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -57,7 +58,11 @@ import (
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
+// cachedVirtualPods holds the generated virtual pods for an admitted Workload
+// along with the Workload's ResourceVersion at the time of generation
 type cachedVirtualPods struct {
+	// resourceVersion of the parent Workload. When the Workload's ResourceVersion
+	// changes (e.g. status or admission changes), the cached pods are invalidated
 	resourceVersion string
 	pods            []*corev1.Pod
 }
@@ -197,12 +202,10 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	tracker := pods.Clone()
 
 	assumedWls := simulator.AssumedWorkloads(options...)
-	activeUIDs := make(map[types.UID]struct{}, len(assumedWls))
+	activeUIDs := sets.New[types.UID]()
 
 	for _, wl := range assumedWls {
-		if wl.UID != "" {
-			activeUIDs[wl.UID] = struct{}{}
-		}
+		activeUIDs.Insert(wl.UID)
 
 		vPods := s.getVirtualPods(wl)
 		if len(vPods) == 0 {
@@ -220,7 +223,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	// Prune workloads that are no longer assumed active
 	s.virtualPodsMu.Lock()
 	for uid := range s.virtualPodsCache {
-		if _, ok := activeUIDs[uid]; !ok {
+		if !activeUIDs.Has(uid) {
 			delete(s.virtualPodsCache, uid)
 		}
 	}
@@ -258,10 +261,6 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 }
 
 func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
-	if wl.UID == "" {
-		return VirtualPodsForWorkload(wl)
-	}
-
 	s.virtualPodsMu.RLock()
 	cached, ok := s.virtualPodsCache[wl.UID]
 	s.virtualPodsMu.RUnlock()
