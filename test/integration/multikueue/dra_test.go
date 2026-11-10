@@ -390,5 +390,63 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 				)
 			})
 		})
+
+		ginkgo.It("Should name the unreachable workers in the reported quota reservation failures", func() {
+			restoreConnectionToWorker2 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, managersConfigNamespace.Name)
+
+			ginkgo.By("creating a ResourceClaimTemplate on manager", func() {
+				managerRct := utiltesting.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj()
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerRct)
+			})
+
+			job := testingjob.MakeJob("unreachable-worker-dra-job", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				Obj()
+			job.Spec.Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{
+					Name:                      "gpu",
+					ResourceClaimTemplateName: new("gpu-template"),
+				},
+			}
+
+			ginkgo.By("creating a job with DRA resources on manager", func() {
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("setting workload reservation in the management cluster", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
+				integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			})
+
+			var worker1Failure *metav1.Condition
+			ginkgo.By("waiting for worker1 to fail to reserve quota", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					remoteWl := &kueue.Workload{}
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+					g.Expect(remoteWl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved))
+					worker1Failure = apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the admission check message reports the failure of worker1 and names worker2 as unreachable", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					acs := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
+					g.Expect(acs).NotTo(gomega.BeNil())
+					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(acs.Message).To(gomega.ContainSubstring(workerCluster1.Name + " (" + worker1Failure.Reason + "): " + worker1Failure.Message))
+					g.Expect(acs.Message).To(gomega.HaveSuffix("; unreachable: " + workerCluster2.Name))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			restoreConnectionToWorker2()
+		})
 	})
 })
