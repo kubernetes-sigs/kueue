@@ -25,6 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -299,4 +300,29 @@ func isConditionEqual(a, b *metav1.Condition) bool {
 		return false
 	}
 	return a.Status == b.Status && a.Reason == b.Reason && a.Message == b.Message
+}
+
+// getMultiKueueAdmissionCheck returns the first MultiKueue AdmissionCheck of the ClusterQueue.
+func getMultiKueueAdmissionCheck(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
+	if cq.Spec.AdmissionChecksStrategy == nil {
+		return nil, false, nil
+	}
+
+	acList := &kueue.AdmissionCheckList{}
+	if err := c.List(ctx, acList, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil {
+		return nil, false, fmt.Errorf("listing local AdmissionChecks: %w", err)
+	}
+
+	cqACNames := sets.New[string]()
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		cqACNames.Insert(string(rule.Name))
+	}
+
+	for _, ac := range acList.Items {
+		if cqACNames.Has(ac.Name) {
+			return &ac, true, nil
+		}
+	}
+
+	return nil, false, nil
 }

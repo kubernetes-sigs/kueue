@@ -316,3 +316,47 @@ func TestListWorkloadsWithAdmissionCheck(t *testing.T) {
 		})
 	}
 }
+
+func TestClusterStatusMetricIndexes(t *testing.T) {
+	cases := map[string]struct{ metrics, capacityProvider bool }{
+		"both disabled":          {},
+		"metrics only":           {metrics: true},
+		"capacity provider only": {capacityProvider: true},
+		"both enabled":           {metrics: true, capacityProvider: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, tc.metrics)
+			features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, tc.capacityProvider)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			recorder := &recordingFieldIndexer{fields: make(map[string]int)}
+			if err := SetupIndexer(ctx, recorder, TestNamespace); err != nil {
+				t.Fatal(err)
+			}
+			wantShared, wantProvider := 0, 0
+			if tc.metrics || tc.capacityProvider {
+				wantShared = 1
+			}
+			if tc.capacityProvider {
+				wantProvider = 1
+			}
+			for field, want := range map[string]int{
+				AdmissionCheckControllerNameKey:     wantShared,
+				ClusterQueueAdmissionChecksKey:      wantShared,
+				CapacityProviderParametersKey:       wantProvider,
+				ProviderConfigManagerSubtreeRootKey: wantProvider,
+			} {
+				if got := recorder.fields[field]; got != want {
+					t.Errorf("Registrations of %s = %d, want %d", field, got, want)
+				}
+			}
+		})
+	}
+}
+
+type recordingFieldIndexer struct{ fields map[string]int }
+
+func (r *recordingFieldIndexer) IndexField(_ context.Context, _ client.Object, field string, _ client.IndexerFunc) error {
+	r.fields[field]++
+	return nil
+}
