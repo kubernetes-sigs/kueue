@@ -203,8 +203,7 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods of a pod group identified by annotation is not treated as standalone",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -232,8 +231,7 @@ group-pod-2   1/1     Running   0          <unknown>
 `,
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
-		},
-		{
+		}, {
 			name: "list pods of a pod group identified by annotation with a label selector",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -255,8 +253,7 @@ group-pod-1   1/1     Running   0          <unknown>
 `,
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
-		},
-		{
+		}, {
 			name: "list pods of an annotation-based pod group in all namespaces with a label selector",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -280,8 +277,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 `,
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
-		},
-		{
+		}, {
 			name: "list pods of a pod group identified by annotation with a field selector",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -303,8 +299,7 @@ group-pod-1   1/1     Running   0          <unknown>
 `,
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching field selector "status.phase=Running" in namespace "default" and filtering them client-side.
 `,
-		},
-		{
+		}, {
 			name: "list pods of a pod group identified by annotation with json output",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -326,8 +321,7 @@ group-pod-1   1/1     Running   0          <unknown>
 			podListFormat:    "json",
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
-		},
-		{
+		}, {
 			name: "list pods of an annotation-based pod group in all namespaces",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -351,8 +345,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 `,
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
-		},
-		{
+		}, {
 			name: "no pods of a pod group identified by annotation",
 			job: &corev1.Pod{
 				Kind:        "Pod",
@@ -827,8 +820,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods with api-group filter",
 			job: &jobsetapi.JobSet{
 				Kind:      "JobSet",
