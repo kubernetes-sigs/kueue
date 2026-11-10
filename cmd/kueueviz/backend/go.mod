@@ -9,7 +9,7 @@ require (
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-cmp v0.7.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.21.0
 	golang.org/x/time v0.16.0
 	k8s.io/api v0.37.2
