@@ -536,7 +536,9 @@ A participant write failure can also move a previously `Distributed=False`
 orchestrator to `Unknown` when it reaches the quota write phase. Ownership
 checks treat only `False` as deactivated; `Unknown` is not deactivated. This
 may prevent a lower-precedence orchestrator from taking over retained quotas
-until a later reconciliation succeeds or explicitly deactivates the owner.
+even after a successful retry: that retry sets `Distributed=True`, which still
+counts as active for ownership checks. Explicit deactivation (`False`) or an
+applicable ownership-precedence exception can permit takeover.
 The following diagram shows the relevant transitions (other validation outcomes
 can set `False`):
 
