@@ -46,6 +46,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -128,7 +129,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		})
 	})
 
-	ginkgo.It("Should keep the RayJob workloads admitted until the worker deletes the RayCluster retained by the TTL", func() {
+	ginkgo.It("Should keep the RayJob workloads admitted until the worker deletes the RayCluster retained by the TTL", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayJobRetainQuotaUntilClusterShutdown, true)
 
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(

@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should keep the workload admitted until the RayCluster retained by the TTL is deleted", func() {
+	ginkgo.It("Should keep the workload admitted until the RayCluster retained by the TTL is deleted", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayJobRetainQuotaUntilClusterShutdown, true)
 
 		ginkgo.By("creating a job that retains its RayCluster after finishing")

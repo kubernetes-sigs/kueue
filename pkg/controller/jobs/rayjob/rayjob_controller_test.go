@@ -1169,7 +1169,7 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedFinished:        false,
 		},
 		{
-			name: "completed job within the clock skew tolerance of the shutdown deadline",
+			name: "completed job past the clock skew cutoff, before the shutdown deadline",
 			status: rayv1.RayJobStatus{
 				JobStatus:           rayv1.JobStatusSucceeded,
 				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
