@@ -52,6 +52,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -7244,6 +7245,158 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 				Note:   "Updated workload spec WaitForPodsReady to timeoutSeconds=50",
 			})
 		})
+})
+
+var _ = ginkgo.Describe("Job with elastic jobs via workload-slices and ProvisioningRequests support", func() {
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, nil))
+
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should detach unschedulable pods from ProvisioningRequests that can no longer deliver capacity", framework.SlowSpec, func() {
+		// The provisioning controller is not running in this suite, so the
+		// requests and the pods' bindings to them are created by hand, as the
+		// controller and the ungater would have left them after admission.
+		const provisioningClass = "test-provisioning-class"
+		workloadGVK := kueue.SchemeGroupVersion.WithKind("Workload")
+
+		testJob := testingjob.MakeJob("elastic-provisioning", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(2).
+			Completions(2).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+
+		var slice *kueue.Workload
+		ginkgo.By("admitting the elastic job's workload slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				slice = &workloads.Items[0]
+				g.Expect(workload.IsAdmitted(slice)).Should(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		expiringRequest := utiltestingapi.MakeProvisioningRequest(slice.Name+"-provisioning-check-1", ns.Name).
+			ControllerReference(workloadGVK, slice.Name, string(slice.UID)).
+			ProvisioningClass(provisioningClass).
+			PodSet("ppt-"+slice.Name, 1).
+			Obj()
+		vanishingRequest := utiltestingapi.MakeProvisioningRequest(slice.Name+"-provisioning-check-2", ns.Name).
+			ControllerReference(workloadGVK, slice.Name, string(slice.UID)).
+			ProvisioningClass(provisioningClass).
+			PodSet("ppt-"+slice.Name, 1).
+			Obj()
+		ginkgo.By("creating two requests controlled by the slice, Provisioned with live bookings", func() {
+			for _, request := range []*autoscaling.ProvisioningRequest{expiringRequest, vanishingRequest} {
+				behavioral.MustCreate(ctx, k8sClient, request)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(request), request)).Should(gomega.Succeed())
+					for _, conditionType := range []string{autoscaling.Accepted, autoscaling.Provisioned} {
+						apimeta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType})
+					}
+					g.Expect(k8sClient.Status().Update(ctx, request)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		podOnExpiringRequest := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, slice.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).
+			Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, expiringRequest.Name).
+			Annotation(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass).
+			Label(pkgconstants.PodSetLabel, string(slice.Spec.PodSets[0].Name)).
+			Obj()
+		podOnVanishingRequest := testingpod.MakePod("worker-1", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, slice.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).
+			Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, vanishingRequest.Name).
+			Annotation(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass).
+			Label(pkgconstants.PodSetLabel, string(slice.Spec.PodSets[0].Name)).
+			Obj()
+		ginkgo.By("creating a released pod bound to each request, which the scheduler reports Unschedulable", func() {
+			for _, pod := range []*corev1.Pod{podOnExpiringRequest, podOnVanishingRequest} {
+				behavioral.MustCreate(ctx, k8sClient, pod)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+					pod.Status.Conditions = []corev1.PodCondition{{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionFalse,
+						Reason: corev1.PodReasonUnschedulable,
+					}}
+					g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		ginkgo.By("keeping both pods bound while the bookings are live", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				for pod, request := range map[*corev1.Pod]*autoscaling.ProvisioningRequest{podOnExpiringRequest: expiringRequest, podOnVanishingRequest: vanishingRequest} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+					g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningRequestPodAnnotationKey, request.Name))
+					g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass))
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("marking one request BookingExpired and deleting the other", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(expiringRequest), expiringRequest)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&expiringRequest.Status.Conditions, metav1.Condition{Type: autoscaling.BookingExpired, Status: metav1.ConditionTrue, Reason: autoscaling.BookingExpired})
+				g.Expect(k8sClient.Status().Update(ctx, expiringRequest)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, vanishingRequest, true)
+		})
+
+		ginkgo.By("the ungater removes the request annotations from both pods and records why", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, pod := range []*corev1.Pod{podOnExpiringRequest, podOnVanishingRequest} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+					g.Expect(pod.Annotations).ShouldNot(gomega.HaveKey(autoscaling.ProvisioningRequestPodAnnotationKey))
+					g.Expect(pod.Annotations).ShouldNot(gomega.HaveKey(autoscaling.ProvisioningClassPodAnnotationKey))
+					g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, slice.Name))
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			for _, request := range []*autoscaling.ProvisioningRequest{expiringRequest, vanishingRequest} {
+				behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: elasticjobs.ProvisioningRequestDetachedReason,
+					Type:   corev1.EventTypeNormal,
+					Note: fmt.Sprintf("ProvisioningRequest %q can no longer deliver capacity for this unschedulable pod; "+
+						"removed its annotations so the cluster autoscaler handles the pod directly", request.Name),
+				})
+			}
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Job reconciliation", func() {

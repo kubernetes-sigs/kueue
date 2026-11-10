@@ -1895,6 +1895,31 @@ func (pr *ProvisioningRequestWrapper) OwnerReference(gvk schema.GroupVersionKind
 	return pr
 }
 
+func (pr *ProvisioningRequestWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *ProvisioningRequestWrapper {
+	AppendOwnerReference(&pr.ProvisioningRequest, gvk, name, uid, new(true), new(true))
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) Finalizers(fin ...string) *ProvisioningRequestWrapper {
+	pr.ObjectMeta.Finalizers = fin
+	return pr
+}
+
+func (pr *ProvisioningRequestWrapper) DeletionTimestamp(t time.Time) *ProvisioningRequestWrapper {
+	pr.ProvisioningRequest.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
+	return pr
+}
+
+// Condition sets the named condition to True.
+func (pr *ProvisioningRequestWrapper) Condition(conditionType string) *ProvisioningRequestWrapper {
+	apimeta.SetStatusCondition(&pr.Status.Conditions, metav1.Condition{
+		Type:   conditionType,
+		Status: metav1.ConditionTrue,
+		Reason: conditionType,
+	})
+	return pr
+}
+
 func (pr *ProvisioningRequestWrapper) PodSet(templateName string, count int32) *ProvisioningRequestWrapper {
 	pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
 		PodTemplateRef: autoscaling.Reference{Name: templateName},

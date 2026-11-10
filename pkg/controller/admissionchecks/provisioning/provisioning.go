@@ -52,12 +52,18 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 	return apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityRevoked)
 }
 
+// IsTerminal reports whether the request can no longer deliver capacity: it is
+// Failed, BookingExpired or CapacityRevoked. The autoscaler does not act on it
+// again, nor on pods bound to it.
+func IsTerminal(pr *autoscaling.ProvisioningRequest) bool {
+	return isFailed(pr) || isBookingExpired(pr) || isCapacityRevoked(pr)
+}
+
 // hasLiveBooking reports whether the autoscaler still honours the request's
-// booking: it is Provisioned and not Failed, BookingExpired or CapacityRevoked.
-// Only such a request can have pods bound to it that are still waiting for
-// the capacity it triggered.
+// booking: it is Provisioned and not terminal. Only such a request can have
+// pods bound to it that are still waiting for the capacity it triggered.
 func hasLiveBooking(pr *autoscaling.ProvisioningRequest) bool {
-	return isProvisioned(pr) && !isFailed(pr) && !isBookingExpired(pr) && !isCapacityRevoked(pr)
+	return isProvisioned(pr) && !IsTerminal(pr)
 }
 
 func ProvisioningRequestName(workloadName string, checkName kueue.AdmissionCheckReference, attempt int32) string {
