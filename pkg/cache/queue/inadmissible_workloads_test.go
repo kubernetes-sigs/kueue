@@ -418,6 +418,7 @@ func TestNotifyRetryInadmissibleAfter(t *testing.T) {
 						t.Fatalf("Adding LocalQueue %q: %v", lq.Name, err)
 					}
 				}
+				// Adding the queues schedules requeues, which would absorb a later requeue with a longer delay.
 				time.Sleep(batchPeriod)
 				synctest.Wait()
 

@@ -56,6 +56,9 @@ type PreemptionEvaluator struct {
 	// least preferred one.
 	candidatesOrdering func(a, b *workload.Info) int
 	retryAt            *time.Time
+	// newCandidateFilters is replaced in tests to add WorkloadTimeFilters.
+	// TODO(#17600): Drop once NewCandidateFilters builds them.
+	newCandidateFilters func(logr.Logger, *kueuealpha.PreemptionConfigPreemptionCandidateSelector, *workload.Info, *schdcache.Snapshot) (filters.CandidateFilters, []*filters.FilterBuildError)
 }
 
 // NewPreemptionEvaluator returns the PreemptionEvaluator of the given preemptor for the
@@ -69,11 +72,12 @@ func NewPreemptionEvaluator(
 	candidatesOrdering func(a, b *workload.Info) int,
 ) *PreemptionEvaluator {
 	return &PreemptionEvaluator{
-		ctx:                ctx,
-		log:                log,
-		config:             config,
-		preemptor:          preemptor,
-		candidatesOrdering: candidatesOrdering,
+		ctx:                 ctx,
+		log:                 log,
+		config:              config,
+		preemptor:           preemptor,
+		candidatesOrdering:  candidatesOrdering,
+		newCandidateFilters: filters.NewCandidateFilters,
 	}
 }
 
@@ -274,7 +278,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
 	// for effective look up to add another selector's index in case of another match.
 	seen := map[types.UID]int{}
-	retryAtByUID := map[types.UID]*time.Time{}
+	var retryAt *time.Time
 	for _, rule := range p.config.Spec.Rules {
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
@@ -288,8 +292,10 @@ func (p *PreemptionEvaluator) candidatesFor(
 			continue
 		}
 
+		ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
+		retryAtByUID := map[types.UID]*time.Time{}
 		for selectorIndex, selector := range rule.CandidateSelectors {
-			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, p.preemptor, snapshot)
+			filter, buildErrs := p.newCandidateFilters(p.log, &selector, p.preemptor, snapshot)
 			if len(buildErrs) > 0 {
 				for _, bErr := range buildErrs {
 					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, selectorIndex, bErr))
@@ -297,8 +303,13 @@ func (p *PreemptionEvaluator) candidatesFor(
 				continue
 			}
 
-			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, retryAtByUID, &candidates, selectorIndex)
+		}
+		// A workload selected by another rule may still be selected by this one later.
+		for uid, workloadRetryAt := range retryAtByUID {
+			if index, found := seen[uid]; !found || len(candidates[index].RuleNameToSelectorIndexes[ruleReference]) == 0 {
+				retryAt = cmputil.EarliestTime(retryAt, workloadRetryAt)
+			}
 		}
 	}
 
@@ -306,7 +317,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		return nil, errors.Join(errs...)
 	}
 
-	p.recordRetryAt(seen, retryAtByUID)
+	p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
 	return candidates, nil
 }
 
@@ -342,14 +353,6 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 
 			indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
 			candidate.RuleNameToSelectorIndexes[ruleReference] = append(indexes, selectorIndex)
-		}
-	}
-}
-
-func (p *PreemptionEvaluator) recordRetryAt(seen map[types.UID]int, retryAtByUID map[types.UID]*time.Time) {
-	for uid, retryAt := range retryAtByUID {
-		if _, matched := seen[uid]; !matched {
-			p.retryAt = cmputil.EarliestTime(p.retryAt, retryAt)
 		}
 	}
 }
