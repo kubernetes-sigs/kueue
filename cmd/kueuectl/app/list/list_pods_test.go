@@ -59,12 +59,16 @@ type podTestCase struct {
 	mapperGVKs []schema.GroupVersionKind
 	args       []string
 	// wantPodsQuery, when set, is compared against the query of the pods list request.
-	wantPodsQuery    map[string]string
-	wantOut          string
-	wantPodListNames []string
-	podListFormat    string
-	wantOutErr       string
-	wantErr          error
+	wantPodsQuery map[string]string
+	// wantPodsPath, when set, is compared against the path of the pods list request.
+	wantPodsPath string
+	// forObjectReturnsList makes the fake API use a Kubernetes list response for --for.
+	forObjectReturnsList bool
+	wantOut              string
+	wantPodListNames     []string
+	podListFormat        string
+	wantOutErr           string
+	wantErr              error
 }
 
 func TestPodCmd(t *testing.T) {
@@ -109,8 +113,7 @@ func TestPodCmd(t *testing.T) {
 valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 `,
-		},
-		{
+		}, {
 			name: "list pods of batch/job with json output",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -144,8 +147,7 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			args:             []string{"--for", "job/test-job", "-o", "json"},
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "json",
-		},
-		{
+		}, {
 			name: "list pods of batch/job with yaml output",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -179,8 +181,7 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			args:             []string{"--for", "job/test-job", "-o", "yaml"},
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "yaml",
-		},
-		{
+		}, {
 			name: "list pods of a pod group",
 			job: &corev1.Pod{
 				Kind:      "Pod",
@@ -252,7 +253,7 @@ group-pod-2   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 group-pod-1   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side. The supplied selectors narrow the list.
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
 		},
 		{
@@ -272,10 +273,12 @@ group-pod-1   1/1     Running   0          <unknown>
 				"labelSelector": "app=trainer",
 				"fieldSelector": "",
 			},
+			wantPodsPath:         "/namespaces/default/pods",
+			forObjectReturnsList: true,
 			wantOut: `NAMESPACE   NAME          READY   STATUS    RESTARTS   AGE
 default     group-pod-1   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in all namespaces and filtering them client-side. Use --namespace to narrow the list further.
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching label selector "app=trainer" in namespace "default" and filtering them client-side.
 `,
 		},
 		{
@@ -298,7 +301,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 group-pod-1   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching field selector "status.phase=Running" in namespace "default" and filtering them client-side. The supplied selectors narrow the list.
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing Pods matching field selector "status.phase=Running" in namespace "default" and filtering them client-side.
 `,
 		},
 		{
@@ -341,10 +344,12 @@ group-pod-1   1/1     Running   0          <unknown>
 				"labelSelector": "",
 				"fieldSelector": "",
 			},
+			wantPodsPath:         "/namespaces/default/pods",
+			forObjectReturnsList: true,
 			wantOut: `NAMESPACE   NAME          READY   STATUS    RESTARTS   AGE
 default     group-pod-1   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in all namespaces and filtering them client-side. Use --namespace or --selector to narrow the list.
+			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 `,
 		},
 		{
@@ -368,8 +373,7 @@ default     group-pod-1   1/1     Running   0          <unknown>
 			wantOutErr: `Warning: Pod group "test-group" is identified by an annotation, so listing all Pods in namespace "default" and filtering them client-side. Use --selector to narrow the list when the group Pods share a label.
 No resources found in default namespace.
 `,
-		},
-		{
+		}, {
 			name: "list a standalone pod by name",
 			job: &corev1.Pod{
 				Kind:      "Pod",
@@ -389,8 +393,7 @@ No resources found in default namespace.
 			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
 single-pod   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list a standalone pod by name merged with user selectors",
 			job: &corev1.Pod{
 				Kind:      "Pod",
@@ -409,8 +412,7 @@ single-pod   1/1     Running   0          <unknown>
 			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
 single-pod   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods with JSONPath containing wide",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -440,8 +442,7 @@ single-pod   1/1     Running   0          <unknown>
 			},
 			args:    []string{"--for", "job/test-job", "-o", "jsonpath={.metadata.labels.wide}"},
 			wantOut: "selected-value",
-		},
-		{
+		}, {
 			name: "list pods for valid batch/job type",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -477,8 +478,7 @@ single-pod   1/1     Running   0          <unknown>
 valid-pod-1   1/1     Running   0          <unknown>
 valid-pod-2   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "no valid pods for batch/job type in current namespace",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -504,8 +504,7 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found in default namespace.
 `,
-		},
-		{
+		}, {
 			name: "no valid pods for batch/job type in all namespaces",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -531,8 +530,7 @@ valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: "",
 			wantOutErr: `No resources found.
 `,
-		},
-		{
+		}, {
 			name: "valid pods for batch/job type in all namespaces",
 			job: &batchv1.Job{
 				Kind:      "Job",
@@ -570,8 +568,7 @@ valid-pod-2   1/1     Running   0          <unknown>
 dev-team-a   valid-pod-1   1/1     Running   0          <unknown>
 dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
 			job: &kftraining.PyTorchJob{
 				Kind:      "PyTorchJob",
@@ -604,8 +601,7 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
 			job: &kftraining.PaddleJob{
 				Kind:      "PaddleJob",
@@ -638,8 +634,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for kubeflow.org/tfjob type",
 			job: &kftraining.TFJob{
 				Kind:      "TFJob",
@@ -672,8 +667,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for kubeflow.org/mpijob type",
 			job: &kftraining.MPIJob{
 				Kind:      "MPIJob",
@@ -706,8 +700,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for kubeflow.org/xgboostjob type",
 			job: &kftraining.XGBoostJob{
 				Kind:      "XGBoostJob",
@@ -740,8 +733,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for ray.io/rayjob type",
 			job: &rayv1.RayJob{
 				Kind:      "RayJob",
@@ -773,8 +765,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for ray.io/raycluster type",
 			job: &rayv1.RayCluster{
 				Kind:      "RayCluster",
@@ -805,8 +796,7 @@ valid-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 valid-pod-1   1/1     Running   0          <unknown>
 `,
-		},
-		{
+		}, {
 			name: "list pods for jobset.x-k8s.io/jobset type",
 			job: &jobsetapi.JobSet{
 				Kind:      "JobSet",
@@ -892,7 +882,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
 			var gotPodsQuery url.Values
-			restClient, err := mockRESTClient(codec, tc, &gotPodsQuery)
+			var gotPodsPath string
+			restClient, err := mockRESTClient(codec, tc, &gotPodsQuery, &gotPodsPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -960,6 +951,10 @@ valid-pod-1   1/1     Running   0          <unknown>
 					t.Errorf("Unexpected pods list query (-want/+got)\n%s", diff)
 				}
 			}
+
+			if tc.wantPodsPath != "" && tc.wantPodsPath != gotPodsPath {
+				t.Errorf("Unexpected pods list path: got %q, want %q", gotPodsPath, tc.wantPodsPath)
+			}
 		})
 	}
 }
@@ -990,8 +985,8 @@ func buildTestRuntimeScheme() (*runtime.Scheme, error) {
 // mockRESTClient serves the --for object and the pod list. The two requests
 // share a path when --for is a Pod, so the pod list is recognized by the
 // Table content negotiation that only the list request performs. The query
-// of the pod list request is stored in gotPodsQuery.
-func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Values) (*restfake.RESTClient, error) {
+// of the pod list request is stored in gotPodsQuery and gotPodsPath.
+func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Values, gotPodsPath *string) (*restfake.RESTClient, error) {
 	podList := &corev1.PodList{Items: tc.pods}
 
 	reqPathPrefix := fmt.Sprintf("/namespaces/%s", metav1.NamespaceDefault)
@@ -1000,6 +995,10 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 	}
 
 	reqJobKind := strings.ToLower(tc.job.GetObjectKind().GroupVersionKind().Kind) + "s"
+	podListPath := fmt.Sprintf("%s/pods", reqPathPrefix)
+	if tc.wantPodsPath != "" {
+		podListPath = tc.wantPodsPath
+	}
 
 	var err error
 	mockRestClient := &restfake.RESTClient{
@@ -1010,13 +1009,28 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 			isForObjectRequest := request.URL.Query().Get("fieldSelector") == fmt.Sprintf("metadata.name=%s", tc.job.(metav1.Object).GetName())
 			switch {
 			case isForObjectRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
+				forObject := tc.job
+				if tc.forObjectReturnsList {
+					pod, ok := tc.job.(*corev1.Pod)
+					if !ok {
+						return nil, fmt.Errorf("expected Pod --for object, got %T", tc.job)
+					}
+					pod = pod.DeepCopy()
+					pod.APIVersion = "v1"
+					pod.Kind = "Pod"
+					forObject = &corev1.PodList{
+						TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PodList"},
+						Items:    []corev1.Pod{*pod},
+					}
+				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
-					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job))),
+					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, forObject))),
 				}, nil
-			case request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix):
+			case request.URL.Path == podListPath:
 				*gotPodsQuery = request.URL.Query()
+				*gotPodsPath = request.URL.Path
 				var podRespBody io.ReadCloser
 				if strings.Contains(request.Header.Get("Accept"), "as=Table") {
 					if len(podList.Items) == 0 {
