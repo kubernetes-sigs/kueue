@@ -7816,7 +7816,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		// Proves cleanup necessity: the second PodSet excludes all nodes via selector.
-		// Without resetting temporary per-domain state (e.g. podCount/podCountWithLeader), stale
+		// Without resetting temporary per-domain state (e.g. podCount/sliceCount), stale
 		// values from the first PodSet would leak and produce a bogus assignment instead of failure.
 		"temporary state cleanup prevents leakage across PodSets": {
 			nodes: []corev1.Node{
