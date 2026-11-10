@@ -44,6 +44,9 @@ class MarkStepDoneTest(unittest.TestCase):
         for script in (REPO_ROOT / "hack/releasing").glob("*.sh"):
             commands.update(re.findall(r'(?:mark_step_done\.py|\$\{MARK_STEP_DONE_PY\})" ([a-z-]+)',
                                        script.read_text()))
+        # Standalone ChatOps workflows can report completion through the shared action.
+        for workflow in (REPO_ROOT / ".github/workflows").glob("*.yml"):
+            commands.update(re.findall(r'^\s+command: ([a-z-]+)\s*$', workflow.read_text(), re.MULTILINE))
         markers = template_markers()
         self.assertTrue(markers)
         # A marker that matches no command (typo, renamed or removed command)

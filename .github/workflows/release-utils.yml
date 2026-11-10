@@ -5,6 +5,7 @@ on:
 concurrency:
   group: release-issue-${{ github.event.issue.number }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   authorize:
