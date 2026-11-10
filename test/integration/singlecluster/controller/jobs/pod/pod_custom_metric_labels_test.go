@@ -51,11 +51,8 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
 		}
-		ginkgo.DeferCleanup(func() {
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
-		})
-		fwk.StartManager(ctx, cfg, managerSetup(false, false, configuration,
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(false, false, configuration,
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
 

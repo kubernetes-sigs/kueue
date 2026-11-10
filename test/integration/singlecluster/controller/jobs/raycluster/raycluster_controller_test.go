@@ -851,8 +851,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
@@ -1175,11 +1174,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
 			BlockAdmission:     new(false),
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 			clusterQueue.Spec.ConcurrentAdmissionPolicy = utiltestingapi.MakeClusterQueue(clusterQueue.Name).
@@ -1323,8 +1321,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 				},
 			}
 			// Stop the restarted manager before restoring its per-spec feature gate.
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 				jobframework.WithWaitForPodsReady(waitForPodsReady),
 			))
