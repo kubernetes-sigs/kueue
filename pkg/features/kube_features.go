@@ -951,6 +951,13 @@ const (
 	// for legacy-named workloads.
 	DisableStatefulSetWorkloadNameFallback featuregate.Feature = "DisableStatefulSetWorkloadNameFallback"
 
+	// owner: @tomsen02
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17892
+	//
+	// Reports worker cluster connection status per manager ClusterQueue, independently
+	// of quota automation.
+	MultiKueueMetricForClusterByStatus featuregate.Feature = "MultiKueueMetricForClusterByStatus"
+
 	// owner: @JanKaczmarski
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/17401-dqo-multikueue-provider
 	//
@@ -1077,6 +1084,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
 	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
+	MultiKueueMetricForClusterByStatus:                  {MultiKueue},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1553,6 +1561,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DisableStatefulSetWorkloadNameFallback: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.22
+	},
+
+	MultiKueueMetricForClusterByStatus: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DQOMultiKueueCapacityProvider: {

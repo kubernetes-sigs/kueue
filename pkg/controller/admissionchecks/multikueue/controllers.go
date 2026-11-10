@@ -203,6 +203,13 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
+	if features.Enabled(features.MultiKueueMetricForClusterByStatus) {
+		cqRec := newCQReconciler(mgr.GetClient(), helper, options.roleTracker, options.eventsBatchPeriod)
+		if err := cqRec.setupWithManager(mgr); err != nil {
+			return err
+		}
+	}
+
 	if features.Enabled(features.DQOMultiKueueCapacityProvider) {
 		cpRec := capacityprovider.NewReconciler(mgr.GetClient(), helper, cRec, cRec.cqUpdateCh,
 			capacityprovider.WithRoleTracker(options.roleTracker),
