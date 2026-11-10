@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -59,10 +58,7 @@ import (
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type cachedVirtualPods struct {
-	generation      int64
 	resourceVersion string
-	workloadPtr     *kueue.Workload
-	admission       *kueue.Admission
 	pods            []*corev1.Pod
 }
 
@@ -208,35 +204,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			activeUIDs[wl.UID] = struct{}{}
 		}
 
-		var vPods []*corev1.Pod
-		cacheHit := false
-		if wl.UID != "" {
-			s.virtualPodsMu.RLock()
-			cached, ok := s.virtualPodsCache[wl.UID]
-			if ok && cached.generation == wl.Generation && cached.resourceVersion == wl.ResourceVersion {
-				if cached.workloadPtr == wl || equality.Semantic.DeepEqual(cached.admission, wl.Status.Admission) {
-					vPods = cached.pods
-					cacheHit = true
-				}
-			}
-			s.virtualPodsMu.RUnlock()
-		}
-
-		if !cacheHit {
-			vPods = VirtualPodsForWorkload(wl)
-			if wl.UID != "" {
-				s.virtualPodsMu.Lock()
-				s.virtualPodsCache[wl.UID] = cachedVirtualPods{
-					generation:      wl.Generation,
-					resourceVersion: wl.ResourceVersion,
-					workloadPtr:     wl,
-					admission:       wl.Status.Admission.DeepCopy(),
-					pods:            vPods,
-				}
-				s.virtualPodsMu.Unlock()
-			}
-		}
-
+		vPods := s.getVirtualPods(wl)
 		if len(vPods) == 0 {
 			continue
 		}
@@ -287,4 +255,29 @@ func podsNotManagedByKueue(allPods []*corev1.Pod) []*corev1.Pod {
 		}
 	}
 	return kept
+}
+
+func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
+	if wl.UID == "" {
+		return VirtualPodsForWorkload(wl)
+	}
+
+	s.virtualPodsMu.RLock()
+	cached, ok := s.virtualPodsCache[wl.UID]
+	s.virtualPodsMu.RUnlock()
+
+	if ok && cached.resourceVersion == wl.ResourceVersion {
+		return cached.pods
+	}
+
+	vPods := VirtualPodsForWorkload(wl)
+
+	s.virtualPodsMu.Lock()
+	s.virtualPodsCache[wl.UID] = cachedVirtualPods{
+		resourceVersion: wl.ResourceVersion,
+		pods:            vPods,
+	}
+	s.virtualPodsMu.Unlock()
+
+	return vPods
 }

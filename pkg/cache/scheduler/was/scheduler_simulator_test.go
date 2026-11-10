@@ -2278,8 +2278,9 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
 	}
 
-	// Regenerates pods when admission changes with same ResourceVersion
+	// Regenerates pods when admission changes with new ResourceVersion
 	wlNode2 := wl.DeepCopy()
+	wlNode2.ResourceVersion = "102"
 	wlNode2.Status.Admission.PodSetAssignments[0].TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
 		Obj()
