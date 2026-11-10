@@ -35,6 +35,10 @@ import (
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 	ray.WithElasticReplicaSync(elasticRuntimeSync()),
+	ray.WithTerminalStatusSync(func(job *rayv1.RayJob) bool {
+		return job.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete ||
+			job.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed
+	}),
 )
 
 // elasticRuntimeSync wires the RayJob-specific hooks for worker-side

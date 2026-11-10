@@ -54,6 +54,14 @@ type MultiKueueAdapter interface {
 	GVK() schema.GroupVersionKind
 }
 
+// MultiKueueTerminalJobStatusSyncer is an optional adapter interface for
+// recovering terminal job status when a worker still references a replaced
+// elastic workload slice. Unlike SyncJob, it must not create or modify remote
+// objects, repoint slices, or copy nonterminal status.
+type MultiKueueTerminalJobStatusSyncer interface {
+	SyncTerminalJobStatus(ctx context.Context, localClient, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error)
+}
+
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
 // to receive job related watch events from the worker cluster.
 // If not implemented, MultiKueue will only receive events related to the job's workload.
