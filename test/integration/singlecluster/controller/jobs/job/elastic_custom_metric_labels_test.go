@@ -54,11 +54,8 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
 		}
-		ginkgo.DeferCleanup(func() {
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
-		})
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, configuration))
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, configuration))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-custom-metric-labels-")
 

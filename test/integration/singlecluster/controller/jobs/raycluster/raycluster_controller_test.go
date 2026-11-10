@@ -1115,11 +1115,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
 				},
 			}
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 				jobframework.WithWaitForPodsReady(waitForPodsReady),
 			))
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 
 			// The head and the autoscaler sidecar fit in the quota, but one more worker does not.
 			testRayCluster = testingraycluster.MakeCluster("foo", ns.Name).

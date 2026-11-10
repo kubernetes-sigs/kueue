@@ -108,8 +108,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		)
 
 		ginkgo.BeforeEach(func() {
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				false,
 				false,
 				nil,
@@ -3143,8 +3142,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			true,
 			&configuration,
@@ -3390,8 +3388,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
@@ -3582,8 +3579,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
@@ -3812,8 +3808,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			true,
 			&configapi.Configuration{},
@@ -4129,8 +4124,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
@@ -4308,8 +4302,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
@@ -4581,8 +4574,7 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(true, true, nil,
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
@@ -4868,8 +4860,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			true, // enable scheduler so pods get auto-admitted
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
@@ -4979,8 +4970,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			nil,
@@ -5179,8 +5169,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", func() {
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			nil,
@@ -5321,8 +5310,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", func(
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,
 			nil,
@@ -5396,8 +5384,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.BeforeEach(func() {
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
-			fwk.StartManager(
+			fwk.StartManagerForSpec(
 				ctx,
 				cfg,
 				managerSetup(
