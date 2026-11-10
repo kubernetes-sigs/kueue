@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -538,7 +537,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		),
 		ginkgo.Entry("when status update does not trigger clusterName or Evicted condition (negative test)",
 			func(wl *kueue.Workload) {
-				wl.Status.RequeueState = &kueue.RequeueState{Count: ptr.To[int32](1)}
+				wl.Status.RequeueState = &kueue.RequeueState{Count: new(int32(1))}
 			},
 			false,
 		),

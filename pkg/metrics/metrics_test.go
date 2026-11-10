@@ -25,7 +25,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
-	"k8s.io/utils/ptr"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -945,7 +944,7 @@ func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
 func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
-	wlType := ptr.To(configapi.SourceKindWorkload)
+	wlType := new(configapi.SourceKindWorkload)
 	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		{
 			Name:           "wl_type",

@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -113,7 +112,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 	lowerTierConstraint := []kueuealpha.PreemptionConfigNumericLabelConstraint{
 		{
 			Key:        "preemption-tier",
-			Comparison: ptr.To(kueuealpha.LessThan),
+			Comparison: new(kueuealpha.LessThan),
 		},
 	}
 	withinParentCohortConfig := configWithSelector(

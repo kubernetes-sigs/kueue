@@ -19,8 +19,6 @@ package filters
 import (
 	"testing"
 
-	"k8s.io/utils/ptr"
-
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -41,73 +39,73 @@ func TestMatchesComparison(t *testing.T) {
 			wantMatch:    true,
 		},
 		"LessThan: strictly less matches": {
-			comparison:   ptr.To(kueuealpha.LessThan),
+			comparison:   new(kueuealpha.LessThan),
 			candidateVal: 5,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"LessThan: equal rejected": {
-			comparison:   ptr.To(kueuealpha.LessThan),
+			comparison:   new(kueuealpha.LessThan),
 			candidateVal: 10,
 			preemptorVal: 10,
 			wantMatch:    false,
 		},
 		"LessThan: greater rejected": {
-			comparison:   ptr.To(kueuealpha.LessThan),
+			comparison:   new(kueuealpha.LessThan),
 			candidateVal: 15,
 			preemptorVal: 10,
 			wantMatch:    false,
 		},
 		"LessThanOrEqual: strictly less matches": {
-			comparison:   ptr.To(kueuealpha.LessThanOrEqual),
+			comparison:   new(kueuealpha.LessThanOrEqual),
 			candidateVal: 5,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"LessThanOrEqual: equal matches": {
-			comparison:   ptr.To(kueuealpha.LessThanOrEqual),
+			comparison:   new(kueuealpha.LessThanOrEqual),
 			candidateVal: 10,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"LessThanOrEqual: greater rejected": {
-			comparison:   ptr.To(kueuealpha.LessThanOrEqual),
+			comparison:   new(kueuealpha.LessThanOrEqual),
 			candidateVal: 15,
 			preemptorVal: 10,
 			wantMatch:    false,
 		},
 		"GreaterThan: strictly greater matches": {
-			comparison:   ptr.To(kueuealpha.GreaterThan),
+			comparison:   new(kueuealpha.GreaterThan),
 			candidateVal: 15,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"GreaterThan: equal rejected": {
-			comparison:   ptr.To(kueuealpha.GreaterThan),
+			comparison:   new(kueuealpha.GreaterThan),
 			candidateVal: 10,
 			preemptorVal: 10,
 			wantMatch:    false,
 		},
 		"GreaterThan: less rejected": {
-			comparison:   ptr.To(kueuealpha.GreaterThan),
+			comparison:   new(kueuealpha.GreaterThan),
 			candidateVal: 5,
 			preemptorVal: 10,
 			wantMatch:    false,
 		},
 		"GreaterThanOrEqual: strictly greater matches": {
-			comparison:   ptr.To(kueuealpha.GreaterThanOrEqual),
+			comparison:   new(kueuealpha.GreaterThanOrEqual),
 			candidateVal: 15,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"GreaterThanOrEqual: equal matches": {
-			comparison:   ptr.To(kueuealpha.GreaterThanOrEqual),
+			comparison:   new(kueuealpha.GreaterThanOrEqual),
 			candidateVal: 10,
 			preemptorVal: 10,
 			wantMatch:    true,
 		},
 		"GreaterThanOrEqual: less rejected": {
-			comparison:   ptr.To(kueuealpha.GreaterThanOrEqual),
+			comparison:   new(kueuealpha.GreaterThanOrEqual),
 			candidateVal: 5,
 			preemptorVal: 10,
 			wantMatch:    false,

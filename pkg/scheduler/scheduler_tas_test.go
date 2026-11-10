@@ -40,7 +40,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -233,7 +232,7 @@ func newTryDeferFailedTASReplacementFixture(t *testing.T) (context.Context, logr
 		t.Fatalf("Taking snapshot: %v", err)
 	}
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(ptr.To(time.Minute)))
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(new(time.Minute)))
 	e := &entry{
 		Info:                 *workload.NewInfo(log, &foo),
 		clusterQueueSnapshot: snapshot.ClusterQueue("tas-main"),

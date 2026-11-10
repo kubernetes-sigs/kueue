@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -375,7 +374,7 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](-3),
+							MaxPriorityThreshold: new(int32(-3)),
 						},
 					}).Obj(),
 				makeCQ("c", "all", "0").Obj(),

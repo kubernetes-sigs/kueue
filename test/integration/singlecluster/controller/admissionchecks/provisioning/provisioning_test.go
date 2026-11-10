@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -2738,7 +2737,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2780,7 +2779,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job again to 6 workers before the intermediate request is provisioned", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](6)
+					job.Spec.Parallelism = new(int32(6))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2955,7 +2954,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -3142,7 +3141,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

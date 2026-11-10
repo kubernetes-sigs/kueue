@@ -24,7 +24,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -110,15 +109,15 @@ app = HelloWorld.bind()`,
 		TerminationGracePeriod(1).
 		Obj()
 	rayService.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
-		IdleTimeoutSeconds: ptr.To[int32](1),
+		IdleTimeoutSeconds: new(int32(1)),
 		Env: []corev1.EnvVar{{
 			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 			Value: "1",
 		}},
 	}
-	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](0)
-	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
-	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(0))
+	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(0))
+	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))
 
 	ginkgo.By("Creating the elastic autoscaling RayService", func() {
 		behavioral.MustCreate(ctx, k8sManagerClient, rayService)

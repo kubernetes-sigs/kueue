@@ -36,7 +36,6 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -358,7 +357,7 @@ func TestPreviousSlicePodSetCounts(t *testing.T) {
 		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
 		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
+			kueue.PodSetAssignment{Name: "workers", Count: new(int32(2))},
 		).Obj(), now).
 		AdmittedAt(true, now).
 		FinishedAt(now).
@@ -923,14 +922,14 @@ func TestReconcile(t *testing.T) {
 
 	zeroCountPodSetWorkload := baseWorkload.DeepCopy()
 	zeroCountPodSetWorkload.Spec.PodSets[1].Count = 0
-	zeroCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = ptr.To[int32](0)
+	zeroCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = new(int32(0))
 
 	zeroEffectiveCountPodSetWorkload := baseWorkload.DeepCopy()
-	zeroEffectiveCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = ptr.To[int32](0)
+	zeroEffectiveCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = new(int32(0))
 
 	allZeroCountWorkload := zeroCountPodSetWorkload.DeepCopy()
 	allZeroCountWorkload.Spec.PodSets[0].Count = 0
-	allZeroCountWorkload.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](0)
+	allZeroCountWorkload.Status.Admission.PodSetAssignments[0].Count = new(int32(0))
 
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
@@ -1109,7 +1108,7 @@ func TestReconcile(t *testing.T) {
 						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 							corev1.ResourceCPU: resource.MustParse("4"),
 						},
-						Count: ptr.To[int32](4),
+						Count: new(int32(4)),
 					},
 					kueue.PodSetAssignment{
 						Name: "ps2",
@@ -1119,7 +1118,7 @@ func TestReconcile(t *testing.T) {
 						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 							corev1.ResourceCPU: resource.MustParse("3M"),
 						},
-						Count: ptr.To[int32](3),
+						Count: new(int32(3)),
 					},
 				).Obj(), now).
 				AdmissionChecks(kueue.AdmissionCheckState{
@@ -3284,14 +3283,14 @@ func TestReconcile(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 						kueue.PodSetAssignment{
 							Name:  "head",
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv1",
 							},
 						},
 						kueue.PodSetAssignment{
 							Name:  "default",
-							Count: ptr.To[int32](0),
+							Count: new(int32(0)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv2",
 							},
@@ -3317,14 +3316,14 @@ func TestReconcile(t *testing.T) {
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 					kueue.PodSetAssignment{
 						Name:  "head",
-						Count: ptr.To[int32](1),
+						Count: new(int32(1)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv1",
 						},
 					},
 					kueue.PodSetAssignment{
 						Name:  "default",
-						Count: ptr.To[int32](2),
+						Count: new(int32(2)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv2",
 						},
@@ -3395,14 +3394,14 @@ func TestReconcile(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 						kueue.PodSetAssignment{
 							Name:  "head",
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv1",
 							},
 						},
 						kueue.PodSetAssignment{
 							Name:  "default",
-							Count: ptr.To[int32](2),
+							Count: new(int32(2)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv2",
 							},
@@ -3428,14 +3427,14 @@ func TestReconcile(t *testing.T) {
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 					kueue.PodSetAssignment{
 						Name:  "head",
-						Count: ptr.To[int32](1),
+						Count: new(int32(1)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv1",
 						},
 					},
 					kueue.PodSetAssignment{
 						Name:  "default",
-						Count: ptr.To[int32](2),
+						Count: new(int32(2)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv2",
 						},
@@ -3503,14 +3502,14 @@ func TestReconcile(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 						kueue.PodSetAssignment{
 							Name:  "head",
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv1",
 							},
 						},
 						kueue.PodSetAssignment{
 							Name:  "default",
-							Count: ptr.To[int32](2),
+							Count: new(int32(2)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv2",
 							},
@@ -3536,14 +3535,14 @@ func TestReconcile(t *testing.T) {
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 					kueue.PodSetAssignment{
 						Name:  "head",
-						Count: ptr.To[int32](1),
+						Count: new(int32(1)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv1",
 						},
 					},
 					kueue.PodSetAssignment{
 						Name:  "default",
-						Count: ptr.To[int32](2),
+						Count: new(int32(2)),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "flv2",
 						},
@@ -3577,14 +3576,14 @@ func TestReconcile(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
 						kueue.PodSetAssignment{
 							Name:  "head",
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv1",
 							},
 						},
 						kueue.PodSetAssignment{
 							Name:  "default",
-							Count: ptr.To[int32](2),
+							Count: new(int32(2)),
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "flv2",
 							},

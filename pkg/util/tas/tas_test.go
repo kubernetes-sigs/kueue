@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -141,7 +140,7 @@ func TestGroupKeyForPodSet(t *testing.T) {
 		"topology request without group name": {
 			podSet: &kueue.PodSet{
 				Name:            "workers",
-				TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+				TopologyRequest: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)},
 			},
 			want: "podset/workers",
 		},
