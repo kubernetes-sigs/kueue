@@ -48,6 +48,7 @@ feature-gates:
   - name: KueueDRARejectWorkloadsWhenDRADisabled
   - name: KueueDRADeviceFeasibility
   - name: KueueDRAIntegrationDeviceTaints
+  - name: KueueDRAExcludeDeviceClasses
 disable-supported: true
 
 # The following PRR answers are required at beta release
