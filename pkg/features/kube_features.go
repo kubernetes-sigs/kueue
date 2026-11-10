@@ -1033,6 +1033,13 @@ const (
 	//   Kueue also copies the containers, the init containers and the rolling
 	//   update partition to the remote LeaderWorkerSet.
 	AllowMutatingContainersWhenEffectiveRequestsDontChange featuregate.Feature = "AllowMutatingContainersWhenEffectiveRequestsDontChange"
+
+	// owner: @nataliekung
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/16985
+	//
+	// Keeps the quota of a finished RayJob with shutdownAfterJobFinishes and
+	// ttlSecondsAfterFinished reserved until KubeRay deletes its RayCluster.
+	RayJobRetainQuotaUntilClusterShutdown featuregate.Feature = "RayJobRetainQuotaUntilClusterShutdown"
 )
 
 func init() {
@@ -1599,6 +1606,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	AllowMutatingContainersWhenEffectiveRequestsDontChange: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RayJobRetainQuotaUntilClusterShutdown: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

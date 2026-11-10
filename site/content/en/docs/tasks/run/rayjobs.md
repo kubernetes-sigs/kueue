@@ -71,6 +71,9 @@ Kueue controls the `spec.suspend` field of the RayJob. When a RayJob is admitted
 
 - A Kueue managed RayJob cannot use an existing RayCluster.
 - The RayCluster should be deleted at the end of the job execution, `spec.ShutdownAfterJobFinishes` should be `true`.
+- When `spec.ttlSecondsAfterFinished` is set, KubeRay keeps the RayCluster running after the job
+  finishes. With the `RayJobRetainQuotaUntilClusterShutdown` feature gate enabled, the Workload stays admitted,
+  and its quota stays reserved, until KubeRay deletes the RayCluster. In MultiKueue, enable the gate on the manager and on the worker clusters.
 - Because a Kueue workload can have a maximum of 18 PodSets, the maximum number of `spec.rayClusterSpec.workerGroupSpecs` is 17.
 
 ## Example RayJob
