@@ -21,6 +21,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -83,96 +84,200 @@ func (iw inadmissibleWorkloads) hasKey(key workload.Reference) bool {
 	return ok
 }
 
-// requeueWorkloadsCQ moves all workloads in this ClusterQueue
-// from inadmissibleWorkloads to heap.
-// It expects to be passed a ClusterQueue without any Cohort.
-// WARNING: must only be called by the InadmissibleWorkloadRequeuer
+// requeueWorkloadsCQ moves inadmissible workloads from a ClusterQueue without a
+// Cohort to the active heap. Tests also call this helper synchronously.
 func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) int {
-	m.Lock()
-	defer m.Unlock()
-	cq := m.hm.ClusterQueue(clusterQueueName)
-	if cq == nil {
-		return 0
-	}
-	moved := queueInadmissibleWorkloads(ctx, cq, m.client)
-	if moved > 0 {
-		log := ctrl.LoggerFrom(ctx)
-		log.V(2).Info("Moved workloads", "clusterqueue", cq.name, "count", moved)
-		reportPendingWorkloads(m, cq.name)
-		m.Broadcast()
-	}
+	moved, _ := requeueWorkloadsCQWithRetry(ctx, m, clusterQueueName)
 	return moved
 }
 
-// requeueWorkloadsCohort moves all inadmissible
-// workloads in the Cohort tree to heap. It expects to be
-// passed a root Cohort. If at least one workload queued,
-// we will broadcast the event.
-// WARNING: must only be called by the InadmissibleWorkloadRequeuer
-func requeueWorkloadsCohort(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) int {
+// requeueWorkloadsCQWithRetry returns whether any Namespace read failed
+// transiently (or a new Namespace appeared after the initial snapshot).
+func requeueWorkloadsCQWithRetry(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) (int, bool) {
+	// Snapshot the needed Namespaces under a read lock, then perform client
+	// lookups outside m.Lock. Holding the write lock over API/cache reads
+	// stalls unrelated queue operations for the duration of the batch.
+	m.RLock()
+	cq := m.hm.ClusterQueue(clusterQueueName)
+	if cq == nil {
+		m.RUnlock()
+		return 0, false
+	}
+	namespaces := sets.New[string]()
+	collectInadmissibleNamespaces(cq, namespaces)
+	m.RUnlock()
+
+	resolved := readNamespaces(ctx, m.client, namespaces)
+
 	m.Lock()
 	defer m.Unlock()
+	// A ClusterQueue may have been deleted/recreated during the reads.
+	cq = m.hm.ClusterQueue(clusterQueueName)
+	if cq == nil {
+		return 0, false
+	}
+	moved, retry := moveInadmissibleWorkloads(ctx, cq, resolved)
+	if moved > 0 {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(2).Info("Moved workloads", "clusterQueue", cq.name, "count", moved)
+		reportPendingWorkloads(m, cq.name)
+		m.Broadcast()
+	}
+	return moved, retry
+}
+
+// requeueWorkloadsCohort moves inadmissible workloads in a Cohort tree.
+func requeueWorkloadsCohort(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) int {
+	moved, _ := requeueWorkloadsCohortWithRetry(ctx, m, rootCohortName)
+	return moved
+}
+
+func requeueWorkloadsCohortWithRetry(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) (int, bool) {
+	m.RLock()
 	cohort := m.hm.Cohort(rootCohortName)
 	if cohort == nil {
-		return 0
+		m.RUnlock()
+		return 0, false
+	}
+	if hierarchy.HasCycle(cohort) {
+		m.RUnlock()
+		ctrl.LoggerFrom(ctx).V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", rootCohortName)
+		return 0, false
+	}
+	namespaces := sets.New[string]()
+	collectCohortNamespaces(cohort, namespaces)
+	m.RUnlock()
+
+	resolved := readNamespaces(ctx, m.client, namespaces)
+
+	m.Lock()
+	defer m.Unlock()
+	// Recheck the live topology: the Cohort or its children can change
+	// while Namespace lookups are in flight.
+	cohort = m.hm.Cohort(rootCohortName)
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return 0, false
 	}
 	log := ctrl.LoggerFrom(ctx)
-
-	if hierarchy.HasCycle(cohort) {
-		log.V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", cohort.GetName())
-		return 0
-	}
 	log.V(2).Info("Attempting to move workloads", "rootCohort", cohort.Name)
-	moved := requeueWorkloadsCohortSubtree(ctx, m, cohort)
+	moved, retry := requeueWorkloadsCohortSubtree(ctx, m, cohort, resolved)
 	if moved > 0 {
 		log.V(2).Info("Moved inadmissible workloads in tree", "rootCohort", cohort.Name, "count", moved)
 		m.Broadcast()
 	}
+	return moved, retry
+}
+
+// Caller holds the manager lock.
+func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort, resolved map[string]namespaceRead) (int, bool) {
+	total := 0
+	retry := false
+	for _, cq := range cohort.ChildCQs() {
+		moved, shouldRetry := moveInadmissibleWorkloads(ctx, cq, resolved)
+		if moved > 0 {
+			reportPendingWorkloads(m, cq.name)
+			total += moved
+		}
+		retry = retry || shouldRetry
+	}
+	for _, child := range cohort.ChildCohorts() {
+		moved, shouldRetry := requeueWorkloadsCohortSubtree(ctx, m, child, resolved)
+		total += moved
+		retry = retry || shouldRetry
+	}
+	return total, retry
+}
+
+type namespaceRead struct {
+	labels labels.Set
+	found  bool
+	retry  bool
+}
+
+// collectInadmissibleNamespaces is called under m.RLock (or c.rwm alone
+// for direct queue tests), preserving the same lock order as queue mutation.
+func collectInadmissibleNamespaces(c *ClusterQueue, names sets.Set[string]) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	for _, info := range c.workloads.inadmissible {
+		names.Insert(info.Obj.Namespace)
+	}
+}
+
+// Caller holds m.RLock. A snapshot of all distinct Namespace names is
+// shared across the entire Cohort so one Namespace incurs only one Get.
+func collectCohortNamespaces(cohort *cohort, names sets.Set[string]) {
+	for _, cq := range cohort.ChildCQs() {
+		collectInadmissibleNamespaces(cq, names)
+	}
+	for _, child := range cohort.ChildCohorts() {
+		collectCohortNamespaces(child, names)
+	}
+}
+
+// readNamespaces must run without the queue-manager lock. NotFound is not
+// retried: a deleted Namespace cannot become eligible without a new event.
+func readNamespaces(ctx context.Context, k8sClient client.Client, names sets.Set[string]) map[string]namespaceRead {
+	resolved := make(map[string]namespaceRead, names.Len())
+	log := ctrl.LoggerFrom(ctx)
+	for name := range names {
+		var ns corev1.Namespace
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, &ns)
+		switch {
+		case err == nil:
+			resolved[name] = namespaceRead{labels: labels.Set(ns.Labels), found: true}
+		case apierrors.IsNotFound(err):
+			resolved[name] = namespaceRead{}
+		default:
+			log.Error(err, "Failed to read Namespace while retrying inadmissible workloads", "namespace", name)
+			resolved[name] = namespaceRead{retry: true}
+		}
+	}
+	return resolved
+}
+
+// queueInadmissibleWorkloads is used by direct ClusterQueue tests. The
+// production CQ/Cohort paths prefetch all Namespace reads once per batch.
+func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, k8sClient client.Client) int {
+	namespaces := sets.New[string]()
+	collectInadmissibleNamespaces(c, namespaces)
+	moved, _ := moveInadmissibleWorkloads(ctx, c, readNamespaces(ctx, k8sClient, namespaces))
 	return moved
 }
 
-// WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
-func requeueWorkloadsCohortSubtree(ctx context.Context, m *Manager, cohort *cohort) int {
-	total := 0
-	for _, clusterQueue := range cohort.ChildCQs() {
-		if moved := queueInadmissibleWorkloads(ctx, clusterQueue, m.client); moved > 0 {
-			reportPendingWorkloads(m, clusterQueue.name)
-			total += moved
-		}
-	}
-	for _, childCohort := range cohort.ChildCohorts() {
-		total += requeueWorkloadsCohortSubtree(ctx, m, childCohort)
-	}
-	return total
-}
-
-// queueInadmissibleWorkloads moves all (eligible) workloads from inadmissibleWorkloads to heap.
-// Returns the number of workloads moved.
-// WARNING: must only be called (indirectly) by InadmissibleWorkloadRequeuer.
-func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client client.Client) int {
+// moveInadmissibleWorkloads revalidates *current* Workload membership,
+// Namespace selector and backoff after reads completed outside the manager
+// lock. A Namespace absent from the snapshot means an inadmissible Workload
+// arrived in the read/commit window; request another pass rather than losing it.
+// Caller holds m.Lock in production; c.rwm protects the per-queue state.
+func moveInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, resolved map[string]namespaceRead) (int, bool) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
-	// Clear bulk-move scheduling hashes so re-queued workloads are re-evaluated fresh.
+	// Preserve the original behavior for SchedulingEquivalenceHashing.
 	c.hashToBulkMoveReason = make(map[workload.EquivalenceHash]QuotaReservedReason)
 	if c.workloads.inadmissible.empty() {
-		return 0
+		return 0, false
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
 	moved := 0
-	for key, wInfo := range c.workloads.inadmissible {
-		ns := corev1.Namespace{}
-		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
-		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
+	retry := false
+	for key, info := range c.workloads.inadmissible {
+		ns, found := resolved[info.Obj.Namespace]
+		if !found || ns.retry {
+			retry = true
 			continue
 		}
-		if c.workloads.MoveToActive(key, wInfo) {
+		if !ns.found || !c.namespaceSelector.Matches(ns.labels) || !c.backoffWaitingTimeExpired(info) {
+			continue
+		}
+		if c.workloads.MoveToActive(key, info) {
 			moved++
 		}
 	}
 	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.workloads.inadmissible.len())
-	return moved
+	return moved, retry
 }
 
 // NotifyRetryInadmissible requests that inadmissible workloads
@@ -221,10 +326,10 @@ type requeueRequest struct {
 }
 
 // workqueueRequeuer satisfies the inadmissibleRequeuer
-// interface, implemented via a workqueue.TypedDelayingQueue.
+// interface, with delayed batching and rate-limited retries.
 type workqueueRequeuer struct {
 	manager     *Manager
-	queue       workqueue.TypedDelayingInterface[requeueRequest]
+	queue       workqueue.TypedRateLimitingInterface[requeueRequest]
 	batchPeriod time.Duration
 }
 
@@ -236,7 +341,9 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 		opt(&options)
 	}
 	return &workqueueRequeuer{
-		queue:       workqueue.NewTypedDelayingQueue[requeueRequest](),
+		queue: workqueue.NewTypedRateLimitingQueue(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[requeueRequest](5*time.Second, 2*time.Minute),
+		),
 		batchPeriod: options.batchPeriod,
 	}
 }
@@ -271,10 +378,18 @@ func (r *workqueueRequeuer) Start(ctx context.Context) error {
 }
 
 func (r *workqueueRequeuer) reconcile(ctx context.Context, req requeueRequest) {
+	retry := false
 	if req.ClusterQueue != "" {
-		requeueWorkloadsCQ(ctx, r.manager, req.ClusterQueue)
+		_, retry = requeueWorkloadsCQWithRetry(ctx, r.manager, req.ClusterQueue)
 	}
 	if req.Cohort != "" {
-		requeueWorkloadsCohort(ctx, r.manager, req.Cohort)
+		_, cohortRetry := requeueWorkloadsCohortWithRetry(ctx, r.manager, req.Cohort)
+		retry = retry || cohortRetry
+	}
+	if retry && ctx.Err() == nil {
+		// Exponential backoff protects the API/cache on prolonged failures.
+		r.queue.AddRateLimited(req)
+	} else {
+		r.queue.Forget(req)
 	}
 }
