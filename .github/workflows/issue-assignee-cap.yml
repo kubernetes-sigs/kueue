@@ -19,108 +19,140 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check assignee role and enforce issue cap
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSIGNEE: ${{ github.event.assignee.login }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          REPO: ${{ github.repository }}
-          MAX_CAP: "5"
-        run: |
-          set -euo pipefail
+      - name: Enforce contributor issue cap
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
 
-          if [[ -z "${ASSIGNEE}" ]]; then
-            echo "No assignee found in event payload."
-            exit 0
-          fi
+            const assignee = context.payload.assignee?.login;
+            if (!assignee) {
+              core.info('No assignee found in event payload.');
+              return;
+            }
 
-          ASSIGNEE_LOWER=$(echo "${ASSIGNEE}" | tr '[:upper:]' '[:lower:]')
+            const assigneeLower = assignee.toLowerCase();
+            const issueNumber = context.payload.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const maxCap = 5;
 
-          # 1. Parse OWNERS_ALIASES into a lookup map (alias -> users)
-          declare -A ALIAS_MAP=()
-          if [[ -f OWNERS_ALIASES ]]; then
-            CURRENT_ALIAS=""
-            while IFS= read -r line; do
-              # Match alias key: "  alias_name:"
-              if [[ "$line" =~ ^[[:space:]]*([a-zA-Z0-9_-]+): ]]; then
-                CURRENT_ALIAS=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
-              # Match alias member item: "  - username"
-              elif [[ -n "$CURRENT_ALIAS" && "$line" =~ ^[[:space:]]*-[[:space:]]+([a-zA-Z0-9_-]+) ]]; then
-                user=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
-                ALIAS_MAP["$CURRENT_ALIAS"]+="${user} "
-              fi
-            done < OWNERS_ALIASES
-          fi
-
-          # 2. Extract ONLY active approvers and reviewers from all OWNERS files (excluding emeritus)
-          RAW_OWNERS=$(
-            find . -name "OWNERS" \
-              -not -path "./.git/*" \
-              -not -path "./vendor/*" \
-              -not -path "./site/*" \
-              -exec awk '
-                # Enter active sections
-                /^[[:space:]]*(approvers|reviewers):/ { in_active = 1; next }
-                # Any other top-level or new section exits active section
-                /^[[:space:]]*[a-zA-Z0-9_]+:/ { in_active = 0 }
-                # Match list items within active sections
-                in_active && /^[[:space:]]*-[[:space:]]+[a-zA-Z0-9_-]+/ {
-                  sub(/^[[:space:]]*-[[:space:]]+/, "")
-                  sub(/[[:space:]]*(#.*)?$/, "")
-                  print tolower($0)
+            // Helper to find all OWNERS and OWNERS_ALIASES files
+            function findFiles(dir, matchName, fileList = []) {
+              const files = fs.readdirSync(dir);
+              for (const file of files) {
+                if (['.git', 'vendor', 'site', 'node_modules'].includes(file)) continue;
+                const fullPath = path.join(dir, file);
+                if (fs.statSync(fullPath).isDirectory()) {
+                  findFiles(fullPath, matchName, fileList);
+                } else if (file === matchName) {
+                  fileList.push(fullPath);
                 }
-              ' {} + | sort -u
-          )
+              }
+              return fileList;
+            }
 
-          # 3. Resolve aliases to compile the final active privileged users list
-          declare -A PRIVILEGED_MAP=()
-          while IFS= read -r entry; do
-            [[ -z "$entry" ]] && continue
-            if [[ -n "${ALIAS_MAP[$entry]:-}" ]]; then
-              for resolved_user in ${ALIAS_MAP[$entry]}; do
-                PRIVILEGED_MAP["$resolved_user"]=1
-              done
-            else
-              PRIVILEGED_MAP["$entry"]=1
-            fi
-          done <<< "$RAW_OWNERS"
+            // 1. Parse OWNERS_ALIASES
+            const aliasesMap = new Map();
+            if (fs.existsSync('OWNERS_ALIASES')) {
+              const lines = fs.readFileSync('OWNERS_ALIASES', 'utf8').split('\n');
+              let currentAlias = null;
+              for (const line of lines) {
+                const aliasMatch = line.match(/^\s*([a-zA-Z0-9_-]+):/);
+                if (aliasMatch && !line.includes('aliases:')) {
+                  currentAlias = aliasMatch[1].toLowerCase();
+                  if (!aliasesMap.has(currentAlias)) {
+                    aliasesMap.set(currentAlias, []);
+                  }
+                  continue;
+                }
+                const memberMatch = line.match(/^\s*-\s+([a-zA-Z0-9_-]+)/);
+                if (memberMatch && currentAlias) {
+                  aliasesMap.get(currentAlias).push(memberMatch[1].toLowerCase());
+                }
+              }
+            }
 
-          if [[ ${#PRIVILEGED_MAP[@]} -eq 0 ]]; then
-            echo "::error::Failed to extract active approvers and reviewers from OWNERS files."
-            exit 1
-          fi
+            // 2. Parse active approvers and reviewers from all OWNERS files (excluding emeritus)
+            const activePrivilegedUsers = new Set();
+            const ownersFiles = findFiles('.', 'OWNERS');
 
-          # 4. Check if assignee is an active approver/reviewer
-          if [[ -n "${PRIVILEGED_MAP[$ASSIGNEE_LOWER]:-}" ]]; then
-            echo "User @${ASSIGNEE} is an active reviewer/approver in OWNERS. Exempt from contributor issue cap."
-            exit 0
-          fi
+            for (const file of ownersFiles) {
+              const lines = fs.readFileSync(file, 'utf8').split('\n');
+              let inActiveSection = false;
 
-          # 5. Count open assigned issues for contributor (excluding PRs)
-          OPEN_ISSUES_COUNT=$(gh api --paginate "/repos/${REPO}/issues?state=open&assignee=${ASSIGNEE}&per_page=100" \
-            --jq '[.[] | select(.pull_request == null)] | length' | awk '{s+=$1} END {print s+0}')
+              for (const line of lines) {
+                // Enter active approvers or reviewers section
+                if (/^\s*(approvers|reviewers):/.test(line)) {
+                  inActiveSection = true;
+                  continue;
+                }
+                // Exit when encountering any other section key (e.g. emeritus_approvers, component, labels)
+                if (/^\s*[a-zA-Z0-9_]+:/.test(line)) {
+                  inActiveSection = false;
+                  continue;
+                }
 
-          echo "Contributor @${ASSIGNEE} currently has ${OPEN_ISSUES_COUNT} open assigned issues (cap: ${MAX_CAP})."
+                if (inActiveSection) {
+                  const itemMatch = line.match(/^\s*-\s+([a-zA-Z0-9_-]+)/);
+                  if (itemMatch) {
+                    const entry = itemMatch[1].toLowerCase();
+                    if (aliasesMap.has(entry)) {
+                      for (const member of aliasesMap.get(entry)) {
+                        activePrivilegedUsers.add(member);
+                      }
+                    } else {
+                      activePrivilegedUsers.add(entry);
+                    }
+                  }
+                }
+              }
+            }
 
-          # 6. If cap is exceeded, unassign and leave explanation comment (with retries)
-          if (( OPEN_ISSUES_COUNT > MAX_CAP )); then
-            echo "Cap exceeded (${OPEN_ISSUES_COUNT} > ${MAX_CAP}). Unassigning @${ASSIGNEE} from issue #${ISSUE_NUMBER}."
+            if (activePrivilegedUsers.size === 0) {
+              core.setFailed('Failed to extract active approvers/reviewers from OWNERS files.');
+              return;
+            }
 
-            # Unassign with built-in retries
-            gh api --method DELETE "/repos/${REPO}/issues/${ISSUE_NUMBER}/assignees" \
-              -f "assignees[]=${ASSIGNEE}" \
-              --retry 3
+            // 3. Exempt active reviewers and approvers
+            if (activePrivilegedUsers.has(assigneeLower)) {
+              core.info(`User @${assignee} is an active reviewer/approver in OWNERS. Exempt from issue cap.`);
+              return;
+            }
 
-            COMMENT_BODY="@${ASSIGNEE}: Contributors are limited to a maximum of **${MAX_CAP}** open assigned issues at a time (you currently have **$((OPEN_ISSUES_COUNT - 1))** other open issues assigned).
+            // 4. Count open assigned issues (excluding pull requests)
+            const assignedItems = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              assignee: assignee,
+              per_page: 100,
+            });
 
-          You have been automatically unassigned from this issue so others can work on it. Please finish or \`/unassign\` one of your existing issues before assigning a new one."
+            const openAssignedIssues = assignedItems.filter(item => !item.pull_request);
+            const openAssignedCount = openAssignedIssues.length;
 
-            # Post comment with retry loop
-            for attempt in {1..3}; do
-              if gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body "${COMMENT_BODY}"; then
-                break
-              fi
-              echo "Retrying comment post (attempt $attempt)..."
-              sleep 2
-            done
-          fi
+            core.info(`Contributor @${assignee} currently has ${openAssignedCount} open assigned issues (cap: ${maxCap}).`);
+
+            // 5. Enforce cap if exceeded
+            if (openAssignedCount > maxCap) {
+              core.info(`Cap exceeded (${openAssignedCount} > ${maxCap}). Unassigning @${assignee} from issue #${issueNumber}.`);
+
+              await github.rest.issues.removeAssignees({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                assignees: [assignee],
+              });
+
+              const otherCount = openAssignedCount - 1;
+              const commentBody = `@${assignee}: Contributors are limited to a maximum of **${maxCap}** open assigned issues at a time (you currently have **${otherCount}** other open issues assigned).\n\nYou have been automatically unassigned from this issue so others can work on it. Please complete or \`/unassign\` one of your existing issues before assigning a new one.`;
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: commentBody,
+              });
+            }
