@@ -184,8 +184,16 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
 func (g *wlGroup) removeRemoteObjects(ctx context.Context, rc *remoteClient, remWl *kueue.Workload) error {
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), g.jobAdapter, g.controllerKey, rc.origin); err != nil {
-		return fmt.Errorf("deleting remote controller object: %w", err)
+	adapter, controllerKey := g.jobAdapter, g.controllerKey
+	if adapter == nil && remWl != nil {
+		// The local workload has no owner, e.g. when the job was deleted with the orphan
+		// propagation policy, but the remote controller object still controls remWl.
+		_, adapter, controllerKey = rc.remoteControllerOf(remWl)
+	}
+	if adapter != nil {
+		if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), adapter, controllerKey, rc.origin); err != nil {
+			return fmt.Errorf("deleting remote controller object: %w", err)
+		}
 	}
 	return deleteRemoteWorkload(ctx, rc, remWl)
 }
@@ -297,8 +305,17 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
+	// A deleted or finished workload only needs its remote objects removed. Its owner might
+	// already be gone, e.g. when the job was deleted with the orphan propagation policy.
+	cleanupOnly := isDeleted || workloadfinish.IsFinished(wl)
+
 	adapter, owner := w.adapter(wl)
-	if adapter == nil {
+	if adapter == nil && !cleanupOnly {
+		if workload.IsOrphanedPendingFinalization(wl) {
+			// The workload is finished soon, and then its remote objects are removed.
+			log.V(3).Info("Skip orphaned Workload until it is finished")
+			return reconcile.Result{}, nil
+		}
 		// Reject the workload since there is no chance for it to run.
 		var rejectionMessage string
 		if owner != nil {
@@ -309,9 +326,9 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, rejectionMessage)
 	}
 
-	// If the workload is deleted there is a chance that it's owner is also deleted. In that case
+	// If the workload is deleted or finished there is a chance that its owner is also deleted. In that case
 	// we skip calling `IsJobManagedByKueue` as its output would not be reliable.
-	if !isDeleted {
+	if !cleanupOnly {
 		managed, unmanagedReason, err := adapter.IsJobManagedByKueue(ctx, w.client, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace})
 		if err != nil {
 			return reconcile.Result{}, err
@@ -328,7 +345,12 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
+	// Without an adapter, the remote controller objects are found through the remote workloads.
+	var controllerName string
+	if adapter != nil {
+		controllerName = owner.Name
+	}
+	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, controllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
