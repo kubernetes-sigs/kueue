@@ -146,6 +146,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 		},
 	})
 
+	requestedQuota := assignment.TotalRequestsFor(setupLog, wlInfo)
 	preemptionCtx := &preemptionCtx{
 		clock:             clocktesting.NewFakeClock(now),
 		preemptor:         *wlInfo,
@@ -154,9 +155,10 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
-				Assigned: assignment.TotalRequestsFor(setupLog, wlInfo),
+				Assigned: requestedQuota,
 			},
 		},
+		requestedQuota: requestedQuota,
 	}
 	// fairPreemptions simulates the incoming workload's usage before running
 	// the strategies, so that the DRS values include it. Mirror that here.
