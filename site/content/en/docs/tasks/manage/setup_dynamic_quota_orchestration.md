@@ -292,7 +292,7 @@ capacity and sets `CapacitySynchronized=False`, so quota does not change:
 | `EffectiveCapacityComputed=False` | `AggregationFailed` | The total has more than 128 flavors, or more than 64 resources in one flavor. |
 | `Distributed=False` | `EffectiveCapacityNotComputed` | Fix discovery first. The existing effective quotas stay in place. |
 | `Distributed=False` | `ConflictingDynamicQuotaOrchestrator` | Another orchestrator has a higher root, or the same root and an earlier `creationTimestamp`. With equal timestamps, the smaller UID wins. |
-| `Distributed=False` | `EffectiveQuotasConflict` | A ClusterQueue or Cohort in the subtree has effective quotas from another active orchestrator, or from a controller that is not DQO. Usually this is a leftover after the object moved or the other orchestrator's `subtreeRootQuotaRef` changed. Clear the object's `status.effectiveQuotas`, or delete the other orchestrator. |
+| `Distributed=False` | `EffectiveQuotasConflict` | A ClusterQueue or Cohort in the subtree has effective quotas from another active orchestrator that still covers it, from a controller that is not DQO, or from an orchestrator whose hierarchy cannot be resolved. Inspect the object's `status.effectiveQuotas.orchestratorRef` and the referenced hierarchy. |
 | `Distributed=False` | `Misconfigured` | The ClusterQueue or Cohort object named in `subtreeRootQuotaRef` does not exist. A Cohort that is only named in a ClusterQueue's `spec.cohortName` does not count. Create a Cohort object for it. |
 
 For example, if the provider condition is stale, the output is similar to the
