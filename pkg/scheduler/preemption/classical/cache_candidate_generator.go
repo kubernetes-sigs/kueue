@@ -93,11 +93,15 @@ func (h bucketHeap) Len() int {
 }
 
 func (h bucketHeap) Less(i, j int) bool {
-	cmp := h.cmp(h.buckets[i].top(), h.buckets[j].top())
+	return h.lessBuckets(h.buckets[i], h.buckets[j])
+}
+
+func (h bucketHeap) lessBuckets(a, b *bucket) bool {
+	cmp := h.cmp(a.top(), b.top())
 	if cmp != 0 {
 		return cmp < 0
 	}
-	return h.buckets[i].heapOrder < h.buckets[j].heapOrder
+	return a.heapOrder < b.heapOrder
 }
 
 func (h bucketHeap) Swap(i, j int) {
@@ -244,7 +248,7 @@ func (c *cacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
 
 				// A bucket's head can change while earlier preemptions update the
 				// snapshot. Reinsert it when its new head is no longer the minimum.
-				if c.segmentHeap.Len() > 0 && c.cmp(b.top(), c.segmentHeap.buckets[0].top()) > 0 {
+				if c.segmentHeap.Len() > 0 && c.segmentHeap.lessBuckets(c.segmentHeap.buckets[0], b) {
 					heap.Push(&c.segmentHeap, b)
 					continue
 				}

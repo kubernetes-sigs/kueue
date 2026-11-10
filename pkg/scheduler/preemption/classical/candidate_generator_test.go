@@ -51,6 +51,13 @@ func byName(a, b *workload.Info) int {
 	return strings.Compare(a.Obj.Name, b.Obj.Name)
 }
 
+func byNameWithBTie(a, b *workload.Info) int {
+	if strings.HasPrefix(a.Obj.Name, "b") && strings.HasPrefix(b.Obj.Name, "b") {
+		return 0
+	}
+	return strings.Compare(a.Obj.Name, b.Obj.Name)
+}
+
 func makeWorkloadCQ(infos []*workload.Info) *schdcache.ClusterQueueSnapshot {
 	cq := &schdcache.ClusterQueueSnapshot{
 		Workloads: make(map[workload.Reference]*workload.Info, len(infos)),
@@ -215,6 +222,11 @@ func TestCacheIterator(t *testing.T) {
 	f := candidateInfo(t, "f", preemptorCQName, 1)
 	g := candidateInfo(t, "g", preemptorCQName, 1)
 	h := candidateInfo(t, "h", preemptorCQName, 1)
+	a0 := candidateInfo(t, "a0", preemptorCQName, 1)
+	a1 := candidateInfo(t, "a1", preemptorCQName, 1)
+	b0 := candidateInfo(t, "b0", preemptorCQName, 1)
+	b1 := candidateInfo(t, "b1", preemptorCQName, 1)
+	c0 := candidateInfo(t, "c0", preemptorCQName, 1)
 	z := candidateInfo(t, "z", preemptorCQName, 1)
 	real1 := candidateInfo(t, "real1", preemptorCQName, 1)
 	real2 := candidateInfo(t, "real2", preemptorCQName, 1)
@@ -235,9 +247,12 @@ func TestCacheIterator(t *testing.T) {
 	cases := map[string]struct {
 		ctx      *HierarchicalPreemptionCtx
 		segments [numSegments][]*bucket
+		cmp      schdcache.CandidateOrderComparator
 		// first pass
-		borrow bool
-		want   []string // nil means expect no results
+		borrow           bool
+		removeAfterFirst *workload.Info
+		wantFirst        string
+		want             []string // nil means expect no results
 		// optional Reset + second pass
 		doReset        bool
 		resetBorrow    bool
@@ -257,6 +272,26 @@ func TestCacheIterator(t *testing.T) {
 			}(),
 			borrow: false,
 			want:   []string{"a", "b", "c", "d", "e", "f", "g", "h"},
+		},
+		"heap reinserts a bucket after a snapshot change while preserving tie order": {
+			// a0 is returned first. Removing a1 then exposes b1, which ties
+			// with b0 and must yield to bucket 0's stable ordering.
+			ctx: ctxWithin,
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{
+					segmentBucket([]*workload.Info{b0}, false),
+					segmentBucket([]*workload.Info{a1, b1}, false),
+					segmentBucket([]*workload.Info{a0}, false),
+					segmentBucket([]*workload.Info{c0}, false),
+				}
+				return s
+			}(),
+			cmp:              byNameWithBTie,
+			borrow:           false,
+			removeAfterFirst: a1,
+			wantFirst:        "a0",
+			want:             []string{"b0", "b1", "c0"},
 		},
 		"earlier segment always precedes a later segment regardless of element order": {
 			// "z" sits in segment 2, "a" in segment 3: segment index must win over cmp.
@@ -333,12 +368,33 @@ func TestCacheIterator(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			it := &cacheCandidateIterator{segments: tc.segments, cmp: byName, hierarchicalReclaimCtx: tc.ctx}
+			cmp := tc.cmp
+			if cmp == nil {
+				cmp = byName
+			}
+			it := &cacheCandidateIterator{segments: tc.segments, cmp: cmp, hierarchicalReclaimCtx: tc.ctx}
 			linear := &linearCacheCandidateIterator{cacheCandidateIterator: &cacheCandidateIterator{
 				segments:               cloneSegments(tc.segments),
-				cmp:                    byName,
+				cmp:                    cmp,
 				hierarchicalReclaimCtx: tc.ctx,
 			}}
+			if tc.removeAfterFirst != nil {
+				for _, iterator := range []CandidateIterator{it, linear} {
+					wl, _ := iterator.Next(tc.borrow)
+					got := "<nil>"
+					if wl != nil {
+						got = wl.Obj.Name
+					}
+					if got != tc.wantFirst {
+						t.Fatalf("first candidate = %q, want %q", got, tc.wantFirst)
+					}
+				}
+				for _, segment := range tc.segments {
+					for _, bkt := range segment {
+						delete(bkt.cq.Workloads, workload.Key(tc.removeAfterFirst.Obj))
+					}
+				}
+			}
 			if got := drainIter(it, tc.borrow); !slices.Equal(got, tc.want) {
 				t.Errorf("first pass = %v, want %v", got, tc.want)
 			}
