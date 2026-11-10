@@ -2743,6 +2743,18 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"excludeDeviceClassNames without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com"},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAExcludeDeviceClasses: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "resources.excludeDeviceClassNames"},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -4188,6 +4200,105 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 			got := validateDeviceClassMappings(tc.cfg)
 			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("validateDeviceClassMappings() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateExcludeDeviceClassNames(t *testing.T) {
+	testCases := map[string]struct {
+		cfg         *configapi.Configuration
+		gateEnabled bool
+		wantErr     field.ErrorList
+	}{
+		"nil resources": {
+			cfg: &configapi.Configuration{},
+		},
+		"empty list with the gate off": {
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{ExcludeDeviceClassNames: []corev1.ResourceName{}}},
+		},
+		"non-empty list with the gate off": {
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "resources.excludeDeviceClassNames"},
+			},
+		},
+		"valid list next to a mapping": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				DeviceClassMappings: []configapi.DeviceClassMapping{
+					{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"gpu.example.com"}},
+				},
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "netdev.google.com", "compute-domain-default-channel.nvidia.com"},
+			}},
+		},
+		"exactly max names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{
+					"nic-0.example.com", "nic-1.example.com", "nic-2.example.com", "nic-3.example.com",
+					"nic-4.example.com", "nic-5.example.com", "nic-6.example.com", "nic-7.example.com",
+					"nic-8.example.com", "nic-9.example.com", "nic-10.example.com", "nic-11.example.com",
+					"nic-12.example.com", "nic-13.example.com", "nic-14.example.com", "nic-15.example.com",
+				},
+			}},
+		},
+		"too many names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{
+					"nic-0.example.com", "nic-1.example.com", "nic-2.example.com", "nic-3.example.com",
+					"nic-4.example.com", "nic-5.example.com", "nic-6.example.com", "nic-7.example.com",
+					"nic-8.example.com", "nic-9.example.com", "nic-10.example.com", "nic-11.example.com",
+					"nic-12.example.com", "nic-13.example.com", "nic-14.example.com", "nic-15.example.com",
+					"nic-16.example.com",
+				},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeTooMany, Field: "resources.excludeDeviceClassNames"},
+			},
+		},
+		"invalid and duplicate names": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "@invalid", "mrdma.google.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+				&field.Error{Type: field.ErrorTypeDuplicate, Field: "resources.excludeDeviceClassNames[2]"},
+			},
+		},
+		"name longer than 253 characters": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				ExcludeDeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 250) + ".com/nic")},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[0]"},
+			},
+		},
+		"class that is also mapped": {
+			gateEnabled: true,
+			cfg: &configapi.Configuration{Resources: &configapi.Resources{
+				DeviceClassMappings: []configapi.DeviceClassMapping{
+					{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"gpu.example.com"}},
+				},
+				ExcludeDeviceClassNames: []corev1.ResourceName{"mrdma.google.com", "gpu.example.com"},
+			}},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: "resources.excludeDeviceClassNames[1]"},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, tc.gateEnabled)
+			got := validateExcludeDeviceClassNames(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("validateExcludeDeviceClassNames() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
 	}
