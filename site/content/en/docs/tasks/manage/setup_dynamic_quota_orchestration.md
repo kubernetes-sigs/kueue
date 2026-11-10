@@ -382,19 +382,20 @@ worker quotas change.
 
 To keep the manager quota equal to the sum of the worker quotas, do these steps:
 
-1. Before you upgrade, remove `MultiKueueManagerQuotaAutomation` from the
+1. Before you upgrade, remove `MultiKueueManagerQuotaAutomation` from your
+   feature gate configuration. Do not just set it to `false`.
+2. Upgrade Kueue to v0.21 or later.
+3. Install the alpha APIs.
+4. Enable the `DynamicQuotaOrchestration` and `DQOMultiKueueCapacityProvider`
    feature gates.
-2. Install the alpha APIs.
-3. Enable the `DynamicQuotaOrchestration` and `DQOMultiKueueCapacityProvider`
-   feature gates.
-4. Make sure that the manager `nominalQuota` values are not 0.
-5. For each manager ClusterQueue that used `quotaManagement: Automated`, create
+5. Make sure that the manager `nominalQuota` values are not 0.
+6. For each manager ClusterQueue that used `quotaManagement: Automated`, create
    the three objects above. Use a separate worker ClusterQueue for each
    independently orchestrated manager ClusterQueue. If two manager ClusterQueues
    share a worker ClusterQueue, Kueue counts that worker capacity twice. Then
    remote workloads can remain pending on the workers while the manager keeps
    their quota reservations.
-6. Make sure that the CapacityProvider has `CapacitySynchronized=True` and the
+7. Make sure that the CapacityProvider has `CapacitySynchronized=True` and the
    orchestrator has `Distributed=True`. Also make sure that the
    `status.effectiveQuotas.orchestratorRef` of the manager ClusterQueue names
    this orchestrator.
