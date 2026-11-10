@@ -475,6 +475,10 @@ const (
     // DynamicQuotaOrchestratorReasonQuotasDistributed indicates all effective quotas were successfully applied.
     DynamicQuotaOrchestratorReasonQuotasDistributed string = "QuotasDistributed"
 
+    // DynamicQuotaOrchestratorReasonDistributionIncomplete indicates that a quota
+    // status write failed; the distributed allocation may be partially applied.
+    DynamicQuotaOrchestratorReasonDistributionIncomplete string = "DistributionIncomplete"
+
     // DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed indicates distribution was skipped because Phase 1 discovery is not ready.
     DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed string = "EffectiveCapacityNotComputed"
 
@@ -509,10 +513,23 @@ Tracks whether effective quota was distributed across the subtree. **This condit
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `QuotasDistributed` | Proportional distribution calculated and `status.effectiveQuotas` updated across all subtree ClusterQueues and Cohorts. |
+| `Unknown` | `DistributionIncomplete` | A ClusterQueue or Cohort effective-quota status update failed. Some participants may have new allocations while others retain old allocations; the controller retries reconciliation. |
 | `False` | `EffectiveCapacityNotComputed` | Distribution skipped because Phase 1 discovery is not ready (`EffectiveCapacityComputed != True`). |
 | `False` | `ConflictingDynamicQuotaOrchestrator` | Deactivated by soft validation because an ancestor DQO has priority. |
 | `False` | `EffectiveQuotasConflict` | A target ClusterQueue or Cohort already has `status.effectiveQuotas.orchestratorRef` owned by a different orchestrator. |
 | `False` | `Misconfigured` | The `ClusterQueue` or `Cohort` specified in `spec.capacityDistribution.subtreeRootQuotaRef` does not exist. |
+
+When a participant quota status write fails, `Distributed=Unknown` replaces a
+stale success result rather than reporting that distribution completed. A
+successful retry restores `True/QuotasDistributed`. A failure before the quota
+write phase retains an existing `Distributed=False` condition so that an
+already-deactivated orchestrator does not unexpectedly regain ownership.
+
+`Unknown` is a reporting state, not an admission barrier or an atomic commit:
+Kueue continues using any persisted `status.effectiveQuotas` values, which may
+represent different allocation versions until a retry succeeds. In particular,
+this status change alone does not prevent transient overcommit during
+redistribution.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
