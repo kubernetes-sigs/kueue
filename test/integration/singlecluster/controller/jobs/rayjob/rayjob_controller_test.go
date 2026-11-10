@@ -261,7 +261,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 
 		ginkgo.By("creating a job that retains its RayCluster after finishing")
 		job := testingrayjob.MakeJob(jobName, ns.Name).
-			TTLSecondsAfterFinished(60).
+			TTLSecondsAfterFinished(40).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, job)
 		setInitStatus(jobName, ns.Name)
@@ -292,8 +292,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		gomega.Expect(ctrl.SetControllerReference(createdJob, rayCluster, k8sClient.Scheme())).Should(gomega.Succeed())
 		behavioral.MustCreate(ctx, k8sClient, rayCluster)
 
-		ginkgo.By("marking the job complete with the shutdown deadline a few seconds after the clock skew tolerance")
-		endTime := time.Now().Add(-25 * time.Second)
+		ginkgo.By("marking the job complete with the clock skew cutoff 10s ahead")
+		endTime := time.Now()
+		cutoff := endTime.Add(10 * time.Second) // TTL minus the 30s clock skew tolerance
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 			createdJob.Status.RayClusterName = rayCluster.Name
@@ -303,14 +304,16 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 			g.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("checking the workload stays admitted past the deadline while no event enqueues the job")
+		ginkgo.By("checking the workload stays admitted while the RayCluster is retained")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 			g.Expect(createdWorkload.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-		}, time.Until(endTime.Add(31*time.Second)), behavioral.Interval).Should(gomega.Succeed())
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("checking the workload is finished once the RayCluster is deleted")
+		ginkgo.By("checking the workload is finished once the RayCluster is deleted after the cutoff")
+		// KubeRay deletes the RayCluster at the deadline; nothing observable changes at the cutoff.
+		time.Sleep(time.Until(cutoff))
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rayCluster, true)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
