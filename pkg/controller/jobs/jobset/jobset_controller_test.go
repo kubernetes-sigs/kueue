@@ -245,6 +245,16 @@ func TestReclaimablePods(t *testing.T) {
 			}, 0).Obj(),
 			want: job1Reclaim,
 		},
+		"FailJobSet rule with catch-all message pattern reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:                      jobset.FailJobSet,
+					OnJobFailureMessagePatterns: []string{".*"},
+				}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
 		"unconditional RestartJob rule reclaims despite MaxRestarts>0": {
 			jobSet: partialWithPolicy(jobset.FailurePolicy{
 				MaxRestarts: 2,

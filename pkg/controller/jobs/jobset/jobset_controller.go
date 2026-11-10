@@ -271,7 +271,8 @@ func canJobTriggerRestartJobSet(fp *jobsetapi.FailurePolicy, jobName string, bud
 			}
 		}
 		// An unconditional rule targeting jobName catches every failure, shadowing later rules and default RestartJobSet.
-		if len(rule.OnJobFailureReasons) == 0 && len(rule.OnJobFailureMessagePatterns) == 0 {
+		if len(rule.OnJobFailureReasons) == 0 &&
+			(len(rule.OnJobFailureMessagePatterns) == 0 || slices.Contains(rule.OnJobFailureMessagePatterns, ".*")) {
 			return false
 		}
 	}
