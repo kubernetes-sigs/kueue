@@ -3,9 +3,9 @@ updates:
 
   # Weekly ecosystems run on different days, so their PRs don't start presubmits together.
 
-  # Every ecosystem waits 14 days after a release before proposing it, so a release that is pulled or followed by
-  # a fix within two weeks never opens a pull request. Cooldown applies to version updates only: a security update
-  # still opens at once.
+  # Every ecosystem waits 14 days after a release before proposing it, so a release that is pulled within two weeks
+  # is never proposed and a broken one has two weeks to come to light first. Cooldown applies to version updates
+  # only: a security update still opens at once.
 
   # Maintain Python dependencies and hashes for release scripts.
   - package-ecosystem: "pip"
