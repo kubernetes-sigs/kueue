@@ -102,8 +102,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, deploymentJobUIDManagerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, deploymentJobUIDManagerSetup(
 			jobframework.WithManageJobsWithoutQueueName(false),
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))

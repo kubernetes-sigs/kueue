@@ -94,8 +94,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 
 	ginkgo.BeforeEach(func() {
 		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName)),
 			jobframework.WithLabelKeysToCopy(sets.New("toCopyKey")),
@@ -1597,8 +1596,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -3761,8 +3759,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 				},
 				RecoveryTimeout: waitForPodsReadyRecoveryTimeout,
 			}
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
-			fwk.StartManager(ctx, cfg, managerAndControllersSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(
 				false,
 				false,
 				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
@@ -4543,8 +4540,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
+		fwk.StartManagerForSpec(ctx, cfg, func(ctx context.Context, mgr manager.Manager) {
 			indexedClient = mgr.GetClient()
 			managerAndControllersSetup(true, true, nil)(ctx, mgr)
 		})
@@ -4986,8 +4982,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(true, true, nil))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-elastic-")
 
@@ -5136,8 +5131,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 			WaitForPodsReady: waitForPodsReady,
 		}
 
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithObjectRetentionPolicies(configuration.ObjectRetentionPolicies),
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
@@ -5492,8 +5486,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, tasEnabled)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, tasEnabled)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(tasEnabled, true, nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(tasEnabled, true, nil))
 
 		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resize-preemption-")
 		nodes := []corev1.Node{}
@@ -5649,8 +5642,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, nil))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
@@ -7273,8 +7265,7 @@ var _ = ginkgo.Describe("Job reconciliation", func() {
 		var managedByQueueRequirement, err = labels.NewRequirement("managed-by-kueue", selection.In, []string{"true"})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg,
+		fwk.StartManagerForSpec(ctx, cfg,
 			managerSetup(
 				jobframework.WithManagedJobsNamespaceSelector(labels.NewSelector().Add(*managedByQueueRequirement)),
 			),
@@ -7383,11 +7374,8 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
 			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
 			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
-		ginkgo.DeferCleanup(func() {
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
-		})
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
 			jobframework.WithAnnotationsToCopy(annotationsToCopy),
 		))

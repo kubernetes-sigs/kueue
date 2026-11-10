@@ -84,8 +84,7 @@ var _ = ginkgo.Describe("Resource Transformations", func() {
 				},
 			},
 		}
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(transformations, []string{"nvidia.com/vgpu-count"}))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(transformations, []string{"nvidia.com/vgpu-count"}))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -283,9 +282,8 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup([]config.ResourceTransformation{{
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup([]config.ResourceTransformation{{
 			Input:    corev1.ResourceCPU,
 			Strategy: new(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
