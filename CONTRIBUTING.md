@@ -84,3 +84,9 @@ make generate-featuregates
 This command builds (and caches) Kubernetes' `compatibility_lifecycle` tool from a pinned Kubernetes git ref derived from the `k8s.io/code-generator` version in `hack/tools/go.mod` (Dependabot-managed), then uses it to regenerate `test/compatibility_lifecycle/reference/versioned_feature_list.yaml` and copies the result to `site/data/featuregates/versioned_feature_list.yaml`. The docs under `site/content/*/docs/installation/_index.md` consume that YAML through the `feature-gates-table` shortcode, so no manual table edits are required.
 
 CI enforces that the YAML and documentation stay in sync. Or simply rely on `make verify`, which now calls the verification target automatically.
+
+### Issue Assignment Policy
+
+To avoid bottlenecks and ensure issues remain available for active work, we enforce a limit of **8 open assigned issues** per user at a time.
+
+If you assign yourself to an issue while already having 8 open issues assigned, our automation will automatically unassign you from the new issue. Please finish or `/unassign` one of your existing issues (for example, if it is blocked or deprioritized) before assigning a new one.

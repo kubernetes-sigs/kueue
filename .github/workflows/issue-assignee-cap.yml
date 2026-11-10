@@ -1,17 +1,40 @@
-# This workflow enforces a maximum cap on open assigned issues for contributors.
+# This workflow enforces a maximum cap on open assigned issues per user.
 name: Issue Assignee Cap
 
 on:
   issues:
     types: [assigned]
+  pull_request:
+    paths:
+      - '.github/workflows/issue-assignee-cap.yml'
+      - 'hack/issue-assignee-cap.js'
+      - 'hack/issue-assignee-cap.test.js'
+
+concurrency:
+  group: issue-assignee-cap-${{ github.event.assignee.login || github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
   issues: write
 
 jobs:
-  enforce-contributor-cap:
-    if: github.repository == 'kubernetes-sigs/kueue'
+  test-script:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run unit tests
+        run: node --test hack/issue-assignee-cap.test.js
+
+  enforce-cap:
+    if: github.event_name == 'issues' && github.repository == 'kubernetes-sigs/kueue' && github.event.issue.state == 'open'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -19,140 +42,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Enforce contributor issue cap
+      - name: Enforce issue cap
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            const assignee = context.payload.assignee?.login;
-            if (!assignee) {
-              core.info('No assignee found in event payload.');
-              return;
-            }
-
-            const assigneeLower = assignee.toLowerCase();
-            const issueNumber = context.payload.issue.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const maxCap = 5;
-
-            // Helper to find all OWNERS and OWNERS_ALIASES files
-            function findFiles(dir, matchName, fileList = []) {
-              const files = fs.readdirSync(dir);
-              for (const file of files) {
-                if (['.git', 'vendor', 'site', 'node_modules'].includes(file)) continue;
-                const fullPath = path.join(dir, file);
-                if (fs.statSync(fullPath).isDirectory()) {
-                  findFiles(fullPath, matchName, fileList);
-                } else if (file === matchName) {
-                  fileList.push(fullPath);
-                }
-              }
-              return fileList;
-            }
-
-            // 1. Parse OWNERS_ALIASES
-            const aliasesMap = new Map();
-            if (fs.existsSync('OWNERS_ALIASES')) {
-              const lines = fs.readFileSync('OWNERS_ALIASES', 'utf8').split('\n');
-              let currentAlias = null;
-              for (const line of lines) {
-                const aliasMatch = line.match(/^\s*([a-zA-Z0-9_-]+):/);
-                if (aliasMatch && !line.includes('aliases:')) {
-                  currentAlias = aliasMatch[1].toLowerCase();
-                  if (!aliasesMap.has(currentAlias)) {
-                    aliasesMap.set(currentAlias, []);
-                  }
-                  continue;
-                }
-                const memberMatch = line.match(/^\s*-\s+([a-zA-Z0-9_-]+)/);
-                if (memberMatch && currentAlias) {
-                  aliasesMap.get(currentAlias).push(memberMatch[1].toLowerCase());
-                }
-              }
-            }
-
-            // 2. Parse active approvers and reviewers from all OWNERS files (excluding emeritus)
-            const activePrivilegedUsers = new Set();
-            const ownersFiles = findFiles('.', 'OWNERS');
-
-            for (const file of ownersFiles) {
-              const lines = fs.readFileSync(file, 'utf8').split('\n');
-              let inActiveSection = false;
-
-              for (const line of lines) {
-                // Enter active approvers or reviewers section
-                if (/^\s*(approvers|reviewers):/.test(line)) {
-                  inActiveSection = true;
-                  continue;
-                }
-                // Exit when encountering any other section key (e.g. emeritus_approvers, component, labels)
-                if (/^\s*[a-zA-Z0-9_]+:/.test(line)) {
-                  inActiveSection = false;
-                  continue;
-                }
-
-                if (inActiveSection) {
-                  const itemMatch = line.match(/^\s*-\s+([a-zA-Z0-9_-]+)/);
-                  if (itemMatch) {
-                    const entry = itemMatch[1].toLowerCase();
-                    if (aliasesMap.has(entry)) {
-                      for (const member of aliasesMap.get(entry)) {
-                        activePrivilegedUsers.add(member);
-                      }
-                    } else {
-                      activePrivilegedUsers.add(entry);
-                    }
-                  }
-                }
-              }
-            }
-
-            if (activePrivilegedUsers.size === 0) {
-              core.setFailed('Failed to extract active approvers/reviewers from OWNERS files.');
-              return;
-            }
-
-            // 3. Exempt active reviewers and approvers
-            if (activePrivilegedUsers.has(assigneeLower)) {
-              core.info(`User @${assignee} is an active reviewer/approver in OWNERS. Exempt from issue cap.`);
-              return;
-            }
-
-            // 4. Count open assigned issues (excluding pull requests)
-            const assignedItems = await github.paginate(github.rest.issues.listForRepo, {
-              owner,
-              repo,
-              state: 'open',
-              assignee: assignee,
-              per_page: 100,
-            });
-
-            const openAssignedIssues = assignedItems.filter(item => !item.pull_request);
-            const openAssignedCount = openAssignedIssues.length;
-
-            core.info(`Contributor @${assignee} currently has ${openAssignedCount} open assigned issues (cap: ${maxCap}).`);
-
-            // 5. Enforce cap if exceeded
-            if (openAssignedCount > maxCap) {
-              core.info(`Cap exceeded (${openAssignedCount} > ${maxCap}). Unassigning @${assignee} from issue #${issueNumber}.`);
-
-              await github.rest.issues.removeAssignees({
-                owner,
-                repo,
-                issue_number: issueNumber,
-                assignees: [assignee],
-              });
-
-              const otherCount = openAssignedCount - 1;
-              const commentBody = `@${assignee}: Contributors are limited to a maximum of **${maxCap}** open assigned issues at a time (you currently have **${otherCount}** other open issues assigned).\n\nYou have been automatically unassigned from this issue so others can work on it. Please complete or \`/unassign\` one of your existing issues before assigning a new one.`;
-
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: issueNumber,
-                body: commentBody,
-              });
-            }
+            const enforceCap = require('./hack/issue-assignee-cap.js');
+            await enforceCap({ github, context, core });
