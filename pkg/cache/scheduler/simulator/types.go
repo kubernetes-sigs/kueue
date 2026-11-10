@@ -161,7 +161,7 @@ type SchedulingResult struct {
 	// Includes exactly one entry for each Pod of the Workload.
 	PodPlacements PodPlacements
 	// PreemptionVictims lists Workloads that must be preempted
-	// for a successfull placement to be feasible.
+	// for a successful placement to be feasible.
 	// This list does not include committed victims required for the placement to work.
 	PreemptionVictims []workload.Reference
 	// ImmediateFit informs if the placement can be exercised
