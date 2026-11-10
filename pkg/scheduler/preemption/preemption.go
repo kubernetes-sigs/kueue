@@ -219,6 +219,7 @@ type preemptionCtx struct {
 	preemptorCQ           *schdcache.ClusterQueueSnapshot
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
+	requestedQuota        resources.FlavorResourceQuantities
 	tasRequests           schdcache.WorkloadTASRequests
 	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
@@ -291,6 +292,8 @@ func (p *Preemptor) buildContext(
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 
+	requestedQuota := assignment.TotalRequestsFor(log, &wl)
+
 	return &preemptionCtx{
 		log:               log,
 		clock:             p.clock,
@@ -302,12 +305,30 @@ func (p *Preemptor) buildContext(
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
-				Assigned: assignment.TotalRequestsFor(log, &wl),
+				Assigned: quotaToAdd(&wl, requestedQuota),
 			},
 			TAS: wl.TASUsage(),
 		},
+		requestedQuota:        requestedQuota,
 		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
+}
+
+// quotaToAdd returns the usage that admitting wl adds to the snapshot. A preemptor
+// taking a second pass keeps its quota reservation, which the snapshot already
+// counts, so it adds no usage and only its topology assignment has to fit.
+func quotaToAdd(wl *workload.Info, requestedQuota resources.FlavorResourceQuantities) resources.FlavorResourceQuantities {
+	if !workload.NeedsSecondPass(wl.Obj) {
+		return requestedQuota
+	}
+	quota := make(resources.FlavorResourceQuantities, len(requestedQuota))
+	for fr := range requestedQuota {
+		// The flavor-resource stays in the map with a zero amount: the borrowing
+		// checks loop over this map and add each amount to the usage of the
+		// ClusterQueue, so a missing entry would skip the check.
+		quota[fr] = resources.NewAmount(0)
+	}
+	return quota
 }
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
@@ -705,7 +726,7 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // request assigned to the incoming workload.
 func requestedFlavorResources(preemptionCtx *preemptionCtx) sets.Set[resources.FlavorResource] {
 	frs := sets.New[resources.FlavorResource]()
-	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
+	for fr, request := range preemptionCtx.requestedQuota {
 		if request.CmpInt64(0) > 0 {
 			frs.Insert(fr)
 		}
