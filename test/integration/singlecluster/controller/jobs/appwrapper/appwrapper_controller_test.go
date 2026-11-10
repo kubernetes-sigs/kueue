@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -1186,6 +1187,116 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 					}),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should keep running an appwrapper admitted with implicit topology", framework.SlowSpec, func() {
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					Request(corev1.ResourceCPU, "1").
+					SetTypeMeta().
+					Obj(),
+			}).
+			Queue(localQueue.Name).
+			Suspend(false).
+			Obj()
+		ginkgo.By("creating an appwrapper without a topology annotation", func() {
+			behavioral.MustCreate(ctx, k8sClient, aw)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: ns.Name}
+
+		ginkgo.By("verify the workload is admitted with a topology assignment", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		createdAppWrapper := &awv1beta2.AppWrapper{}
+		ginkgo.By("verify the appwrapper is unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the appwrapper keeps running with the admitted workload", func() {
+			admittedUID := wl.UID
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.UID).Should(gomega.Equal(admittedUID))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should keep running an appwrapper with a prebuilt workload admitted with implicit topology", framework.SlowSpec, func() {
+		container := corev1.Container{
+			Name:  "c",
+			Image: utiltestingjobs.TestDefaultContainerImage,
+		}
+		utiltestingjob.SetContainerDefaults(&container)
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		}
+
+		wl := utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodSets(*utiltestingapi.MakePodSet("test-aw-0", 1).
+				Containers(*container.DeepCopy()).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				Obj()).
+			Obj()
+		ginkgo.By("creating a prebuilt workload without a topology request", func() {
+			behavioral.MustCreate(ctx, k8sClient, wl)
+		})
+
+		aw := testingaw.MakeAppWrapper(awName, ns.Name).
+			Component(testingaw.Component{
+				Template: utiltestingjob.MakeJob("job", ns.Name).
+					Containers(*container.DeepCopy()).
+					SetTypeMeta().
+					Obj(),
+			}).
+			Queue(localQueue.Name).
+			PrebuiltWorkloadLabel(wl.Name).
+			Obj()
+		ginkgo.By("creating an appwrapper which references the prebuilt workload", func() {
+			behavioral.MustCreate(ctx, k8sClient, aw)
+		})
+
+		ginkgo.By("verify the workload is admitted with a topology assignment", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		createdAppWrapper := &awv1beta2.AppWrapper{}
+		ginkgo.By("verify the appwrapper is unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the appwrapper keeps running and the workload isn't finished", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
+				g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })
