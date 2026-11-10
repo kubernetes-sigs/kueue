@@ -15,6 +15,20 @@ type: docs
 - GNU sed (macOS: `brew install gnu-sed`)
 - Python 3.9 or later (tool installation and installer tests)
 
+## Installing development tools
+
+Make targets install pinned upstream tool binaries and verify their SHA256
+checksums. If a release download fails with HTTP 408, 429, or 5xx, or a network
+connection or response fails, the installer immediately falls back to building
+the same pinned version from its Go module. Missing releases and unsupported
+platforms also use this source path. Source builds retain their existing retry
+and cache behavior; checksum failures and other HTTP errors still fail the
+installation. Source installation requires the Go module and its dependencies
+to be available through the configured Go module proxy or cache.
+
+Run `make verify-ci-tools` to test installer behavior without network access or
+containers.
+
 ## Building presubmit images
 
 Run `make image-presubmit` to build the manager for all configured `PLATFORMS`
