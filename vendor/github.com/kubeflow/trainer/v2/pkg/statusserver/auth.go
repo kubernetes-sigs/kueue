@@ -18,14 +18,14 @@ package statusserver
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"os"
+	"slices"
 	"strings"
 
-	"github.com/coreos/go-oidc/v3/oidc"
-	"k8s.io/client-go/rest"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	"k8s.io/apiserver/pkg/authentication/serviceaccount"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type TokenAuthorizer interface {
@@ -33,80 +33,60 @@ type TokenAuthorizer interface {
 	Authorize(ctx context.Context, rawIDToken, namespace, trainJobName string) (bool, error)
 }
 
-type projectedServiceAccountTokenAuthorizer struct {
-	oidcProvider *oidc.Provider
-	config       *rest.Config
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
+
+type tokenReviewAuthorizer struct {
+	client client.Client
 }
 
-var _ TokenAuthorizer = &projectedServiceAccountTokenAuthorizer{}
+var _ TokenAuthorizer = &tokenReviewAuthorizer{}
 
-// projectedToken is the decoded JWT claims of a k8s projected service account token.
-// Note: we only decode the subset of claims we actually need.
-type projectedToken struct {
-	Issuer     string `json:"iss"`
-	Kubernetes struct {
-		Namespace string `json:"namespace"`
-	} `json:"kubernetes.io"`
-}
-
-// NewProjectedServiceAccountTokenAuthorizer creates a validator for checking a bearer token has permission to
-// update the requested train job.
-func NewProjectedServiceAccountTokenAuthorizer(config *rest.Config) TokenAuthorizer {
-	return &projectedServiceAccountTokenAuthorizer{
-		config: config,
+// NewTokenReviewAuthorizer creates a validator for checking a bearer token has permission to
+// update the requested train job. Tokens are validated by the Kubernetes API server using the
+// TokenReview API, so it works with any service account token issuer configured in the cluster.
+func NewTokenReviewAuthorizer(c client.Client) TokenAuthorizer {
+	return &tokenReviewAuthorizer{
+		client: c,
 	}
 }
 
-func (p *projectedServiceAccountTokenAuthorizer) Init(ctx context.Context) error {
-	issuerURL, err := getClusterOIDCIssuerURL()
-	if err != nil {
-		return fmt.Errorf("failed to discover issuer URL: %w", err)
-	}
-
-	// Create an authenticated HTTP client using the provided rest config
-	httpClient, err := rest.HTTPClientFor(p.config)
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP client: %w", err)
-	}
-
-	// Create context with the authenticated HTTP client
-	ctx = oidc.ClientContext(ctx, httpClient)
-
-	provider, err := oidc.NewProvider(ctx, issuerURL)
-	if err != nil {
-		return fmt.Errorf("failed to create OIDC provider: %w", err)
-	}
-	p.oidcProvider = provider
-
+// Init is a no-op: tokens are only reviewed when status updates are received, so the authorizer
+// does not depend on any external endpoint at startup.
+func (t *tokenReviewAuthorizer) Init(_ context.Context) error {
 	return nil
 }
 
-func (p *projectedServiceAccountTokenAuthorizer) Authorize(ctx context.Context, authHeader, namespace, trainJobName string) (bool, error) {
-	if p.oidcProvider == nil {
-		return false, fmt.Errorf("OIDC provider has not been initialized")
-	}
+func (t *tokenReviewAuthorizer) Authorize(ctx context.Context, authHeader, namespace, trainJobName string) (bool, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("namespace", namespace, "trainJobName", trainJobName)
 
 	rawToken := extractRawToken(authHeader)
+	if rawToken == "" {
+		log.V(5).Info("Missing or malformed bearer token")
+		return false, nil
+	}
 
-	// Create authorizer with TrainJob-specific audience
+	// Ask the API server to check the token signature, expiry, bound pod and the TrainJob-specific audience.
 	expectedAudience := TokenAudience(namespace, trainJobName)
-	verifier := p.oidcProvider.Verifier(&oidc.Config{
-		ClientID: expectedAudience,
-	})
-
-	// Check token signature, expiry, and audience
-	idToken, err := verifier.Verify(ctx, rawToken)
-	if err != nil {
+	review := &authenticationv1.TokenReview{
+		Spec: authenticationv1.TokenReviewSpec{
+			Token:     rawToken,
+			Audiences: []string{expectedAudience},
+		},
+	}
+	if err := t.client.Create(ctx, review); err != nil {
+		return false, fmt.Errorf("failed to review token: %w", err)
+	}
+	if !review.Status.Authenticated || !slices.Contains(review.Status.Audiences, expectedAudience) {
+		log.V(5).Info("Token review rejected", "authenticated", review.Status.Authenticated,
+			"audiences", review.Status.Audiences, "error", review.Status.Error)
 		return false, nil
 	}
 
-	// Check token is bound to a pod in the same namespace as the train job
-	parsedToken := projectedToken{}
-	err = idToken.Claims(&parsedToken)
-	if err != nil {
-		return false, nil
-	}
-	if parsedToken.Kubernetes.Namespace != namespace {
+	// Check token is issued to a service account in the same namespace as the train job
+	tokenNamespace, _, err := serviceaccount.SplitUsername(review.Status.User.Username)
+	if err != nil || tokenNamespace != namespace {
+		log.V(5).Info("Token is not issued to a service account in the train job namespace",
+			"username", review.Status.User.Username)
 		return false, nil
 	}
 
@@ -125,34 +105,4 @@ func extractRawToken(authHeader string) string {
 	}
 
 	return parts[1]
-}
-
-// getClusterOIDCIssuerURL tries to look up the cluster token issuer from the in-cluster service account token
-// Different clusters may use different issuers. This is a reliable way of discovering the issuer.
-func getClusterOIDCIssuerURL() (string, error) {
-	tokenBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return "", err
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(tokenBytes)), ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("serviceaccount token is not a jwt")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", fmt.Errorf("serviceaccount token is not a jwt: %w", err)
-	}
-
-	var token projectedToken
-	if err := json.Unmarshal(payload, &token); err != nil {
-		return "", fmt.Errorf("serviceaccount token is not a jwt: %w", err)
-	}
-
-	if token.Issuer == "" {
-		return "", fmt.Errorf("serviceaccount token missing issuer claim")
-	}
-
-	return token.Issuer, nil
 }

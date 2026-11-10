@@ -40,6 +40,13 @@ import (
 
 type Torch struct{}
 
+// draNumProcPerNodeWarning is emitted on create when the node container has DRA claims but no
+// extended GPU resource and numProcPerNode is not set: the GPU count is not derived from the
+// ResourceClaimTemplate yet, so torchrun falls back to the CPU count.
+const draNumProcPerNodeWarning = "spec.trainer.numProcPerNode is not set and the node container uses DRA claims; " +
+	"the GPU count is not derived from the ResourceClaimTemplate, so torchrun will use the CPU count. " +
+	"Set numProcPerNode explicitly"
+
 var _ framework.EnforceMLPolicyPlugin = (*Torch)(nil)
 var _ framework.CustomValidationPlugin = (*Torch)(nil)
 
@@ -53,7 +60,8 @@ func (t *Torch) Name() string {
 	return Name
 }
 
-func (t *Torch) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newObj *trainer.TrainJob) (admission.Warnings, field.ErrorList) {
+func (t *Torch) Validate(_ context.Context, runtimeInfo *runtime.Info, oldObj, newObj *trainer.TrainJob) (admission.Warnings, field.ErrorList) {
+	var warnings admission.Warnings
 	var allErrs field.ErrorList
 	if runtimeInfo == nil || runtimeInfo.RuntimePolicy.MLPolicySource == nil || runtimeInfo.RuntimePolicy.MLPolicySource.Torch == nil {
 		return nil, allErrs
@@ -61,6 +69,10 @@ func (t *Torch) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newObj
 
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, validateEnvInjectionTargets(runtimeInfo, specPath.Child("runtimeRef"))...)
+	if trainerReplicas := runtime.TrainerReplicas(runtimeInfo); trainerReplicas > 1 {
+		allErrs = append(allErrs, field.Invalid(specPath.Child("runtimeRef"), trainerReplicas,
+			"trainer replicatedJob replicas must be 1 for the Torch runtime"))
+	}
 
 	if newObj.Spec.Trainer != nil {
 		// Check reserved envs.
@@ -83,7 +95,21 @@ func (t *Torch) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newObj
 			allErrs = append(allErrs, torchTuneErrs...)
 		}
 	}
-	return nil, allErrs
+
+	// Warn only on create when the node container has DRA claims but no extended GPU resource
+	// and numProcPerNode is unset, since torchrun would silently fall back to the CPU count.
+	if oldObj == nil {
+		runtimeRes := runtime.ExtractResourcePerNodeFromRuntime(runtimeInfo)
+		resourcesPerNode := ptr.Deref(runtimeRes, corev1.ResourceRequirements{})
+		if jobTrainer := newObj.Spec.Trainer; jobTrainer != nil && jobTrainer.ResourcesPerNode != nil {
+			resourcesPerNode = *jobTrainer.ResourcesPerNode
+		}
+		numProcPerNodeSet := newObj.Spec.Trainer != nil && newObj.Spec.Trainer.NumProcPerNode != nil
+		if runtimeRes != nil && len(runtimeRes.Claims) > 0 && !numProcPerNodeSet && runtime.GetNumGPUPerNode(&resourcesPerNode) == 0 {
+			warnings = append(warnings, draNumProcPerNodeWarning)
+		}
+	}
+	return warnings, allErrs
 }
 
 func validateEnvInjectionTargets(info *runtime.Info, fldPath *field.Path) field.ErrorList {
@@ -135,11 +161,11 @@ func (t *Torch) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) 
 	}
 
 	// Update envs for Info object.
-	var trainerContainer *runtime.Container
-	if trainJob.Spec.Trainer != nil {
-		if trainerContainer = info.FindContainerByPodSetAncestorContainerName(constants.AncestorTrainer, constants.Node); trainerContainer != nil {
-			apply.UpsertEnvVars(&trainerContainer.Env, apply.EnvVars(trainJob.Spec.Trainer.Env...)...)
-		}
+	// PET_* envs and the trainer port are injected even when spec.trainer is omitted.
+	trainerContainer := info.FindContainerByPodSetAncestorContainerName(constants.AncestorTrainer, constants.Node)
+	if trainerContainer != nil && trainJob.Spec.Trainer != nil {
+		apply.UpsertEnvVars(&trainerContainer.Env, apply.EnvVars(trainJob.Spec.Trainer.Env...)...)
+		runtime.SetContainerImageFromTrainer(trainerContainer, trainJob.Spec.Trainer)
 	}
 
 	petEnvs := []corev1ac.EnvVarApplyConfiguration{
@@ -172,7 +198,7 @@ func (t *Torch) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) 
 		// Ref: https://github.com/kubeflow/trainer/pull/2308#discussion_r1823229940
 		apply.UpsertEnvVars(&trainerContainer.Env, petEnvs...)
 
-		if !slices.Equal(trainJob.Spec.Trainer.Command, constants.TorchTuneEntrypoint) {
+		if trainJob.Spec.Trainer == nil || !slices.Equal(trainJob.Spec.Trainer.Command, constants.TorchTuneEntrypoint) {
 			apply.UpsertEnvVars(&trainerContainer.Env, masterEnvVars...)
 		} else {
 			// Mutate trainer command for torchtune.

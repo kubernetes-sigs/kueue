@@ -56,6 +56,10 @@ func (x *XGBoost) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newO
 		runtimeInfo.RuntimePolicy.MLPolicySource.XGBoost == nil {
 		return nil, allErrs
 	}
+	if trainerReplicas := runtime.TrainerReplicas(runtimeInfo); trainerReplicas > 1 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "runtimeRef"), trainerReplicas,
+			"trainer replicatedJob replicas must be 1 for the XGBoost runtime"))
+	}
 	if newObj.Spec.Trainer != nil {
 		specPath := field.NewPath("spec", "trainer", "env")
 		for i, env := range newObj.Spec.Trainer.Env {
@@ -89,60 +93,59 @@ func (x *XGBoost) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob
 		*trainerPS.Count = *trainJob.Spec.Trainer.NumNodes
 	}
 
-	// Find the trainer container and inject environment variables.
-	var trainerContainer *runtime.Container
-	if trainJob.Spec.Trainer != nil {
-		if trainerContainer = info.FindContainerByPodSetAncestorContainerName(
-			constants.AncestorTrainer, constants.Node,
-		); trainerContainer != nil {
-			numNodes := ptr.Deref(ptr.Deref(trainerPS, runtime.PodSet{}).Count, 1)
+	// Find the trainer container and inject environment variables, even when spec.trainer is omitted.
+	if trainerContainer := info.FindContainerByPodSetAncestorContainerName(
+		constants.AncestorTrainer, constants.Node,
+	); trainerContainer != nil {
+		runtime.SetContainerImageFromTrainer(trainerContainer, trainJob.Spec.Trainer)
 
-			// Auto-derive numWorkersPerNode from GPU resources.
-			// GPU training: 1 worker per GPU | CPU training: 1 worker per node.
-			numWorkersPerNode := int32(1)
-			// Step 1: Get resources from Runtime (ClusterTrainingRuntime template).
-			resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})
-			// Step 2: Override with TrainJob resources if specified.
-			if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil && jobTrainer.ResourcesPerNode != nil {
-				resourcesPerNode = ptr.Deref(jobTrainer.ResourcesPerNode, corev1.ResourceRequirements{})
-			}
-			// Step 3: Derive GPU count from the final resolved resources.
-			if gpuCount := runtime.GetNumGPUPerNode(&resourcesPerNode); gpuCount > 0 {
-				numWorkersPerNode = int32(gpuCount)
-			}
-			totalWorkers := numNodes * numWorkersPerNode
+		numNodes := ptr.Deref(ptr.Deref(trainerPS, runtime.PodSet{}).Count, 1)
 
-			// Build tracker URI: <trainjob-name>-node-0-0.<trainjob-name>
-			trackerURI := fmt.Sprintf("%s-%s-0-0.%s",
-				trainJob.Name, constants.Node, trainJob.Name)
-
-			// Inject DMLC_* environment variables.
-			apply.UpsertEnvVars(&trainerContainer.Env,
-				// DMLC_TRACKER_URI - DNS name for rank-0 worker running tracker.
-				*corev1ac.EnvVar().
-					WithName(constants.XGBoostEnvTrackerURI).
-					WithValue(trackerURI),
-				// DMLC_TRACKER_PORT - Default tracker port.
-				*corev1ac.EnvVar().
-					WithName(constants.XGBoostEnvTrackerPort).
-					WithValue(fmt.Sprintf("%d", constants.ContainerTrainerPort)),
-				// DMLC_TASK_ID - Worker rank from Job completion index.
-				*corev1ac.EnvVar().
-					WithName(constants.XGBoostEnvTaskID).
-					WithValueFrom(corev1ac.EnvVarSource().
-						WithFieldRef(corev1ac.ObjectFieldSelector().
-							WithFieldPath(constants.JobCompletionIndexFieldPath))),
-				// DMLC_NUM_WORKER - Total number of workers.
-				*corev1ac.EnvVar().
-					WithName(constants.XGBoostEnvNumWorker).
-					WithValue(fmt.Sprintf("%d", totalWorkers)),
-			)
-
-			// Add container port for tracker communication.
-			apply.UpsertPort(&trainerContainer.Ports,
-				*corev1ac.ContainerPort().
-					WithContainerPort(constants.ContainerTrainerPort))
+		// Auto-derive numWorkersPerNode from GPU resources.
+		// GPU training: 1 worker per GPU | CPU training: 1 worker per node.
+		numWorkersPerNode := int32(1)
+		// Step 1: Get resources from Runtime (ClusterTrainingRuntime template).
+		resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})
+		// Step 2: Override with TrainJob resources if specified.
+		if jobTrainer := trainJob.Spec.Trainer; jobTrainer != nil && jobTrainer.ResourcesPerNode != nil {
+			resourcesPerNode = ptr.Deref(jobTrainer.ResourcesPerNode, corev1.ResourceRequirements{})
 		}
+		// Step 3: Derive GPU count from the final resolved resources.
+		if gpuCount := runtime.GetNumGPUPerNode(&resourcesPerNode); gpuCount > 0 {
+			numWorkersPerNode = int32(gpuCount)
+		}
+		totalWorkers := numNodes * numWorkersPerNode
+
+		// Build tracker URI: <trainjob-name>-node-0-0.<trainjob-name>
+		trackerURI := fmt.Sprintf("%s-%s-0-0.%s",
+			trainJob.Name, constants.Node, trainJob.Name)
+
+		// Inject DMLC_* environment variables.
+		apply.UpsertEnvVars(&trainerContainer.Env,
+			// DMLC_TRACKER_URI - DNS name for rank-0 worker running tracker.
+			*corev1ac.EnvVar().
+				WithName(constants.XGBoostEnvTrackerURI).
+				WithValue(trackerURI),
+			// DMLC_TRACKER_PORT - Default tracker port.
+			*corev1ac.EnvVar().
+				WithName(constants.XGBoostEnvTrackerPort).
+				WithValue(fmt.Sprintf("%d", constants.ContainerTrainerPort)),
+			// DMLC_TASK_ID - Worker rank from Job completion index.
+			*corev1ac.EnvVar().
+				WithName(constants.XGBoostEnvTaskID).
+				WithValueFrom(corev1ac.EnvVarSource().
+					WithFieldRef(corev1ac.ObjectFieldSelector().
+						WithFieldPath(constants.JobCompletionIndexFieldPath))),
+			// DMLC_NUM_WORKER - Total number of workers.
+			*corev1ac.EnvVar().
+				WithName(constants.XGBoostEnvNumWorker).
+				WithValue(fmt.Sprintf("%d", totalWorkers)),
+		)
+
+		// Add container port for tracker communication.
+		apply.UpsertPort(&trainerContainer.Ports,
+			*corev1ac.ContainerPort().
+				WithContainerPort(constants.ContainerTrainerPort))
 	}
 
 	return nil

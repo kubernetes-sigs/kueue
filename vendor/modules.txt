@@ -1,4 +1,4 @@
-# cel.dev/expr v0.25.2
+# cel.dev/expr v0.25.3
 ## explicit; go 1.23.0
 cel.dev/expr
 # github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c
@@ -43,9 +43,6 @@ github.com/chai2010/gettext-go
 github.com/chai2010/gettext-go/mo
 github.com/chai2010/gettext-go/plural
 github.com/chai2010/gettext-go/po
-# github.com/coreos/go-oidc/v3 v3.20.0
-## explicit; go 1.25.0
-github.com/coreos/go-oidc/v3/oidc
 # github.com/coreos/go-semver v0.3.1
 ## explicit; go 1.8
 github.com/coreos/go-semver/semver
@@ -83,11 +80,6 @@ github.com/fxamacker/cbor/v2
 # github.com/go-errors/errors v1.5.1
 ## explicit; go 1.14
 github.com/go-errors/errors
-# github.com/go-jose/go-jose/v4 v4.1.4
-## explicit; go 1.24.0
-github.com/go-jose/go-jose/v4
-github.com/go-jose/go-jose/v4/cipher
-github.com/go-jose/go-jose/v4/json
 # github.com/go-logr/logr v1.4.4
 ## explicit; go 1.18
 github.com/go-logr/logr
@@ -235,8 +227,8 @@ github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util
-# github.com/kubeflow/trainer/v2 v2.0.0-20260910145234-8ca43ecb96b2
-## explicit; go 1.26.0
+# github.com/kubeflow/trainer/v2 v2.4.0
+## explicit; go 1.27.0
 github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apply
@@ -258,6 +250,7 @@ github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/plainml
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/torch
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/trainjobstatus
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/volcano
+github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/workloadawarescheduling
 github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/xgboost
 github.com/kubeflow/trainer/v2/pkg/runtime/indexer
 github.com/kubeflow/trainer/v2/pkg/statusserver
@@ -571,7 +564,7 @@ golang.org/x/exp/slices
 golang.org/x/mod/internal/lazyregexp
 golang.org/x/mod/module
 golang.org/x/mod/semver
-# golang.org/x/net v0.61.0
+# golang.org/x/net v0.62.0
 ## explicit; go 1.26.0
 golang.org/x/net/html
 golang.org/x/net/html/atom
@@ -667,7 +660,7 @@ golang.org/x/tools/internal/versions
 # gomodules.xyz/jsonpatch/v2 v2.5.0
 ## explicit; go 1.20
 gomodules.xyz/jsonpatch/v2
-# google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d
+# google.golang.org/genproto/googleapis/api v0.0.0-20260817212433-ac3dfec99bb1
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/api
 google.golang.org/genproto/googleapis/api/annotations
@@ -677,8 +670,8 @@ google.golang.org/genproto/googleapis/api/httpbody
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/rpc/errdetails
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.83.2
-## explicit; go 1.25.0
+# google.golang.org/grpc v1.85.0
+## explicit; go 1.26.0
 google.golang.org/grpc
 google.golang.org/grpc/attributes
 google.golang.org/grpc/backoff
@@ -1615,6 +1608,7 @@ k8s.io/component-helpers/nodedeclaredfeatures/types
 k8s.io/component-helpers/resource
 k8s.io/component-helpers/scheduling/corev1
 k8s.io/component-helpers/scheduling/corev1/nodeaffinity
+k8s.io/component-helpers/scheduling/schedulingv1/workloadbuilder
 k8s.io/component-helpers/storage/ephemeral
 k8s.io/component-helpers/storage/volume
 # k8s.io/controller-manager v0.37.0
@@ -1993,8 +1987,8 @@ sigs.k8s.io/scheduler-library/pkg/state
 sigs.k8s.io/scheduler-library/pkg/upstreamsync
 sigs.k8s.io/scheduler-library/pkg/upstreamsync/preemption
 sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot
-# sigs.k8s.io/scheduler-plugins v0.35.4-devel
-## explicit; go 1.25.0
+# sigs.k8s.io/scheduler-plugins v0.36.4-devel
+## explicit; go 1.26.0
 sigs.k8s.io/scheduler-plugins/apis/scheduling
 sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1
 sigs.k8s.io/scheduler-plugins/pkg/generated/applyconfiguration/scheduling/v1alpha1

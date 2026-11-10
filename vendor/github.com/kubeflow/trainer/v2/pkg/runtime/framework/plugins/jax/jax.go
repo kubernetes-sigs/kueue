@@ -66,13 +66,18 @@ func (j *Jax) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 		*trainerPS.Count = *trainJob.Spec.Trainer.NumNodes
 	}
 
-	var trainerContainer *runtime.Container
-	if trainJob.Spec.Trainer != nil {
-		if trainerContainer = info.FindContainerByPodSetAncestorContainerName(constants.AncestorTrainer, constants.Node); trainerContainer != nil {
-			// Get the number of nodes for distributed setup
-			numNodes := ptr.Deref(ptr.Deref(trainerPS, runtime.PodSet{}).Count, 1)
+	// JAX envs and the trainer port are injected even when spec.trainer is omitted.
+	if trainerContainer := info.FindContainerByPodSetAncestorContainerName(constants.AncestorTrainer, constants.Node); trainerContainer != nil {
+		runtime.SetContainerImageFromTrainer(trainerContainer, trainJob.Spec.Trainer)
 
-			// Set JAX distributed environment variables
+		// Get the number of nodes for distributed setup
+		numNodes := ptr.Deref(ptr.Deref(trainerPS, runtime.PodSet{}).Count, 1)
+
+		// When the trainer runs as multiple replicated Jobs (e.g. multi-slice TPU), the Job completion
+		// index is not unique across replicas, so the process ID can't be derived from it.
+		// In that case, jax.distributed.initialize() auto-detects the number of processes, the process ID,
+		// and the coordinator address from the TPU environment.
+		if runtime.TrainerReplicas(info) == 1 {
 			apply.UpsertEnvVars(&trainerContainer.Env,
 				// Total number of JAX processes (one per node/host)
 				*corev1ac.EnvVar().
@@ -95,10 +100,10 @@ func (j *Jax) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) er
 						trainJob.Name,
 						constants.ContainerTrainerPort)),
 			)
-
-			// Add container port for the headless service (needed for pod-to-pod communication)
-			apply.UpsertPort(&trainerContainer.Ports, *corev1ac.ContainerPort().WithContainerPort(constants.ContainerTrainerPort))
 		}
+
+		// Add container port for the headless service (needed for pod-to-pod communication)
+		apply.UpsertPort(&trainerContainer.Ports, *corev1ac.ContainerPort().WithContainerPort(constants.ContainerTrainerPort))
 	}
 
 	return nil
