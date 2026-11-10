@@ -53,6 +53,13 @@ INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # The logging is disabled if 0.
 INTEGRATION_API_LOG_LEVEL ?= 0
 
+# Integrations publish per-job coverage. Use INTEGRATION_COVERAGE=0 for
+# targeted runtime comparisons or local runs without instrumentation.
+# --output-dir controls where Ginkgo writes its filename-only coverprofile.
+INTEGRATION_COVERAGE ?= 1
+INTEGRATION_COVERAGE_FLAGS = $(if $(filter 1,$(INTEGRATION_COVERAGE)),--cover --coverpkg=sigs.k8s.io/kueue/... --coverprofile=integration-cover.out)
+
+
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
 E2E_K8S_VERSIONS ?= 1.35.8 1.36.4 1.37.0
@@ -124,8 +131,7 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
 # -coverpkg repeats each block once per test binary, so merge duplicate blocks by
 # summing their counts to keep filtered.cov small. Local sharded runs overwrite filtered.cov.
-	grep -Ev '$(UNIT_COVERAGE_EXCLUDE)' "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" \
-		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
+	bash $(PROJECT_DIR)/hack/testing/filter-coverage.sh "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" "$(ARTIFACTS)/filtered.cov" '$(UNIT_COVERAGE_EXCLUDE)'
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
 
 # Time budget for fuzzing each individual fuzz target.
@@ -166,6 +172,7 @@ test-integration: compile-crd-manifests envtest ginkgo dep-crds $(INTEGRATION_KU
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
 	mkdir -p $(ARTIFACTS)
+	rm -f "$(ARTIFACTS)/integration-cover.out" "$(ARTIFACTS)/filtered.cov" "$(ARTIFACTS)/filtered.html"
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -174,7 +181,11 @@ test-integration-run:
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
 	GOTRACEBACK=system \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race $(INTEGRATION_COVERAGE_FLAGS) --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	@if [ "$(INTEGRATION_COVERAGE)" = "1" ]; then \
+		bash $(PROJECT_DIR)/hack/testing/filter-coverage.sh "$(ARTIFACTS)/integration-cover.out" "$(ARTIFACTS)/filtered.cov" '$(UNIT_COVERAGE_EXCLUDE)' && \
+		$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o="$(ARTIFACTS)/filtered.html"; \
+	fi
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
 .PHONY: test-integration-baseline
@@ -188,6 +199,7 @@ test-integration-extended: test-integration ## Run extended integration tests fo
 .PHONY: test-multikueue-integration
 test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkgo-top ## Run integration tests for MultiKueue suite.
 	mkdir -p $(ARTIFACTS)
+	rm -f "$(ARTIFACTS)/integration-cover.out" "$(ARTIFACTS)/filtered.cov" "$(ARTIFACTS)/filtered.html"
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -196,7 +208,11 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
 	GOTRACEBACK=system \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race $(INTEGRATION_COVERAGE_FLAGS) --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
+	@if [ "$(INTEGRATION_COVERAGE)" = "1" ]; then \
+		bash $(PROJECT_DIR)/hack/testing/filter-coverage.sh "$(ARTIFACTS)/integration-cover.out" "$(ARTIFACTS)/filtered.cov" '$(UNIT_COVERAGE_EXCLUDE)' && \
+		$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o="$(ARTIFACTS)/filtered.html"; \
+	fi
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 .PHONY: test-e2e-baseline-helm
