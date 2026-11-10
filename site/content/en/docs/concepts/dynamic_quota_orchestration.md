@@ -202,8 +202,10 @@ DQO is alpha. Keep these points in mind:
   or Cohort out of the subtree. It also happens when `Distributed` becomes
   `False` for any reason, such as a discovery failure or a conflict. Another
   eligible DynamicQuotaOrchestrator can replace these quotas when it manages the
-  object and the previous orchestrator no longer covers it. Otherwise, Kueue
-  keeps admitting workloads against the last values until you clear them. See
+  object and the previous orchestrator has been deleted, has distribution
+  disabled, reports `Distributed=False`, or no longer covers the object.
+  Otherwise, Kueue keeps admitting workloads against the last values until you
+  clear them. See
   [Clean up](/docs/tasks/manage/setup_dynamic_quota_orchestration/#clean-up).
 
 ## What's next?
