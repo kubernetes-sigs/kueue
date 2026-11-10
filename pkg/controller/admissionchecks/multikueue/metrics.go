@@ -24,7 +24,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,56 +31,82 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
-// reportWorkerClusterStatuses emits the Active status of every worker cluster the
-// ClusterQueue references. The ClusterQueue's series are replaced as a whole, so a
-// cluster removed from the MultiKueueConfig stops being reported.
-//
-// Only a cluster that has a MultiKueueCluster object is reported, because the metric
-// mirrors that object's Active condition. A cluster the configuration names but that
-// does not exist has no status to mirror, and is surfaced by the AdmissionCheck as a
-// missing cluster instead. Unknown is reported while the object exists but its Active
-// condition has not been set yet.
-func (r *cqReconciler) reportWorkerClusterStatuses(ctx context.Context, cq *kueue.ClusterQueue, acName kueue.AdmissionCheckReference) error {
-	log := ctrl.LoggerFrom(ctx)
-	cqName := kueue.ClusterQueueReference(cq.Name)
+// reportWorkerClusterStatuses replaces the metric snapshot from current references.
+// Refreshing the whole snapshot also removes series for deleted or unlinked queues,
+// without retaining a second copy of their former AdmissionCheck relationships.
+func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
+	a.metricsMu.Lock()
+	defer a.metricsMu.Unlock()
 
-	clusterNames, err := admissioncheck.GetRemoteClusters(ctx, r.helper, acName)
-	// A configuration that cannot name any worker cluster is not a reconcile failure:
-	// the parameters reference is missing or malformed, the object it points to does
-	// not exist, or the MultiKueueConfig lists no clusters. There is nothing to report.
-	if apierrors.IsNotFound(err) || errors.Is(err, admissioncheck.ErrNilParametersRef) ||
-		errors.Is(err, admissioncheck.ErrBadParametersRef) || errors.Is(err, admissioncheck.ErrNoActiveClusters) {
-		metrics.ClearMultiKueueClusterQueueMetrics(cqName)
-		return nil
-	}
-	if err != nil {
+	queues := &kueue.ClusterQueueList{}
+	if err := a.client.List(ctx, queues); err != nil {
 		return err
 	}
-
-	// The statuses are collected before any of them is reported, so that a failed read
-	// leaves the series reported so far in place instead of a partial set.
-	statuses := make(map[string]metav1.ConditionStatus, len(clusterNames))
-	for _, clusterName := range clusterNames {
-		cluster := &kueue.MultiKueueCluster{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
-				return err
-			}
-			log.V(3).Info("Referenced MultiKueueCluster not found", "multiKueueCluster", clusterName)
+	checks := &kueue.AdmissionCheckList{}
+	if err := a.client.List(ctx, checks, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil {
+		return err
+	}
+	checksByName := make(map[kueue.AdmissionCheckReference]struct{}, len(checks.Items))
+	for _, check := range checks.Items {
+		checksByName[kueue.AdmissionCheckReference(check.Name)] = struct{}{}
+	}
+	queuesByCheck := make(map[kueue.AdmissionCheckReference][]kueue.ClusterQueueReference)
+	for _, queue := range queues.Items {
+		if queue.Spec.AdmissionChecksStrategy == nil {
 			continue
 		}
-		// The condition is absent until the cluster is reconciled for the first time.
-		status := metav1.ConditionUnknown
-		if cond := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive); cond != nil {
-			status = cond.Status
+		for _, rule := range queue.Spec.AdmissionChecksStrategy.AdmissionChecks {
+			if _, found := checksByName[rule.Name]; found {
+				queuesByCheck[rule.Name] = append(queuesByCheck[rule.Name], kueue.ClusterQueueReference(queue.Name))
+				break
+			}
 		}
-		statuses[clusterName] = status
 	}
-
-	metrics.ClearMultiKueueClusterQueueMetrics(cqName)
-	for clusterName, status := range statuses {
-		metrics.ReportMultiKueueClusterStatus(cqName, clusterName, status, r.roleTracker)
+	snapshot := make(map[kueue.ClusterQueueReference]map[string]metav1.ConditionStatus)
+	// A worker shared by several checks is read only once; nil denotes a missing object.
+	workers := make(map[string]*metav1.ConditionStatus)
+	for checkName, queueNames := range queuesByCheck {
+		clusterNames, err := admissioncheck.GetRemoteClusters(ctx, a.helper, checkName)
+		if apierrors.IsNotFound(err) || errors.Is(err, admissioncheck.ErrNilParametersRef) ||
+			errors.Is(err, admissioncheck.ErrBadParametersRef) || errors.Is(err, admissioncheck.ErrNoActiveClusters) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		statuses := make(map[string]metav1.ConditionStatus, len(clusterNames))
+		for _, name := range clusterNames {
+			status, found := workers[name]
+			if !found {
+				cluster := &kueue.MultiKueueCluster{}
+				if err := a.client.Get(ctx, types.NamespacedName{Name: name}, cluster); err != nil {
+					if !apierrors.IsNotFound(err) {
+						return err
+					}
+					workers[name] = nil
+					continue
+				}
+				value := metav1.ConditionUnknown
+				if condition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive); condition != nil {
+					value = condition.Status
+				}
+				status = &value
+				workers[name] = status
+			}
+			if status != nil {
+				statuses[name] = *status
+			}
+		}
+		for _, name := range queueNames {
+			snapshot[name] = statuses
+		}
+	}
+	// A failed read above leaves the last complete snapshot in place.
+	metrics.MultiKueueClusterByStatus.Reset()
+	for queue, statuses := range snapshot {
+		for cluster, status := range statuses {
+			metrics.ReportMultiKueueClusterStatus(queue, cluster, status, a.roleTracker)
+		}
 	}
 	return nil
 }

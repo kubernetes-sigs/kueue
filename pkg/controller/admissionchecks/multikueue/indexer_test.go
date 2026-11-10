@@ -342,7 +342,7 @@ func TestClusterStatusMetricIndexes(t *testing.T) {
 			}
 			for field, want := range map[string]int{
 				AdmissionCheckControllerNameKey:     wantShared,
-				ClusterQueueAdmissionChecksKey:      wantShared,
+				ClusterQueueAdmissionChecksKey:      wantProvider,
 				CapacityProviderParametersKey:       wantProvider,
 				ProviderConfigManagerSubtreeRootKey: wantProvider,
 			} {

@@ -19,8 +19,8 @@ package multikueue
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -53,7 +53,8 @@ func expectCQClusterStatusMetric(t *testing.T, cqName, cluster string, want meta
 	}
 }
 
-func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
+func TestACReconcilerReportsClusterStatusMetric(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, true)
 	metrics.MultiKueueClusterByStatus.Reset()
 	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
 
@@ -76,13 +77,12 @@ func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
 		WithObjects(cq, ac, cfg, worker1, worker2).
 		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc).
 		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)).
-		WithIndex(&kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc).
-		WithStatusSubresource(cq).
+		WithStatusSubresource(cq, ac).
 		Build()
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
-	reconciler := newCQReconciler(c, helper, nil, 100*time.Millisecond)
+	reconciler := newACReconciler(c, helper, nil)
 
-	req := reconcile.Request{Name: "cq1"}
+	req := reconcile.Request{Name: "ac1"}
 	if _, err := reconciler.Reconcile(ctx, req); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -151,12 +151,15 @@ func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
 	}
 }
 
-func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
+func TestACReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 	readErr := errors.New("simulated read failure")
 
 	cases := map[string]struct {
 		failRead func(obj client.Object) bool
+		failList func(obj client.ObjectList) bool
 	}{
+		"listing ClusterQueues fails":   {failList: func(obj client.ObjectList) bool { _, ok := obj.(*kueue.ClusterQueueList); return ok }},
+		"listing AdmissionChecks fails": {failList: func(obj client.ObjectList) bool { _, ok := obj.(*kueue.AdmissionCheckList); return ok }},
 		"reading the MultiKueueConfig fails": {
 			failRead: func(obj client.Object) bool {
 				_, isConfig := obj.(*kueue.MultiKueueConfig)
@@ -176,6 +179,7 @@ func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 			metrics.MultiKueueClusterByStatus.Reset()
 			t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
 
+			features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			cq := utiltestingapi.MakeClusterQueue("cq1").
@@ -189,16 +193,25 @@ func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 			cfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj()
 			worker1 := utiltestingapi.MakeMultiKueueCluster("worker1").Active(metav1.ConditionTrue, "Active", "Connected", 1).Obj()
 
+			cq2 := utiltestingapi.MakeClusterQueue("cq2").AdmissionChecks("ac2").Obj()
+			ac2 := utiltestingapi.MakeAdmissionCheck("ac2").ControllerName(kueue.MultiKueueControllerName).Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").Obj()
+			cfg2 := utiltestingapi.MakeMultiKueueConfig("config2").Clusters("worker2").Obj()
+			worker2 := utiltestingapi.MakeMultiKueueCluster("worker2").Active(metav1.ConditionFalse, "Disconnected", "Unavailable", 1).Obj()
 			readsFail := false
 			c := utiltesting.NewClientBuilder().
-				WithObjects(cq, ac, cfg, worker1).
+				WithObjects(cq, ac, cfg, worker1, cq2, ac2, cfg2, worker2).
 				WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc).
 				WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)).
-				WithIndex(&kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc).
-				WithStatusSubresource(cq).
+				WithStatusSubresource(cq, ac, cq2, ac2, worker2).
 				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, cl client.WithWatch, obj client.ObjectList, opts ...client.ListOption) error {
+						if readsFail && tc.failList != nil && tc.failList(obj) {
+							return readErr
+						}
+						return cl.List(ctx, obj, opts...)
+					},
 					Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if readsFail && tc.failRead(obj) {
+						if readsFail && tc.failRead != nil && tc.failRead(obj) && key.Name != "worker2" && key.Name != "config2" {
 							return readErr
 						}
 						return cl.Get(ctx, key, obj, opts...)
@@ -206,27 +219,34 @@ func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 				}).
 				Build()
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
-			reconciler := newCQReconciler(c, helper, nil, 100*time.Millisecond)
+			reconciler := newACReconciler(c, helper, nil)
 
-			req := reconcile.Request{Name: "cq1"}
+			req := reconcile.Request{Name: "ac1"}
 			if _, err := reconciler.Reconcile(ctx, req); err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
 			}
 			expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
+			expectCQClusterStatusMetric(t, "cq2", "worker2", metav1.ConditionFalse)
 
 			// A read failure must fail the reconcile so that it is retried, and must leave
 			// the statuses reported so far in place: failing to read is not evidence that
 			// the ClusterQueue stopped using its workers.
+			worker2.Status.Conditions[0].Status = metav1.ConditionTrue
+			if err := c.Status().Update(ctx, worker2); err != nil {
+				t.Fatal(err)
+			}
 			readsFail = true
 			if _, err := reconciler.Reconcile(ctx, req); !errors.Is(err, readErr) {
 				t.Fatalf("expected the reconcile to fail with %q, got %v", readErr, err)
 			}
 			expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
+			expectCQClusterStatusMetric(t, "cq2", "worker2", metav1.ConditionFalse)
 		})
 	}
 }
 
-func TestCQReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
+func TestACReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, true)
 	metrics.MultiKueueClusterByStatus.Reset()
 	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
 
@@ -252,14 +272,13 @@ func TestCQReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
 		WithObjects(cq1, cq2, ac, cfg, worker1).
 		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc).
 		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)).
-		WithIndex(&kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc).
-		WithStatusSubresource(cq1, cq2).
+		WithStatusSubresource(cq1, cq2, ac).
 		Build()
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
-	reconciler := newCQReconciler(c, helper, nil, 100*time.Millisecond)
+	reconciler := newACReconciler(c, helper, nil)
 
-	req1 := reconcile.Request{Name: "cq1"}
-	req2 := reconcile.Request{Name: "cq2"}
+	req1 := reconcile.Request{Name: "ac1"}
+	req2 := reconcile.Request{Name: "ac1"}
 	if _, err := reconciler.Reconcile(ctx, req1); err != nil {
 		t.Fatalf("unexpected reconcile error for cq1: %v", err)
 	}
@@ -285,7 +304,7 @@ func TestCQReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
 	expectCQClusterStatusMetric(t, "cq2", "worker1", metav1.ConditionTrue)
 }
 
-func TestCQReconcilerClearsObsoleteClusterStatusMetrics(t *testing.T) {
+func TestACReconcilerClearsObsoleteClusterStatusMetrics(t *testing.T) {
 	cases := map[string]struct {
 		cq     *kueue.ClusterQueue
 		ac     *kueue.AdmissionCheck
@@ -321,7 +340,12 @@ func TestCQReconcilerClearsObsoleteClusterStatusMetrics(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, true)
 			features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, false)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			builder := utiltesting.NewClientBuilder()
+			builder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.AdmissionCheck{}).WithObjects(
+				utiltestingapi.MakeClusterQueue("other-cq").AdmissionChecks("other-ac").Obj(),
+				utiltestingapi.MakeAdmissionCheck("other-ac").ControllerName(kueue.MultiKueueControllerName).Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "other-config").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("other-config").Clusters("worker").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("worker").Active(metav1.ConditionFalse, "Disconnected", "Unavailable", 1).Obj(),
+			)
 			if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
 				t.Fatal(err)
 			}
@@ -343,8 +367,8 @@ func TestCQReconcilerClearsObsoleteClusterStatusMetrics(t *testing.T) {
 			t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
 			metrics.ReportMultiKueueClusterStatus("cq", "worker", metav1.ConditionTrue, nil)
 			metrics.ReportMultiKueueClusterStatus("other-cq", "worker", metav1.ConditionFalse, nil)
-			r := newCQReconciler(c, helper, nil, 0)
-			if _, err := r.Reconcile(ctx, reconcile.Request{Name: "cq"}); err != nil {
+			r := newACReconciler(c, helper, nil)
+			if _, err := r.Reconcile(ctx, reconcile.Request{Name: "ac"}); err != nil {
 				t.Fatal(err)
 			}
 			if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
@@ -358,6 +382,85 @@ func TestCQReconcilerClearsObsoleteClusterStatusMetrics(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.cq, got); diff != "" {
 					t.Errorf("Metric reconciliation changed ClusterQueue (-want,+got): %s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestACReconcilerReadsSharedWorkersOncePerSnapshot(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueMetricForClusterByStatus, true)
+	metrics.MultiKueueClusterByStatus.Reset()
+	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	builder := utiltesting.NewClientBuilder().WithObjects(
+		utiltestingapi.MakeMultiKueueConfig("config").Clusters("worker").Obj(),
+		utiltestingapi.MakeMultiKueueCluster("worker").Active(metav1.ConditionTrue, "Active", "Connected", 1).Obj(),
+	)
+	const queueCount = 500
+	for i := range queueCount {
+		builder.WithObjects(utiltestingapi.MakeClusterQueue(fmt.Sprintf("cq-%d", i)).AdmissionChecks(kueue.AdmissionCheckReference(fmt.Sprintf("ac-%d", i%2))).Obj())
+	}
+	for i := range 2 {
+		builder.WithObjects(
+			utiltestingapi.MakeAdmissionCheck(fmt.Sprintf("ac-%d", i)).ControllerName(kueue.MultiKueueControllerName).Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config").Obj(),
+		)
+	}
+	if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	c := builder.WithInterceptorFuncs(interceptor.Funcs{Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if _, ok := obj.(*kueue.MultiKueueCluster); ok {
+			reads++
+		}
+		return cl.Get(ctx, key, obj, opts...)
+	}}).Build()
+	helper, err := admissioncheck.NewMultiKueueStoreHelper(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newACReconciler(c, helper, nil)
+	if _, err := r.Reconcile(ctx, reconcile.Request{Name: "deleted-ac"}); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 {
+		t.Errorf("Shared worker reads = %d, want 1", reads)
+	}
+	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != queueCount*len(metrics.ConditionStatusValues) {
+		t.Errorf("Metric series = %d, want %d", got, queueCount*len(metrics.ConditionStatusValues))
+	}
+}
+
+func BenchmarkACReconcilerClusterStatusSnapshot(b *testing.B) {
+	for _, queueCount := range []int{100, 1000} {
+		b.Run(fmt.Sprintf("queues-%d", queueCount), func(b *testing.B) {
+			features.SetFeatureGateDuringTest(b, features.MultiKueueMetricForClusterByStatus, true)
+			metrics.MultiKueueClusterByStatus.Reset()
+			b.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
+			ctx, _ := utiltesting.ContextWithLog(b)
+			builder := utiltesting.NewClientBuilder().WithObjects(
+				utiltestingapi.MakeAdmissionCheck("ac").ControllerName(kueue.MultiKueueControllerName).Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config").Obj(),
+				utiltestingapi.MakeMultiKueueConfig("config").Clusters("worker").Obj(),
+				utiltestingapi.MakeMultiKueueCluster("worker").Active(metav1.ConditionTrue, "Active", "Connected", 1).Obj(),
+			)
+			for i := range queueCount {
+				builder.WithObjects(utiltestingapi.MakeClusterQueue(fmt.Sprintf("cq-%d", i)).AdmissionChecks("ac").Obj())
+			}
+			if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
+				b.Fatal(err)
+			}
+			c := builder.Build()
+			helper, err := admissioncheck.NewMultiKueueStoreHelper(c)
+			if err != nil {
+				b.Fatal(err)
+			}
+			r := newACReconciler(c, helper, nil)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := r.Reconcile(ctx, reconcile.Request{Name: "deleted-ac"}); err != nil {
+					b.Fatal(err)
 				}
 			}
 		})

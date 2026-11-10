@@ -169,7 +169,7 @@ func (r *cpReconciler) resolveManagerClusterQueue(ctx context.Context, cp *kueue
 		return nil, nil, fmt.Errorf("getting manager ClusterQueue: %w", err)
 	}
 
-	ac, hasAC, err := getMultiKueueAdmissionCheck(ctx, r.client, cq)
+	ac, hasAC, err := r.getMultiKueueAdmissionCheck(ctx, cq)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -196,6 +196,31 @@ func (r *cpReconciler) resolveManagerClusterQueue(ctx context.Context, cp *kueue
 	}
 
 	return cq, mkConfig, nil
+}
+
+// getMultiKueueAdmissionCheck returns the first MultiKueue AdmissionCheck of the ClusterQueue.
+func (r *cpReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
+	if cq.Spec.AdmissionChecksStrategy == nil {
+		return nil, false, nil
+	}
+
+	acList := &kueue.AdmissionCheckList{}
+	if err := r.client.List(ctx, acList, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil {
+		return nil, false, fmt.Errorf("listing local AdmissionChecks: %w", err)
+	}
+
+	cqACNames := sets.New[string]()
+	for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+		cqACNames.Insert(string(rule.Name))
+	}
+
+	for _, ac := range acList.Items {
+		if cqACNames.Has(ac.Name) {
+			return &ac, true, nil
+		}
+	}
+
+	return nil, false, nil
 }
 
 type aggregatedWorkerQuotas struct {

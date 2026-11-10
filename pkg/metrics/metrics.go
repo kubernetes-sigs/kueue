@@ -1149,14 +1149,6 @@ func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster s
 	}
 }
 
-// ClearMultiKueueClusterQueueMetrics drops every series reported for a manager
-// ClusterQueue, across all worker clusters. Called when the ClusterQueue is deleted,
-// stops using MultiKueue, or before re-reporting its current set of workers so that
-// clusters it no longer references do not linger.
-func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
-	MultiKueueClusterByStatus.DeletePartialMatch(prometheus.Labels{"cluster_queue": string(cqName)})
-}
-
 func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster, reason string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
