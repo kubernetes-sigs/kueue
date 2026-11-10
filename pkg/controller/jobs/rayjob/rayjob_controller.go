@@ -19,6 +19,7 @@ package rayjob
 import (
 	"context"
 	"fmt"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -49,6 +50,11 @@ const (
 	headGroupPodSetName    = "head"
 	submitterJobPodSetName = "submitter"
 	FrameworkName          = "ray.io/rayjob"
+
+	// clusterShutdownClockSkewTolerance lets the quota go slightly before KubeRay's
+	// deadline. If the Kueue clock lagged behind KubeRay, the RayCluster deletion
+	// event could arrive before the deadline and nothing would finish the Workload.
+	clusterShutdownClockSkewTolerance = 30 * time.Second
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -231,7 +237,23 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	message = j.Status.Message
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
 	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
+	if finished && j.clusterRetained(time.Now()) {
+		finished = false
+	}
 	return message, success, finished
+}
+
+// clusterRetained reports whether KubeRay still keeps the RayCluster of a finished
+// RayJob for ttlSecondsAfterFinished. KubeRay deletes it at status.endTime plus the
+// TTL without updating the RayJob, and the RayCluster watch enqueues the RayJob then.
+// On the MultiKueue manager the same check runs on the status copied from the worker.
+func (j *RayJob) clusterRetained(now time.Time) bool {
+	if !features.Enabled(features.RayJobRetainQuotaUntilClusterShutdown) ||
+		!j.Spec.ShutdownAfterJobFinishes || j.Spec.TTLSecondsAfterFinished <= 0 || j.Status.EndTime == nil {
+		return false
+	}
+	shutdownTime := j.Status.EndTime.Add(time.Duration(j.Spec.TTLSecondsAfterFinished) * time.Second)
+	return now.Before(shutdownTime.Add(-clusterShutdownClockSkewTolerance))
 }
 
 func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {

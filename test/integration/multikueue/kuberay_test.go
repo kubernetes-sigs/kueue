@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -124,6 +125,68 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
+		})
+	})
+
+	ginkgo.It("Should keep the RayJob workloads admitted until the worker deletes the RayCluster retained by the TTL", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayJobRetainQuotaUntilClusterShutdown, true)
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+		rayjob := testingrayjob.MakeJob("rayjob1", f.managerNs.Name).
+			WithSubmissionMode(rayv1.InteractiveMode).
+			Queue(f.managerLq.Name).
+			TTLSecondsAfterFinished(60).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: f.managerNs.Name}
+		integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+
+		remoteRayCluster := testingraycluster.MakeCluster("rayjob1-raycluster", f.managerNs.Name).Obj()
+		ginkgo.By("creating the RayCluster owned by the worker RayJob", func() {
+			remoteRayJob := &rayv1.RayJob{}
+			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), remoteRayJob)).To(gomega.Succeed())
+			gomega.Expect(controllerutil.SetControllerReference(remoteRayJob, remoteRayCluster, worker2TestCluster.client.Scheme())).To(gomega.Succeed())
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, remoteRayCluster)
+		})
+
+		endTime := time.Now().Add(-25 * time.Second)
+		ginkgo.By("finishing the worker RayJob with the shutdown deadline a few seconds after the clock skew tolerance", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := rayv1.RayJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
+				createdRayJob.Status.RayClusterName = remoteRayCluster.Name
+				createdRayJob.Status.JobStatus = rayv1.JobStatusSucceeded
+				createdRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
+				createdRayJob.Status.EndTime = new(metav1.NewTime(endTime))
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := rayv1.RayJob{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking both workloads stay admitted and the worker RayJob is kept past the deadline", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(managerWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &rayv1.RayJob{})).To(gomega.Succeed())
+			}, time.Until(endTime.Add(31*time.Second)), behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("deleting the worker RayCluster, the manager's wl is marked as finished and the worker2 wl removed", func() {
+			behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, remoteRayCluster, true)
+			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "")
 		})
 	})
 
