@@ -151,3 +151,6 @@ that is not one of those three checks.
   the emoji in the title.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
+- Before `gh issue create`, check that the body has one `/kind` or `/area`
+  line for every label in the template's `labels` field. Do not create the
+  issue until it does.
