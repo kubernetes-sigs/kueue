@@ -41,7 +41,7 @@ import (
 
 const executorPodSetName = "executor"
 
-var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices support", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices support", ginkgo.Label("job:sparkapplication", "area:jobs"), func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -143,15 +143,10 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		return sparkApp, initialSlice
 	}
 
-	ginkgo.BeforeAll(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
