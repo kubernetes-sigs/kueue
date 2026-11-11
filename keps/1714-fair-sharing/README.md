@@ -47,6 +47,7 @@
   - [Configurable Preemptions instead of a new value](#configurable-preemptions-instead-of-a-new-value)
   - [Nearest ClusterQueue first](#nearest-clusterqueue-first)
   - [<code>ReclaimOnly</code> followed by a share strategy](#reclaimonly-followed-by-a-share-strategy)
+  - [Admission Fair Sharing across ClusterQueues](#admission-fair-sharing-across-clusterqueues)
 <!-- /toc -->
 
 ## Summary
@@ -678,7 +679,9 @@ metrics
 #### ReclaimOnly
 
 No separate feature gate.
-The value is an accepted `preemptionStrategies` list on the existing Fair Sharing configuration, so it is available whenever `fairSharing` is set.
+The value is an accepted `preemptionStrategies` list on the existing Fair Sharing configuration.
+Once the implementation ([#17857](https://github.com/kubernetes-sigs/kueue/pull/17857)) merges, it is available whenever `fairSharing` is set.
+Until then, validation rejects `["ReclaimOnly"]`.
 
 It is ready for general use when:
 
@@ -693,7 +696,7 @@ Changing the farthest-first order, or which target is kept when one target is va
 * 2024.03.18 - KEP created (#1773)
 * 2024.04.24 - Make dominant resource share flavor aware (#2037)
 * 2026.03.27 - Fix nominal-first to check per-flavor borrowing at every hierarchy level (#10149)
-* 2026.11.11 - Specify the `ReclaimOnly` preemption strategy (scenario S1 only)
+* 2026.11.11 - Specify the `ReclaimOnly` preemption strategy (scenario S1 only); implementation in #17857
 
 ## Drawbacks
 
@@ -746,4 +749,27 @@ Farthest-first, restarted after every target, reclaims `S` and then `T` in the s
 A list such as `["ReclaimOnly", "LessThanInitialShare"]` would fall through to share rebalancing when reclaim is not enough.
 That brings back the evictions Story 4 exists to avoid.
 Validation rejects every mixed list, so the fall-through cannot be configured by accident.
+
+### Admission Fair Sharing across ClusterQueues
+
+In the share-based lists, ordering candidates by share mainly keeps chains of preemptions short.
+With `ReclaimOnly`, the share ordering of admission becomes the main way unused quota is spread.
+That is close to [Admission Fair Sharing](../4136-admission-fair-sharing/README.md), which orders workloads by historical usage.
+Extending Admission Fair Sharing to order workloads across ClusterQueues was considered instead of a new value.
+
+It is not proposed here because:
+
+* `admissionScope` exists only on ClusterQueue.
+  Workloads from different ClusterQueues are not compared by usage today.
+  The Cohort scope sketched in KEP-4136 needs usage status on Cohorts, a Cohort-wide candidate list, and rules for nested Cohorts.
+  That is a separate KEP update with its own API.
+* The signals differ.
+  Admission Fair Sharing orders by usage decayed over a half life.
+  The share value orders by current usage above nominal quota, with weights and borrowing and lending limits.
+  The administrator in Story 4 wants the share ordering Fair Sharing already gives and only wants scenario S2 off.
+  Moving to a usage history changes the admission order and needs a half life and sampling interval tuned per cluster.
+* Nominal quota still has to be reclaimed with either ordering.
+  `ReclaimOnly` keeps the Fair Sharing rules for that (scenario S1 and the checks under [Handling](#handling)).
+
+If Admission Fair Sharing gains a Cohort scope, `ReclaimOnly` can be revisited, as with Configurable Preemptions.
 
