@@ -3719,17 +3719,17 @@ func TestFairSharingSecondPassWithClusterQueueHead(t *testing.T) {
 	newCase := func(cq *kueue.ClusterQueue, cohorts ...kueue.Cohort) tasScheduleTestCase {
 		return tasScheduleTestCase{
 			enableFairSharing:     true,
-			nodes:                 []corev1.Node{*node},
-			topologies:            []kueue.Topology{*topology},
-			resourceFlavors:       []kueue.ResourceFlavor{*tasFlavor},
+			nodes:                 []corev1.Node{*node.DeepCopy()},
+			topologies:            []kueue.Topology{*topology.DeepCopy()},
+			resourceFlavors:       []kueue.ResourceFlavor{*tasFlavor.DeepCopy()},
 			cohorts:               cohorts,
 			clusterQueues:         []kueue.ClusterQueue{*cq},
-			admissionChecks:       []kueue.AdmissionCheck{*provCheck},
-			workloads:             []kueue.Workload{*secondPass, *head},
+			admissionChecks:       []kueue.AdmissionCheck{*provCheck.DeepCopy()},
+			workloads:             []kueue.Workload{*secondPass.DeepCopy(), *head.DeepCopy()},
 			prequeuedSecondPasses: []workload.Reference{workload.Key(secondPass)},
-			wantWorkloads:         []kueue.Workload{*wantHead, *wantSecondPass},
+			wantWorkloads:         []kueue.Workload{*wantHead.DeepCopy(), *wantSecondPass.DeepCopy()},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				workload.Key(head): *headAdmission,
+				workload.Key(head): *headAdmission.DeepCopy(),
 			},
 			// On main the second-pass workload is dropped from the cycle and
 			// records SecondPassFailed instead of Admitted.
