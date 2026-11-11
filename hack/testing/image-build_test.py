@@ -75,6 +75,7 @@ else:
             return result, [json.loads(line) for line in log.read_text().splitlines()]
 
     def test_all_images_share_one_builder_and_keep_platform_coverage(self):
+        """Keep one builder and apply parallelism settings only to the manager."""
         result, commands = self.build_images()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container"])
@@ -107,6 +108,7 @@ else:
                                          arg.startswith("IMAGE_BUILD_GO_PARALLELISM=") for arg in args))
 
     def test_manager_parallelism_can_be_overridden_or_left_automatic(self):
+        """Route independent budgets and explicit automatic defaults to the manager."""
         for gomaxprocs, parallelism in (("1", "4"), ("", "")):
             with self.subTest(gomaxprocs=gomaxprocs, parallelism=parallelism):
                 result, commands = self.build_images(settings=(
