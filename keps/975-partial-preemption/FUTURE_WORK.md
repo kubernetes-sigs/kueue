@@ -8,6 +8,7 @@
 - [Spreading reductions across victims](#spreading-reductions-across-victims)
 - [Faster candidate selection](#faster-candidate-selection)
 - [Multiple PodSets per Workload](#multiple-podsets-per-workload)
+- [Overlap recomputation](#overlap-recomputation)
 - [Timeout](#timeout)
 - [Proactive downscaling](#proactive-downscaling)
 <!-- /toc -->
@@ -48,10 +49,9 @@ that target before a band is walked.
 
 ### A cost function
 
-Priority is not workload importance, and under Fair Sharing and Admission Fair Sharing the candidate
-order is not by priority at all. A cost function, for example the number of preempted Pods weighted
-by workload importance, could choose between shrinking a higher-priority victim and evicting a
-lower-priority one. Users may also want to decide this themselves.
+Priority is not workload importance. A cost function, for example the number of preempted Pods
+weighted by workload importance, could choose between shrinking a higher-priority victim and evicting
+a lower-priority one. Users may also want to decide this themselves.
 
 ## Fill-back order
 
@@ -62,8 +62,6 @@ could keep more victims running:
 - Restore an evicted victim to its floor, instead of only whole or not at all.
 - Do every whole restore before any partial one, so that a partial restore does not take the room
   another victim needs to come back whole.
-- With Fair Sharing, consider a shrunk victim for whole eviction only after every shrink across
-  ClusterQueues has been tried, as the classical passes do.
 
 ## Spreading reductions across victims
 
@@ -87,12 +85,26 @@ needed reduction directly from the preemptor's request instead of reclaiming one
 
 ## Multiple PodSets per Workload
 
-In Alpha, only one PodSet per Workload may carry a `preemptionMinCount`; a Workload with more than
-one eligible PodSet is evicted whole instead of shrinking the ones that are above their floor. Most
-elastic workloads in scope for Alpha (a Ray worker group, a Spark executor pool) only have one
+In Alpha, at most one PodSet per Workload may have an effective used count above its
+`preemptionMinCount` and therefore be shrinkable. PodSets at or below their floor do not count toward
+this limit; a Workload with multiple shrinkable PodSets is evicted whole instead of shrinking them.
+Most elastic workloads in scope for Alpha (a Ray worker group, a Spark executor pool) only have one
 shrinkable PodSet, so this does not block the primary use cases. Supporting several shrinkable
 PodSets per Workload is a Beta criterion; it needs the ordering, target selection and fill-back logic
 to reason about the combination of all of a Workload's floors rather than a single one.
+
+## Overlap recomputation
+
+In Alpha, `PartialPreemption` cannot be enabled together with
+`RecomputeAssignmentUponPreemptionTargetsOverlap`. The current overlap-recomputation path does not
+consistently account for a partially preempted Workload's reduced assignment: both the simulated
+quota usage and the `preemptedWorkloads` handling during overlap resolution need to agree on how an
+in-flight target affects the assignment. Changing only the usage passed to the simulation is not
+sufficient.
+
+Supporting both features is deferred to Beta. The implementation must define and consistently apply
+the reduced-assignment semantics through overlap recomputation, including how existing partial
+preemption targets participate, before removing the feature-gate incompatibility validation.
 
 ## Timeout
 

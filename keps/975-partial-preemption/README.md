@@ -113,10 +113,11 @@ terminated, Kueue lowers the PodSet's admitted count to the target, which releas
 the preemptor. The job grows back through the existing elastic scale-up path when quota is available
 again.
 
-The preemption decision path (both the classical and the Fair Sharing algorithms) is extended so
-that an eligible elastic victim is simulated at the selected reduced count in the scheduling
-snapshot instead of being removed, and every eligible victim is shrunk before any candidate is
-evicted whole.
+In Alpha, the classical preemption decision path is extended so that an eligible elastic victim is
+simulated at the selected reduced count in the scheduling snapshot instead of being removed. Kueue
+drains the lowest priority band first: it shrinks each victim by at most one replica per round,
+evicts victims in that band whole once they reach their floor, and only then advances to a
+higher-priority band. Fair Sharing support is deferred to Beta.
 
 ### User Stories
 
@@ -210,7 +211,11 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 - The victim must opt in, and at least one of its PodSets must be above its `preemptionMinCount`
   (see [Eligibility](#eligibility)); otherwise it is evicted whole.
 - `preemptionTargetCount` is owned by Kueue and is not a user-set field. A later preemption may
-  lower a target, even while it is in flight, but never raises it.
+  lower a target, even while it is in flight, but never raises it. Lowering the target does not
+  cancel evictions already requested for the previous target: Pods selected for eviction under the
+  old target continue terminating even if they would not be selected for eviction under the new
+  target. Kueue keeps quota charged until no Pod above the new target remains, including terminating
+  Pods.
 - Workloads with gang semantics, such as Spark barrier stages, MPI or non-elastic distributed
   training, should not opt in, or should set their floor to the gang size.
 - After a shrink, the job's spec still shows its original size, and the replacement Pods stay
@@ -238,10 +243,13 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
   lives in `status.admission`, so a user who can edit a Workload but not its status cannot make
   kueue-controller-manager evict Pods. The extra scheduler work is bounded (see [Target
   selection](#target-selection)).
-- **Shrinking crosses priorities and queues.** Any shrink counts as cheaper than any whole eviction,
-  so an opted-in higher-priority Workload can lose Pods while a lower-priority one keeps running,
-  and same-queue victims can shrink before borrowed quota is reclaimed from other queues. Revisiting
-  this with a cost model is a Beta criterion.
+- **Band-wise priority consumption.** The classical multi-round walk drains a priority band before
+  advancing to a higher one: victims in the lower band may be shrunk and then evicted whole while
+  higher-priority victims remain untouched. Within the same hierarchical or same-queue advantage,
+  a same-queue victim can also be processed before borrowed quota is reclaimed from other queues.
+  This ordering is intentional in Alpha; a cost model that trades off victim priority, queue
+  relationships and the amount reclaimed is deferred (see [Cost model and candidate
+  ordering](FUTURE_WORK.md#cost-model-and-candidate-ordering)).
 - **Downgrade.** Older versions ungate up to the admitted count, so a shrunk Workload can over-use
   quota. Before downgrading, turn the gate off and wait until no Workload has
   `preemptionTargetCount`, or evict those Workloads.
@@ -374,11 +382,15 @@ fits. Partial preemption keeps that shape but splits the decision into three sta
 candidate is no longer "evict or not" but "shrink by how much":
 
 1. **Ordering** — produce a total order over the candidates ([Candidate ordering](#candidate-ordering)).
-2. **Consumption** — pin the lowest priority band present, round-robin-shrink its victims to their
-   floor, then evict that band whole, before moving to the next band ([Shrink and evict
-   passes](#shrink-and-evict-passes)).
-3. **Target selection** — the floor in both passes, which fill-back then raises ([Target
+2. **Consumption** — pin the lowest priority band present, reclaim at most one replica per victim
+   per round until the band has no shrinkable candidates, then evict candidates in that band whole
+   before moving to the next band ([Shrink and evict passes](#shrink-and-evict-passes)).
+3. **Target selection** — each partial-preemption step lowers the effective count by at most one,
+   bounded by the floor; fill-back may then raise a selected target ([Target
    selection](#target-selection)).
+
+This Alpha algorithm description covers classical preemption. Fair Sharing support is deferred to
+Beta.
 
 With the `PartialPreemption` gate off, all three collapse to today's single forward pass that evicts
 whole candidates in order, so there is no behavioral change.
@@ -387,10 +399,11 @@ whole candidates in order, so there is no behavioral change.
 
 A candidate is eligible for partial preemption when the `PartialPreemption` gate is enabled, the
 Workload carries the opt-in annotation with value `"true"` and is elastic, and at least one PodSet
-has an effective used count above its `preemptionMinCount`. In Alpha, exactly one PodSet per
-Workload may carry a floor; a Workload with multiple PodSets that each have a `preemptionMinCount`
-is evicted whole (supporting multiple PodSets is a Beta criterion). That PodSet must not have a
-topology assignment. Otherwise the candidate falls back to whole eviction. The used count comes from
+has an effective used count above its `preemptionMinCount`. In Alpha, at most one PodSet per
+Workload may be above its floor and therefore be shrinkable; PodSets at or below their floor do not
+count toward this limit. A Workload with multiple shrinkable PodSets is evicted whole (supporting
+multiple shrinkable PodSets is a Beta criterion). The shrinkable PodSet must not have a topology
+assignment. Otherwise the candidate falls back to whole eviction. The used count comes from
 the Workload's usage; an existing lower `preemptionTargetCount` is used as the effective count for
 simulation. With `waitForPodsReady` enabled, a Workload that has not yet reached PodsReady is
 evicted whole rather than shrunk. In Alpha, a Workload with the `kueue.x-k8s.io/multikueue-origin`
@@ -440,20 +453,16 @@ instead, so partial preemption never leaves a preemptor `Pending` that whole evi
 Re-evaluating this cost model is a Beta criterion (see [Cost model and candidate
 ordering](FUTURE_WORK.md#cost-model-and-candidate-ordering)).
 
-Fair Sharing shrinks a candidate to its floor the first time it comes up, and judges it by its
-ClusterQueue's share after the shrink rather than after a full removal. The candidate then goes back
-into its ClusterQueue and is evicted whole if it comes up again. In Alpha, a shrunk victim can
-therefore be evicted whole once the rest of its ClusterQueue's candidates are used, before shrinks
-in other ClusterQueues are tried.
-
 #### Target selection
 
-Each round the scheduler reclaims at most one replica from a candidate: the target for this round
-is `used - 1`, bounded below by `preemptionMinCount`. The scheduler visits the candidate again in
-later rounds, deepening the target by one each time, until the preemptor fits or the floor is
-reached. If a candidate already carries a still-draining in-flight `preemptionTargetCount` from a
-previous cycle and its current count is still above that target, the target is reused directly —
-the same reduction is pursued until its Pods are gone. No step ever raises a target.
+In the classical multi-round walk, each step reclaims at most one replica from a candidate: its
+target is `used - 1`, bounded below by `preemptionMinCount`. The scheduler visits the candidate
+again in later rounds, deepening the target by one each time, until the preemptor fits or the
+candidate reaches its floor. If a candidate already carries a still-draining in-flight
+`preemptionTargetCount` from a previous cycle, a later step may lower it further, but never raise it. Lowering a target does not cancel
+evictions already requested for the old target: Pods selected for eviction under that target
+continue terminating, even if they would not be selected for eviction under the new target. Quota
+remains charged until no Pod above the new target remains, including terminating Pods.
 
 #### Issuing preemptions
 
@@ -569,6 +578,7 @@ elastic Workloads, behind the `PartialPreemption` gate). Kueue's webhooks reject
 - `preemptionMinCount` above the PodSet's count, or any change to it;
 - `preemptionTargetCount` below the PodSet's `preemptionMinCount` or at or above the assignment's
   `count`, on a PodSet without `preemptionMinCount`, or raised;
+- enabling `PartialPreemption` together with `RecomputeAssignmentUponPreemptionTargetsOverlap`;
 - raising an assignment's `count`, changing its `flavors`, or any change to `resourceUsage` not in
   proportion to a `count` decrease on a partial-preemption release;
 - `kueue.x-k8s.io/partial-preemption` other than `"true"` or `"false"`, and changes to it while the
@@ -601,7 +611,8 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
 | `WaitForPodsReady` | A shrink keeps the Alpha integrations' Workloads ready; see [Integrations](#integrations). |
 | `PrioritizePreemptorWorkloads` | Recommended, so the waiting preemptor is considered before the victim's scale-up slice. |
 | `ConfigurablePreemptions` | In Alpha, victims selected by a `PreemptionConfig` rule are evicted whole. Shrinking them is a Beta criterion. |
-| Fair Sharing | A candidate is shrunk to its floor the first time it comes up and is judged by its ClusterQueue's share after the shrink; it is evicted whole if it comes up again (see [Shrink and evict passes](#shrink-and-evict-passes)). Waiting until every shrink across ClusterQueues has been tried is re-evaluated for Beta. |
+| `RecomputeAssignmentUponPreemptionTargetsOverlap` | Incompatible with `PartialPreemption` in Alpha; supporting the combination is deferred to Beta (see [Overlap recomputation](FUTURE_WORK.md#overlap-recomputation)). |
+| Fair Sharing | Partial preemption support is deferred to Beta. |
 | `AdmissionFairSharing` | No change: partial preemption keeps the existing candidate order, including the LocalQueue-usage key. |
 | `PriorityBoost` | No change: candidate ordering uses the effective priority. |
 | Preemption limits (KEP-16925, proposed) | A shrink counts as one preemption of the victim. |
@@ -673,8 +684,7 @@ make this code solid enough prior to committing the changes necessary to impleme
   band, and the fallback to today's whole-eviction pass.
 - Fill-back: whole restores, and the binary search for shrunk victims, including the last victim;
   an in-flight target is never raised.
-- Fair Sharing: a shrunk candidate is judged by its share after the shrink, and is evicted whole if
-  it comes up again.
+- Fair Sharing partial-preemption behavior is deferred to Beta.
 - Eligibility, including the PodsReady rule with and without `waitForPodsReady`.
 - Which Pods are evicted: deletion cost, unscheduled, newest; gated and terminating Pods are
   skipped.
