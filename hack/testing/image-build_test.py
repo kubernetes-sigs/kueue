@@ -96,7 +96,7 @@ else:
             # Execute the real parent and component Makefiles, replacing only Docker.
             result = subprocess.run(
                 ["make", "--no-print-directory", "-j4", target,
-                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
+                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env", "IMAGE_PRESUBMIT_BENCHMARK=0",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
                  "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
                  "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *settings],
