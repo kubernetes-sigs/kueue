@@ -11,9 +11,8 @@ ARG CGO_ENABLED
 ARG TARGETARCH
 WORKDIR /workspace/cmd/experimental/kueue-populator
 
-RUN --network=none --mount=type=tmpfs,target=/tmp/kueue-empty-modcache \
-    --mount=type=cache,target=/root/.cache/go-build \
-    GOMODCACHE=/tmp/kueue-empty-modcache bash /workspace/hack/testing/image-build-observe.sh populator \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    bash /workspace/hack/testing/image-build-observe.sh populator \
     make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
 FROM ${BASE_IMAGE}

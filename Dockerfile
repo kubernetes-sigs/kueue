@@ -9,9 +9,7 @@ COPY . .
 ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
 ARG IMAGE_BUILD_GOMAXPROCS
 ARG IMAGE_BUILD_GO_PARALLELISM
-RUN --network=none --mount=type=tmpfs,target=/tmp/kueue-empty-modcache \
-    --mount=type=cache,target=/root/.cache/go-build \
-    export GOMODCACHE=/tmp/kueue-empty-modcache; \
+RUN --mount=type=cache,target=/root/.cache/go-build \
     if [ -n "${IMAGE_BUILD_GOMAXPROCS}" ]; then export GOMAXPROCS="${IMAGE_BUILD_GOMAXPROCS}"; fi; \
     if [ -n "${IMAGE_BUILD_GO_PARALLELISM}" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-p=${IMAGE_BUILD_GO_PARALLELISM}"; fi; \
     bash hack/testing/image-build-observe.sh manager \
