@@ -36,7 +36,7 @@ IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 # Bound the manager's concurrent cross-compilations only in the image presubmit.
 # Empty overrides retain Go's automatic parallelism for comparison runs.
 IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
-IMAGE_PRESUBMIT_GO_PARALLELISM ?= 4
+IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
 IMAGE_BUILD_GOMAXPROCS ?=
 IMAGE_BUILD_GO_PARALLELISM ?=
 
