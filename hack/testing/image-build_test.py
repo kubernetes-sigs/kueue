@@ -55,7 +55,7 @@ class ImageBuildTest(unittest.TestCase):
             self.assertIn("phase=end", result.stdout)
             self.assertIn("cgroup_metrics=unavailable", result.stdout)
 
-    def build_images(self, fail="", settings=()):
+    def build_images(self, fail="", settings=(), target="image-presubmit"):
         """Run real Make recipes with a recording stub and optional failure injection."""
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -63,8 +63,11 @@ class ImageBuildTest(unittest.TestCase):
             docker.write_text('''#!/usr/bin/env python3
 import fcntl, json, os, pathlib, sys, time
 args = sys.argv[1:]
+config = None
+if "--buildkitd-config" in args:
+    config = pathlib.Path(args[args.index("--buildkitd-config") + 1]).read_text()
 with pathlib.Path(os.environ["IMAGE_TEST_LOG"]).open("a") as log:
-    log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER")}) + "\\n")
+    log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER"), "config": config}) + "\\n")
 if args[:2] == ["buildx", "create"]:
     if os.environ["IMAGE_TEST_FAIL"] == "create":
         sys.exit(1)
@@ -90,10 +93,12 @@ else:
             log = directory / "commands.jsonl"
             env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
+            if target == "image-build":
+                env["BUILDX_BUILDER"] = "test-builder"
             # The image pipeline must remain sequential even under parallel verify.
             # Execute the real parent and component Makefiles, replacing only Docker.
             result = subprocess.run(
-                ["make", "--no-print-directory", "-j4", "image-presubmit",
+                ["make", "--no-print-directory", "-j4", target,
                  f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
                  "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
@@ -105,7 +110,10 @@ else:
     def test_all_images_share_one_builder_and_keep_platform_coverage(self):
         result, commands = self.build_images()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container"])
+        self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container",
+                                              "--buildkitd-config", str(ROOT / "hack/testing/image-buildkitd.toml")])
+        self.assertIn("[worker.oci]", commands[0]["config"])
+        self.assertIn("max-parallelism = 2", commands[0]["config"])
         self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
         builds = commands[1:-1]
         self.assertEqual(len(builds), 6)
@@ -143,6 +151,14 @@ else:
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={value}", commands[1]["args"])
                 self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={value}", commands[1]["args"])
+
+    def test_standalone_image_build_keeps_automatic_parallelism(self):
+        result, commands = self.build_images(target="image-build")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0]["args"][:2], ["buildx", "build"])
+        self.assertIn("IMAGE_BUILD_GOMAXPROCS=", commands[0]["args"])
+        self.assertIn("IMAGE_BUILD_GO_PARALLELISM=", commands[0]["args"])
 
     def test_failed_build_stops_remaining_images_and_removes_builder(self):
         result, commands = self.build_images("build")
