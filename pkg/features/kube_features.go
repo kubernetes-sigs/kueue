@@ -1056,6 +1056,16 @@ const (
 	// (scaling it down towards its minCount) instead of evicting the whole workload, when the
 	// workload tolerates downscaling.
 	PartialPreemption featuregate.Feature = "PartialPreemption"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19007
+	//
+	// Falls back to preempting workloads of the preemptor's own ClusterQueue, as
+	// withinClusterQueue allows, when fair sharing picks the targets that make
+	// room but the final verification of FairSharingVerifyFinalTargets rejects
+	// them. The fallback keeps its targets only if the share of the preemptor's
+	// ClusterQueue and of each of its ancestor Cohorts does not increase.
+	FairSharingWithinClusterQueueFallback featuregate.Feature = "FairSharingWithinClusterQueueFallback"
 )
 
 func init() {
@@ -1634,6 +1644,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	FairSharingWithinClusterQueueFallback: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
