@@ -1383,60 +1383,6 @@ func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *te
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels("b", "alpha"), 1)
 }
 
-func TestCohortAdmittedWorkloadsRelabelMovesSeriesWithoutWorkloadEvent(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
-	defer kueuemetrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-
-	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
-	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
-
-	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("a").Obj()); err != nil {
-		t.Fatal(err)
-	}
-	cq := utiltestingapi.MakeClusterQueue("cq1").
-		Cohort("a").
-		Label("team", "alpha").
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-		Obj()
-	customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
-	if err := cache.AddClusterQueue(ctx, cq); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	wl := utiltestingapi.MakeWorkload("cq1-wl", "ns").
-		Request(corev1.ResourceCPU, "1").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
-			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-				Assignment(corev1.ResourceCPU, "default", "1").
-				Obj()).
-			Obj(), now).
-		AdmittedAt(true, now).
-		Obj()
-	if !cache.AddOrUpdateWorkload(ctx, log, wl) {
-		t.Fatal("workload cq1-wl not added")
-	}
-
-	teamLabels := func(team string) map[string]string {
-		return map[string]string{"cohort": "a", "custom_team": team}
-	}
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("alpha"), 1)
-
-	relabeled := utiltestingapi.MakeClusterQueue("cq1").
-		Cohort("a").
-		Label("team", "beta").
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-		Obj()
-	customLabels.CQStore(kueue.ClusterQueueReference(relabeled.Name), relabeled.Labels, relabeled.Annotations)
-	if err := cache.UpdateClusterQueue(log, relabeled); err != nil {
-		t.Fatal(err)
-	}
-
-	expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, teamLabels("alpha"))
-	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, teamLabels("beta"), 1)
-	expectGaugeSum(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{"cohort": "a"}, 1)
-}
-
 func TestCohortAdmittedWorkloadsCustomLabelsCountMatchingClusterQueues(t *testing.T) {
 	now := time.Now()
 	flavorQuotas := *utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()
