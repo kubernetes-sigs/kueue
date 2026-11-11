@@ -37,8 +37,8 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 # Bound the manager's concurrent cross-compilations only in the image presubmit.
 # Empty overrides retain Go's automatic parallelism for comparison runs.
-IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
-IMAGE_PRESUBMIT_GO_PARALLELISM ?= 4
+IMAGE_PRESUBMIT_GOMAXPROCS ?= 1
+IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
 IMAGE_BUILD_GOMAXPROCS ?=
 IMAGE_BUILD_GO_PARALLELISM ?=
 
@@ -253,8 +253,7 @@ image-local-build:
 # Keep compiler caches available until every presubmit image has been built.
 .PHONY: image-presubmit
 image-presubmit:
-	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container \
-		--buildkitd-config "$(PROJECT_DIR)/hack/testing/image-buildkitd.toml") || exit $$?; \
+	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
 	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
 	BUILDX_BUILDER="$$builder" $(MAKE) -j1 \
 		IMAGE_BUILD_GOMAXPROCS="$(IMAGE_PRESUBMIT_GOMAXPROCS)" \
