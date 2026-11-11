@@ -1289,11 +1289,8 @@ func (co *classicalIterator) pop() *entry {
 	return head
 }
 
-// compareEntries defines the classical (non-FairSharing) admission
-// order between two entries. It is also used to order the entries of a
-// single ClusterQueue in the fairSharingIterator, when a ClusterQueue
-// has more than one entry in a cycle (e.g. second-pass workloads in
-// addition to the queue head).
+// compareEntries defines the classical admission order. Fair sharing also
+// uses it to order the entries within each ClusterQueue.
 func compareEntries(log logr.Logger, workloadOrdering workload.Ordering, a, b *entry) int {
 	// First process workloads which already have quota reserved. Such workload
 	// may be considered if this is their second pass.

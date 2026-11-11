@@ -37,12 +37,9 @@ import (
 // consideration by scheduling when FairSharing is enabled. See
 // runTournament for description of algorithm.
 type fairSharingIterator struct {
-	// cqToEntries tracks ClusterQueues which still have workloads to
-	// schedule, and the corresponding workload entries. A ClusterQueue
-	// may have several entries in a cycle (e.g. second-pass workloads
-	// in addition to the queue head); the slices are never empty and
-	// are ordered by compareEntries, so the first element is the
-	// ClusterQueue's current nominee.
+	// cqToEntries holds each ClusterQueue's remaining entries in the cycle
+	// (e.g. its second-pass workloads and its head), in compareEntries order.
+	// Slices are non-empty; the first entry is the nominee.
 	cqToEntries   map[*schdcache.ClusterQueueSnapshot][]*entry
 	entryComparer entryComparer
 	log           logr.Logger
