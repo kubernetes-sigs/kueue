@@ -990,12 +990,15 @@ const (
 	MultiKueueJobSuspendedWorkaroundDisabled featuregate.Feature = "MultiKueueJobSuspendedWorkaroundDisabled"
 
 	// owner: @henry3260
-	// pr: https://github.com/kubernetes-sigs/kueue/pull/18250
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18250#discussion_r4512379423
 	//
 	// Rejects spec.groupIdentity Hash on a LeaderWorkerSet that is created under
-	// Kueue management, or that an update brings under Kueue management. Kueue does
-	// not support Hash: the leader Pods run without admission, while the worker Pods
-	// stay gated. Disable this gate to restore the previous behavior.
+	// Kueue management, or that an update brings under Kueue management. It also
+	// warns on updates of an already managed Hash LeaderWorkerSet, and skips the
+	// default LocalQueue on updates of a Hash LeaderWorkerSet without a queue name.
+	// Kueue does not support Hash: the leader Pods run without admission, while the
+	// worker Pods stay gated. Disable this gate to accept that the leader Pods run
+	// without admission.
 	LeaderWorkerSetRejectGroupIdentityHash featuregate.Feature = "LeaderWorkerSetRejectGroupIdentityHash"
 )
 
