@@ -369,6 +369,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 					for workerName, cond := range workerFailures {
 						g.Expect(acs.Message).To(gomega.ContainSubstring(workerName))
 						g.Expect(acs.Message).To(gomega.ContainSubstring(cond.Reason))
+						g.Expect(cond.Message).NotTo(gomega.BeEmpty())
 						g.Expect(acs.Message).To(gomega.ContainSubstring(cond.Message))
 					}
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -441,6 +442,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 					acs := admissioncheck.FindAdmissionCheck(managerWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 					g.Expect(acs).NotTo(gomega.BeNil())
 					g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+					g.Expect(worker1Failure.Message).NotTo(gomega.BeEmpty())
 					g.Expect(acs.Message).To(gomega.ContainSubstring(workerCluster1.Name + " (" + worker1Failure.Reason + "): " + worker1Failure.Message))
 					g.Expect(acs.Message).To(gomega.HaveSuffix("; unreachable: " + workerCluster2.Name))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
