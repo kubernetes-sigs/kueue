@@ -1179,12 +1179,16 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 			m.queueSecondPass(ctx, nsName, iteration)
 		})
 		return true
-	} else if iteration > 0 {
-		// Remove the workload from the second-pass queue only after at least one
-		// retry iteration, to avoid canceling the initial backoff window.
-		// See https://github.com/kubernetes-sigs/kueue/issues/8357.
+	}
+	if iteration > 0 {
+		// Cancel a pending pass only after a retry iteration, so the initial backoff window stays; see https://github.com/kubernetes-sigs/kueue/issues/8357.
 		log.V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
 		m.secondPassQueue.deleteByKey(wlKey)
+		return false
+	}
+	// Drop a ready copy that the next leader would replay; a pending backoff re-reads the Workload.
+	if m.secondPassQueue.deleteReady(wlKey) {
+		log.V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
 	}
 	return false
 }
