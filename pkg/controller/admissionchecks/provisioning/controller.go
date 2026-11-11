@@ -1254,13 +1254,24 @@ func canMergePodSets(template1, template2 *corev1.PodTemplateSpec, mergePolicy *
 }
 
 func arePodTemplatesSimilar(template1, template2 *corev1.PodTemplateSpec) bool {
-	return areContainersEqual(template1.Spec.Containers, template2.Spec.Containers) &&
-		areContainersEqual(template1.Spec.InitContainers, template2.Spec.InitContainers) &&
+	return haveSameRequests(&template1.Spec, &template2.Spec) &&
 		equality.Semantic.DeepEqual(template1.Spec.Resources, template2.Spec.Resources) &&
 		equality.Semantic.DeepEqual(template1.Spec.NodeSelector, template2.Spec.NodeSelector) &&
 		equality.Semantic.DeepEqual(template1.Spec.Tolerations, template2.Spec.Tolerations) &&
 		equality.Semantic.DeepEqual(template1.Spec.Affinity, template2.Spec.Affinity) &&
 		equality.Semantic.DeepEqual(template1.Spec.ResourceClaims, template2.Spec.ResourceClaims)
+}
+
+// haveSameRequests reports whether the containers of both specs request the same, as
+// written and with missing requests taken from the limits, as the Pods will get them.
+func haveSameRequests(spec1, spec2 *corev1.PodSpec) bool {
+	if !areContainersEqual(spec1.Containers, spec2.Containers) || !areContainersEqual(spec1.InitContainers, spec2.InitContainers) {
+		return false
+	}
+	spec1, spec2 = spec1.DeepCopy(), spec2.DeepCopy()
+	workload.UseLimitsAsMissingRequestsInPod(spec1)
+	workload.UseLimitsAsMissingRequestsInPod(spec2)
+	return areContainersEqual(spec1.Containers, spec2.Containers) && areContainersEqual(spec1.InitContainers, spec2.InitContainers)
 }
 
 // areContainersEqual compares the resource requests of containers between two lists of PodSet containers.

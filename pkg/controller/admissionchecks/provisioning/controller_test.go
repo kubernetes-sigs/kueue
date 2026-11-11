@@ -633,6 +633,66 @@ func TestMergePodSetsComparesEffectiveTemplates(t *testing.T) {
 			},
 			want: []mergedPodSet{{Name: "ps0", Count: 4}},
 		},
+		"GPU only in the limits of one PodSet": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Limit("example.com/gpu", "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 1}, {Name: "ps1", Count: 2}},
+		},
+		"GPU only in the limits of an init container of one PodSet": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").WithResourceLimit("example.com/gpu", "1").Obj()).
+					Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 1}, {Name: "ps1", Count: 2}},
+		},
+		"GPU in the requests of one PodSet and only in the limits of another": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Request("example.com/gpu", "1").Limit("example.com/gpu", "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Limit("example.com/gpu", "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 2}, {Name: "ps1", Count: 2}},
+		},
+		"GPU only in the limits of both PodSets": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 2).Request(corev1.ResourceCPU, "1").Limit("example.com/gpu", "1").Obj(),
+				*utiltestingapi.MakePodSet("ps1", 2).Request(corev1.ResourceCPU, "1").Limit("example.com/gpu", "1").Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "1").Assignment("example.com/gpu", "flv1", "1").Count(2).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 4}},
+		},
 		"same tolerations in a different order": {
 			flavors: []kueue.ResourceFlavor{
 				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
