@@ -39,8 +39,6 @@ IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
 IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
 IMAGE_BUILD_GOMAXPROCS ?=
 IMAGE_BUILD_GO_PARALLELISM ?=
-# Temporary upstream comparison; remove after measuring cache reuse.
-IMAGE_PRESUBMIT_BENCHMARK ?= 1
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
 IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
@@ -254,25 +252,8 @@ image-local-build:
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 # Keep compiler caches available until every presubmit image has been built.
-.PHONY: image-presubmit image-presubmit-once
+.PHONY: image-presubmit
 image-presubmit:
-ifeq ($(IMAGE_PRESUBMIT_BENCHMARK),1)
-	@run=0; for mode in baseline trimpath trimpath baseline; do \
-		run=$$((run + 1)); trimpath=0; \
-		if [ "$$mode" = trimpath ]; then trimpath=1; fi; \
-		started=$$(date +%s); \
-		printf 'image-build-benchmark phase=begin run=%s mode=%s\n' "$$run" "$$mode"; \
-		$(MAKE) -j1 image-presubmit-once \
-			IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) --build-arg IMAGE_BUILD_TRIMPATH=$$trimpath" || exit $$?; \
-		finished=$$(date +%s); \
-		printf 'image-build-benchmark phase=end run=%s mode=%s duration_seconds=%s\n' \
-			"$$run" "$$mode" "$$((finished - started))"; \
-	done
-else
-	@$(MAKE) -j1 image-presubmit-once
-endif
-
-image-presubmit-once:
 	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
 	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
 	BUILDX_BUILDER="$$builder" $(MAKE) -j1 \

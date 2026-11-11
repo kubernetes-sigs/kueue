@@ -11,9 +11,8 @@ ARG CGO_ENABLED
 ARG TARGETARCH
 WORKDIR /workspace/cmd/experimental/kueue-populator
 
-ARG IMAGE_BUILD_TRIMPATH=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    if [ "${IMAGE_BUILD_TRIMPATH}" = "1" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; fi; \
+    export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; \
     make build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
 FROM ${BASE_IMAGE}
