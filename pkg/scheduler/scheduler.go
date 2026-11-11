@@ -593,6 +593,19 @@ func (s *Scheduler) processEntry(
 		}
 		return
 	}
+
+	var lessFavorableSibling *workload.Info
+	if mode != flavorassigner.Preempt && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
+		lessFavorableSibling = s.findAdmittedLessFavorableSibling(&e.Info, snapshot)
+		// Nothing in this cycle can lift the migration constraint, so decide
+		// before reserving usage and preemption targets: a denied variant
+		// admits nothing and must not block other entries in this cycle.
+		if lessFavorableSibling != nil && !s.isMigrationAllowed(cq, e, log) {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+			return
+		}
+	}
+
 	preemptedWorkloads.Insert(e.preemptionTargets)
 	bookUsage(log, snapshot, cq, e)
 
@@ -616,16 +629,10 @@ func (s *Scheduler) processEntry(
 		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
-	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
-		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
-			if !s.isMigrationAllowed(cq, e, log) {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-				return
-			}
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
-			s.issueMigration(ctx, log, e, lessFavorableSibling)
-			return
-		}
+	if lessFavorableSibling != nil {
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+		s.issueMigration(ctx, log, e, lessFavorableSibling)
+		return
 	}
 
 	e.markNominated()
