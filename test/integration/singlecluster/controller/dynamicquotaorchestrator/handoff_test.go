@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label
 					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, cpu).Obj(),
 				).Obj()).
 				Condition(metav1.Condition{
-					Type: kueuealpha.CapacityProviderCapacitySynchronized,
+					Type:   kueuealpha.CapacityProviderCapacitySynchronized,
 					Status: metav1.ConditionTrue,
 					Reason: kueuealpha.CapacityProviderReasonSynchronized,
 				}).Obj()
