@@ -9,13 +9,13 @@ RUN retry.sh --stream -- go mod download
 
 # Copy the application source code
 COPY cmd/kueueviz/backend/ .
-COPY hack/testing/image-build-observe.sh /usr/local/bin/image-build-observe.sh
 
 # Build the application
 ARG TARGETARCH
+ARG IMAGE_BUILD_TRIMPATH=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    bash /usr/local/bin/image-build-observe.sh kueueviz-backend go build -o /kueueviz
+    if [ "${IMAGE_BUILD_TRIMPATH}" = "1" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; fi; \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -v -o /kueueviz
 
 # Runtime stage
 FROM ${BASE_IMAGE}
