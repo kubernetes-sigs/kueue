@@ -12,8 +12,9 @@ WORKDIR /workspace
 COPY . .
 
 # Build
+ARG IMAGE_BUILD_TRIMPATH=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    bash hack/testing/image-build-observe.sh importer \
+    if [ "${IMAGE_BUILD_TRIMPATH}" = "1" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; fi; \
     make importer-build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
 FROM ${BASE_IMAGE}
