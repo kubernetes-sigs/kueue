@@ -264,11 +264,9 @@ func validateContainer(c, old *corev1.Container, path *field.Path) field.ErrorLi
 // containerByName returns the previous container with the same name, if any.
 // Identity is the name, not the slice position: reordering would otherwise
 // refuse an unchanged leftover, and a replacement at the same index would
-// inherit the exemption (kueue#14373).
+// inherit the exemption (kueue#14373). An empty name matches an empty name:
+// the CRD allows it, and names are unique within the list.
 func containerByName(containers []corev1.Container, name string) *corev1.Container {
-	if name == "" {
-		return nil
-	}
 	for i := range containers {
 		if containers[i].Name == name {
 			return &containers[i]

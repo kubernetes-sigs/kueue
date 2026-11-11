@@ -1717,6 +1717,21 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"an unnamed container with a legacy negative request can drop its finalizer": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(*utiltesting.MakeContainer().Name("").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(*utiltesting.MakeContainer().Name("").WithResourceReq(legacyNegativeGPU, "-3").Obj()).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
 		"a workload with a legacy negative init-container request can drop its finalizer": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
