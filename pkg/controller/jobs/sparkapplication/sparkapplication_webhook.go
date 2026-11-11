@@ -149,6 +149,13 @@ func isAnElasticJob(sparkApp metav1.Object) bool {
 	return workloadslicing.Enabled(sparkApp)
 }
 
+// sparkConfDynamicAllocationEnabledFor reports whether SparkConf enables dynamic allocation.
+func sparkConfDynamicAllocationEnabledFor(job *sparkv1beta2.SparkApplication) bool {
+	return strings.EqualFold(strings.TrimSpace(job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]), "true")
+}
+
+// validateJob checks SparkApplication configuration on create and update, preserving
+// existing SparkConf dynamic allocation only for applications already managed by Kueue.
 func (w *SparkApplicationWebhook) validateJob(ctx context.Context, job, oldJob *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*SparkApplication)(job)
@@ -164,10 +171,9 @@ func (w *SparkApplicationWebhook) validateJob(ctx context.Context, job, oldJob *
 			allErrors = append(allErrors, validateElasticJob(job)...)
 		}
 
-		// Ratchet this check so existing applications remain updatable, including
-		// when Kueue changes their suspension state.
+		oldJobManaged := oldJob != nil && (w.manageJobsWithoutQueueName || jobframework.QueueName((*SparkApplication)(oldJob)) != "")
 		if !isAnElasticJob(job) && sparkConfDynamicAllocationEnabledFor(job) &&
-			(oldJob == nil || !sparkConfDynamicAllocationEnabledFor(oldJob)) {
+			(!oldJobManaged || !sparkConfDynamicAllocationEnabledFor(oldJob)) {
 			allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath,
 				spec.SparkConf[sparkConfDynamicAllocationEnabled],
 				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf"))
@@ -195,10 +201,6 @@ func (w *SparkApplicationWebhook) validateJob(ctx context.Context, job, oldJob *
 	}
 
 	return allErrors, nil
-}
-
-func sparkConfDynamicAllocationEnabledFor(job *sparkv1beta2.SparkApplication) bool {
-	return strings.EqualFold(strings.TrimSpace(job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]), "true")
 }
 
 func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
