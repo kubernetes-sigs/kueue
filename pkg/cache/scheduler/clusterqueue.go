@@ -140,6 +140,9 @@ func (c *clusterQueue) GetCustomLabelValues() []string {
 	return c.customLabels.CQGet(c.Name)
 }
 
+// appliedCustomLabelValues returns the custom-label snapshot last applied to
+// ancestor admittedLabelCounts. CQStore can update GetCustomLabelValues before
+// the cache write lock sees the change, so workload accounting uses this snapshot.
 func (c *clusterQueue) appliedCustomLabelValues() []string {
 	if c.reportedLabelVals != nil {
 		return c.reportedLabelVals

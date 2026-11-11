@@ -124,6 +124,8 @@ func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
 	}
 }
 
+// updateAdmittedWorkloadsCount adjusts subtree admitted totals, and per-label
+// totals when CustomMetricLabels is enabled, along the path to the root.
 func (c *cohort) updateAdmittedWorkloadsCount(delta int, labelVals []string) {
 	if c == nil || hierarchy.HasCycle(c) {
 		return
@@ -138,6 +140,8 @@ func (c *cohort) updateAdmittedWorkloadsCount(delta int, labelVals []string) {
 	}
 }
 
+// moveAdmittedLabelCounts transfers delta admitted workloads from oldVals to
+// newVals along the path to the root.
 func (c *cohort) moveAdmittedLabelCounts(oldVals, newVals []string, delta int) {
 	if c == nil || hierarchy.HasCycle(c) || delta == 0 || slices.Equal(oldVals, newVals) {
 		return
@@ -154,6 +158,7 @@ func (c *cohort) moveAdmittedLabelCounts(oldVals, newVals []string, delta int) {
 	}
 }
 
+// ensureAdmittedLabelCounts returns the per-label tracker, allocating it if needed.
 func (c *cohort) ensureAdmittedLabelCounts() *metrics.LabelValsTracker {
 	if c.admittedLabelCounts == nil {
 		c.admittedLabelCounts = metrics.NewLabelValsTracker()
@@ -161,6 +166,9 @@ func (c *cohort) ensureAdmittedLabelCounts() *metrics.LabelValsTracker {
 	return c.admittedLabelCounts
 }
 
+// admittedCountForLabels returns the subtree admitted count for labelVals.
+// When custom labels are disabled or labelVals is empty, it returns the full
+// subtree count.
 func (c *cohort) admittedCountForLabels(labelVals []string) int {
 	if len(labelVals) == 0 || !features.Enabled(features.CustomMetricLabels) {
 		return c.admittedWorkloadsCount
@@ -171,6 +179,8 @@ func (c *cohort) admittedCountForLabels(labelVals []string) int {
 	return c.admittedLabelCounts.Count(metrics.ValsSetFrom(labelVals))
 }
 
+// subtreeHasClusterQueueWithLabels reports whether any ClusterQueue in this
+// Cohort's subtree currently uses labelVals.
 func (c *cohort) subtreeHasClusterQueueWithLabels(labelVals []string) bool {
 	for _, cq := range c.ChildCQs() {
 		if slices.Equal(cq.GetCustomLabelValues(), labelVals) {

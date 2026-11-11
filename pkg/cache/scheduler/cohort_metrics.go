@@ -279,12 +279,14 @@ func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort)
 // reportClusterQueueAdmittedActiveWorkloads updates cohort gauges after a
 // ClusterQueue parent or custom-label change. A same-parent relabel moves
 // incremental per-label counts; a parent change or implicit-parent recreation
-// rebuilds the affected trees from children.
-func (c *Cache) reportClusterQueueAdmittedActiveWorkloads(cq *clusterQueue, oldParent, newParent *cohort) {
+// rebuilds the affected trees from children. The current parent is taken from
+// cq after the cache edge update; oldParent is the parent captured before it.
+func (c *Cache) reportClusterQueueAdmittedActiveWorkloads(cq *clusterQueue, oldParent *cohort) {
 	var liveOld *cohort
 	if oldParent != nil {
 		liveOld = c.hm.Cohort(oldParent.Name)
 	}
+	newParent := cq.Parent()
 	newVals := slices.Clone(cq.GetCustomLabelValues())
 	if liveOld == newParent {
 		if oldParent == liveOld {
@@ -300,6 +302,10 @@ func (c *Cache) reportClusterQueueAdmittedActiveWorkloads(cq *clusterQueue, oldP
 	c.reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
 }
 
+// reportRelabeledAdmittedActiveWorkloads moves incremental per-label counts
+// when a ClusterQueue's custom labels change under the same parent. An old
+// series is deleted only when no ClusterQueue in the subtree still uses those
+// labels.
 func (c *Cache) reportRelabeledAdmittedActiveWorkloads(cq *clusterQueue, parent *cohort, oldVals, newVals []string) {
 	if parent == nil || hierarchy.HasCycle(parent) {
 		cq.reportedLabelVals = slices.Clone(newVals)
@@ -320,6 +326,8 @@ func (c *Cache) reportRelabeledAdmittedActiveWorkloads(cq *clusterQueue, parent 
 	cq.reportedLabelVals = slices.Clone(newVals)
 }
 
+// reportTreeAdmittedActiveWorkloadsIfNoCycle rebuilds subtree admitted gauges
+// from the root when the cohort is present and has no cycle.
 func (c *Cache) reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
 	if cohort != nil && !hierarchy.HasCycle(cohort) {
 		c.reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())

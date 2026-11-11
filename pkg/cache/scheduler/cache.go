@@ -571,7 +571,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
-	c.reportClusterQueueAdmittedActiveWorkloads(cqImpl, oldParent, cqImpl.Parent())
+	c.reportClusterQueueAdmittedActiveWorkloads(cqImpl, oldParent)
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
