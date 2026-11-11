@@ -41,7 +41,7 @@ _GO_WRAPPER_DIR=$(mktemp -d)
 cat > "${_GO_WRAPPER_DIR}/go" << WRAPPER
 #!/usr/bin/env bash
 case "\${1}" in
-    install) exec "${_REAL_GO}" -C "${TOOLS_DIR}" "\$@" ;;
+    install) exec bash "${KUEUE_ROOT}/hack/testing/retry.sh" --stream -- "${_REAL_GO}" -C "${TOOLS_DIR}" "\$@" ;;
     *)       exec "${_REAL_GO}" "\$@" ;;
 esac
 WRAPPER
