@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
@@ -864,6 +865,9 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		return false, nil
 	}
 
+	if features.Enabled(features.SchedulingEquivalenceHashing) && triggersBulkMove(reason) {
+		m.refreshPreemptorFields(ctx, cq)
+	}
 	var added bool
 	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
 		added = cq.requeueIfNotPresent(log, info, true, reason, quotaReservedReason)
@@ -876,6 +880,25 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		m.Broadcast()
 	}
 	return added, nil
+}
+
+// refreshPreemptorFields reads the preemptorFields of the PreemptionConfig the
+// ClusterQueue references, right before they decide a bulk move. The client
+// reads from the informer cache, as the scheduler does on every preemption
+// attempt, so this costs no API call once that informer is running. If the
+// PreemptionConfig cannot be read, the last preemptorFields read are kept, and
+// none read means the ClusterQueue does not bulk-move workloads.
+func (m *Manager) refreshPreemptorFields(ctx context.Context, cq *ClusterQueue) {
+	configName := cq.preemptionConfig()
+	if configName == nil {
+		return
+	}
+	preemptionConfig := &kueuealpha.PreemptionConfig{}
+	if err := m.client.Get(ctx, client.ObjectKey{Name: *configName}, preemptionConfig); err != nil {
+		ctrl.LoggerFrom(ctx).V(3).Info("Failed to get PreemptionConfig", "preemptionConfigName", *configName, "err", err)
+		return
+	}
+	cq.setPreemptorFields(*configName, preemptorFieldsOf(preemptionConfig))
 }
 
 // forgetInflight releases the claim that Pop took on a workload in the given

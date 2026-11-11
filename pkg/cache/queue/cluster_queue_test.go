@@ -2397,15 +2397,16 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			wantHash:         false,
 		},
 		// A PreemptionConfig selects candidates by properties of the preemptor
-		// that the scheduling hash leaves out, so a head that cannot be admitted
-		// must not take the rest of its equivalence class to inadmissible.
-		"nofit with a PreemptionConfig does not trigger hash": {
+		// that the scheduling hash leaves out. Until the Manager reads which ones,
+		// a head that cannot be admitted must not take the rest of its scheduling
+		// hash to inadmissible.
+		"nofit with a PreemptionConfig not read yet does not trigger hash": {
 			configurablePreemptions: true,
 			annotations:             withConfig,
 			reason:                  RequeueReasonNoFit,
 			wantHash:                false,
 		},
-		"preempt no candidates with a PreemptionConfig does not trigger hash": {
+		"preempt no candidates with a PreemptionConfig not read yet does not trigger hash": {
 			configurablePreemptions: true,
 			annotations:             withConfig,
 			reason:                  RequeueReasonPreemptionNoCandidates,
@@ -2451,8 +2452,9 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 	}
 }
 
-// Referencing a PreemptionConfig stops bulk moves by hash, but the workloads
-// already bulk-moved keep their reason until they are requeued.
+// Referencing a PreemptionConfig stops bulk moves by hash until its rules are
+// read, but the workloads already bulk-moved keep their reason until they are
+// requeued.
 func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
@@ -2486,7 +2488,7 @@ func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
 	cq.PushOrUpdate(newInfo("added-later"))
 	cq.RequeueIfNotPresent(ctx, newInfo("head-2"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
 	if active, _ := cq.Pending(); active != 1 {
-		t.Errorf("Active workloads = %d, want 1 while the PreemptionConfig is referenced", active)
+		t.Errorf("Active workloads = %d, want 1 before the rules of the PreemptionConfig are read", active)
 	}
 
 	if err := cq.Update(apiCQ); err != nil {
