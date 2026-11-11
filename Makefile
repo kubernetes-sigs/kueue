@@ -254,7 +254,8 @@ image-local-build:
 # Keep compiler caches available until every presubmit image has been built.
 .PHONY: image-presubmit
 image-presubmit:
-	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container) || exit $$?; \
+	@builder=$$($(DOCKER_BUILDX_CMD) create --driver docker-container \
+		--buildkitd-config "$(PROJECT_DIR)/hack/testing/image-buildkitd.toml") || exit $$?; \
 	trap 'status=$$?; $(DOCKER_BUILDX_CMD) rm "$$builder" || status=1; exit $$status' EXIT; \
 	BUILDX_BUILDER="$$builder" $(MAKE) -j1 \
 		IMAGE_BUILD_GOMAXPROCS="$(IMAGE_PRESUBMIT_GOMAXPROCS)" \
