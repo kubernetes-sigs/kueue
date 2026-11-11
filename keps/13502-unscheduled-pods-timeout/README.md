@@ -167,7 +167,14 @@ Each row shows a combination of feature-gate settings and timeout configuration.
 | `false` | `true` | Set, including `0s` | Invalid: `unscheduledTimeout` requires `WaitForPodsReadyUnscheduledTimeout=true`. |
 | `true` | `true` | Unset or set | Invalid gate combination, even without configuration. |
 | `true` | `false` | Positive | Tracking, annotations/index, readiness propagation, timeouts and scheduling-history reset enabled. |
-| `true` | `false` | Unset or `0s` | No new behavior, including scheduling-history reset. Retained scheduling conditions are ignored. Ordinary readiness behavior is unchanged. |
+| `true` | `false` | Unset or `0s` | No scheduling tracking unless a Workload has a positive `unscheduledTimeoutSeconds` override. |
+
+When `WorkloadLevelWaitForPodsReady` is also enabled, a Workload may set
+`spec.waitForPodsReady.unscheduledTimeoutSeconds` or the corresponding managed
+resource annotation. An omitted value inherits the cluster timeout, an explicit
+`0` disables scheduling tracking for that Workload, and a positive value enables
+it even when the cluster timeout is omitted or `0s`. The Pod index and tracker
+are registered at startup whenever these per-Workload overrides are enabled.
 
 ### Kueue Configuration API
 
@@ -182,7 +189,7 @@ type WaitForPodsReady struct {
     // The overall timeout starts at the same admission timestamp and never restarts.
     // Once scheduled, normal readiness and recovery timeouts apply.
     // Must be non-negative and no greater than timeout after defaulting.
-    // Unset or 0s disables the entire feature, including scheduling-history reset.
+    // Unset or 0s disables cluster-wide tracking; a positive Workload override can enable it.
     // Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
     // +optional
     UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
@@ -191,8 +198,8 @@ type WaitForPodsReady struct {
 
 **Validation:**
 
-- The value must be non-negative and no greater than `timeout` after defaulting.
-  Omission or `0s` disables all feature behavior. Equality with `timeout` is accepted.
+- The cluster value must be non-negative and no greater than `timeout` after defaulting.
+  Omission or `0s` disables cluster-wide tracking. Equality with `timeout` is accepted.
 - Field presence and gate combinations follow the [feature-gate table](#feature-gate),
   independently of the timeout value or readiness configuration.
 
@@ -420,7 +427,8 @@ Use batch Jobs for timeout/lifecycle coverage in existing readiness suites.
 
 - The feature gate is enabled by default.
 - All known bugs are fixed and the user feedback is addressed.
-- Re-evaluate configuring `unscheduledTimeout` per Workload.
+- Support `unscheduledTimeoutSeconds` per Workload, including an explicit `0` to opt out
+  of a positive cluster timeout.
 - Re-evaluate [MultiKueue support](#multikueue-support).
 - Re-evaluate [tracking replacement Pods after initial scheduling](#tracking-replacement-pods-after-initial-scheduling).
 

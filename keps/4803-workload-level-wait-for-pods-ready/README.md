@@ -20,7 +20,6 @@
     - [Jobs / Jobframework](#jobs--jobframework)
   - [Webhooks](#webhooks)
     - [Managed resources (Jobs, Deployments, StatefulSets, etc.)](#managed-resources-jobs-deployments-statefulsets-etc)
-  - [Future Work](#future-work)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Webhook unit tests](#webhook-unit-tests)
@@ -63,8 +62,8 @@ not fit well all workloads.
 
 ## Proposal
 
-The `kueue.x-k8s.io/wait-for-pods-ready` annotation with the values for `Timeout` and `recoveryTimeout`
-is read from the managed resource and stored in the workload annotation.
+The `kueue.x-k8s.io/wait-for-pods-ready` annotation with the values for `Timeout`, `recoveryTimeout`
+and `unscheduledTimeout` is read from the managed resource and stored in the workload spec.
 
 A new optional configuration is added to the `WaitForPodsReady` that allows admins to control
 the maximum timeout values they want to allow users to specify at the `kueue.x-k8s.io/wait-for-pods-ready`
@@ -135,8 +134,8 @@ type WaitForPodsReady struct {
 ```
 
 The `kueue.x-k8s.io/wait-for-pods-ready` annotation is parsed at Workload creation
-and stored in the Workload spec fields `timeoutSeconds` and `recoveryTimeoutSeconds`
-instead of being carried as a workload annotation.
+and stored in the Workload spec fields `timeoutSeconds`, `recoveryTimeoutSeconds`
+and `unscheduledTimeoutSeconds` instead of being carried as a workload annotation.
 
 The `WaitForPodsReady` struct is added to `WorkloadSpec`.
 
@@ -169,6 +168,20 @@ type WaitForPodsReady struct {
     // +optional
     // +kubebuilder:validation:Minimum=1
     RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+
+    // unscheduledTimeoutSeconds defines a timeout, measured since the transition to the
+    // Admitted=True condition, for all the Pods required by the admission to be
+    // scheduled or to have succeeded.
+    // If Kueue observes incomplete scheduling for this admission when the deadline
+    // expires, it evicts the Workload with reason PodsReadyTimeout and requeues it
+    // after the backoff delay.
+    // If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
+    // are set, this field takes precedence. If omitted, the cluster-wide value
+    // applies. Set to 0 to disable scheduling tracking for this Workload.
+    // Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
+    // +optional
+    // +kubebuilder:validation:Minimum=0
+    UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
 }
 ```
 
@@ -177,10 +190,12 @@ type WaitForPodsReady struct {
 One new annotation is defined in `pkg/controller/constants/constants.go`:
 
 ```go
-  // WaitForPodsReadyAnnotation is the annotation key on any Kueue-managed resource that sets
-	// per-workload timeout and recoveryTimeout, overriding those values at cluster-wide WaitForPodsReady.
-  // The value is a JSON containing timeout in seconds and RecoveryTimeout in seconds.
-	// This annotation is alpha-level enabled by the WorkloadLevelWaitForPodsReady.
+	// WaitForPodsReadyAnnotation sets per-workload timeouts on Kueue-managed resources.
+	// Its JSON value can contain timeoutSeconds, recoveryTimeoutSeconds, and
+	// unscheduledTimeoutSeconds. Each value is in seconds and overrides the
+	// corresponding cluster-wide timeout.
+	// The annotation requires the WorkloadLevelWaitForPodsReady feature gate.
+	// unscheduledTimeoutSeconds also requires the WaitForPodsReadyUnscheduledTimeout gate.
 	WaitForPodsReadyAnnotation = "kueue.x-k8s.io/wait-for-pods-ready"
 ```
 
@@ -188,22 +203,20 @@ Here is an example of the annotation definition:
 
 ```yaml
 annotations:
-  kueue.x-k8s.io/wait-for-pods-ready: '{"timeoutSeconds": 30, "recoveryTimeoutSeconds": 40}'
+  kueue.x-k8s.io/wait-for-pods-ready: '{"timeoutSeconds": 30, "recoveryTimeoutSeconds": 40, "unscheduledTimeoutSeconds": 10}'
 ```
 
 ### Controller
 
 #### Workload
 
-The workload controller is updated to resolve both the effective eviction deadline
-and the recovery timeout from the per-workload values carried in the workload's
-own annotations or spec, falling back to the cluster-wide configuration for each field
-independently when no per-workload value is present. This means a workload may override 
-the timeout, the recovery timeout, or both. When neither field is
-specified, the cluster-wide values are used as the fallback for each.
-The annotation is propagated from the managed resource to the workload at
-construction time and re-evaluated on every reconciliation to keep the workload
-values in sync with any changes made.
+The workload controller resolves the effective eviction deadline, recovery timeout,
+and unscheduled timeout. Each per-workload value overrides the corresponding
+cluster-wide setting; omitted values fall back to it. The startup and recovery
+timeouts can also come from a legacy Workload annotation, while the unscheduled
+timeout is read from the Workload spec.
+The managed resource annotation is parsed into the Workload spec at construction
+time and re-evaluated during job reconciliation to keep the values in sync.
 
 #### Jobs / Jobframework
 
@@ -220,9 +233,12 @@ copied to the resulting workload's annotations. This covers most integrations
 
 #### Managed resources (Jobs, Deployments, StatefulSets, etc.)
 
-- Validate that the timeouts values in `kueue.x-k8s.io/wait-for-pods-ready` are
-  positive integers and does not exceed the maximum value set by the admin in the
-  cluster configuration.
+- Validate that `timeoutSeconds` and `recoveryTimeoutSeconds` in
+  `kueue.x-k8s.io/wait-for-pods-ready` are positive integers, and
+  `unscheduledTimeoutSeconds` is a non-negative integer. All specified values
+  must be no greater than `maxTimeoutOnWorkload` (2 hours by default).
+  `unscheduledTimeoutSeconds` also requires the `WaitForPodsReadyUnscheduledTimeout`
+  feature gate.
 - A recoveryTimeout can be set without a timeout; the timeout then falls back to the cluster-wide value.
 - For Kueue managed Deployment, the **Deployment** webhook copies the annotation
   from its metadata to the Template metadata to make sure it's propagated to the
@@ -233,10 +249,6 @@ copied to the resulting workload's annotations. This covers most integrations
   no delete-and-recreate occurs. Note that for the Deployment, when the annotation
   is changed, the template annotation also changes and a rollout happens
   which is how the new value reaches the new workload.
-
-### Future Work
-
-- Extend the support for `.unscheduledTimeout`.
 
 ### Test Plan
 
@@ -294,7 +306,10 @@ No regressions in the existing `WaitForPodsReady` tests under
 
 - Introduce per-workload `WaitForPodsReady.TimeoutSeconds` and `WaitForPodsReady.RecoveryTmeoutSeconds`
   fields in `WorkloadSpec`.
-- Extend the support for `.unscheduledTimeout`.
+- Add `WaitForPodsReady.UnscheduledTimeoutSeconds` to the Workload spec and
+  `unscheduledTimeoutSeconds` to the managed-resource annotation. Omission inherits
+  the cluster value; `0` disables scheduling tracking for that Workload; a positive
+  value overrides the cluster value and requires `WaitForPodsReadyUnscheduledTimeout`.
 
 #### Beta
 

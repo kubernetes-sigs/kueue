@@ -414,6 +414,87 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
 			wantRecheckAfter:    time.Minute,
 		},
+		"spec unscheduled timeout longer than spec timeout; spec timeout caps the scheduling deadline": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{
+					TimeoutSeconds:            new(int64(120)),
+					UnscheduledTimeoutSeconds: new(int64(240)),
+				}).
+				Admission(&kueue.Admission{}).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(30 * time.Second)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    time.Minute,
+		},
+		"spec unscheduled timeout only; start timeout falls back to cluster configuration": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))}).
+				Admission(&kueue.Admission{}).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(4 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    time.Minute,
+		},
+		"legacy Workload annotation unscheduled timeout is ignored": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":120}`).
+				Admission(&kueue.Admission{}).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(4 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    3 * time.Minute,
+		},
 		"PodsReady=False/WaitForScheduling with a current PodsScheduled=False; unscheduledTimeout not configured; counting timeout since admitted.LastTransitionTime": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
