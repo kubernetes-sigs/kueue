@@ -2407,6 +2407,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
+
 			ginkgo.By("submit a high-priority job2", func() {
 				jobBuilder := testingjob.MakeJob("job2", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
@@ -2419,6 +2421,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				})
 				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
 			})
+
+			integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
 
 			ginkgo.By("await for wl2 to be created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -2542,6 +2546,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
+
 			ginkgo.By("submit a high-priority job2", func() {
 				jobBuilder := testingjob.MakeJob("job2", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
@@ -2554,6 +2560,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				})
 				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
 			})
+
+			integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
 
 			ginkgo.By("await for wl2 to be created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -2701,6 +2709,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
+
 			ginkgo.By("submit a high-priority job2", func() {
 				job2 := testingjob.MakeJob("job2", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
@@ -2713,6 +2723,8 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 				})
 				wl2Key = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID), Namespace: ns.Name}
 			})
+
+			integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "job1"})
 
 			ginkgo.By("await for wl1 to be Admitted on flavor-2", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
