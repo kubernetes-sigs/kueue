@@ -55,7 +55,8 @@ needing ClusterQueues, respecting borrowing and lending limits, multi-level
 hierarchy and preferences of cohorts to distribute unused resources 
 internally.
 
-Setting `fairSharing.preemptionStrategies` to `[ReclaimOnly]` keeps admission ordered by share and limits cross-ClusterQueue preemption to reclaim of nominal quota.
+Setting `fairSharing.preemptionStrategies` to `[ReclaimOnly]` keeps admission ordered by share and limits Fair Sharing preemption across ClusterQueues to reclaim of nominal quota.
+Configurable Preemptions can still select additional targets.
 
 ## Motivation
 Currently unused resources are allocated on the "first come first served" basis
@@ -164,8 +165,9 @@ under the same Cohort.
 Fair Sharing will be configured for the whole cluster, using the configuration
 file. In Alpha it will be just a feature gate.
 
-The share-based preemption above is the default.
-An administrator who wants the admission ordering without that preemption sets `preemptionStrategies` to `[ReclaimOnly]`.
+Share-based preemption is selected by an explicit `preemptionStrategies` list.
+When `fairSharing` is set, that list is required and an empty list is rejected.
+An administrator who wants the admission ordering without share-based preemption sets `preemptionStrategies` to `[ReclaimOnly]`.
 A workload then preempts workloads in other ClusterQueues only to reclaim nominal quota.
 Details are in [ReclaimOnly preemption strategy](#reclaimonly-preemption-strategy).
 
@@ -230,9 +232,10 @@ fairSharing:
   preemptionStrategies: [ReclaimOnly]
 ```
 
+Both `team-a` and `team-b` set `spec.preemption.reclaimWithinCohort: Any`.
 `team-a` is admitted at 8 CPU, so it is borrowing 3 CPU from `team-b`.
 
-| Incoming workload on `team-b` | Default `[LessThanOrEqualToFinalShare, LessThanInitialShare]` | `[ReclaimOnly]` |
+| Incoming workload on `team-b` | `[LessThanOrEqualToFinalShare, LessThanInitialShare]` | `[ReclaimOnly]` |
 | --- | --- | --- |
 | 5 CPU, which fits in the nominal quota | Preempt `team-a` until `team-b` fits | Preempt `team-a` until `team-b` fits in its nominal quota |
 | 6 CPU, so `team-b` would borrow 1 CPU | Preempt `team-a`. `team-b`'s share with the new workload is lower than `team-a`'s current share, so `LessThanInitialShare` applies | Leave `team-a` running. `team-b` stays pending until borrowed CPU is free |
@@ -531,7 +534,7 @@ Pending workloads are still ordered by dominant resource share and weight.
 
 For a workload in another ClusterQueue, all of the following have to hold:
 
-1. `reclaimWithinCohort` is not `Never`, and the workload passes that policy (`Any`, `LowerPriority`, or `LowerOrNewerEqualPriority`).
+1. `reclaimWithinCohort` is not `Never`, and the workload passes that policy (`Any` or `LowerPriority`).
 2. The target ClusterQueue is borrowing a flavor the incoming workload still needs.
 3. Every Cohort on the path from that ClusterQueue up to AlmostLCA(target, preemptor), and that AlmostLCA itself, is borrowing.
    A Cohort or ClusterQueue that is within its nominal quota protects the workloads under it.
