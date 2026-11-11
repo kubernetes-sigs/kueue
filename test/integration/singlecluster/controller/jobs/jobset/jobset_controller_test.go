@@ -69,8 +69,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 	)
 	ginkgo.BeforeEach(func() {
 		unmanagedNsName = "unmanaged-ns-" + rand.String(8)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName))))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
@@ -695,8 +694,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
@@ -760,8 +758,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		defaultFlavor *kueue.ResourceFlavor
 	)
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -1003,8 +1000,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
@@ -1186,8 +1182,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
 
