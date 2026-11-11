@@ -45,8 +45,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", func
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	})
 
 	ginkgo.AfterEach(func() {

@@ -57,8 +57,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 	ginkgo.BeforeEach(func() {
 		// Fair sharing on, so the fair-share entry iterator and preemption path drive
 		// this spec rather than the classical ones.
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
+		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithConfig(&config.Configuration{
 			FairSharing: &config.FairSharing{},
 		}))
 

@@ -60,8 +60,7 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			true,
 			&configapi.Configuration{},
