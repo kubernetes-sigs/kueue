@@ -126,8 +126,8 @@ func (r *JobReconciler) CustomLabels() *metrics.CustomLabels {
 	return r.customLabels
 }
 
-func (r *JobReconciler) podsScheduledTrackingEnabled() bool {
-	return waitforpodsready.PodsScheduledTrackingEnabled(r.waitForPodsReadyConfig)
+func (r *JobReconciler) podsScheduledTrackingEnabled(wl *kueue.Workload) bool {
+	return waitforpodsready.EffectiveUnscheduledTimeout(wl, waitforpodsready.ClusterUnscheduledTimeout(r.waitForPodsReadyConfig)) > 0
 }
 
 type Options struct {
@@ -1587,17 +1587,19 @@ func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object
 			"Cleared workload WaitForPodsReady")
 	case WaitForPodsReadyEventUpdated:
 		cfg := wl.Spec.WaitForPodsReady
-		switch {
-		case cfg.TimeoutSeconds != nil && cfg.RecoveryTimeoutSeconds != nil:
+		var values []string
+		if cfg.TimeoutSeconds != nil {
+			values = append(values, fmt.Sprintf("timeoutSeconds=%d", *cfg.TimeoutSeconds))
+		}
+		if cfg.RecoveryTimeoutSeconds != nil {
+			values = append(values, fmt.Sprintf("recoveryTimeoutSeconds=%d", *cfg.RecoveryTimeoutSeconds))
+		}
+		if cfg.UnscheduledTimeoutSeconds != nil {
+			values = append(values, fmt.Sprintf("unscheduledTimeoutSeconds=%d", *cfg.UnscheduledTimeoutSeconds))
+		}
+		if len(values) > 0 {
 			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d, recoveryTimeoutSeconds=%d",
-				*cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
-		case cfg.TimeoutSeconds != nil:
-			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", *cfg.TimeoutSeconds)
-		case cfg.RecoveryTimeoutSeconds != nil:
-			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-				"Updated workload spec WaitForPodsReady to recoveryTimeoutSeconds=%d", *cfg.RecoveryTimeoutSeconds)
+				"Updated workload spec WaitForPodsReady to %s", strings.Join(values, ", "))
 		}
 	}
 }
@@ -2501,7 +2503,7 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 	if err != nil {
 		return false, err
 	}
-	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
+	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled(wl))
 	if workload.HasConditionWithTypeAndReason(wl, &condition) {
 		log.V(5).Info("No update for PodsReady condition")
 		return false, nil

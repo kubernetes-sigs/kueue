@@ -104,7 +104,7 @@ func NewTracker(c client.Client, roleTracker *roletracker.RoleTracker, cfg *conf
 }
 
 func (t *Tracker) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if !waitforpodsready.PodsScheduledTrackingEnabled(t.waitForPodsReady) {
+	if !waitforpodsready.PodsScheduledTrackerNeeded(t.waitForPodsReady) {
 		return reconcile.Result{}, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
@@ -115,6 +115,10 @@ func (t *Tracker) Reconcile(ctx context.Context, req reconcile.Request) (reconci
 		return reconcile.Result{}, err
 	}
 	if workloadfinish.IsFinished(wl) || (features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
+		return reconcile.Result{}, nil
+	}
+	// The tracker is registered globally, so skip Workloads without an effective scheduling timeout.
+	if waitforpodsready.EffectiveUnscheduledTimeout(wl, waitforpodsready.ClusterUnscheduledTimeout(t.waitForPodsReady)) <= 0 {
 		return reconcile.Result{}, nil
 	}
 	if !workload.IsAdmitted(wl) && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsScheduled) {

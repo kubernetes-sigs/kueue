@@ -885,9 +885,9 @@ const (
 
 	// owner: @MaysaMacedo
 	//
-	// Enables setting a per-workload WaitForPodsReady timeout and recovery timeout via the
-	// kueue.x-k8s.io/wait-for-pods-ready annotation, overriding the cluster-wide
-	// WaitForPodsReady.Timeout and WaitForPodsReady.RecoveryTimeout for that workload.
+	// Enables setting per-workload WaitForPodsReady startup, recovery, and scheduling
+	// timeouts via the kueue.x-k8s.io/wait-for-pods-ready annotation and Workload spec.
+	// The scheduling timeout also requires WaitForPodsReadyUnscheduledTimeout.
 	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
 
 	// owner: @pajakd

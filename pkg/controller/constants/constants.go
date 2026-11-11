@@ -96,9 +96,11 @@ const (
 	// The label is used with ConcurrentAdmission feature.
 	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
 
-	// WaitForPodsReadyAnnotation is the annotation key on any Kueue-managed resource that sets
-	// per-workload timeout and recoveryTimeout, overriding those values at cluster-wide WaitForPodsReady.
-	// The value is a JSON containing timeout in seconds and recoveryTimeout in seconds.
-	// This annotation is alpha-level enabled by the WorkloadLevelWaitForPodsReady.
+	// WaitForPodsReadyAnnotation sets per-workload timeouts on Kueue-managed resources.
+	// Its JSON value can contain timeoutSeconds, recoveryTimeoutSeconds, and
+	// unscheduledTimeoutSeconds. Each value is in seconds and overrides the
+	// corresponding cluster-wide timeout.
+	// The annotation requires the WorkloadLevelWaitForPodsReady feature gate.
+	// unscheduledTimeoutSeconds also requires the WaitForPodsReadyUnscheduledTimeout gate.
 	WaitForPodsReadyAnnotation = "kueue.x-k8s.io/wait-for-pods-ready"
 )

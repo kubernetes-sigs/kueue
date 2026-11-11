@@ -385,8 +385,12 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 	var allErrs field.ErrorList
 	if cfg != nil {
-		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil {
-			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"))
+		if cfg.Timeout == nil && cfg.RecoveryTimeout == nil && cfg.UnscheduledTimeout == nil {
+			message := "at least one of timeoutSeconds or recoveryTimeoutSeconds must be set"
+			if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+				message = "at least one of timeoutSeconds, recoveryTimeoutSeconds, or unscheduledTimeoutSeconds must be set"
+			}
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, message))
 		}
 		if cfg.Timeout != nil && *cfg.Timeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds must be greater than 0"))
@@ -394,12 +398,19 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout <= 0 {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds must be greater than 0 seconds"))
 		}
+		if cfg.UnscheduledTimeout != nil && *cfg.UnscheduledTimeout < 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "unscheduledTimeoutSeconds must be non-negative"))
+		}
 		if maxTimeoutOnWorkload != nil && cfg.Timeout != nil && *cfg.Timeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("timeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}
 		if maxTimeoutOnWorkload != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > maxTimeoutOnWorkload.Duration {
 			errMsg := fmt.Sprintf("recoveryTimeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
+		}
+		if maxTimeoutOnWorkload != nil && cfg.UnscheduledTimeout != nil && *cfg.UnscheduledTimeout > maxTimeoutOnWorkload.Duration {
+			errMsg := fmt.Sprintf("unscheduledTimeoutSeconds must be less than or equal to %d seconds", int64(maxTimeoutOnWorkload.Seconds()))
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, errMsg))
 		}
 	}

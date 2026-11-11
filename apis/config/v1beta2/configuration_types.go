@@ -360,8 +360,8 @@ type WaitForPodsReady struct {
 	// and requeues it after the backoff delay.
 	// A current-admission PodsScheduled=False observation is required for eviction;
 	// a late observation does not restart the timeout.
-	// Must be non-negative and must not exceed timeout. When unset or "0s", scheduling
-	// tracking, readiness propagation, scheduling timeouts and scheduling-history resets are disabled.
+	// Must be non-negative and must not exceed timeout. When unset or "0s", cluster-wide
+	// scheduling tracking is disabled. A positive per-Workload override can still enable it.
 	// Requires the WaitForPodsReadyUnscheduledTimeout feature gate, even for "0s".
 	// Enabling this gate together with DisableWaitForPodsReady is rejected.
 	// +optional

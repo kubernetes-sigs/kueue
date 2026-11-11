@@ -3779,6 +3779,22 @@ If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
 are set, this field takes precedence.</p>
 </td>
 </tr>
+<tr><td><code>unscheduledTimeoutSeconds</code><br/>
+<code>int64</code>
+</td>
+<td>
+   <p>unscheduledTimeoutSeconds defines a timeout, measured since the transition to the
+Admitted=True condition, for all the Pods required by the admission to be
+scheduled or to have succeeded.
+If Kueue observes incomplete scheduling for this admission when the deadline
+expires, it evicts the Workload with reason PodsReadyTimeout and requeues it
+after the backoff delay.
+If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
+are set, this field takes precedence. If omitted, the cluster-wide value
+applies. Set to 0 to disable scheduling tracking for this Workload.
+Requires the WaitForPodsReadyUnscheduledTimeout feature gate.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
