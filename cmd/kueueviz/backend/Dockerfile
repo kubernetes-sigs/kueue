@@ -12,10 +12,10 @@ COPY cmd/kueueviz/backend/ .
 
 # Build the application
 ARG TARGETARCH
-ARG IMAGE_BUILD_TRIMPATH=0
+# Normalize paths to reuse matching vendored packages from the shared Go cache.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    if [ "${IMAGE_BUILD_TRIMPATH}" = "1" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; fi; \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -v -o /kueueviz
+    export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
 
 # Runtime stage
 FROM ${BASE_IMAGE}

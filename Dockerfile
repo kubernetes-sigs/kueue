@@ -9,9 +9,9 @@ COPY . .
 ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
 ARG IMAGE_BUILD_GOMAXPROCS
 ARG IMAGE_BUILD_GO_PARALLELISM
-ARG IMAGE_BUILD_TRIMPATH=0
+# Normalize dependency paths to share compiled packages across Go images.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    if [ "${IMAGE_BUILD_TRIMPATH}" = "1" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; fi; \
+    export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-trimpath"; \
     if [ -n "${IMAGE_BUILD_GOMAXPROCS}" ]; then export GOMAXPROCS="${IMAGE_BUILD_GOMAXPROCS}"; fi; \
     if [ -n "${IMAGE_BUILD_GO_PARALLELISM}" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-p=${IMAGE_BUILD_GO_PARALLELISM}"; fi; \
     make build GIT_TAG="${GIT_TAG}" GIT_COMMIT="${GIT_COMMIT}" GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
