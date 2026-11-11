@@ -1130,7 +1130,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.preemptor.SatisfyPreemptionExpectation(log, newWorkload)
 
 			// Record metrics and events for quota reservation and admission
-			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
+			s.recordWorkloadAdmissionMetrics(ctx, log, newWorkload, e.Obj, admission, consideredStr)
 			if e.assignment.ZeroCountFlavorFallback != "" && !workload.HasQuotaReservation(e.Obj) {
 				s.recorder.Eventf(newWorkload, nil, corev1.EventTypeWarning, "ZeroCountFlavorFallback", "ZeroCountFlavorFallback", api.TruncateEventMessage(e.assignment.ZeroCountFlavorFallback))
 			}
@@ -1387,11 +1387,11 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 }
 
 // recordWorkloadAdmissionMetrics records metrics and events for workload admission process
-func (s *Scheduler) recordWorkloadAdmissionMetrics(log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, consideredFlavors string) {
+func (s *Scheduler) recordWorkloadAdmissionMetrics(ctx context.Context, log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, consideredFlavors string) {
 	waitTime := workload.QueuedWaitTime(newWorkload, s.clock)
 
 	s.recordQuotaReservationMetrics(log, newWorkload, originalWorkload, admission, waitTime, consideredFlavors)
-	s.recordWorkloadAdmissionEvents(log, newWorkload, originalWorkload, admission, waitTime)
+	s.recordWorkloadAdmissionEvents(ctx, log, newWorkload, originalWorkload, admission, waitTime)
 }
 
 // recordQuotaReservationMetrics records metrics and events for quota reservation
@@ -1416,7 +1416,7 @@ func (s *Scheduler) recordQuotaReservationMetrics(log logr.Logger, newWorkload, 
 }
 
 // recordWorkloadAdmissionEvents records metrics and events for workload admission
-func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
+func (s *Scheduler) recordWorkloadAdmissionEvents(ctx context.Context, log logr.Logger, newWorkload, originalWorkload *kueue.Workload, admission *kueue.Admission, waitTime time.Duration) {
 	if !workload.IsAdmitted(newWorkload) || workload.HasUnhealthyNodes(originalWorkload) {
 		return
 	}
@@ -1426,6 +1426,16 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted",
 		"Admitted by ClusterQueue %s, wait time since reservation was %.0fs",
 		admission.ClusterQueue, quotaReservedWaitTime.Seconds())
+	podSet, hostname, conflict, err := workload.PinnedBatchJobSelfAntiAffinityConflict(ctx, s.client, newWorkload)
+	if err != nil {
+		log.Error(err, "Could not check owning Job labels for Pod anti-affinity conflict")
+	} else if conflict {
+		const reason = kueue.WorkloadPodAntiAffinityTopologyConflict
+		s.recorder.Eventf(newWorkload, nil, corev1.EventTypeWarning, reason, reason,
+			"PodSet %s is pinned to hostname %s, where required Pod anti-affinity prevents its Pods "+
+				"from running concurrently; if a PodsReady timeout is configured and reached, Kueue will deactivate this Workload",
+			podSet, hostname)
+	}
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	// The workload label values are derived on the fly instead of being stored in

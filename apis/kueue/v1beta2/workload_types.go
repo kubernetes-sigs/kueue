@@ -1217,6 +1217,11 @@ const (
 	// of re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
 
+	// WorkloadPodAntiAffinityTopologyConflict indicates that a Job's Pods cannot
+	// run concurrently because they are pinned to one hostname and have required
+	// self Pod anti-affinity on that hostname.
+	WorkloadPodAntiAffinityTopologyConflict = "PodAntiAffinityTopologyConflict"
+
 	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"

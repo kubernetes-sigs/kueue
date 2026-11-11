@@ -29,6 +29,40 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
+func TestSingleHostnameWithMultiplePods(t *testing.T) {
+	cases := map[string]struct {
+		assignment *TopologyAssignment
+		wantHost   string
+		wantOK     bool
+	}{
+		"nil assignment": {},
+		"two Pods on one hostname": {
+			assignment: &TopologyAssignment{Levels: []string{corev1.LabelHostname}, Domains: []TopologyDomainAssignment{{Values: []string{"node-a"}, Count: 2}}},
+			wantHost:   "node-a", wantOK: true,
+		},
+		"one Pod": {
+			assignment: &TopologyAssignment{Levels: []string{corev1.LabelHostname}, Domains: []TopologyDomainAssignment{{Values: []string{"node-a"}, Count: 1}}},
+		},
+		"two hostnames": {
+			assignment: &TopologyAssignment{Levels: []string{corev1.LabelHostname}, Domains: []TopologyDomainAssignment{
+				{Values: []string{"node-a"}, Count: 1}, {Values: []string{"node-b"}, Count: 1},
+			}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var assignment *kueue.TopologyAssignment
+			if tc.assignment != nil {
+				assignment = V1Beta2From(tc.assignment)
+			}
+			host, ok := SingleHostnameWithMultiplePods(assignment)
+			if host != tc.wantHost || ok != tc.wantOK {
+				t.Errorf("SingleHostnameWithMultiplePods() = (%q, %t), want (%q, %t)", host, ok, tc.wantHost, tc.wantOK)
+			}
+		})
+	}
+}
+
 type testCase struct {
 	name             string
 	internal         *TopologyAssignment
