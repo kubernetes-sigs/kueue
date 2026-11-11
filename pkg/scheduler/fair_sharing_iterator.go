@@ -48,6 +48,8 @@ type fairSharingIterator struct {
 	log           logr.Logger
 }
 
+// makeFairSharingIterator groups the entries by ClusterQueue, keeping every
+// entry, and orders each group with compareEntries.
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
 	log := ctrl.LoggerFrom(ctx)
 	f := fairSharingIterator{

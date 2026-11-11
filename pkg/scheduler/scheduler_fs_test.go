@@ -3628,6 +3628,9 @@ func TestFairSharingSecondPassWithClusterQueueHead(t *testing.T) {
 	}
 }
 
+// testFairSharingSecondPassWithClusterQueueHead runs one scheduling cycle with a
+// second-pass workload and the head of the same ClusterQueue, optionally in a
+// Cohort, and checks that both are handled in that cycle.
 func testFairSharingSecondPassWithClusterQueueHead(t *testing.T, cohort kueue.CohortReference) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
