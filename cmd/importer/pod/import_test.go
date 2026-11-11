@@ -26,7 +26,6 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -99,7 +98,7 @@ func TestImportNamespace(t *testing.T) {
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
 			Request(corev1.ResourceName("nvidia.com/gpu"), "1").
-			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+			PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 			Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
 			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -395,7 +394,7 @@ func TestImportNamespace(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						Image("img").
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						PriorityClass("p-class").
 						Obj()).
 					PodPriorityClassRef("p-class").

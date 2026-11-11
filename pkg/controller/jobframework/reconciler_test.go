@@ -1480,7 +1480,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 	baseWl := utiltestingapi.MakeWorkload("base", testNS).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			PodSpec(baseJob().Spec.Template.Spec).
-			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+			PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 			Obj())
 
 	tasWlWithoutIndex := utiltestingapi.MakeWorkload("tas-wl", testNS).
@@ -1537,11 +1537,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(true).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1559,11 +1559,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial-running", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(false).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1612,7 +1612,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1638,7 +1638,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: admittedWl.Clone().Name("owned-admitted-diff").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1687,7 +1687,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(preferredTASJob(false).Spec.Template.Spec).
 					RequiredTopologyRequest(corev1.LabelHostname).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 					kueue.PodSetAssignment{

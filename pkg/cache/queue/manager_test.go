@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -1448,7 +1447,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			wantReuse: true,
 		},
 		"a re-read at a new version recomputes the hash": {
-			mutate: func(wl *kueue.Workload) { wl.Spec.Priority = ptr.To[int32](1) },
+			mutate: func(wl *kueue.Workload) { wl.Spec.Priority = new(int32(1)) },
 		},
 		"a LimitRange default that moves the effective requests recomputes the hash": {
 			seed: utiltesting.MakeLimitRange("lr", "ns").WithType(corev1.LimitTypeContainer).

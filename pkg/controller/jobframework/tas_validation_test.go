@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -550,7 +549,7 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 			},
 			TopologyRequest: &kueue.PodSetTopologyRequest{
 				Required:        &requiredTopology,
-				PodSetGroupName: ptr.To(groupName),
+				PodSetGroupName: new(groupName),
 			},
 		}
 	}
