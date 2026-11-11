@@ -4,16 +4,14 @@ ARG BASE_IMAGE=gcr.io/distroless/static:nonroot@sha256:963fa6c544fe5ce420f1f54fb
 # compilation stage for the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 WORKDIR /workspace
-# Fetch dependencies first, with retries for transient download failures.
-COPY go.mod go.sum ./
-COPY hack/testing/retry.sh /usr/local/bin/retry.sh
-RUN retry.sh --stream -- go mod download
-# copy the rest of the sources and build
+# The root module includes vendored dependencies; no module download is needed.
 COPY . .
 ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
 ARG IMAGE_BUILD_GOMAXPROCS
 ARG IMAGE_BUILD_GO_PARALLELISM
-RUN --mount=type=cache,target=/root/.cache/go-build \
+RUN --network=none --mount=type=tmpfs,target=/tmp/kueue-empty-modcache \
+    --mount=type=cache,target=/root/.cache/go-build \
+    export GOMODCACHE=/tmp/kueue-empty-modcache; \
     if [ -n "${IMAGE_BUILD_GOMAXPROCS}" ]; then export GOMAXPROCS="${IMAGE_BUILD_GOMAXPROCS}"; fi; \
     if [ -n "${IMAGE_BUILD_GO_PARALLELISM}" ]; then export GOFLAGS="${GOFLAGS:+${GOFLAGS} }-p=${IMAGE_BUILD_GO_PARALLELISM}"; fi; \
     bash hack/testing/image-build-observe.sh manager \
