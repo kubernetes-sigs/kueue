@@ -64,23 +64,6 @@ func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
 
 const legacyNegativeGPU corev1.ResourceName = "example.com/gpu"
 
-// legacyNegativeRequestPodSet is a PodSet that already carries a negative
-// container request, the way one written before
-// WorkloadValidateResourcesAreNonNegative would look.
-func legacyNegativeRequestPodSet() kueue.PodSet {
-	return *utiltestingapi.MakePodSet("a", 1).
-		Request(corev1.ResourceCPU, "8").
-		Request(legacyNegativeGPU, "-3").
-		Obj()
-}
-
-func legacyNegativeRequestWorkload() *kueue.Workload {
-	return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-		PodSets(legacyNegativeRequestPodSet()).
-		Finalizers(kueue.ResourceInUseFinalizerName).
-		Obj()
-}
-
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
@@ -907,6 +890,15 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
+	// A PodSet written before WorkloadValidateResourcesAreNonNegative still
+	// carries the quantity. Each case clones the Workload so updates do not
+	// share state.
+	legacyNegativePodSet := utiltestingapi.MakePodSet("a", 1).
+		Request(corev1.ResourceCPU, "8").
+		Request(legacyNegativeGPU, "-3")
+	legacyNegativeWorkload := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*legacyNegativePodSet.Clone().Obj()).
+		Finalizers(kueue.ResourceInUseFinalizerName)
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
@@ -1674,35 +1666,23 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		// and drops its finalizer (kueue#14373).
 		"a workload with a legacy negative request can write an Evicted condition": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before:       legacyNegativeRequestWorkload(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(legacyNegativeRequestPodSet()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				EvictedAt(now).
-				Obj(),
-			wantErr: nil,
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().EvictedAt(now).Obj(),
+			wantErr:      nil,
 		},
 		"a workload with a legacy negative request can be deactivated": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before:       legacyNegativeRequestWorkload(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(legacyNegativeRequestPodSet()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				Active(false).
-				Obj(),
-			wantErr: nil,
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Active(false).Obj(),
+			wantErr:      nil,
 		},
 		"a reserved workload with a legacy negative request can be deactivated": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(legacyNegativeRequestPodSet()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
+			before: legacyNegativeWorkload.Clone().
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(kueue.PodSetAssignment{Name: "a"}).Obj(), now).
 				Obj(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(legacyNegativeRequestPodSet()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
+			after: legacyNegativeWorkload.Clone().
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(kueue.PodSetAssignment{Name: "a"}).Obj(), now).
 				Active(false).
@@ -1711,11 +1691,9 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		},
 		"a workload with a legacy negative request can drop its finalizer": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before:       legacyNegativeRequestWorkload(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(legacyNegativeRequestPodSet()).
-				Obj(),
-			wantErr: nil,
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Finalizers().Obj(),
+			wantErr:      nil,
 		},
 		"an unnamed container with a legacy negative request can drop its finalizer": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
@@ -1811,29 +1789,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		},
 		"changing a legacy negative request to another negative value is refused": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before:       legacyNegativeRequestWorkload(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					Request(corev1.ResourceCPU, "8").
-					Request(legacyNegativeGPU, "-4").
-					Obj()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				Obj(),
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Request(legacyNegativeGPU, "-4").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
 			}.ToAggregate(),
 		},
 		"introducing a new negative request beside a legacy one is refused": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
-			before:       legacyNegativeRequestWorkload(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					Request(corev1.ResourceCPU, "8").
-					Request(legacyNegativeGPU, "-3").
-					Request(corev1.ResourceMemory, "-1Gi").
-					Obj()).
-				Finalizers(kueue.ResourceInUseFinalizerName).
-				Obj(),
+			before:       legacyNegativeWorkload.Clone().Obj(),
+			after:        legacyNegativeWorkload.Clone().Request(corev1.ResourceMemory, "-1Gi").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceMemory)), nil, ""),
 			}.ToAggregate(),
