@@ -2050,6 +2050,17 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 				gomega.Expect(k8sClient.Update(ctx, &fetchedNs)).To(gomega.Succeed())
 			})
 
+			ginkgo.By("waiting for the manager's cache to have the new Namespace labels", func() {
+				// The workload controller reads the Namespace from the manager's cache and
+				// does not watch Namespaces, so a reconcile triggered before the cache has
+				// the new labels would keep the Misconfigured reason.
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cachedNs corev1.Namespace
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(ns), &cachedNs)).To(gomega.Succeed())
+					g.Expect(cachedNs.Labels).To(gomega.HaveKeyWithValue("foo", "bar"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("triggering reconciliation of the workload", func() {
 				// We can update a dummy annotation on the workload to trigger reconcile
 				gomega.Eventually(func(g gomega.Gomega) {
