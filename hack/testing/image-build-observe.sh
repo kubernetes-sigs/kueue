@@ -25,20 +25,31 @@ cgroup_root=${IMAGE_BUILD_CGROUP_ROOT:-/sys/fs/cgroup}
 started=$(date +%s)
 
 snapshot() {
-    local phase=$1 metric value
+    local phase=$1 metric value available=0
     for metric in cpu.max cpu.stat cpuset.cpus.effective memory.max memory.peak \
         cpu/cpu.cfs_quota_us cpu/cpu.cfs_period_us cpu/cpu.stat \
+        cpu,cpuacct/cpu.cfs_quota_us cpu,cpuacct/cpu.cfs_period_us cpu,cpuacct/cpu.stat \
         memory/memory.limit_in_bytes memory/memory.max_usage_in_bytes; do
         if [[ -r "$cgroup_root/$metric" ]]; then
+            available=1
             value=$(tr '\n' ' ' < "$cgroup_root/$metric") || value=unavailable
             printf 'image-build-observe component=%s arch=%s phase=%s metric=%s value=%s\n' \
                 "$component" "${TARGETARCH:-host}" "$phase" "$metric" "$value"
         fi
     done
+    if [[ "$available" == 0 ]]; then
+        printf 'image-build-observe component=%s phase=%s cgroup_metrics=unavailable\n' "$component" "$phase"
+    fi
 }
 
 printf 'image-build-observe component=%s arch=%s phase=begin gomaxprocs=%s goflags=%s\n' \
     "$component" "${TARGETARCH:-host}" "${GOMAXPROCS:-auto}" "${GOFLAGS:-default}"
+printf 'image-build-observe component=%s cgroup_root=%s\n' "$component" "$cgroup_root"
+if [[ -r /proc/self/cgroup ]]; then
+    while IFS= read -r membership; do
+        printf 'image-build-observe component=%s cgroup_membership=%s\n' "$component" "$membership"
+    done < /proc/self/cgroup
+fi
 snapshot before
 status=0
 "$@" || status=$?

@@ -53,6 +53,7 @@ class ImageBuildTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 17, result.stderr)
             self.assertIn("phase=end", result.stdout)
+            self.assertIn("cgroup_metrics=unavailable", result.stdout)
 
     def build_images(self, fail=""):
         """Run real Make recipes with a recording stub and optional failure injection."""
