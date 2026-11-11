@@ -112,6 +112,10 @@ func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (
 	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
 	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
 	validationErrs = append(validationErrs, raycluster.ValidateElasticJobTopologyRequest(obj, obj.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)...)
+	if obj.Spec.RayClusterSpec != nil && obj.Spec.SubmissionMode == rayv1.K8sJobMode && obj.Spec.SubmitterPodTemplate != nil {
+		submitterMetaPath := field.NewPath("spec", "submitterPodTemplate", "metadata")
+		validationErrs = append(validationErrs, jobframework.ValidateElasticJobTopologyRequest(obj, submitterMetaPath, &obj.Spec.SubmitterPodTemplate.ObjectMeta)...)
+	}
 	return nil, validationErrs.ToAggregate()
 }
 
