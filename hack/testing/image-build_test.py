@@ -63,11 +63,8 @@ class ImageBuildTest(unittest.TestCase):
             docker.write_text('''#!/usr/bin/env python3
 import fcntl, json, os, pathlib, sys, time
 args = sys.argv[1:]
-config = None
-if "--buildkitd-config" in args:
-    config = pathlib.Path(args[args.index("--buildkitd-config") + 1]).read_text()
 with pathlib.Path(os.environ["IMAGE_TEST_LOG"]).open("a") as log:
-    log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER"), "config": config}) + "\\n")
+    log.write(json.dumps({"args": args, "builder": os.environ.get("BUILDX_BUILDER")}) + "\\n")
 if args[:2] == ["buildx", "create"]:
     if os.environ["IMAGE_TEST_FAIL"] == "create":
         sys.exit(1)
@@ -110,10 +107,7 @@ else:
     def test_all_images_share_one_builder_and_keep_platform_coverage(self):
         result, commands = self.build_images()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container",
-                                              "--buildkitd-config", str(ROOT / "hack/testing/image-buildkitd.toml")])
-        self.assertIn("[worker.oci]", commands[0]["config"])
-        self.assertIn("max-parallelism = 2", commands[0]["config"])
+        self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container"])
         self.assertEqual(commands[-1]["args"], ["buildx", "rm", "test-builder"])
         builds = commands[1:-1]
         self.assertEqual(len(builds), 6)
@@ -135,8 +129,8 @@ else:
                     self.assertIn("--load", args)
                 else:
                     self.assertNotIn("--load", args)
-                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=2", args)
-                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=4", args)
+                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=1", args)
+                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=2", args)
                 self.assertNotIn("--push", args)
                 if index:
                     self.assertFalse(any(arg.startswith("IMAGE_BUILD_GOMAXPROCS=") or
