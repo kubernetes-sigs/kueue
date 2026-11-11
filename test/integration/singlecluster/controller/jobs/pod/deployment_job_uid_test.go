@@ -98,21 +98,14 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 	}
 }
 
-var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, deploymentJobUIDManagerSetup(
-			jobframework.WithManageJobsWithoutQueueName(false),
-			jobframework.WithKubeServerVersion(serverVersionFetcher),
-		))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
+var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Label("job:pod", "area:jobs"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, deploymentJobUIDManagerSetup(
+			jobframework.WithManageJobsWithoutQueueName(false),
+			jobframework.WithKubeServerVersion(serverVersionFetcher),
+		))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
 	})
 

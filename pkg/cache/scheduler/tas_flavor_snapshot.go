@@ -1683,8 +1683,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	for ; currentLevelIdx < min(len(s.domainsPerLevel)-1, state.sliceLevelIdx) && !useBalancedPlacement; currentLevelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
+		// Parent domainStates already hold assigned counts from updateCountsToMinimumGeneric above, so skip ancestor tie-breaking here.
 		lowerDomains := s.lowerLevelDomains(currFitDomain)
-		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained, state.spreadRules)
+		sortedLowerDomains := s.sortedDomainsWithAncestorTieBreak(lowerDomains, state.unconstrained, false, state.spreadRules)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.shape(), state.unconstrained, true)
 	}
 
@@ -2554,6 +2555,35 @@ func compareDomainLevelValues(a, b *domain) int {
 	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
 }
 
+// compareAncestorCapacity breaks ties between two domains at the same topology
+// level by preferring the domain whose enclosing ancestor domains have less
+// free capacity (walking bottom-up from parent to root). This packs smaller
+// requests into already partially-occupied or smaller parent domains (e.g., an
+// 8-GPU single-rack block or half-used 16-GPU block) before splitting larger
+// intact ancestor blocks. Must only be called before Phase 2b mutates ancestor
+// domainStates to assigned counts.
+func (s *TASFlavorSnapshot) compareAncestorCapacity(a, b *domain, withLeader bool) int {
+	for pa, pb := a.parent, b.parent; pa != nil && pb != nil && pa != pb; pa, pb = pa.parent, pb.parent {
+		paState, pbState := s.domainStateOf(pa), s.domainStateOf(pb)
+		if withLeader {
+			if c := cmp.Compare(paState.sliceCount[obligationLeader], pbState.sliceCount[obligationLeader]); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(paState.podCountWithLeader, pbState.podCountWithLeader); c != 0 {
+				return c
+			}
+		} else {
+			if c := cmp.Compare(paState.sliceCount[obligationNone], pbState.sliceCount[obligationNone]); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(paState.podCount, pbState.podCount); c != 0 {
+				return c
+			}
+		}
+	}
+	return 0
+}
+
 func domainIDs(domains []*domain) []string {
 	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
 }
@@ -2561,6 +2591,7 @@ func domainIDs(domains []*domain) []string {
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
+	ancestorTieBreak := features.Enabled(features.TASAncestorCapacityTieBreak)
 	result := slices.Clone(domains)
 	slices.SortFunc(result, func(a, b *domain) int {
 		aDomainState, bDomainState := s.domainStateOf(a), s.domainStateOf(b)
@@ -2585,6 +2616,15 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(aDomainState.podCountWithLeader, bDomainState.podCountWithLeader)
 		}
 
+		if ancestorTieBreak {
+			// When neither domain can host a leader (leaderCount == 0), ancestors may
+			// also have no leader-capable children (leaving podCountWithLeader == 0),
+			// so compare worker-only ancestor capacities instead.
+			if c := s.compareAncestorCapacity(a, b, aDomainState.leaderCount > 0); c != 0 {
+				return c
+			}
+		}
+
 		return s.compareDomainLevelValues(a, b)
 	})
 	return s.sortedBySpreadPriority(result, spreadRules)
@@ -2593,14 +2633,21 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
 //
 // The sorting criteria are:
-// - **BestFit**: `sliceCount` (descending), `podCount` (ascending), `levelValues` (ascending)
-// - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), `levelValues` (ascending)
+// - **BestFit**: `sliceCount` (descending), `podCount` (ascending), ancestor free capacity (ascending), `levelValues` (ascending)
+// - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), ancestor free capacity (ascending), `levelValues` (ascending)
 //
-// `podCount` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
+// `podCount` and ancestor free capacity are always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity while preserving larger intact ancestor blocks.
 //
 // Any spreadRules are applied last and take precedence over all of the above,
 // so a domain does not win a spreading decision just by having more room.
 func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
+	return s.sortedDomainsWithAncestorTieBreak(domains, unconstrained, features.Enabled(features.TASAncestorCapacityTieBreak), spreadRules)
+}
+
+// sortedDomainsWithAncestorTieBreak sorts domains using BestFit or LeastFreeCapacity
+// and optionally breaks equal-capacity ties by comparing ancestor free capacity
+// bottom-up when packAncestors is true.
+func (s *TASFlavorSnapshot) sortedDomainsWithAncestorTieBreak(domains []*domain, unconstrained, packAncestors bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -2621,6 +2668,12 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool,
 
 		if aDomainState.podCount != bDomainState.podCount {
 			return cmp.Compare(aDomainState.podCount, bDomainState.podCount)
+		}
+
+		if packAncestors {
+			if c := s.compareAncestorCapacity(a, b, false); c != 0 {
+				return c
+			}
 		}
 
 		return s.compareDomainLevelValues(a, b)

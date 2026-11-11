@@ -104,8 +104,7 @@ var _ = ginkgo.Describe("TAS topology spreading", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-topology-spreading-")
 	})
 

@@ -40,7 +40,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -233,7 +232,7 @@ func newTryDeferFailedTASReplacementFixture(t *testing.T) (context.Context, logr
 		t.Fatalf("Taking snapshot: %v", err)
 	}
 	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(ptr.To(time.Minute)))
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(new(time.Minute)))
 	e := &entry{
 		Info:                 *workload.NewInfo(log, &foo),
 		clusterQueueSnapshot: snapshot.ClusterQueue("tas-main"),
@@ -447,10 +446,24 @@ func TestScheduleForTAS(t *testing.T) {
 		NodeLabel("tas-node", "true").
 		TopologyName("tas-three-level").
 		Obj()
+	defaultFlavorWithTAS := *utiltestingapi.MakeResourceFlavor("default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
 	defaultClusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 			Resource(corev1.ResourceCPU, "50").
 			Resource(corev1.ResourceMemory, "50Gi").Obj()).
+		Obj()
+	splitResourceGroupClusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("tas-default").
+				Resource(corev1.ResourceCPU, "50").Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceMemory, "50Gi").Obj(),
+		).
 		Obj()
 	defaultProvCheck := *utiltestingapi.MakeAdmissionCheck("prov-check").
 		ControllerName(kueue.ProvisioningRequestControllerName).
@@ -2025,7 +2038,7 @@ func TestScheduleForTAS(t *testing.T) {
 					PodSets(utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x5"}, 1).Obj()).
 							Obj()).
 						Obj()).
 					Obj(),
@@ -2654,7 +2667,7 @@ func TestScheduleForTAS(t *testing.T) {
 					PodSets(utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x5"}, 1).Obj()).
 							Obj()).
 						Obj()).
 					Obj(),
@@ -2752,7 +2765,7 @@ func TestScheduleForTAS(t *testing.T) {
 						utiltestingapi.MakePodSetAssignment("one").
 							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
-								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x5"}, 1).Obj()).
 								Obj()).
 							Obj(),
 						utiltestingapi.MakePodSetAssignment("two").
@@ -3552,6 +3565,58 @@ func TestScheduleForTAS(t *testing.T) {
 					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
 			},
 		},
+		"unannotated workload is not admitted when another resource group has a non-TAS flavor": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor, corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: Flavor "tas-default" supports only TopologyAwareScheduling`).
+					Obj(),
+			},
+		},
+		"unannotated workload gets implicit TAS when all flavors across resource groups use TAS": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavorWithTAS},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s").Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
+			},
+		},
 		"workload with mixed PodSets (requiring TAS and not)": {
 			nodes:           defaultSingleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
@@ -3691,6 +3756,90 @@ func TestScheduleForTAS(t *testing.T) {
 					Queue("tas-main").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						RequiredTopologyRequest("cloud.com/custom-level").
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-custom-flavor", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.com/custom-level"}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).
+					Message(`Quota reserved in ClusterQueue tas-main, wait time since queued was 9223372037s; Flavors considered: one: tas-default(NoFit;Flavor "tas-default" does not contain the requested level)`).
+					Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue tas-main, wait time since reservation was 0s").Obj(),
+			},
+		},
+		"workload prefers topology level which is not present in topology": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						PreferredTopologyRequest("cloud.com/non-existing").
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor, corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: Flavor "tas-default" does not contain the requested level`).
+					Obj(),
+			},
+		},
+		"workload prefers topology level which is only present in second flavor": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label("cloud.com/custom-level", "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies: []kueue.Topology{
+				defaultSingleLevelTopology,
+				*utiltestingapi.MakeTopology("tas-custom-topology").
+					Levels("cloud.com/custom-level").
+					Obj(),
+			},
+			resourceFlavors: []kueue.ResourceFlavor{
+				defaultTASFlavor,
+				*utiltestingapi.MakeResourceFlavor("tas-custom-flavor").
+					NodeLabel("tas-node", "true").
+					TopologyName("tas-custom-topology").
+					Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-default").
+							Resource(corev1.ResourceCPU, "50").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("tas-custom-flavor").
+							Resource(corev1.ResourceCPU, "50").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						PreferredTopologyRequest("cloud.com/custom-level").
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -5132,6 +5281,53 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload with pod requests split across non-TAS and TAS resource groups fails with TAS annotation": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor, corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: Flavor "default" does not support TopologyAwareScheduling`).
+					Obj(),
+			},
+		},
+		"workload with pod requests split across non-TAS and TAS resource groups fails without TAS annotation": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor, defaultFlavor},
+			clusterQueues:   []kueue.ClusterQueue{splitResourceGroupClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", kueue.WorkloadQuotaReservedReasonNoMatchingFlavor, corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: Flavor "tas-default" supports only TopologyAwareScheduling`).
+					Obj(),
+			},
+		},
 		"multi-layer topology: block required with rack and host slices; workload fits": {
 			// block → rack → hostname
 			//        b1
@@ -5281,6 +5477,60 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"rack-required workload packs smaller block first so subsequent block-required workload fits": {
+			nodes:           defaultNodes,
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			scheduleCycles:  2,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("rack-wl", "default").
+					Queue("tas-main").
+					Creation(now).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(tasRackLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("block-wl", "default").
+					Queue("tas-main").
+					Creation(now.Add(time.Second)).
+					PodSets(*utiltestingapi.MakePodSet("one", 4).
+						RequiredTopologyRequest(tasBlockLabel).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/rack-wl": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x5"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+				"default/block-wl": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Count(4).
+						Assignment(corev1.ResourceCPU, "tas-default", "4000m").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "rack-wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "rack-wl", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "block-wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "block-wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
 	}
 	runScheduleForTASCases(t, queues, now, cases)
 }
@@ -5299,7 +5549,8 @@ type tasScheduleTestCase struct {
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
 
-	featureGates map[featuregate.Feature]bool
+	featureGates      map[featuregate.Feature]bool
+	enableFairSharing bool
 
 	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
 	simulatorOverride func() simulator.SchedulerSimulator
@@ -5547,6 +5798,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption
 						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(recordingFactory))
 					}
+					if tc.enableFairSharing {
+						cacheOptions = append(cacheOptions, schdcache.WithFairSharing(true))
+					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(cfg.now)
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
@@ -5609,11 +5863,15 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							t.Fatalf("expected workload %s to be prequeued again for a second pass", workload.Key(wl))
 						}
 					}
+					var fairSharing *config.FairSharing
+					if tc.enableFairSharing {
+						fairSharing = &config.FairSharing{}
+					}
 					recoveryTimeout := 30 * time.Minute
 					if tc.recoveryTimeout != nil {
 						recoveryTimeout = *tc.recoveryTimeout
 					}
-					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
+					schedulerOpts := []Option{WithFairSharing(fairSharing), WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
 					if recoveryTimeout > 0 {
 						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(new(recoveryTimeout)))
 					}

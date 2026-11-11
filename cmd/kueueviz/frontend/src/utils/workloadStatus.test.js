@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 import { describe, it, expect } from 'vitest';
-import { getWorkloadStatus } from './workloadStatus';
+import { getWorkloadStatus, podCount } from './workloadStatus';
 
 const withConditions = (...conditions) => ({ status: { conditions } });
 const condition = (type, status) => ({ type, status });
@@ -59,5 +59,15 @@ describe('getWorkloadStatus', () => {
     ],
   ])('%s', (_, workload, want) => {
     expect(getWorkloadStatus(workload)).toBe(want);
+  });
+});
+
+describe('podCount', () => {
+  it.each([
+    ['no pod sets', { spec: {} }, undefined],
+    ['one pod set', { spec: { podSets: [{ count: 3 }] } }, 3],
+    ['several pod sets', { spec: { podSets: [{ count: 1 }, { count: 4 }] } }, 5],
+  ])('%s', (_description, workload, want) => {
+    expect(podCount(workload)).toBe(want);
   });
 });

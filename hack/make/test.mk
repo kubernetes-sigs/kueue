@@ -100,9 +100,11 @@ OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
 # Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
 # $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
-# generated, client-go, mock, and kueuectl test helper code so it does not
-# inflate the denominator.
-UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/
+# generated, client-go, mock, kueuectl test helper and test/ helper code so it
+# does not inflate the denominator. This is the only exclusion list: the
+# merged profile (hack/testing/merge-unit-coverage.sh) uses the shards'
+# filtered.cov as is.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing|test)/
 
 ##@ Tests
 
@@ -127,6 +129,14 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 	grep -Ev '$(UNIT_COVERAGE_EXCLUDE)' "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" \
 		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
+
+# Run by the Prow jobs pull-kueue-test-unit-coverage-main and
+# post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+# The shard count lives in that script (UNIT_COVERAGE_SHARDS).
+.PHONY: test-unit-coverage-merge
+test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) \
+		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28

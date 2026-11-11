@@ -129,7 +129,7 @@ verify-checks: CI_LINT_GOMAXPROCS = $(VERIFY_CI_LINT_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kind-k8s-main-image-build verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-ci-tools verify-retry-test verify-kind-k8s-main-image-build verify-generate-code verify-merge-unit-coverage verify-image-build-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -348,6 +348,14 @@ verify-retry-test: ## Validate retry.sh defaults and overrides without network o
 verify-kind-k8s-main-image-build: ## Validate download retries in kind-k8s-main-image-build without network.
 	bash $(PROJECT_DIR)/hack/testing/kind-k8s-main-image-build_test.sh
 
+.PHONY: verify-generate-code
+verify-generate-code: ## Validate go install retries in generate-code without network.
+	bash $(PROJECT_DIR)/hack/testing/generate-code_test.sh
+
+.PHONY: verify-merge-unit-coverage
+verify-merge-unit-coverage: ## Test the unit-shard coverage merge script offline.
+	bash $(PROJECT_DIR)/hack/testing/merge-unit-coverage_test.sh
+
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
@@ -355,6 +363,10 @@ verify-generation-order: ## Validate generation barriers and overlap without com
 .PHONY: verify-ci-tools
 verify-ci-tools: ## Validate tool installation without network or containers.
 	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
+
+.PHONY: verify-image-build-test
+verify-image-build-test: ## Validate image builder lifetime and platform coverage without Docker.
+	python3 $(PROJECT_DIR)/hack/testing/image-build_test.py
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation

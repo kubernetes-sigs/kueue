@@ -136,7 +136,7 @@ func runRayClusterSequentialScaleUpTest(
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
 		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: ptr.To[int32](1),
+			IdleTimeoutSeconds: new(int32(1)),
 			Env: []corev1.EnvVar{{
 				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 				Value: "1",
@@ -269,15 +269,15 @@ func runRayJobAutoscalingTest(
 		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
 		Obj()
 	rayJob.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
-		IdleTimeoutSeconds: ptr.To[int32](1),
+		IdleTimeoutSeconds: new(int32(1)),
 		Env: []corev1.EnvVar{{
 			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 			Value: "1",
 		}},
 	}
-	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](0)
-	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
-	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(0))
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(0))
+	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))
 
 	ginkgo.By("Creating the elastic autoscaling RayJob", func() {
 		behavioral.MustCreate(ctx, k8sManagerClient, rayJob)
@@ -418,7 +418,7 @@ func runRayClusterAutoscalingTest(
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
 		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: ptr.To[int32](1),
+			IdleTimeoutSeconds: new(int32(1)),
 			Env: []corev1.EnvVar{{
 				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 				Value: "1",
@@ -612,7 +612,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		WorkloadPriorityClass(managerLowWPC.Name).
 		WithEnableAutoscaling(new(true)).
 		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: ptr.To[int32](1),
+			IdleTimeoutSeconds: new(int32(1)),
 			Env: []corev1.EnvVar{{
 				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 				Value: "1",
@@ -775,7 +775,7 @@ func runRayClusterPreemptionBeforeRepointTest(
 		WorkloadPriorityClass(managerLowWPC.Name).
 		WithEnableAutoscaling(new(true)).
 		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: ptr.To[int32](1),
+			IdleTimeoutSeconds: new(int32(1)),
 			Env: []corev1.EnvVar{{
 				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
 				Value: "1",
@@ -844,7 +844,7 @@ func runRayClusterPreemptionBeforeRepointTest(
 		policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
 			Name: "reject-repoint-" + managerNs.Name,
 			Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
-				FailurePolicy: ptr.To(admissionregistrationv1.Fail),
+				FailurePolicy: new(admissionregistrationv1.Fail),
 				MatchConstraints: &admissionregistrationv1.MatchResources{
 					ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
 						Operations:  []admissionregistrationv1.OperationType{admissionregistrationv1.Update},

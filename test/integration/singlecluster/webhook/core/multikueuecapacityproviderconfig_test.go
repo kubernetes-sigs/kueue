@@ -105,9 +105,9 @@ var _ = ginkgo.Describe("MultiKueueCapacityProviderConfig Validation", func() {
 				Obj()
 
 			behavioral.MustCreate(ctx, k8sClient, config)
-			defer func() {
+			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
-			}()
+			})
 
 			ginkgo.By("Allowing an update that points managerSubtreeRootRef to another ClusterQueue")
 			var fetched kueuealpha.MultiKueueCapacityProviderConfig

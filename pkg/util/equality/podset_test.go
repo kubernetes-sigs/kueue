@@ -21,7 +21,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -65,7 +64,7 @@ func TestComparePodTemplate(t *testing.T) {
 				ps.RestartPolicy = corev1.RestartPolicyAlways
 				ps.DNSPolicy = corev1.DNSClusterFirst
 				ps.SchedulerName = "default-scheduler"
-				ps.TerminationGracePeriodSeconds = ptr.To[int64](30)
+				ps.TerminationGracePeriodSeconds = new(int64(30))
 				ps.SecurityContext = &corev1.PodSecurityContext{}
 				return ps
 			}(),

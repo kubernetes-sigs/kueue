@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -69,9 +68,9 @@ func configureTwoWorkerGroupsWithFlavors(spec *rayv1.RayClusterSpec) {
 		wg := spec.WorkerGroupSpecs[0].DeepCopy()
 		wg.GroupName = string(name)
 		wg.Template.Spec.NodeSelector = map[string]string{"instance-type": instanceType}
-		wg.Replicas = ptr.To[int32](1)
-		wg.MinReplicas = ptr.To[int32](1)
-		wg.MaxReplicas = ptr.To[int32](10)
+		wg.Replicas = new(int32(1))
+		wg.MinReplicas = new(int32(1))
+		wg.MaxReplicas = new(int32(10))
 		return *wg
 	}
 

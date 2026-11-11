@@ -747,3 +747,18 @@ func isStandaloneRayCluster(jobObject client.Object, rayClusterName string) bool
 	_, isRayCluster := jobObject.(*rayv1.RayCluster)
 	return isRayCluster && rayClusterName != "" && jobObject.GetName() == rayClusterName
 }
+
+// ValidateElasticJobTopologyRequest rejects required or preferred topology on the
+// head and worker groups of an elastic Ray job, see
+// jobframework.ValidateElasticJobTopologyRequest.
+func ValidateElasticJobTopologyRequest(object metav1.Object, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) field.ErrorList {
+	if rayClusterSpec == nil {
+		return nil
+	}
+	allErrs := jobframework.ValidateElasticJobTopologyRequest(object, headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
+	for i := range rayClusterSpec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(object, workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+	}
+	return allErrs
+}

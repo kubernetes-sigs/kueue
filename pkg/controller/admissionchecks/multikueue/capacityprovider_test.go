@@ -1607,9 +1607,21 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 		handler       func(mockQ *mockQueue)
 		wantReconcile bool
 	}{
+		"ClusterQueue Create (nil object)": {
+			handler: func(mockQ *mockQueue) {
+				r.clusterQueueHandler().Create(ctx, event.CreateEvent{}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"ClusterQueue Update (nil object)": {
+			handler: func(mockQ *mockQueue) {
+				r.clusterQueueHandler().Update(ctx, event.UpdateEvent{ObjectNew: cq}, mockQ)
+			},
+			wantReconcile: false,
+		},
 		"MultiKueueCapacityProviderConfig Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpProviderConfigHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: providerConfig}, mockQ)
+				r.providerConfigHandler().Create(ctx, event.CreateEvent{Object: providerConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
@@ -1619,38 +1631,38 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 					ManagerSubtreeRootRef(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq2").
 					Obj()
 				newProviderConfig.Generation = 1
-				(&cpProviderConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: providerConfig, ObjectNew: newProviderConfig}, mockQ)
+				r.providerConfigHandler().Update(ctx, event.UpdateEvent{ObjectOld: providerConfig, ObjectNew: newProviderConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"MultiKueueCapacityProviderConfig Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpProviderConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: providerConfig, ObjectNew: providerConfig}, mockQ)
+				r.providerConfigHandler().Update(ctx, event.UpdateEvent{ObjectOld: providerConfig, ObjectNew: providerConfig}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"MultiKueueCapacityProviderConfig Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpProviderConfigHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: providerConfig}, mockQ)
+				r.providerConfigHandler().Delete(ctx, event.DeleteEvent{Object: providerConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"ClusterQueue Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpCQHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: cq}, mockQ)
+				r.clusterQueueHandler().Create(ctx, event.CreateEvent{Object: cq}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"ClusterQueue Create (not referenced)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpCQHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: otherCQ}, mockQ)
+				r.clusterQueueHandler().Create(ctx, event.CreateEvent{Object: otherCQ}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"ClusterQueue Update (relevant)": {
 			handler: func(mockQ *mockQueue) {
 				newCQ := utiltestingapi.MakeClusterQueue("cq1").AdmissionChecks("ac1").Generation(1).Obj()
-				(&cpCQHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cq, ObjectNew: newCQ}, mockQ)
+				r.clusterQueueHandler().Update(ctx, event.UpdateEvent{ObjectOld: cq, ObjectNew: newCQ}, mockQ)
 			},
 			wantReconcile: true,
 		},
@@ -1660,43 +1672,54 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 					AdmissionChecks("ac1").
 					EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().Obj()).
 					Obj()
-				(&cpCQHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cq, ObjectNew: newCQ}, mockQ)
+				r.clusterQueueHandler().Update(ctx, event.UpdateEvent{ObjectOld: cq, ObjectNew: newCQ}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"ClusterQueue Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpCQHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: cq}, mockQ)
+				r.clusterQueueHandler().Delete(ctx, event.DeleteEvent{Object: cq}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"LocalQueue Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpLQHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: lq}, mockQ)
+				r.localQueueHandler().Create(ctx, event.CreateEvent{Object: lq}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"LocalQueue Create (ClusterQueue not referenced)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpLQHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: otherLQ}, mockQ)
+				r.localQueueHandler().Create(ctx, event.CreateEvent{Object: otherLQ}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"LocalQueue Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpLQHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: lq, ObjectNew: lq}, mockQ)
+				newLQ := utiltestingapi.MakeLocalQueue("lq1", TestNamespace).
+					ClusterQueue("cq1").
+					StopPolicy(kueue.Hold).
+					Generation(1).
+					Obj()
+				r.localQueueHandler().Update(ctx, event.UpdateEvent{ObjectOld: lq, ObjectNew: newLQ}, mockQ)
+			},
+			wantReconcile: false,
+		},
+		"LocalQueue Create (no ClusterQueue)": {
+			handler: func(mockQ *mockQueue) {
+				r.localQueueHandler().Create(ctx, event.CreateEvent{Object: utiltestingapi.MakeLocalQueue("lq3", TestNamespace).Obj()}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"LocalQueue Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpLQHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: lq}, mockQ)
+				r.localQueueHandler().Delete(ctx, event.DeleteEvent{Object: lq}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"AdmissionCheck Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpACHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: ac}, mockQ)
+				r.admissionCheckHandler().Create(ctx, event.CreateEvent{Object: ac}, mockQ)
 			},
 			wantReconcile: true,
 		},
@@ -1707,25 +1730,25 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
 					Generation(1).
 					Obj()
-				(&cpACHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: newAC}, mockQ)
+				r.admissionCheckHandler().Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: newAC}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"AdmissionCheck Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpACHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: ac}, mockQ)
+				r.admissionCheckHandler().Update(ctx, event.UpdateEvent{ObjectOld: ac, ObjectNew: ac}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"AdmissionCheck Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpACHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: ac}, mockQ)
+				r.admissionCheckHandler().Delete(ctx, event.DeleteEvent{Object: ac}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"MultiKueueConfig Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKConfigHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: mkConfig}, mockQ)
+				r.multiKueueConfigHandler().Create(ctx, event.CreateEvent{Object: mkConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
@@ -1733,25 +1756,25 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 			handler: func(mockQ *mockQueue) {
 				newMKConfig := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj()
 				newMKConfig.Generation = 1
-				(&cpMKConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: mkConfig, ObjectNew: newMKConfig}, mockQ)
+				r.multiKueueConfigHandler().Update(ctx, event.UpdateEvent{ObjectOld: mkConfig, ObjectNew: newMKConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"MultiKueueConfig Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKConfigHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: mkConfig, ObjectNew: mkConfig}, mockQ)
+				r.multiKueueConfigHandler().Update(ctx, event.UpdateEvent{ObjectOld: mkConfig, ObjectNew: mkConfig}, mockQ)
 			},
 			wantReconcile: false,
 		},
 		"MultiKueueConfig Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKConfigHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: mkConfig}, mockQ)
+				r.multiKueueConfigHandler().Delete(ctx, event.DeleteEvent{Object: mkConfig}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"MultiKueueCluster Create": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKClusterHandler{reconciler: r}).Create(ctx, event.CreateEvent{Object: cluster}, mockQ)
+				r.multiKueueClusterHandler().Create(ctx, event.CreateEvent{Object: cluster}, mockQ)
 			},
 			wantReconcile: true,
 		},
@@ -1759,19 +1782,41 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 			handler: func(mockQ *mockQueue) {
 				newCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").
 					Active(metav1.ConditionTrue, "ByTest", "by test", 1).Obj()
-				(&cpMKClusterHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: newCluster}, mockQ)
+				r.multiKueueClusterHandler().Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: newCluster}, mockQ)
 			},
 			wantReconcile: true,
 		},
 		"MultiKueueCluster Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKClusterHandler{reconciler: r}).Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: cluster}, mockQ)
+				newCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").Generation(1).Obj()
+				r.multiKueueClusterHandler().Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: newCluster}, mockQ)
 			},
 			wantReconcile: false,
 		},
+		"MultiKueueCluster Update (deletion started)": {
+			handler: func(mockQ *mockQueue) {
+				newCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").Obj()
+				newCluster.Finalizers = []string{"example.com/finalizer"}
+				deletionTimestamp := metav1.Now()
+				newCluster.DeletionTimestamp = &deletionTimestamp
+				r.multiKueueClusterHandler().Update(ctx, event.UpdateEvent{ObjectOld: cluster, ObjectNew: newCluster}, mockQ)
+			},
+			wantReconcile: true,
+		},
+		"MultiKueueCluster Update (reconnected after spec change)": {
+			handler: func(mockQ *mockQueue) {
+				oldCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").
+					Active(metav1.ConditionTrue, "Active", "Connected", 1).Obj()
+				newCluster := utiltestingapi.MakeMultiKueueCluster("cluster1").
+					Generation(2).
+					Active(metav1.ConditionTrue, "Active", "Connected", 2).Obj()
+				r.multiKueueClusterHandler().Update(ctx, event.UpdateEvent{ObjectOld: oldCluster, ObjectNew: newCluster}, mockQ)
+			},
+			wantReconcile: true,
+		},
 		"MultiKueueCluster Delete": {
 			handler: func(mockQ *mockQueue) {
-				(&cpMKClusterHandler{reconciler: r}).Delete(ctx, event.DeleteEvent{Object: cluster}, mockQ)
+				r.multiKueueClusterHandler().Delete(ctx, event.DeleteEvent{Object: cluster}, mockQ)
 			},
 			wantReconcile: true,
 		},

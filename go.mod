@@ -13,7 +13,7 @@ require (
 	github.com/kubeflow/spark-operator/v2 v2.5.2
 	github.com/kubeflow/trainer/v2 v2.0.0-20260910145234-8ca43ecb96b2
 	github.com/kubeflow/training-operator v1.9.4
-	github.com/onsi/ginkgo/v2 v2.33.1
+	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
 	github.com/open-policy-agent/cert-controller v0.16.0
 	github.com/project-codeflare/appwrapper v1.2.2
@@ -22,10 +22,10 @@ require (
 	github.com/prometheus/common v0.73.1
 	github.com/ray-project/kuberay/ray-operator v1.7.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	gopkg.in/inf.v0 v0.9.1
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2

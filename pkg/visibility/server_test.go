@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -35,9 +34,10 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 	bindPort := int32(8080)
 
 	tests := []struct {
-		name string
-		cfg  *configapi.Configuration
-		want wantVisibilityServerOptions
+		name                string
+		cfg                 *configapi.Configuration
+		want                wantVisibilityServerOptions
+		wantExternalCertDir bool
 	}{
 		{
 			name: "default visibility server config",
@@ -47,9 +47,8 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				},
 			},
 			want: wantVisibilityServerOptions{
-				BindAddress:   "0.0.0.0",
-				BindPort:      int(configapi.DefaultVisibilityBindPort),
-				CertDirectory: true,
+				BindAddress: "0.0.0.0",
+				BindPort:    int(configapi.DefaultVisibilityBindPort),
 			},
 		},
 		{
@@ -63,9 +62,8 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				},
 			},
 			want: wantVisibilityServerOptions{
-				BindAddress:   "127.0.0.1",
-				BindPort:      int(configapi.DefaultVisibilityBindPort),
-				CertDirectory: true,
+				BindAddress: "127.0.0.1",
+				BindPort:    int(configapi.DefaultVisibilityBindPort),
 			},
 		},
 		{
@@ -79,9 +77,8 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				},
 			},
 			want: wantVisibilityServerOptions{
-				BindAddress:   "0.0.0.0",
-				BindPort:      int(bindPort),
-				CertDirectory: true,
+				BindAddress: "0.0.0.0",
+				BindPort:    int(bindPort),
 			},
 		},
 		{
@@ -96,13 +93,12 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				},
 			},
 			want: wantVisibilityServerOptions{
-				BindAddress:   "127.0.0.1",
-				BindPort:      int(bindPort),
-				CertDirectory: true,
+				BindAddress: "127.0.0.1",
+				BindPort:    int(bindPort),
 			},
 		},
 		{
-			name: "external certificate files",
+			name: "internal cert management disabled",
 			cfg: &configapi.Configuration{
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: &disableInternalCertManagement,
@@ -113,10 +109,10 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				},
 			},
 			want: wantVisibilityServerOptions{
-				BindAddress:   "127.0.0.1",
-				BindPort:      int(bindPort),
-				CertDirectory: false,
+				BindAddress: "127.0.0.1",
+				BindPort:    int(bindPort),
 			},
+			wantExternalCertDir: true,
 		},
 	}
 
@@ -127,18 +123,14 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 			gotOptions := createVisibilityServerOptions(tc.cfg)
 			got := collectVisibilityServerOptions(gotOptions)
 
-			if tc.want.CertDirectory {
-				tc.want.CertDirValue = certDir
-			} else {
-				tc.want.CertDirValue = "apiserver.local.config/certificates"
-				tc.want.CertFile = certDir + "/tls.crt"
-				tc.want.KeyFile = certDir + "/tls.key"
+			dir := certDir
+			if tc.wantExternalCertDir {
+				dir = externalCertDir
 			}
+			tc.want.CertFile = dir + "/tls.crt"
+			tc.want.KeyFile = dir + "/tls.key"
 
-			// Remove the CertDirectory boolean from comparison
-			ignoreCertDirectoryBool := cmpopts.IgnoreFields(wantVisibilityServerOptions{}, "CertDirectory")
-
-			if diff := cmp.Diff(tc.want, got, ignoreCertDirectoryBool); diff != "" {
+			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected options (-want,+got):\n%s", diff)
 			}
 		})
@@ -146,21 +138,18 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 }
 
 type wantVisibilityServerOptions struct {
-	BindAddress   string
-	BindPort      int
-	CertDirectory bool
-	CertDirValue  string
-	CertFile      string
-	KeyFile       string
+	BindAddress string
+	BindPort    int
+	CertFile    string
+	KeyFile     string
 }
 
 func collectVisibilityServerOptions(o *genericoptions.RecommendedOptions) wantVisibilityServerOptions {
 	return wantVisibilityServerOptions{
-		BindAddress:  o.SecureServing.BindAddress.String(),
-		BindPort:     o.SecureServing.BindPort,
-		CertDirValue: o.SecureServing.ServerCert.CertDirectory,
-		CertFile:     o.SecureServing.ServerCert.CertKey.CertFile,
-		KeyFile:      o.SecureServing.ServerCert.CertKey.KeyFile,
+		BindAddress: o.SecureServing.BindAddress.String(),
+		BindPort:    o.SecureServing.BindPort,
+		CertFile:    o.SecureServing.ServerCert.CertKey.CertFile,
+		KeyFile:     o.SecureServing.ServerCert.CertKey.KeyFile,
 	}
 }
 

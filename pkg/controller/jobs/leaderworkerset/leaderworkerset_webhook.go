@@ -81,6 +81,19 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
+// canApplyDefaultLocalQueue reports whether Default can set the default LocalQueue
+// on an update of oldLWS. ValidateUpdate rejects groupIdentity Hash when an update
+// brings a LeaderWorkerSet under Kueue management, so the default LocalQueue is not
+// applied to a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet
+// that already has a queue name is handled like any other, so a dropped "default"
+// label is restored.
+func canApplyDefaultLocalQueue(oldLWS *leaderworkersetv1.LeaderWorkerSet) bool {
+	if oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
+		return false
+	}
+	return jobframework.CanApplyDefaultLocalQueue(oldLWS.Status.ReadyReplicas == 0, oldLWS)
+}
+
 func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWorkerSet) error {
 	lws := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
@@ -92,7 +105,7 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	}
 	// ValidateUpdate rejects adding the queue-name and priority class labels
 	// to a running LeaderWorkerSet that did not have them.
-	if oldLWSObj == nil || jobframework.CanApplyDefaultLocalQueue(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+	if oldLWSObj == nil || canApplyDefaultLocalQueue(oldLWSObj) {
 		if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 			return err
 		}
@@ -160,6 +173,7 @@ var (
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	specPath                      = field.NewPath("spec")
 	replicasPath                  = specPath.Child("replicas")
+	groupIdentityPath             = specPath.Child("groupIdentity")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
 	leaderWorkerTemplateSizePath  = leaderWorkerTemplatePath.Child("size")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
@@ -185,6 +199,12 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 		return nil, err
 	}
 	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
+
+	groupIdentityErrs, err := wh.validateGroupIdentityOnCreate(ctx, lws)
+	if err != nil {
+		return nil, err
+	}
+	validationErrs = append(validationErrs, groupIdentityErrs...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -237,6 +257,12 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		return nil, err
 	}
 	if suspend {
+		groupIdentityWarns, groupIdentityErrs, err := wh.validateGroupIdentityOnUpdate(ctx, oldLeaderWorkerSet, newLeaderWorkerSet)
+		if err != nil {
+			return nil, err
+		}
+		warnings = append(warnings, groupIdentityWarns...)
+		allErrs = append(allErrs, groupIdentityErrs...)
 		partition := rollingUpdatePartition(newLeaderWorkerSet)
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 			newLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate,
@@ -303,6 +329,64 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		allErrs = append(allErrs, validationErrs...)
 	}
 	return allErrs, nil
+}
+
+// Kueue does not support groupIdentity Hash. The controller of a Hash leader Pod
+// is a ReplicaSet rather than a StatefulSet, so the reconciler ungates it without
+// admission. A Hash group index is not an ordinal, so the worker Pods reference a
+// Workload that is never created and stay gated.
+const (
+	groupIdentityHashNotSupportedMsg = "groupIdentity Hash is not supported for LeaderWorkerSets managed by Kueue"
+	groupIdentityHashWarning         = groupIdentityHashNotSupportedMsg +
+		": leader Pods run without admission, worker Pods stay gated, and the Workloads can reserve quota with no Pods;" +
+		" delete the LeaderWorkerSet and create it again with groupIdentity Ordinal"
+)
+
+// validateGroupIdentityOnCreate rejects groupIdentity Hash on a LeaderWorkerSet
+// created under Kueue management. groupIdentity is checked first, so that other
+// LeaderWorkerSets need no lookup of their owner or Namespace.
+func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *LeaderWorkerSet) (field.ErrorList, error) {
+	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+		return nil, nil
+	}
+	managed, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		lws.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+	)
+	if err != nil || !managed {
+		return nil, err
+	}
+	return field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
+}
+
+// validateGroupIdentityOnUpdate rejects groupIdentity Hash unless oldLWS is already
+// managed by Kueue. The caller has checked that newLWS is managed, so this rejects
+// only an update that brings the LeaderWorkerSet under Kueue management, e.g. adding
+// the queue-name label. groupIdentity is immutable, so rejecting an already managed
+// LeaderWorkerSet would block all its updates, e.g. scaling or finalizer removal.
+// Such a LeaderWorkerSet gets a warning instead, because its ordinal Workloads can
+// reserve quota that no Pod uses.
+func (wh *Webhook) validateGroupIdentityOnUpdate(ctx context.Context, oldLWS, newLWS *LeaderWorkerSet) (admission.Warnings, field.ErrorList, error) {
+	if newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+		return nil, nil, nil
+	}
+	wasManaged, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		oldLWS.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if wasManaged {
+		return admission.Warnings{groupIdentityHashWarning}, nil, nil
+	}
+	return nil, field.ErrorList{field.Forbidden(groupIdentityPath, groupIdentityHashNotSupportedMsg)}, nil
 }
 
 func validateReplicasField(lws *LeaderWorkerSet) field.ErrorList {

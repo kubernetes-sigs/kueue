@@ -21,6 +21,8 @@ CONTROLLER_GEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Vers
 KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kustomize/kustomize/v5)
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
+GOPHERAGE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' k8s.io/test-infra)
+GOJQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/itchyny/gojq)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
@@ -52,6 +54,8 @@ CONTROLLER_GEN = $(BIN_DIR)/controller-gen
 KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
+GOPHERAGE = $(BIN_DIR)/gopherage
+GOJQ = $(BIN_DIR)/gojq
 KIND = $(BIN_DIR)/kind
 KUBECTL = $(BIN_DIR)/kubectl
 ENVTEST = $(BIN_DIR)/setup-envtest
@@ -117,6 +121,14 @@ ginkgo: ## Build and reuse the pinned Ginkgo test runner.
 .PHONY: gotestsum
 gotestsum: ## Download the pinned upstream gotestsum binary if necessary.
 	GO_CMD="$(GO_CMD)" python3 $(PROJECT_DIR)/hack/tools-installer/install.py gotestsum "$(GOTESTSUM_VERSION)" "$(GOTESTSUM)"
+
+.PHONY: gopherage
+gopherage: ## Build and reuse the pinned gopherage coverage-profile merger.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOPHERAGE)" "k8s.io/test-infra" "$(GOPHERAGE_VERSION)" "k8s.io/test-infra/gopherage"
+
+.PHONY: gojq
+gojq: ## Build and reuse the pinned gojq JSON processor.
+	GO_CMD="$(GO_CMD)" bash $(PROJECT_DIR)/hack/tools-installer/source.sh "$(GOJQ)" "github.com/itchyny/gojq" "$(GOJQ_VERSION)" "github.com/itchyny/gojq/cmd/gojq"
 
 .PHONY: kind
 kind: ## Download the pinned upstream kind binary if necessary.

@@ -769,6 +769,18 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 	}
 }
 
+// remoteControllerOf returns the controller reference of remWl in the worker cluster, the adapter
+// for the controller kind, and the key of the controller object. The controller reference is nil
+// when remWl has no controller, and the adapter is nil when no adapter handles the controller kind.
+func (rc *remoteClient) remoteControllerOf(remWl *kueue.Workload) (*metav1.OwnerReference, jobframework.MultiKueueAdapter, types.NamespacedName) {
+	controller := metav1.GetControllerOf(remWl)
+	if controller == nil {
+		return nil, nil, types.NamespacedName{}
+	}
+	adapter := rc.adapters[schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()]
+	return controller, adapter, types.NamespacedName{Name: controller.Name, Namespace: remWl.Namespace}
+}
+
 // runGC - lists all the remote workloads having the same multikueue-origin and remove those who
 // no longer have a local correspondent (missing or awaiting deletion). If the remote workload
 // is owned by a job, also delete the job.
@@ -808,15 +820,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		}
 
 		// if the remote wl has a controller(owning Job), delete the job
-		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
+		if controller, adapter, controllerKey := rc.remoteControllerOf(&remoteWl); controller != nil {
 			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
-			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-			if adapter, found := rc.adapters[adapterKey]; !found {
+			if adapter == nil {
+				adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
-				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
+				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, controllerKey, rc.origin)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}

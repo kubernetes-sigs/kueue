@@ -108,7 +108,7 @@ func (r *cpReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	log.V(2).Info("Reconcile MultiKueue CapacityProvider")
+	log.V(3).Info("Reconcile MultiKueue CapacityProvider")
 
 	cq, mkConfig, err := r.resolveManagerClusterQueue(ctx, cp)
 	if err != nil {
@@ -130,29 +130,9 @@ func (r *cpReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonSourceUnavailable, msg)
 	}
 
-	covered := sets.New(cq.Spec.ResourceGroups[0].CoveredResources...)
-	remoteResources := sets.KeySet(agg.quotas)
-	missingResources := remoteResources.Difference(covered)
-	if missingResources.Len() > 0 {
-		msg := fmt.Sprintf("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missingResources))
-		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, msg)
-	}
-
-	resources := make(corev1.ResourceList, len(cq.Spec.ResourceGroups[0].CoveredResources))
-	for _, resName := range cq.Spec.ResourceGroups[0].CoveredResources {
-		if qty, ok := agg.quotas[resName]; ok {
-			resources[resName] = qty
-		} else {
-			resources[resName] = *resource.NewQuantity(0, resource.DecimalSI)
-		}
-	}
-	newCapacity := &kueuealpha.CapacityProviderNormalizedCapacity{
-		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{
-			{
-				Name:      cp.Spec.OrchestratedFlavors[0].Name,
-				Resources: resources,
-			},
-		},
+	newCapacity, err := normalizedCapacity(cp, cq, agg.quotas)
+	if err != nil {
+		return reconcile.Result{}, r.updateStatus(ctx, cp, nil, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonMisconfigured, err.Error())
 	}
 
 	msg := "Capacity synchronized from MultiKueue worker clusters"
@@ -256,97 +236,27 @@ type aggregatedWorkerQuotas struct {
 // Quotas are summed across all worker ResourceFlavors because manager flavor
 // assignment is not propagated to workers.
 func (r *cpReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (aggregatedWorkerQuotas, error) {
-	localLQs := &kueue.LocalQueueList{}
-	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
-		return aggregatedWorkerQuotas{}, fmt.Errorf("listing local LocalQueues: %w", err)
-	}
-
-	lqKeys := sets.New[types.NamespacedName]()
-	for _, llq := range localLQs.Items {
-		lqKeys.Insert(types.NamespacedName{Namespace: llq.Namespace, Name: llq.Name})
+	managerLQs, err := r.managerLocalQueues(ctx, cq)
+	if err != nil {
+		return aggregatedWorkerQuotas{}, err
 	}
 
 	total := make(map[corev1.ResourceName]resource.Quantity)
 	disconnected := sets.New[string]()
 	connectedWorkers := 0
-
 	for _, workerName := range cfg.Spec.Clusters {
-		// The clusters reconciler removes the remote client of a deleted MultiKueueCluster
-		// asynchronously, so check the object itself. Otherwise the reconcile queued by the
-		// MultiKueueCluster delete event could still sum the quotas of the deleted worker.
-		mkc := &kueue.MultiKueueCluster{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: workerName}, mkc); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return aggregatedWorkerQuotas{}, fmt.Errorf("getting MultiKueueCluster %q: %w", workerName, err)
-			}
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker MultiKueueCluster not found, skipping it in quota aggregation", "workerCluster", workerName)
-			disconnected.Insert(workerName)
-			continue
+		workerClient, connected, err := r.connectedWorkerClient(ctx, workerName)
+		if err != nil {
+			return aggregatedWorkerQuotas{}, err
 		}
-		if !mkc.DeletionTimestamp.IsZero() {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker MultiKueueCluster is being deleted, skipping it in quota aggregation", "workerCluster", workerName)
-			disconnected.Insert(workerName)
-			continue
-		}
-
-		var rc *remoteClient
-		var found bool
-		if r.clusters != nil {
-			rc, found = r.clusters.controllerFor(workerName)
-		}
-		if !found {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not found, skipping it in quota aggregation", "workerCluster", workerName)
-			disconnected.Insert(workerName)
-			continue
-		}
-		if !rc.connState.isConnected() {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client not connected, skipping it in quota aggregation", "workerCluster", workerName)
-			disconnected.Insert(workerName)
-			continue
-		}
-		remoteCl := rc.getClient()
-		if remoteCl == nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("Worker cluster client is nil, skipping it in quota aggregation", "workerCluster", workerName)
+		if !connected {
 			disconnected.Insert(workerName)
 			continue
 		}
 		connectedWorkers++
 
-		remoteLQList := &kueue.LocalQueueList{}
-		// This List is cached (by the selectivelyCachingClient).
-		if err := remoteCl.List(ctx, remoteLQList); err != nil {
-			return aggregatedWorkerQuotas{}, fmt.Errorf("listing LocalQueues on worker %q: %w", workerName, err)
-		}
-		remoteCQKeys := sets.New[types.NamespacedName]()
-		for _, rlq := range remoteLQList.Items {
-			if lqKeys.Has(types.NamespacedName{Namespace: rlq.Namespace, Name: rlq.Name}) {
-				remoteCQKeys.Insert(types.NamespacedName{Name: string(rlq.Spec.ClusterQueue)})
-			}
-		}
-
-		remoteCQList := &kueue.ClusterQueueList{}
-		// This List is cached (by the selectivelyCachingClient).
-		if err := remoteCl.List(ctx, remoteCQList); err != nil {
-			return aggregatedWorkerQuotas{}, fmt.Errorf("listing ClusterQueues on worker %q: %w", workerName, err)
-		}
-
-		for _, rcq := range remoteCQList.Items {
-			key := types.NamespacedName{Name: rcq.Name}
-			if !remoteCQKeys.Has(key) {
-				continue
-			}
-			for _, rg := range resourcegroups.EffectiveResourceGroups(&rcq) {
-				for _, flavor := range rg.Flavors {
-					for _, res := range flavor.Resources {
-						if curr, exists := total[res.Name]; exists {
-							curr.Add(res.NominalQuota)
-							total[res.Name] = curr
-						} else {
-							total[res.Name] = res.NominalQuota.DeepCopy()
-						}
-					}
-				}
-			}
+		if err := addWorkerQuotas(ctx, total, workerClient, workerName, managerLQs); err != nil {
+			return aggregatedWorkerQuotas{}, err
 		}
 	}
 
@@ -354,6 +264,132 @@ func (r *cpReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.Clus
 		quotas:              total,
 		connectedWorkers:    connectedWorkers,
 		disconnectedWorkers: sets.List(disconnected),
+	}, nil
+}
+
+func (r *cpReconciler) managerLocalQueues(ctx context.Context, cq *kueue.ClusterQueue) (sets.Set[types.NamespacedName], error) {
+	lqList := &kueue.LocalQueueList{}
+	if err := r.client.List(ctx, lqList, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
+		return nil, fmt.Errorf("listing local LocalQueues: %w", err)
+	}
+
+	keys := sets.New[types.NamespacedName]()
+	for i := range lqList.Items {
+		keys.Insert(client.ObjectKeyFromObject(&lqList.Items[i]))
+	}
+	return keys, nil
+}
+
+func (r *cpReconciler) connectedWorkerClient(ctx context.Context, workerName string) (SelectivelyCachingClient, bool, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("workerCluster", workerName)
+
+	// The clusters reconciler removes the remote client of a deleted MultiKueueCluster
+	// asynchronously, so check the object itself. Otherwise the reconcile queued by the
+	// MultiKueueCluster delete event could still sum the quotas of the deleted worker.
+	mkc := &kueue.MultiKueueCluster{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: workerName}, mkc); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, false, fmt.Errorf("getting MultiKueueCluster %q: %w", workerName, err)
+		}
+		log.V(3).Info("Worker MultiKueueCluster not found, skipping it in quota aggregation")
+		return nil, false, nil
+	}
+	if !mkc.DeletionTimestamp.IsZero() {
+		log.V(3).Info("Worker MultiKueueCluster is being deleted, skipping it in quota aggregation")
+		return nil, false, nil
+	}
+
+	rc, found := r.clusters.controllerFor(workerName)
+	if !found {
+		log.V(3).Info("Worker cluster client not found, skipping it in quota aggregation")
+		return nil, false, nil
+	}
+	if !rc.connState.isConnected() {
+		log.V(3).Info("Worker cluster client not connected, skipping it in quota aggregation")
+		return nil, false, nil
+	}
+	workerClient := rc.getClient()
+	if workerClient == nil {
+		log.V(3).Info("Worker cluster client is nil, skipping it in quota aggregation")
+		return nil, false, nil
+	}
+	return workerClient, true, nil
+}
+
+// addWorkerQuotas adds to total the nominal quotas of the worker ClusterQueues referenced by
+// worker LocalQueues that share a namespace/name with managerLQs.
+func addWorkerQuotas(
+	ctx context.Context,
+	total map[corev1.ResourceName]resource.Quantity,
+	workerClient client.Reader,
+	workerName string,
+	managerLQs sets.Set[types.NamespacedName],
+) error {
+	// This List is cached (by the selectivelyCachingClient).
+	workerLQList := &kueue.LocalQueueList{}
+	if err := workerClient.List(ctx, workerLQList); err != nil {
+		return fmt.Errorf("listing LocalQueues on worker %q: %w", workerName, err)
+	}
+	relatedCQs := sets.New[string]()
+	for i := range workerLQList.Items {
+		if managerLQs.Has(client.ObjectKeyFromObject(&workerLQList.Items[i])) {
+			relatedCQs.Insert(string(workerLQList.Items[i].Spec.ClusterQueue))
+		}
+	}
+
+	// This List is cached (by the selectivelyCachingClient).
+	workerCQList := &kueue.ClusterQueueList{}
+	if err := workerClient.List(ctx, workerCQList); err != nil {
+		return fmt.Errorf("listing ClusterQueues on worker %q: %w", workerName, err)
+	}
+	for i := range workerCQList.Items {
+		if relatedCQs.Has(workerCQList.Items[i].Name) {
+			addNominalQuotas(total, &workerCQList.Items[i])
+		}
+	}
+	return nil
+}
+
+func addNominalQuotas(total map[corev1.ResourceName]resource.Quantity, cq *kueue.ClusterQueue) {
+	for _, rg := range resourcegroups.EffectiveResourceGroups(cq) {
+		for _, flavor := range rg.Flavors {
+			for _, res := range flavor.Resources {
+				if curr, exists := total[res.Name]; exists {
+					curr.Add(res.NominalQuota)
+					total[res.Name] = curr
+				} else {
+					total[res.Name] = res.NominalQuota.DeepCopy()
+				}
+			}
+		}
+	}
+}
+
+// normalizedCapacity returns the capacity of the orchestrated ResourceFlavor: the summed worker quota
+// for each coveredResource of the manager ClusterQueue, or zero when no worker sets that resource.
+// It returns a *misconfiguredError when the workers set quota for a resource that the manager
+// ClusterQueue does not cover.
+func normalizedCapacity(cp *kueuealpha.CapacityProvider, cq *kueue.ClusterQueue, workerQuotas map[corev1.ResourceName]resource.Quantity) (*kueuealpha.CapacityProviderNormalizedCapacity, error) {
+	coveredResources := cq.Spec.ResourceGroups[0].CoveredResources
+	if missing := sets.KeySet(workerQuotas).Difference(sets.New(coveredResources...)); missing.Len() > 0 {
+		return nil, misconfigured("manager-side coveredResources is missing resources configured on workers: %v", sets.List(missing))
+	}
+
+	resources := make(corev1.ResourceList, len(coveredResources))
+	for _, resName := range coveredResources {
+		if qty, ok := workerQuotas[resName]; ok {
+			resources[resName] = qty
+		} else {
+			resources[resName] = *resource.NewQuantity(0, resource.DecimalSI)
+		}
+	}
+	return &kueuealpha.CapacityProviderNormalizedCapacity{
+		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{
+			{
+				Name:      cp.Spec.OrchestratedFlavors[0].Name,
+				Resources: resources,
+			},
+		},
 	}, nil
 }
 
@@ -480,12 +516,12 @@ func (r *cpReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_capacityprovider").
 		For(&kueuealpha.CapacityProvider{}, builder.WithPredicates(cpEventFilter, predicate.GenerationChangedPredicate{})).
-		Watches(&kueuealpha.MultiKueueCapacityProviderConfig{}, &cpProviderConfigHandler{reconciler: r}).
-		Watches(&kueue.ClusterQueue{}, &cpCQHandler{reconciler: r}).
-		Watches(&kueue.LocalQueue{}, &cpLQHandler{reconciler: r}).
-		Watches(&kueue.AdmissionCheck{}, &cpACHandler{reconciler: r}).
-		Watches(&kueue.MultiKueueConfig{}, &cpMKConfigHandler{reconciler: r}).
-		Watches(&kueue.MultiKueueCluster{}, &cpMKClusterHandler{reconciler: r}).
+		Watches(&kueuealpha.MultiKueueCapacityProviderConfig{}, r.providerConfigHandler()).
+		Watches(&kueue.ClusterQueue{}, r.clusterQueueHandler()).
+		Watches(&kueue.LocalQueue{}, r.localQueueHandler()).
+		Watches(&kueue.AdmissionCheck{}, r.admissionCheckHandler()).
+		Watches(&kueue.MultiKueueConfig{}, r.multiKueueConfigHandler()).
+		Watches(&kueue.MultiKueueCluster{}, r.multiKueueClusterHandler()).
 		WatchesRawSource(source.Channel(r.clusters.cqUpdateCh, remoteHandler)).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-capacityprovider-reconciler"),
@@ -493,152 +529,91 @@ func (r *cpReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-type cpProviderConfigHandler struct {
-	reconciler *cpReconciler
-}
+type cpEnqueueFunc func(ctx context.Context, name string, q workqueue.TypedRateLimitingInterface[reconcile.Request])
 
-var _ handler.EventHandler = (*cpProviderConfigHandler)(nil)
-
-func (h *cpProviderConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForProviderConfig(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpProviderConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if event.ObjectOld.GetGeneration() != event.ObjectNew.GetGeneration() {
-		h.reconciler.queueEventsForProviderConfig(ctx, event.ObjectNew.GetName(), q)
+// newCPEventHandler returns an event handler that calls enqueue with the name of the
+// watched object. Update events are queued only when updated returns true.
+func newCPEventHandler(enqueue cpEnqueueFunc, updated func(oldObj, newObj client.Object) bool) handler.EventHandler {
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if e.Object != nil {
+				enqueue(ctx, e.Object.GetName(), q)
+			}
+		},
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if e.ObjectOld != nil && e.ObjectNew != nil && updated(e.ObjectOld, e.ObjectNew) {
+				enqueue(ctx, e.ObjectNew.GetName(), q)
+			}
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			if e.Object != nil {
+				enqueue(ctx, e.Object.GetName(), q)
+			}
+		},
 	}
 }
 
-func (h *cpProviderConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForProviderConfig(ctx, event.Object.GetName(), q)
+func generationChanged(oldObj, newObj client.Object) bool {
+	return oldObj.GetGeneration() != newObj.GetGeneration()
 }
 
-func (h *cpProviderConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (r *cpReconciler) providerConfigHandler() handler.EventHandler {
+	return newCPEventHandler(r.queueEventsForProviderConfig, generationChanged)
 }
 
-// cpCQHandler ignores ClusterQueue status changes, so that DQO writing the manager
+// clusterQueueHandler ignores ClusterQueue status changes, so that DQO writing the manager
 // ClusterQueue's status.effectiveQuotas does not trigger the provider.
-type cpCQHandler struct {
-	reconciler *cpReconciler
+func (r *cpReconciler) clusterQueueHandler() handler.EventHandler {
+	return newCPEventHandler(r.queueEventsForManagerCQ, generationChanged)
 }
 
-var _ handler.EventHandler = (*cpCQHandler)(nil)
-
-func (h *cpCQHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForManagerCQ(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpCQHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if event.ObjectOld.GetGeneration() != event.ObjectNew.GetGeneration() {
-		h.reconciler.queueEventsForManagerCQ(ctx, event.ObjectNew.GetName(), q)
+// localQueueHandler ignores Update events, because Spec.ClusterQueue is immutable on LocalQueues.
+func (r *cpReconciler) localQueueHandler() handler.EventHandler {
+	enqueue := func(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		if lq, ok := obj.(*kueue.LocalQueue); ok && lq != nil && lq.Spec.ClusterQueue != "" {
+			r.queueEventsForManagerCQ(ctx, string(lq.Spec.ClusterQueue), q)
+		}
+	}
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			enqueue(ctx, e.Object, q)
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			enqueue(ctx, e.Object, q)
+		},
 	}
 }
 
-func (h *cpCQHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForManagerCQ(ctx, event.Object.GetName(), q)
+func (r *cpReconciler) admissionCheckHandler() handler.EventHandler {
+	return newCPEventHandler(r.queueEventsForAC, generationChanged)
 }
 
-func (h *cpCQHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (r *cpReconciler) multiKueueConfigHandler() handler.EventHandler {
+	return newCPEventHandler(r.queueEventsForMKConfig, generationChanged)
 }
 
-type cpLQHandler struct {
-	reconciler *cpReconciler
+// multiKueueClusterHandler queues on Update events only when the MultiKueueCluster starts
+// being deleted or its Active condition changes. The clusters reconciler updates Active after
+// connecting or disconnecting the worker, but stops a deleted worker without updating Active.
+// After a spec change reconnects the worker, only the ObservedGeneration of Active changes.
+func (r *cpReconciler) multiKueueClusterHandler() handler.EventHandler {
+	return newCPEventHandler(r.queueEventsForMKCluster, multiKueueClusterUpdated)
 }
 
-var _ handler.EventHandler = (*cpLQHandler)(nil)
-
-func (h *cpLQHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		h.reconciler.queueEventsForManagerCQ(ctx, string(lq.Spec.ClusterQueue), q)
+func multiKueueClusterUpdated(oldObj, newObj client.Object) bool {
+	oldMKC, isOldMKC := oldObj.(*kueue.MultiKueueCluster)
+	newMKC, isNewMKC := newObj.(*kueue.MultiKueueCluster)
+	if !isOldMKC || !isNewMKC || oldMKC == nil || newMKC == nil {
+		return false
 	}
-}
-
-func (h *cpLQHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// No action needed, Spec.ClusterQueue is immutable on LocalQueues.
-}
-
-func (h *cpLQHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		h.reconciler.queueEventsForManagerCQ(ctx, string(lq.Spec.ClusterQueue), q)
-	}
-}
-
-func (h *cpLQHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-type cpACHandler struct {
-	reconciler *cpReconciler
-}
-
-var _ handler.EventHandler = (*cpACHandler)(nil)
-
-func (h *cpACHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForAC(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpACHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if event.ObjectNew.GetGeneration() != event.ObjectOld.GetGeneration() {
-		h.reconciler.queueEventsForAC(ctx, event.ObjectNew.GetName(), q)
-	}
-}
-
-func (h *cpACHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForAC(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpACHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-type cpMKConfigHandler struct {
-	reconciler *cpReconciler
-}
-
-var _ handler.EventHandler = (*cpMKConfigHandler)(nil)
-
-func (h *cpMKConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForMKConfig(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpMKConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if event.ObjectOld.GetGeneration() != event.ObjectNew.GetGeneration() {
-		h.reconciler.queueEventsForMKConfig(ctx, event.ObjectNew.GetName(), q)
-	}
-}
-
-func (h *cpMKConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForMKConfig(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpMKConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-type cpMKClusterHandler struct {
-	reconciler *cpReconciler
-}
-
-var _ handler.EventHandler = (*cpMKClusterHandler)(nil)
-
-func (h *cpMKClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForMKCluster(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpMKClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldMKC, isOldMKC := event.ObjectOld.(*kueue.MultiKueueCluster)
-	newMKC, isNewMKC := event.ObjectNew.(*kueue.MultiKueueCluster)
-	if !isOldMKC || !isNewMKC {
-		return
+	if oldMKC.DeletionTimestamp.IsZero() != newMKC.DeletionTimestamp.IsZero() {
+		return true
 	}
 
 	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	if !isConditionEqual(oldActive, newActive) {
-		h.reconciler.queueEventsForMKCluster(ctx, newMKC.Name, q)
+		return true
 	}
-}
-
-func (h *cpMKClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.reconciler.queueEventsForMKCluster(ctx, event.Object.GetName(), q)
-}
-
-func (h *cpMKClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	return oldActive != nil && oldActive.ObservedGeneration != newActive.ObservedGeneration
 }

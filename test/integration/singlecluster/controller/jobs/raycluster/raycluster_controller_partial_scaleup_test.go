@@ -88,8 +88,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
 
