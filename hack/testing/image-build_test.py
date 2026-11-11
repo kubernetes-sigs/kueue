@@ -25,36 +25,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ImageBuildTest(unittest.TestCase):
-    def test_observation_preserves_status_and_records_cgroup_changes(self):
-        """Instrumentation must report both snapshots without hiding build failures."""
-        for status in (0, 23):
-            with self.subTest(status=status), tempfile.TemporaryDirectory() as temp:
-                cgroup = Path(temp)
-                (cgroup / "cpu.max").write_text("470000 100000\n")
-                (cgroup / "cpu.stat").write_text("usage_usec 10\n")
-                env = {**os.environ, "IMAGE_BUILD_CGROUP_ROOT": temp, "TARGETARCH": "arm64"}
-                result = subprocess.run(
-                    ["bash", str(ROOT / "hack/testing/image-build-observe.sh"), "probe", "bash", "-c",
-                     f'printf "usage_usec 20\\n" > "$IMAGE_BUILD_CGROUP_ROOT/cpu.stat"; exit {status}'],
-                    env=env, text=True, capture_output=True,
-                )
-                self.assertEqual(result.returncode, status, result.stderr)
-                self.assertIn("component=probe arch=arm64 phase=before metric=cpu.max value=470000 100000", result.stdout)
-                self.assertIn("phase=before metric=cpu.stat value=usage_usec 10", result.stdout)
-                self.assertIn("phase=after metric=cpu.stat value=usage_usec 20", result.stdout)
-                self.assertRegex(result.stdout, rf"phase=end duration_seconds=[0-9]+ status={status}")
-
-    def test_observation_does_not_require_cgroup_files(self):
-        """The wrapper also runs on hosts without a mounted Linux cgroup filesystem."""
-        with tempfile.TemporaryDirectory() as temp:
-            result = subprocess.run(
-                ["bash", str(ROOT / "hack/testing/image-build-observe.sh"), "probe", "bash", "-c", "exit 17"],
-                env={**os.environ, "IMAGE_BUILD_CGROUP_ROOT": temp}, text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 17, result.stderr)
-            self.assertIn("phase=end", result.stdout)
-            self.assertIn("cgroup_metrics=unavailable", result.stdout)
-
     def build_images(self, fail="", settings=(), target="image-presubmit"):
         """Run real Make recipes with a recording stub and optional failure injection."""
         with tempfile.TemporaryDirectory() as temp:

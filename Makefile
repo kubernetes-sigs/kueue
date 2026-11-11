@@ -34,12 +34,12 @@ RAY_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 # Bound the manager's concurrent cross-compilations only in the image presubmit.
-# Empty overrides retain Go's automatic parallelism for comparison runs.
+# Empty overrides retain Go's automatic parallelism.
 IMAGE_PRESUBMIT_GOMAXPROCS ?= 2
 IMAGE_PRESUBMIT_GO_PARALLELISM ?= 2
 IMAGE_BUILD_GOMAXPROCS ?=
 IMAGE_BUILD_GO_PARALLELISM ?=
-# Temporary upstream experiment; remove after the paired comparison.
+# Temporary upstream comparison; remove after measuring cache reuse.
 IMAGE_PRESUBMIT_BENCHMARK ?= 1
 
 STAGING_IMAGE_REGISTRY := us-central1-docker.pkg.dev/k8s-staging-images/kueue
@@ -257,14 +257,13 @@ image-local-build:
 .PHONY: image-presubmit image-presubmit-once
 image-presubmit:
 ifeq ($(IMAGE_PRESUBMIT_BENCHMARK),1)
-	@run=0; for mode in bounded automatic automatic bounded bounded automatic; do \
-		run=$$((run + 1)); parallelism=; \
-		if [ "$$mode" = bounded ]; then parallelism=2; fi; \
+	@run=0; for mode in baseline trimpath trimpath baseline; do \
+		run=$$((run + 1)); trimpath=0; \
+		if [ "$$mode" = trimpath ]; then trimpath=1; fi; \
 		started=$$(date +%s); \
 		printf 'image-build-benchmark phase=begin run=%s mode=%s\n' "$$run" "$$mode"; \
 		$(MAKE) -j1 image-presubmit-once \
-			IMAGE_PRESUBMIT_GOMAXPROCS="$$parallelism" \
-			IMAGE_PRESUBMIT_GO_PARALLELISM="$$parallelism" || exit $$?; \
+			IMAGE_BUILD_EXTRA_OPTS="$(IMAGE_BUILD_EXTRA_OPTS) --build-arg IMAGE_BUILD_TRIMPATH=$$trimpath" || exit $$?; \
 		finished=$$(date +%s); \
 		printf 'image-build-benchmark phase=end run=%s mode=%s duration_seconds=%s\n' \
 			"$$run" "$$mode" "$$((finished - started))"; \
