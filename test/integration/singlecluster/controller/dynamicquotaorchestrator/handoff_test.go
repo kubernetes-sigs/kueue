@@ -135,6 +135,95 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label
 			gomega.Eventually(check("50", dqoA.Name, "50", "40"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	}
+
+	ginkgo.It("wakes an existing destination DQO when its previous owner retargets the subtree root", func() {
+		name := func(s string) string { return "handoff-retarget-" + s }
+		rootA := utiltestingapi.MakeCohort(kueue.CohortReference(name("root-a"))).Obj()
+		rootB := utiltestingapi.MakeCohort(kueue.CohortReference(name("root-b"))).Obj()
+		createHandoffObject(rootA)
+		createHandoffObject(rootB)
+
+		quota := func(cpu string) kueue.ResourceGroup {
+			return utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, cpu).Obj())
+		}
+		queue := func(n, cohort string) *kueue.ClusterQueue {
+			return utiltestingapi.MakeClusterQueue(name(n)).Cohort(kueue.CohortReference(cohort)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
+		}
+		cqA := queue("queue-a", rootA.Name)
+		cqB := queue("queue-b", rootB.Name)
+		createHandoffObject(cqA)
+		createHandoffObject(cqB)
+
+		provider := func(n, cpu string) *kueuealpha.CapacityProvider {
+			return utiltestingalpha.MakeCapacityProvider(name(n)).ControllerName("example.com/test-provider").
+				OrchestratedFlavors("f1").
+				Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(
+					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, cpu).Obj(),
+				).Obj()).
+				Condition(metav1.Condition{
+					Type: kueuealpha.CapacityProviderCapacitySynchronized,
+					Status: metav1.ConditionTrue,
+					Reason: kueuealpha.CapacityProviderReasonSynchronized,
+				}).Obj()
+		}
+		cpA, cpB := provider("provider-a", "100"), provider("provider-b", "40")
+		createCapacityProvider(ctx, k8sClient, cpA)
+		ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpA, true) })
+		createCapacityProvider(ctx, k8sClient, cpB)
+		ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpB, true) })
+
+		dqoA := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("owner-a")).
+			DiscoveryProvider(cpA.Name, nil).
+			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, rootA.Name).Obj()
+		// B is a descendant of A at first, so it cannot distribute to cqA.
+		dqoB := utiltestingalpha.MakeDynamicQuotaOrchestrator(name("owner-b")).
+			DiscoveryProvider(cpB.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cqA.Name).Obj()
+		createHandoffObject(dqoA)
+		ginkgo.By("waiting for A to own the queue before creating B")
+		gomega.Eventually(func(g gomega.Gomega) {
+			expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqA), dqoA.Name, quota("100"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		createHandoffObject(dqoB)
+
+		blocked := func(g gomega.Gomega) {
+			var latest kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqoB), &latest)).Should(gomega.Succeed())
+			g.Expect(latest.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+				kueuealpha.DynamicQuotaOrchestratorDistributed,
+				kueuealpha.DynamicQuotaOrchestratorReasonConflictingDynamicQuotaOrchestrator,
+			))
+			expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqA), dqoA.Name, quota("100"))
+		}
+		ginkgo.By("verifying the already-existing destination is blocked by A's ancestor root")
+		gomega.Eventually(blocked, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Consistently(blocked, time.Second, 200*time.Millisecond).Should(gomega.Succeed())
+
+		ginkgo.By("retargeting A without modifying either ClusterQueue, Cohort, or provider")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var latest kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqoA), &latest)).Should(gomega.Succeed())
+			latest.Spec.CapacityDistribution.SubtreeRootQuotaRef.Name = rootB.Name
+			g.Expect(k8sClient.Update(ctx, &latest)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		// There is deliberately no direct Reconcile call or other object update.
+		// The DQO spec-generation watch must requeue B to take over A's stale quotas.
+		ginkgo.By("waiting for the DQO watch to unblock B and hand over the old queue")
+		gomega.Eventually(func(g gomega.Gomega) {
+			for _, dqo := range []*kueuealpha.DynamicQuotaOrchestrator{dqoA, dqoB} {
+				var latest kueuealpha.DynamicQuotaOrchestrator
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &latest)).Should(gomega.Succeed())
+				g.Expect(latest.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+				))
+			}
+			expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqA), dqoB.Name, quota("40"))
+			expectClusterQueueOwnedBy(g, client.ObjectKeyFromObject(cqB), dqoA.Name, quota("100"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
 })
 
 func createHandoffObject[PtrT behavioral.ObjAsPtr[T], T any](obj PtrT) {
