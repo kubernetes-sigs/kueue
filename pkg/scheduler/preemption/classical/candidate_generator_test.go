@@ -270,8 +270,11 @@ func TestCacheIterator(t *testing.T) {
 				}
 				return s
 			}(),
-			borrow: false,
-			want:   []string{"a", "b", "c", "d", "e", "f", "g", "h"},
+			borrow:         false,
+			want:           []string{"a", "b", "c", "d", "e", "f", "g", "h"},
+			doReset:        true,
+			resetBorrow:    false,
+			wantAfterReset: []string{"a", "b", "c", "d", "e", "f", "g", "h"},
 		},
 		"heap reinserts a bucket after a snapshot change while preserving tie order": {
 			// a0 is returned first. Removing a1 then exposes b1, which ties
