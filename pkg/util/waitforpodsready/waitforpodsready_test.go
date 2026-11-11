@@ -175,6 +175,12 @@ func TestParseAnnotation(t *testing.T) {
 				Timeout: new(100 * time.Second),
 			},
 		},
+		"unscheduledTimeoutSeconds is ignored when its feature gate is disabled": {
+			annotation: `{"timeoutSeconds":100,"unscheduledTimeoutSeconds":8}`,
+			want: &WorkloadLevelConfig{
+				Timeout: new(100 * time.Second),
+			},
+		},
 		"valid annotation with recoveryTimeoutSeconds": {
 			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":50}`,
 			want: &WorkloadLevelConfig{
@@ -244,7 +250,8 @@ func TestParseAnnotation(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
 			})
 			got, err := ParseAnnotation(tc.annotation)
 			gotErrMsg := ""

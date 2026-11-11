@@ -41,6 +41,34 @@ func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
 }
 
+// PodsScheduledTrackerNeeded reports whether any Workload could need tracking.
+func PodsScheduledTrackerNeeded(cfg *configapi.WaitForPodsReady) bool {
+	return PodsScheduledTrackingEnabled(cfg) ||
+		(features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+			WorkloadLevelWaitForPodsReadyEnabled())
+}
+
+// ClusterUnscheduledTimeout returns the cluster-wide scheduling timeout, if set.
+func ClusterUnscheduledTimeout(cfg *configapi.WaitForPodsReady) time.Duration {
+	if cfg == nil || cfg.UnscheduledTimeout == nil {
+		return 0
+	}
+	return cfg.UnscheduledTimeout.Duration
+}
+
+// EffectiveUnscheduledTimeout resolves a Workload override before the cluster value.
+// An explicit zero disables scheduling tracking for this Workload.
+func EffectiveUnscheduledTimeout(wl *kueue.Workload, clusterTimeout time.Duration) time.Duration {
+	if !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		return 0
+	}
+	if WorkloadLevelWaitForPodsReadyEnabled() && wl != nil &&
+		wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds != nil {
+		return secondsToDuration(*wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds)
+	}
+	return clusterTimeout
+}
+
 // RecoveryTimeout returns the configured recovery timeout, or nil when no
 // recovery eviction is possible and the regular timeout alone applies.
 func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
@@ -55,8 +83,9 @@ func RecoveryTimeout(cfg *configapi.WaitForPodsReady) *time.Duration {
 // with integer seconds already converted to time.Duration. A nil timeout means
 // the corresponding field was omitted from the annotation.
 type WorkloadLevelConfig struct {
-	Timeout         *time.Duration
-	RecoveryTimeout *time.Duration
+	Timeout            *time.Duration
+	RecoveryTimeout    *time.Duration
+	UnscheduledTimeout *time.Duration
 }
 
 // ParseAnnotation parses the JSON value of the WaitForPodsReadyAnnotation into
@@ -82,6 +111,17 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
 		cfg.RecoveryTimeout = new(secondsToDuration(*raw.RecoveryTimeoutSeconds))
+	}
+	if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		var extra struct {
+			UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(value), &extra); err != nil {
+			return nil, err
+		}
+		if extra.UnscheduledTimeoutSeconds != nil {
+			cfg.UnscheduledTimeout = new(secondsToDuration(*extra.UnscheduledTimeoutSeconds))
+		}
 	}
 	return cfg, nil
 }
@@ -115,6 +155,10 @@ func ParseWaitForPodsReady(obj client.Object) (*kueue.WaitForPodsReady, error) {
 	if cfg.RecoveryTimeout != nil {
 		result.RecoveryTimeoutSeconds =
 			new(int64(*cfg.RecoveryTimeout / time.Second))
+	}
+	if cfg.UnscheduledTimeout != nil {
+		result.UnscheduledTimeoutSeconds =
+			new(int64(*cfg.UnscheduledTimeout / time.Second))
 	}
 	return result, nil
 }

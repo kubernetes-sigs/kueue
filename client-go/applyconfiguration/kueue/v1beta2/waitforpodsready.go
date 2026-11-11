@@ -34,6 +34,17 @@ type WaitForPodsReadyApplyConfiguration struct {
 	// If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
 	// are set, this field takes precedence.
 	RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+	// unscheduledTimeoutSeconds defines a timeout, measured since the transition to the
+	// Admitted=True condition, for all the Pods required by the admission to be
+	// scheduled or to have succeeded.
+	// If Kueue observes incomplete scheduling for this admission when the deadline
+	// expires, it evicts the Workload with reason PodsReadyTimeout and requeues it
+	// after the backoff delay.
+	// If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
+	// are set, this field takes precedence. If omitted, the cluster-wide value
+	// applies. Set to 0 to disable scheduling tracking for this Workload.
+	// Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
+	UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
 }
 
 // WaitForPodsReadyApplyConfiguration constructs a declarative configuration of the WaitForPodsReady type for use with
@@ -55,5 +66,13 @@ func (b *WaitForPodsReadyApplyConfiguration) WithTimeoutSeconds(value int64) *Wa
 // If called multiple times, the RecoveryTimeoutSeconds field is set to the value of the last call.
 func (b *WaitForPodsReadyApplyConfiguration) WithRecoveryTimeoutSeconds(value int64) *WaitForPodsReadyApplyConfiguration {
 	b.RecoveryTimeoutSeconds = &value
+	return b
+}
+
+// WithUnscheduledTimeoutSeconds sets the UnscheduledTimeoutSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the UnscheduledTimeoutSeconds field is set to the value of the last call.
+func (b *WaitForPodsReadyApplyConfiguration) WithUnscheduledTimeoutSeconds(value int64) *WaitForPodsReadyApplyConfiguration {
+	b.UnscheduledTimeoutSeconds = &value
 	return b
 }

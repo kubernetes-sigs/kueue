@@ -114,6 +114,20 @@ type WaitForPodsReady struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+
+	// unscheduledTimeoutSeconds defines a timeout, measured since the transition to the
+	// Admitted=True condition, for all the Pods required by the admission to be
+	// scheduled or to have succeeded.
+	// If Kueue observes incomplete scheduling for this admission when the deadline
+	// expires, it evicts the Workload with reason PodsReadyTimeout and requeues it
+	// after the backoff delay.
+	// If both this field and the cluster-wide WaitForPodsReady.UnscheduledTimeout
+	// are set, this field takes precedence. If omitted, the cluster-wide value
+	// applies. Set to 0 to disable scheduling tracking for this Workload.
+	// Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	UnscheduledTimeoutSeconds *int64 `json:"unscheduledTimeoutSeconds,omitempty"`
 }
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.
