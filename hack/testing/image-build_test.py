@@ -55,7 +55,7 @@ class ImageBuildTest(unittest.TestCase):
             self.assertIn("phase=end", result.stdout)
             self.assertIn("cgroup_metrics=unavailable", result.stdout)
 
-    def build_images(self, fail=""):
+    def build_images(self, fail="", settings=()):
         """Run real Make recipes with a recording stub and optional failure injection."""
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -97,7 +97,7 @@ else:
                  f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
                  "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
-                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain"],
+                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *settings],
                 cwd=ROOT, env=env, text=True, capture_output=True,
             )
             return result, [json.loads(line) for line in log.read_text().splitlines()]
@@ -127,7 +127,22 @@ else:
                     self.assertIn("--load", args)
                 else:
                     self.assertNotIn("--load", args)
+                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=2", args)
+                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=2", args)
                 self.assertNotIn("--push", args)
+                if index:
+                    self.assertFalse(any(arg.startswith("IMAGE_BUILD_GOMAXPROCS=") or
+                                         arg.startswith("IMAGE_BUILD_GO_PARALLELISM=") for arg in args))
+
+    def test_manager_parallelism_can_be_overridden_or_left_automatic(self):
+        for value in ("4", ""):
+            with self.subTest(value=value):
+                result, commands = self.build_images(settings=(
+                    f"IMAGE_PRESUBMIT_GOMAXPROCS={value}", f"IMAGE_PRESUBMIT_GO_PARALLELISM={value}",
+                ))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={value}", commands[1]["args"])
+                self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={value}", commands[1]["args"])
 
     def test_failed_build_stops_remaining_images_and_removes_builder(self):
         result, commands = self.build_images("build")
