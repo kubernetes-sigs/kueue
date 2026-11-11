@@ -18,6 +18,7 @@ package tas
 
 import (
 	"cmp"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strconv"
@@ -26,7 +27,6 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	batchv1 "k8s.io/api/batch/v1"
@@ -93,9 +93,6 @@ func TestReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	mapToJSON := func(t *testing.T, m map[string]string) string {
-		json := jsoniter.Config{
-			SortMapKeys: true,
-		}.Froze()
 		bytes, err := json.Marshal(m)
 		if err != nil {
 			t.Fatalf("failed to serialize map: %v, error=%s", m, err)

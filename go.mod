@@ -8,7 +8,6 @@ require (
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-cmp v0.7.0
-	github.com/json-iterator/go v1.1.12
 	github.com/kubeflow/mpi-operator v0.8.2
 	github.com/kubeflow/spark-operator/v2 v2.5.2
 	github.com/kubeflow/trainer/v2 v2.0.0-20260910145234-8ca43ecb96b2
@@ -105,6 +104,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
