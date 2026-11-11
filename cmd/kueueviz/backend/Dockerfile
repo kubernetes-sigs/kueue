@@ -9,11 +9,13 @@ RUN retry.sh --stream -- go mod download
 
 # Copy the application source code
 COPY cmd/kueueviz/backend/ .
+COPY hack/testing/image-build-observe.sh /usr/local/bin/image-build-observe.sh
 
 # Build the application
 ARG TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kueueviz
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    bash /usr/local/bin/image-build-observe.sh kueueviz-backend go build -o /kueueviz
 
 # Runtime stage
 FROM ${BASE_IMAGE}

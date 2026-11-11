@@ -12,6 +12,7 @@ RUN retry.sh --stream -- go mod download
 COPY . .
 ARG GIT_TAG GIT_COMMIT TARGETARCH CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    bash hack/testing/image-build-observe.sh manager \
     make build GIT_TAG="${GIT_TAG}" GIT_COMMIT="${GIT_COMMIT}" GO_BUILD_ENV="GOARCH=${TARGETARCH} CGO_ENABLED=${CGO_ENABLED}"
 
 # final image, implicitly --platform=${TARGETPLATFORM}

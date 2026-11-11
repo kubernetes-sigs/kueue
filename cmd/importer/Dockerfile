@@ -13,6 +13,7 @@ COPY . .
 
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    bash hack/testing/image-build-observe.sh importer \
     make importer-build GO_BUILD_ENV='CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=${TARGETARCH}'
 
 FROM ${BASE_IMAGE}
