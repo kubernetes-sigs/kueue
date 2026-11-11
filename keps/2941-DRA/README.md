@@ -866,8 +866,11 @@ Interactions:
 
 - **Extended resources**: with `KueueDRAIntegrationExtendedResource` enabled, a request for
   an extended resource that a listed class backs through `extendedResourceName` is not
-  charged either. Kueue drops it from the Workload's quota requests, as it does when it
-  charges a mapped class instead. So a listed class is never charged, however the Pod asks for it. With that
+  charged either. Kueue drops the containers' requests for it from the Workload's quota
+  requests, as it does when it charges a mapped class instead. Also as for a mapped class, a
+  Pod overhead under that name and the output of a resource transformation that reads it are
+  still charged. Kueue decides this per resource name, not per node, so the request is not
+  charged on a node where a device plugin advertises the same name either. With that
   gate disabled, Kueue does not know the resource is DRA-backed and charges it under its own
   name, as it does today.
 - **DRA Device Feasibility**: with `KueueDRADeviceFeasibility` on, the per-node check for
