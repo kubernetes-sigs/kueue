@@ -47,17 +47,21 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 	ginkgo.When("DRA is configured via ConfigMap", func() {
 		var (
-			ns             *corev1.Namespace
-			resourceFlavor *kueue.ResourceFlavor
-			clusterQueue   *kueue.ClusterQueue
-			localQueue     *kueue.LocalQueue
-			deviceClass    *resourcev1.DeviceClass
-			resourceSlices []*resourcev1.ResourceSlice
+			ns                *corev1.Namespace
+			resourceFlavor    *kueue.ResourceFlavor
+			clusterQueue      *kueue.ClusterQueue
+			localQueue        *kueue.LocalQueue
+			deviceClass       *resourcev1.DeviceClass
+			resourceSlices    []*resourcev1.ResourceSlice
+			extraClusterQueue *kueue.ClusterQueue
+			admissionCheck    *kueue.AdmissionCheck
 		)
 		ginkgo.BeforeEach(func() {
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(nil))
 
 			resourceSlices = nil
+			extraClusterQueue = nil
+			admissionCheck = nil
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -85,9 +89,11 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, slice, true)
 			}
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, extraClusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("Should reject workload with DRA resource claims with inadmissible condition", framework.SlowSpec, func() {
@@ -707,9 +713,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				ControllerName(kueue.MultiKueueControllerName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, ac)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-			}()
+			admissionCheck = ac
 			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
 			ginkgo.By("Creating a ClusterQueue with the MultiKueue AdmissionCheck")
@@ -722,9 +726,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, mkCq)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkCq, true)
-			}()
+			extraClusterQueue = mkCq
 			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, mkCq)
 
 			mkLq := utiltestingapi.MakeLocalQueue("mk-lq", ns.Name).
@@ -750,9 +752,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}()
 
 			ginkgo.By("Verifying workload reserves quota despite having no matching ResourceSlices on the manager")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -771,9 +770,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				ControllerName(kueue.MultiKueueControllerName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, ac)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-			}()
+			admissionCheck = ac
 			behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
 			ginkgo.By("Creating a ClusterQueue initially without the MultiKueue AdmissionCheck")
@@ -785,9 +782,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, lateCq)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lateCq, true)
-			}()
+			extraClusterQueue = lateCq
 			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, lateCq)
 
 			lateLq := utiltestingapi.MakeLocalQueue("mk-late-lq", ns.Name).
@@ -813,9 +808,6 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
@@ -1488,6 +1480,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			resourceFlavor *kueue.ResourceFlavor
 			clusterQueue   *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue
+			deviceClass    *resourcev1.DeviceClass
 		)
 
 		const (
@@ -1504,6 +1497,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 				})
 			}))
 
+			deviceClass = nil
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-dc-tracking-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -1528,6 +1522,7 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 		})
 
 		ginkgo.It("Should requeue inadmissible workload when DeviceClass is created", func() {
@@ -1542,13 +1537,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Verifying workload is requeued and admitted with logical name as quota key")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1579,11 +1571,8 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 			ginkgo.By("Creating the DeviceClass to resolve the implicit resource")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).Obj()
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Reserving logical quota for the defaulted request without changing the template")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1616,13 +1605,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Verifying workload is requeued and admitted with logical name as quota key")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1640,13 +1626,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.It("Should not admit new workload after DeviceClass is deleted", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating first workload and verifying admission")
 			wl1 := utiltestingapi.MakeWorkload("dc-delete-wl1", ns.Name).
@@ -1679,13 +1662,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 		verifyRequeueOnDeviceClassDelete := func(resourceName corev1.ResourceName, useDefaults bool) {
 			ginkgo.GinkgoHelper()
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating first workload to fill quota")
 			wl1 := utiltestingapi.MakeWorkload("dc-delete-fill", ns.Name).
@@ -1751,13 +1731,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.It("Should clear stale DRA TotalRequests when admitted workload is requeued after DeviceClass deletion", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating workload and verifying it is admitted with DRA-translated quota key")
 			wl := utiltestingapi.MakeWorkload("stale-dra-wl", ns.Name).
@@ -1795,13 +1772,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.It("Should admit a requeued workload with the DRA-translated requests of its updated spec", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Admitting a workload that takes most of the quota")
 			wl1 := utiltestingapi.MakeWorkload("updated-dra-wl1", ns.Name).
@@ -1856,13 +1830,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.It("Should keep DRA-translated requests when a workload is requeued after failing admission", func() {
 			ginkgo.By("Creating DeviceClass")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Admitting a workload that takes most of the quota")
 			wl1 := utiltestingapi.MakeWorkload("requeue-dra-wl1", ns.Name).
@@ -1910,13 +1881,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			const newExtendedResourceName = "example.com/tpu"
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName for gpu")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating workload requesting tpu (no matching DeviceClass yet)")
 			wl := utiltestingapi.MakeWorkload("dc-update-wl", ns.Name).
@@ -1951,13 +1919,10 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 			const newExtendedResourceName = "example.com/other-accelerator"
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName for gpu")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).
 				ExtendedResourceName(extendedResourceName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating workload to fill quota")
 			wlFill := utiltestingapi.MakeWorkload("dc-update-old-fill", ns.Name).
@@ -2002,11 +1967,8 @@ var _ = ginkgo.Describe("DRA Integration", func() {
 
 		ginkgo.It("Should requeue inadmissible workload when DeviceClass extendedResourceName is added", func() {
 			ginkgo.By("Creating DeviceClass without extendedResourceName")
-			deviceClass := testingdra.MakeDeviceClass(deviceClassName).Obj()
+			deviceClass = testingdra.MakeDeviceClass(deviceClassName).Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
-			defer func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			}()
 
 			ginkgo.By("Creating workload requesting extended resource")
 			wl := utiltestingapi.MakeWorkload("dc-add-ern-wl", ns.Name).
