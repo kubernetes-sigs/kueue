@@ -66,7 +66,7 @@ else:
             # Execute the real parent and component Makefiles, replacing only Docker.
             result = subprocess.run(
                 ["make", "--no-print-directory", "-j4", target,
-                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env", "IMAGE_PRESUBMIT_BENCHMARK=0",
+                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
                  "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
                  "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *settings],
@@ -107,14 +107,14 @@ else:
                                          arg.startswith("IMAGE_BUILD_GO_PARALLELISM=") for arg in args))
 
     def test_manager_parallelism_can_be_overridden_or_left_automatic(self):
-        for value in ("4", ""):
-            with self.subTest(value=value):
+        for gomaxprocs, parallelism in (("1", "4"), ("", "")):
+            with self.subTest(gomaxprocs=gomaxprocs, parallelism=parallelism):
                 result, commands = self.build_images(settings=(
-                    f"IMAGE_PRESUBMIT_GOMAXPROCS={value}", f"IMAGE_PRESUBMIT_GO_PARALLELISM={value}",
+                    f"IMAGE_PRESUBMIT_GOMAXPROCS={gomaxprocs}", f"IMAGE_PRESUBMIT_GO_PARALLELISM={parallelism}",
                 ))
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={value}", commands[1]["args"])
-                self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={value}", commands[1]["args"])
+                self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={gomaxprocs}", commands[1]["args"])
+                self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={parallelism}", commands[1]["args"])
 
     def test_standalone_image_build_keeps_automatic_parallelism(self):
         result, commands = self.build_images(target="image-build")
