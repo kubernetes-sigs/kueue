@@ -28,6 +28,22 @@ KUEUE_PKG="sigs.k8s.io/kueue"
     "${GO_CMD}" mod download k8s.io/code-generator)
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
+# kube_codegen.sh installs its generators with "go install", which downloads modules
+# and can hit transient proxy errors, so every "go install" goes through retry.sh.
+_REAL_GO=$(command -v "${GO_CMD}")
+_GO_WRAPPER_DIR=$(mktemp -d)
+cat > "${_GO_WRAPPER_DIR}/go" << WRAPPER
+#!/usr/bin/env bash
+case "\${1}" in
+    install) exec bash "${KUEUE_ROOT}/hack/testing/retry.sh" --stream -- "${_REAL_GO}" "\$@" ;;
+    *)       exec "${_REAL_GO}" "\$@" ;;
+esac
+WRAPPER
+chmod +x "${_GO_WRAPPER_DIR}/go"
+export PATH="${_GO_WRAPPER_DIR}:${PATH}"
+# shellcheck disable=SC2064
+trap "rm -rf '${_GO_WRAPPER_DIR}'" EXIT
+
 cd "${KUEUE_ROOT}"
 
 # shellcheck source=/dev/null
