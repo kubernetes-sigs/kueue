@@ -500,7 +500,17 @@ else:
             (directory / "generator").chmod(0o755)
             subprocess.run(command, env=env, check=True)
             marker = directory / "generator.source-version"
+            self.assertEqual((directory / "generator").read_text(), "binary")
+            self.assertEqual(marker.read_text().splitlines()[1:], [
+                hashlib.sha256((directory / "generator").read_bytes()).hexdigest()
+            ])
+            subprocess.run(command, env=env, check=True)
             marker.write_text(marker.read_text().splitlines()[0] + "\n")
+            subprocess.run(command, env=env, check=True)
+            self.assertEqual((directory / "generator").read_text(), "binary")
+            self.assertEqual(marker.read_text().splitlines()[1:], [
+                hashlib.sha256((directory / "generator").read_bytes()).hexdigest()
+            ])
             subprocess.run(command, env=env, check=True)
             command[-2] = "v2"
             subprocess.run(command, env=env, check=True)
@@ -586,6 +596,8 @@ else:
             binary = root / "generator"
             command = ["bash", str(Path(__file__).with_name("source.sh")), str(binary), "example/generator", "v1", "example/generator"]
             env = {**os.environ, "GO_CMD": str(fake_go)}
+            # A Bash startup file must not replace the PATH used for the fake checksum command.
+            env.pop("BASH_ENV", None)
             subprocess.run(command, env=env, check=True)
             marker = root / "generator.source-version"
             original_marker = marker.read_text()
@@ -636,6 +648,55 @@ else:
             self.assertIn("temporary module download failure", result.stderr)
             self.assertEqual((root / "download-calls").read_text(), "2")
             self.assertTrue((root / "downloaded").exists())
+
+    def test_custom_linter_preserves_build_and_move_failures(self):
+        """Keep build and move failures distinct from checksum failures."""
+        for stage, exit_code in (("build", 23), ("move", 42)):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                config = root / "hack/testing/kal-linter/.custom-gcl.yaml"
+                config.parent.mkdir(parents=True)
+                config.write_text("version: v1\n")
+                (root / "bin").mkdir()
+                fake_go = root / "go"
+                fake_go.write_text('#!/bin/sh\nprintf "%s\\n" go1.27.0\n')
+                fake_go.chmod(0o755)
+                linter = root / "bin/golangci-lint"
+                linter.write_text('''#!/bin/sh
+if [ "$1" = version ]; then echo test-linter; exit 0; fi
+echo "custom build invoked" >&2
+exit "$KAL_TEST_BUILD_EXIT"
+''')
+                linter.chmod(0o755)
+                fake_mv = root / "mv"
+                fake_mv.write_text('#!/bin/sh\necho "move invoked" >&2\nexit 42\n')
+                fake_mv.chmod(0o755)
+                marker = root / "bin/golangci-lint-kube-api-linter.source-version"
+                marker.write_text("previous marker\n")
+                (root / "Makefile").write_text(
+                    f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\n"
+                    f"include {Path(__file__).resolve().parents[1] / 'make/deps.mk'}\n"
+                )
+                env = {
+                    **os.environ,
+                    "KAL_TEST_BUILD_EXIT": "23" if stage == "build" else "0",
+                    "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
+                }
+                env.pop("BASH_ENV", None)
+                result = subprocess.run(
+                    ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"],
+                    cwd=root, env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                # Make returns its own failure status, but reports the recipe's original status.
+                self.assertIn(f"Error {exit_code}", result.stderr)
+                self.assertIn("custom build invoked", result.stderr)
+                if stage == "build":
+                    self.assertNotIn("move invoked", result.stderr)
+                else:
+                    self.assertIn("move invoked", result.stderr)
+                self.assertNotIn("Could not calculate SHA-256", result.stderr)
+                self.assertEqual(marker.read_text(), "previous marker\n")
 
     def test_custom_linter_rebuilds_on_configuration_and_toolchain_changes(self):
         with tempfile.TemporaryDirectory() as temp:
