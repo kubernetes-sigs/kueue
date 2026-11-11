@@ -129,8 +129,8 @@ else:
                     self.assertIn("--load", args)
                 else:
                     self.assertNotIn("--load", args)
-                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=1", args)
-                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=2", args)
+                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=2", args)
+                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=4", args)
                 self.assertNotIn("--push", args)
                 if index:
                     self.assertFalse(any(arg.startswith("IMAGE_BUILD_GOMAXPROCS=") or
