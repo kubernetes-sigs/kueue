@@ -144,6 +144,12 @@ func (w *CapacityProviderWrapper) Obj() *kueuealpha.CapacityProvider {
 	return &w.CapacityProvider
 }
 
+// Generation sets the generation of the CapacityProvider.
+func (w *CapacityProviderWrapper) Generation(num int64) *CapacityProviderWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
 // ControllerName sets the controllerName in the CapacityProvider.
 func (w *CapacityProviderWrapper) ControllerName(controllerName kueuealpha.CapacityProviderControllerName) *CapacityProviderWrapper {
 	w.Spec.ControllerName = controllerName

@@ -78,6 +78,9 @@ func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *ku
 
 	allocatedQuantities := calculateAllocations(effectiveCapacity, targetCohorts, targetClusterQueues)
 	if err := r.applyEffectiveQuotas(ctx, orchestrator.Name, targetClusterQueues, targetCohorts, allocatedQuantities); err != nil {
+		// Earlier participants may already have received new quotas.
+		r.setDistributionCondition(orchestrator, metav1.ConditionUnknown,
+			kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
 		return err
 	}
 
