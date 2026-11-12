@@ -347,6 +347,11 @@ func TestPodSetsExecutorCount(t *testing.T) {
 		}
 		return pods
 	}
+	// withoutInstances unsets spec.executor.instances.
+	withoutInstances := func(app *sparkappv1beta2.SparkApplication) *sparkappv1beta2.SparkApplication {
+		app.Spec.Executor.Instances = nil
+		return app
+	}
 	// executorIDs returns the IDs from first to last.
 	executorIDs := func(first, last int) []int {
 		ids := make([]int, 0, last-first+1)
@@ -369,6 +374,44 @@ func TestPodSetsExecutorCount(t *testing.T) {
 				Obj(),
 			pods:      executorPods(corev1.PodRunning, 1),
 			wantCount: 2,
+		},
+		"not elastic: spark.executor.instances in sparkConf": {
+			sparkApp: withoutInstances(sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				SparkConf("spark.executor.instances", "5").
+				Obj()),
+			wantCount: 5,
+		},
+		"not elastic: spec.executor.instances wins over sparkConf": {
+			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				SparkConf("spark.executor.instances", "5").
+				Obj(),
+			wantCount: 2,
+		},
+		"elastic, dynamic allocation in sparkConf: initialExecutors": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.initialExecutors", "4").
+				Obj(),
+			wantCount: 4,
+		},
+		"elastic, dynamic allocation in sparkConf, running above its maxExecutors: capped": {
+			sparkApp: elasticSparkApp.Clone().
+				SparkConf("spark.dynamicAllocation.enabled", "true").
+				SparkConf("spark.dynamicAllocation.maxExecutors", "3").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3, 4, 5),
+			wantCount: 3,
+		},
+		"elastic, spec.dynamicAllocation enabled with maxExecutors in sparkConf: capped": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true}).
+				SparkConf("spark.dynamicAllocation.maxExecutors", "3").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 3, 4, 5),
+			wantCount: 3,
 		},
 		"elastic without dynamic allocation: initial executors": {
 			sparkApp:  elasticSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateRunning).Obj(),
@@ -1485,4 +1528,74 @@ func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+}
+
+func TestRestorePodSetsInfoKeepsTheExecutorCountInSparkConf(t *testing.T) {
+	testCases := map[string]struct {
+		count         int32
+		wantInstances *int32
+	}{
+		"unchanged: stays in sparkConf":                {count: 5},
+		"changed: restored to spec.executor.instances": {count: 3, wantInstances: new(int32(3))},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				SparkConf("spark.executor.instances", "5").
+				Obj()
+			app.Spec.Executor.Instances = nil
+			(*SparkApplication)(app).RestorePodSetsInfo(t.Context(), []podset.PodSetInfo{
+				{Name: driverPodSetName},
+				{Name: executorPodSetName, Count: tc.count},
+			})
+			if diff := cmp.Diff(tc.wantInstances, app.Spec.Executor.Instances); diff != "" {
+				t.Errorf("spec.executor.instances mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodsReadyExpectsTheExecutorsSetInSparkConf(t *testing.T) {
+	testCases := map[string]struct {
+		sparkConf map[string]string
+		running   int
+		want      bool
+	}{
+		"spark.executor.instances: fewer running": {
+			sparkConf: map[string]string{"spark.executor.instances": "3"},
+			running:   2,
+			want:      false,
+		},
+		"spark.executor.instances: all running": {
+			sparkConf: map[string]string{"spark.executor.instances": "3"},
+			running:   3,
+			want:      true,
+		},
+		"dynamic allocation in sparkConf: minExecutors running": {
+			sparkConf: map[string]string{
+				"spark.executor.instances":             "3",
+				"spark.dynamicAllocation.enabled":      "true",
+				"spark.dynamicAllocation.minExecutors": "1",
+			},
+			running: 1,
+			want:    true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj()
+			app.Spec.Executor.Instances = nil
+			app.Spec.SparkConf = tc.sparkConf
+			app.Status.ExecutorState = make(map[string]sparkappv1beta2.ExecutorState, tc.running)
+			for i := range tc.running {
+				app.Status.ExecutorState[fmt.Sprintf("sparkapp-exec-%d", i+1)] = sparkappv1beta2.ExecutorStateRunning
+			}
+			if got := (*SparkApplication)(app).PodsReady(ctx, nil); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
