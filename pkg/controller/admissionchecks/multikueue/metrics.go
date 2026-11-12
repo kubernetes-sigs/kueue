@@ -38,13 +38,32 @@ func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
 	a.metricsMu.Lock()
 	defer a.metricsMu.Unlock()
 
+	queuesByCheck, err := a.clusterQueuesByAdmissionCheck(ctx)
+	if err != nil {
+		return err
+	}
+	snapshot, err := a.workerClusterStatusSnapshot(ctx, queuesByCheck)
+	if err != nil {
+		return err
+	}
+	// A failed read above leaves the last complete snapshot in place.
+	metrics.MultiKueueClusterByStatus.Reset()
+	for queue, statuses := range snapshot {
+		for cluster, status := range statuses {
+			metrics.ReportMultiKueueClusterStatus(queue, cluster, status, a.roleTracker)
+		}
+	}
+	return nil
+}
+
+func (a *ACReconciler) clusterQueuesByAdmissionCheck(ctx context.Context) (map[kueue.AdmissionCheckReference][]kueue.ClusterQueueReference, error) {
 	queues := &kueue.ClusterQueueList{}
 	if err := a.client.List(ctx, queues); err != nil {
-		return err
+		return nil, err
 	}
 	checks := &kueue.AdmissionCheckList{}
 	if err := a.client.List(ctx, checks, client.MatchingFields{AdmissionCheckControllerNameKey: kueue.MultiKueueControllerName}); err != nil {
-		return err
+		return nil, err
 	}
 	checksByName := make(map[kueue.AdmissionCheckReference]struct{}, len(checks.Items))
 	for _, check := range checks.Items {
@@ -62,6 +81,13 @@ func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
 			}
 		}
 	}
+	return queuesByCheck, nil
+}
+
+func (a *ACReconciler) workerClusterStatusSnapshot(
+	ctx context.Context,
+	queuesByCheck map[kueue.AdmissionCheckReference][]kueue.ClusterQueueReference,
+) (map[kueue.ClusterQueueReference]map[string]metav1.ConditionStatus, error) {
 	snapshot := make(map[kueue.ClusterQueueReference]map[string]metav1.ConditionStatus)
 	// A worker shared by several checks is read only once; nil denotes a missing object.
 	workers := make(map[string]*metav1.ConditionStatus)
@@ -72,7 +98,7 @@ func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		statuses := make(map[string]metav1.ConditionStatus, len(clusterNames))
 		for _, name := range clusterNames {
@@ -81,7 +107,7 @@ func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
 				cluster := &kueue.MultiKueueCluster{}
 				if err := a.client.Get(ctx, types.NamespacedName{Name: name}, cluster); err != nil {
 					if !apierrors.IsNotFound(err) {
-						return err
+						return nil, err
 					}
 					workers[name] = nil
 					continue
@@ -101,12 +127,5 @@ func (a *ACReconciler) reportWorkerClusterStatuses(ctx context.Context) error {
 			snapshot[name] = statuses
 		}
 	}
-	// A failed read above leaves the last complete snapshot in place.
-	metrics.MultiKueueClusterByStatus.Reset()
-	for queue, statuses := range snapshot {
-		for cluster, status := range statuses {
-			metrics.ReportMultiKueueClusterStatus(queue, cluster, status, a.roleTracker)
-		}
-	}
-	return nil
+	return snapshot, nil
 }
