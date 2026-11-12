@@ -604,50 +604,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
-		// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
-		// reset to Retry to re-dispatch rather than finishing (which would strand the manager
-		// Job/Pod). Always return so it never falls through to Finish; patch only while still
-		// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
-		// OutOfSync for slice replacement, so they are excluded from that reason's reset.
-		isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
-			remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
-		if isSyncFailure {
-			if acs == nil || acs.State != kueue.CheckStateReady {
-				log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
-				return reconcile.Result{}, nil
-			}
-			msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
-			if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
-				log.Error(err, "Resetting admission check after remote sync failure", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
-				return reconcile.Result{}, err
-			}
-			w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
-			return reconcile.Result{}, nil
-		}
-
-		// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
-		// it should not be problematic, but the "From remote xxxx:" could be lost ....
-
-		if group.jobAdapter != nil {
-			remoteCl := group.remoteClients[remote].getClient()
-			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-				log.Error(err, "validating remote controller object", "workerCluster", remote)
-				return reconcile.Result{}, err
-			}
-
-			// The deferred flag is irrelevant here: the remote workload is
-			// Finished, so determineStatusUpdate always syncs (never defers).
-			if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
-				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
-				// we should retry this
-				return reconcile.Result{}, err
-			}
-		} else {
-			log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
-		}
-
-		// finish workload and copy the status to the local one
-		return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+		return w.reconcileRemoteFinished(ctx, log, group, acs, remote, remoteFinishedCond)
 	}
 
 	// 4. Handle workload eviction
@@ -928,6 +885,63 @@ func (w *wlReconciler) deleteRemoteWorkloads(ctx context.Context, log klog.Logge
 		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
 	}
 	return reconcile.Result{}, errors.Join(errs...)
+}
+
+// reconcileRemoteFinished finishes the local workload when a remote workload is
+// finished. When the remote workload finished because of a sync failure, it resets
+// the admission check to Retry instead, so that the workload is dispatched again.
+func (w *wlReconciler) reconcileRemoteFinished(
+	ctx context.Context,
+	log klog.Logger,
+	group *wlGroup,
+	acs *kueue.AdmissionCheckState,
+	remote string,
+	remoteFinishedCond *metav1.Condition,
+) (reconcile.Result, error) {
+	// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
+	// reset to Retry to re-dispatch rather than finishing (which would strand the manager
+	// Job/Pod). Always return so it never falls through to Finish; patch only while still
+	// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
+	// OutOfSync for slice replacement, so they are excluded from that reason's reset.
+	isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
+		remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
+	if isSyncFailure {
+		if acs == nil || acs.State != kueue.CheckStateReady {
+			log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
+			return reconcile.Result{}, nil
+		}
+		msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
+		if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
+			log.Error(err, "Resetting admission check after remote sync failure", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
+			return reconcile.Result{}, err
+		}
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
+		return reconcile.Result{}, nil
+	}
+
+	// NOTE: we can have a race condition setting the wl status here, and it being updated by the job controller,
+	// it should not be problematic, but the "From remote xxxx:" could be lost ....
+
+	if group.jobAdapter != nil {
+		remoteCl := group.remoteClients[remote].getClient()
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			log.Error(err, "validating remote controller object", "workerCluster", remote)
+			return reconcile.Result{}, err
+		}
+
+		// The deferred flag is irrelevant here: the remote workload is
+		// Finished, so determineStatusUpdate always syncs (never defers).
+		if _, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin); err != nil {
+			log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
+			// we should retry this
+			return reconcile.Result{}, err
+		}
+	} else {
+		log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
+	}
+
+	// finish workload and copy the status to the local one
+	return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
