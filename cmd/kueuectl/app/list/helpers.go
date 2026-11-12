@@ -37,16 +37,12 @@ const (
 	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
 )
 
-var (
-	listRequestLimitDescription = fmt.Sprintf(
-		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
-			"It does not limit the output: all matching objects are listed. "+
-			"The default is %d; 0 fetches all objects in a single request.",
-		KueuectlListRequestLimitEnvName,
-		defaultListRequestLimit,
-	)
-
-	errInvalidListRequestLimit = errors.New("invalid list request limit")
+var listRequestLimitDescription = fmt.Sprintf(
+	"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
+		"It does not limit the output: all matching objects are listed. "+
+		"The default is %d; 0 fetches all objects in a single request.",
+	KueuectlListRequestLimitEnvName,
+	defaultListRequestLimit,
 )
 
 func listLongDesc(s string) string {
@@ -61,8 +57,8 @@ func listRequestLimit() (int64, error) {
 	}
 
 	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil {
-		return 0, errInvalidListRequestLimit
+	if err != nil || limit < 0 {
+		return 0, fmt.Errorf("invalid list request limit: %s=%q must be a non-negative integer", KueuectlListRequestLimitEnvName, listRequestLimitEnv)
 	}
 
 	return limit, nil
