@@ -906,10 +906,14 @@ setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),he
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
-test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
+
+# KueueViz uses Cypress, not Ginkgo or external job operators.
+.PHONY: setup-kueueviz-e2e-env
+setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
@@ -917,7 +921,9 @@ test-kueueviz-backend: ## Run KueueViz backend tests.
 	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+# Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
+test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
+test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \

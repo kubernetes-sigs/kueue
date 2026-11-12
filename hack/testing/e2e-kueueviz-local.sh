@@ -28,8 +28,14 @@ cleanup() {
   echo "Cleaning up kueueviz processes"
   # The PIDs may be unset if we exit before the processes start (e.g. while
   # waiting for the Kueue webhook), so guard against empty kill arguments.
-  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
-  [ -n "${FRONTEND_PID:-}" ] && kill "${FRONTEND_PID}"
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${FRONTEND_PID:-}" ]]; then
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+    wait "${FRONTEND_PID}" 2>/dev/null || true
+  fi
   cluster_collect_artifacts "$KIND_CLUSTER_NAME" ""
   cluster_cleanup "$KIND_CLUSTER_NAME"
 }
@@ -62,5 +68,14 @@ npm install
 # Run Cypress tests for kueueviz frontend
 npm run cypress:run
 cd -
+
+# Wait for the backend so abnormal shutdown fails the suite before the EXIT trap
+# collects artifacts and deletes the cluster.
+kill "${BACKEND_PID}" 2>/dev/null || true
+wait "${BACKEND_PID}" || {
+  backend_status=$?
+  [[ $backend_status -eq 143 ]] || exit "$backend_status"
+}
+BACKEND_PID=""
 
 # The trap will handle cleanup 
