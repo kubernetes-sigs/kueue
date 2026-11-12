@@ -704,19 +704,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 7. Open the preemption gate if applicable
-	var requeueAfterSynchronize time.Duration
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		remWlName, requeueIn := w.workloadToOpenPreemptionGate(ctx, group)
-		if remWlName != nil {
-			remWl := group.remotes[*remWlName]
-			remClient := group.remoteClients[*remWlName]
-			workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
-			if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
-				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
-			}
-		}
-		// Ensure there is a reconcile that considers the next preemption gate.
-		requeueAfterSynchronize = requeueIn
+	requeueAfterSynchronize, err := w.openNextPreemptionGate(ctx, group)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// 8. Skip nomination while eviction is still in progress or the
@@ -979,6 +969,26 @@ func (w *wlReconciler) reconcileAdmittingRemote(
 		requeueAfter = syncDeferredRequeueAfter
 	}
 	return reconcile.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// openNextPreemptionGate opens the next MultiKueue preemption gate on a remote workload
+// when the MultiKueueOrchestratedPreemption feature gate is enabled. It returns when to
+// reconcile again, so that the next preemption gate is considered.
+func (w *wlReconciler) openNextPreemptionGate(ctx context.Context, group *wlGroup) (time.Duration, error) {
+	if !features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		return 0, nil
+	}
+	remWlName, requeueIn := w.workloadToOpenPreemptionGate(ctx, group)
+	if remWlName != nil {
+		remWl := group.remotes[*remWlName]
+		remClient := group.remoteClients[*remWlName]
+		workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
+		if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
+			return 0, fmt.Errorf("failed to update remote workload: %w", err)
+		}
+	}
+	// Ensure there is a reconcile that considers the next preemption gate.
+	return requeueIn, nil
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
