@@ -151,6 +151,19 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
+// isElasticReplacedOrScalingUp returns true when the group is an elastic workload
+// that is finished because a new workload slice replaced it, or that is scaling up
+// and is not evicted.
+func (g *wlGroup) isElasticReplacedOrScalingUp() bool {
+	scaleUpInProgress := !g.IsFinished() &&
+		!workload.HasQuotaReservation(g.local) &&
+		workloadslicing.ScaledUp(g.local) &&
+		!workloadevict.IsEvicted(g.local)
+	return g.IsElasticWorkload() &&
+		((g.IsFinished() && workloadslicing.IsReplaced(g.local.Status)) ||
+			scaleUpInProgress)
+}
+
 // bestMatchByCondition returns condition if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
 func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
@@ -580,13 +593,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - Workload is "Finished" as a result workload slice replacement, OR
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
 	//   unless it was evicted and its remote objects need cleanup.
-	scaleUpInProgress := !group.IsFinished() &&
-		!workload.HasQuotaReservation(group.local) &&
-		workloadslicing.ScaledUp(group.local) &&
-		!workloadevict.IsEvicted(group.local)
-	if group.IsElasticWorkload() &&
-		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			scaleUpInProgress) {
+	if group.isElasticReplacedOrScalingUp() {
 		return reconcile.Result{}, nil
 	}
 
