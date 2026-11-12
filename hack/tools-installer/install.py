@@ -28,15 +28,11 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 LOG = logging.getLogger(__name__)
-DOWNLOAD_ATTEMPTS = 7
-DOWNLOAD_INITIAL_DELAY = 2
-RATE_LIMIT_DELAY = 20
 
 # Keys are executable names; Make supplies the destination path and pinned version.
 # Packages default to their module and tags to {version}.
@@ -98,29 +94,13 @@ def install_source(name, version, destination):
 
 
 def download(url):
-    """Match NETWORK_INSTALL_RETRY's seven attempts and exponential backoff."""
+    """Try a release download once before falling back to a pinned source build."""
     headers = {"User-Agent": "kueue-tool-installer"}
-    last_attempt = DOWNLOAD_ATTEMPTS - 1
-    for attempt in range(DOWNLOAD_ATTEMPTS):
-        LOG.debug("Downloading %s (attempt %d/%d)", url, attempt + 1, DOWNLOAD_ATTEMPTS)
-        try:
-            with urlopen(Request(url, headers=headers), timeout=120) as response:
-                content = response.read()
-                LOG.debug("Downloaded %d bytes from %s", len(content), url)
-                return content
-        except HTTPError as error:
-            LOG.warning("Download failed for %s (attempt %d/%d): %s", url, attempt + 1, DOWNLOAD_ATTEMPTS, error)
-            if attempt == last_attempt or (error.code not in (408, 429) and error.code < 500):
-                raise
-            # Respect the fixed rate-limit wait independently of transient backoff.
-            delay = RATE_LIMIT_DELAY if error.code == 429 else DOWNLOAD_INITIAL_DELAY * 2 ** attempt
-        except (URLError, TimeoutError, HTTPException, ConnectionError) as error:
-            LOG.warning("Download failed for %s (attempt %d/%d): %s", url, attempt + 1, DOWNLOAD_ATTEMPTS, error)
-            if attempt == last_attempt:
-                raise
-            delay = DOWNLOAD_INITIAL_DELAY * 2 ** attempt
-        LOG.info("Retrying %s in %ds", url, delay)
-        time.sleep(delay)
+    LOG.debug("Downloading %s", url)
+    with urlopen(Request(url, headers=headers), timeout=120) as response:
+        content = response.read()
+        LOG.debug("Downloaded %d bytes from %s", len(content), url)
+        return content
 
 
 def release(name, version, goos, goarch):
@@ -169,10 +149,12 @@ def release_binary(name, version, goos, goarch):
             raise NoReleaseBinary(f"Upstream checksum manifest has no {filename}")
         content = download(base + filename)
     except HTTPError as error:
-        if error.code != 404:
+        if error.code not in (404, 408, 429) and not 500 <= error.code < 600:
             raise
-        # A Go module tag can be available before its release binaries are published.
-        raise NoReleaseBinary(f"Upstream release {repo}@{tag} has no verified {filename}") from error
+        # The pinned Go module can remain available while GitHub releases are unavailable.
+        raise NoReleaseBinary(f"Upstream release {repo}@{tag} is unavailable: {error}") from error
+    except (URLError, TimeoutError, HTTPException, ConnectionError) as error:
+        raise NoReleaseBinary(f"Could not download upstream release {repo}@{tag}: {error}") from error
     expected = checksums[filename]
     if hashlib.sha256(content).hexdigest() != expected.lower():
         raise ValueError(f"SHA256 mismatch for {filename}")
@@ -207,7 +189,7 @@ def install(name, version, destination):
         binary = release_binary(name, version, goos, goarch)
     except NoReleaseBinary as error:
         LOG.info("%s; using a source build", error)
-        # Preserve unpublished releases and unsupported hosts without hiding integrity failures.
+        # Source installation retains its own retries; integrity failures must still fail.
         install_source(name, version, destination)
         marker.write_text(identity + "source\n")
         return
