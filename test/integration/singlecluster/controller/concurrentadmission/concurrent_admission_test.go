@@ -88,8 +88,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			if additionalFlavor != nil {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, additionalFlavor, true)
 			}
@@ -242,8 +242,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -423,8 +423,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorOnDemand, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
@@ -528,8 +528,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -623,8 +623,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorProvReq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
@@ -730,8 +730,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -819,8 +819,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorOnDemand, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
@@ -902,8 +902,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
 		})
@@ -987,8 +987,8 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 		ginkgo.It("evicts the parent, delete the variant, releases quota, and removes the parent label", func() {
