@@ -94,10 +94,13 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
-		log.Error(err, "Failed to retrieve Workload, skip the reconciliation")
 		if apierrors.IsNotFound(err) {
+			// Discard request if not found, to prevent from re-enqueueing indefinitely.
+			log.V(3).Info("Workload not found, skip the reconciliation")
 			r.clearRoundStartTime(req.NamespacedName)
+			return reconcile.Result{}, nil
 		}
+		log.Error(err, "Failed to retrieve Workload")
 		return reconcile.Result{}, err
 	}
 
