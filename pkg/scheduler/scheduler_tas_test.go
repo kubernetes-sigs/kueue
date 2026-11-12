@@ -5158,7 +5158,8 @@ type tasScheduleTestCase struct {
 	// eventCmpOpts are the comparison options for the events
 	eventCmpOpts cmp.Options
 
-	featureGates map[featuregate.Feature]bool
+	featureGates      map[featuregate.Feature]bool
+	enableFairSharing bool
 
 	// wantSimulatorPreemptions are the Workloads the scheduler must tell the
 	// simulator to preempt. Setting it installs a recording simulator.
@@ -5371,6 +5372,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption
 						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(recordingFactory))
 					}
+					if tc.enableFairSharing {
+						cacheOptions = append(cacheOptions, schdcache.WithFairSharing(true))
+					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(cfg.now)
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
@@ -5433,7 +5437,11 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							t.Fatalf("expected workload %s to be prequeued again for a second pass", workload.Key(wl))
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					var fairSharing *config.FairSharing
+					if tc.enableFairSharing {
+						fairSharing = &config.FairSharing{}
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(fairSharing), WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },

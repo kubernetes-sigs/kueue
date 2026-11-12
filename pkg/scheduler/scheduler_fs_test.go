@@ -30,8 +30,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -3594,4 +3596,160 @@ func TestScheduleForFairSharing(t *testing.T) {
 		resourceFlavors: resourceFlavors,
 		fakeClock:       fakeClock,
 	}, cases)
+}
+
+// TestFairSharingSecondPassWithClusterQueueHead runs a scheduling cycle with
+// Fair Sharing in which a ClusterQueue contributes two candidates: a workload
+// waiting for its second pass (delayed topology assignment) and the
+// ClusterQueue's pending head. Both fit, so the second pass must complete in
+// the same cycle; a busy ClusterQueue must not starve its second-pass workloads.
+func TestFairSharingSecondPassWithClusterQueueHead(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	tasFlavor := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	node := testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("4"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+			corev1.ResourcePods:   resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{Type: kueue.AdmissionCheckActive, Status: metav1.ConditionTrue}).
+		Obj()
+	cqWrapper := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").
+			Resource(corev1.ResourceMemory, "50Gi").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name))
+	lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+	podSet := *utiltestingapi.MakePodSet("one", 1).
+		RequiredTopologyRequest(corev1.LabelHostname).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	// Holds quota from its first pass, its admission check is ready, and only
+	// the delayed topology assignment is still pending.
+	secondPass := utiltestingapi.MakeWorkload("second-pass", "default").
+		Queue("lq").
+		PodSets(podSet).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+					Obj()).
+				Obj(), now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               "prov-check",
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
+	// The ClusterQueue's own pending head, nominated in the same cycle.
+	head := utiltestingapi.MakeWorkload("head", "default").
+		Queue("lq").
+		Creation(now).
+		PodSets(podSet).
+		Obj()
+
+	admittedAt := now.Add(time.Second)
+	// The head reserves quota; its topology assignment waits for its own second pass.
+	headAdmission := utiltestingapi.MakeAdmission("cq").
+		PodSets(utiltestingapi.MakePodSetAssignment("one").
+			Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+			DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+			Obj()).
+		Obj()
+	wantHead := utiltestingapi.MakeWorkload("head", "default").
+		Queue("lq").
+		Creation(now).
+		PodSets(podSet).
+		Admission(headAdmission).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			Message:            "Quota reserved in ClusterQueue cq",
+			LastTransitionTime: metav1.NewTime(admittedAt),
+		}).
+		Obj()
+	// The second pass assigns the topology and admits the workload.
+	wantSecondPass := utiltestingapi.MakeWorkload("second-pass", "default").
+		Queue("lq").
+		PodSets(podSet).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStateReady).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(topology)).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionTrue,
+			Reason:  "QuotaReserved",
+			Message: "Quota reserved in ClusterQueue cq",
+		}).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               "prov-check",
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			Message:            "The workload is admitted",
+			LastTransitionTime: metav1.NewTime(admittedAt),
+		}).
+		Obj()
+
+	newCase := func(cq *kueue.ClusterQueue, cohorts ...kueue.Cohort) tasScheduleTestCase {
+		return tasScheduleTestCase{
+			enableFairSharing:     true,
+			nodes:                 []corev1.Node{*node.DeepCopy()},
+			topologies:            []kueue.Topology{*topology.DeepCopy()},
+			resourceFlavors:       []kueue.ResourceFlavor{*tasFlavor.DeepCopy()},
+			cohorts:               cohorts,
+			clusterQueues:         []kueue.ClusterQueue{*cq},
+			admissionChecks:       []kueue.AdmissionCheck{*provCheck.DeepCopy()},
+			workloads:             []kueue.Workload{*secondPass.DeepCopy(), *head.DeepCopy()},
+			prequeuedSecondPasses: []workload.Reference{workload.Key(secondPass)},
+			wantWorkloads:         []kueue.Workload{*wantHead.DeepCopy(), *wantSecondPass.DeepCopy()},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				workload.Key(head): *headAdmission.DeepCopy(),
+			},
+			// On main the second-pass workload is dropped from the cycle and
+			// records SecondPassFailed instead of Admitted.
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "head", "QuotaReserved", corev1.EventTypeNormal).
+					Message("Quota reserved in ClusterQueue cq, wait time since queued was 1s").
+					Obj(),
+				utiltesting.MakeEventRecord("default", "second-pass", "Admitted", corev1.EventTypeNormal).
+					Message("Admitted by ClusterQueue cq, wait time since reservation was 1s").
+					Obj(),
+			},
+		}
+	}
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: []kueue.LocalQueue{*lq},
+		now:    now,
+	}, map[string]tasScheduleTestCase{
+		// Without a Cohort, the iterator returns the ClusterQueue's entries directly.
+		"ClusterQueue without Cohort": newCase(cqWrapper.Clone().Obj()),
+		// With a Cohort, the entries go through the DRS tournament.
+		"ClusterQueue in Cohort": newCase(cqWrapper.Clone().Cohort("root").Obj(), *utiltestingapi.MakeCohort("root").Obj()),
+	})
 }
