@@ -51,6 +51,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -1370,7 +1371,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 	admissionChecks := &kueue.AdmissionCheckList{}
 	var errs []error
 
-	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{mkindexer.AdmissionCheckUsingConfigKey: configName}); err != nil {
 		errs = append(errs, err)
 		return errors.Join(errs...)
 	}
@@ -1426,7 +1427,7 @@ func queueWorkloadsForAdmissionCheck(
 	q workqueue.TypedRateLimitingInterface[reconcile.Request],
 ) error {
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.MatchingFields{WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
+	if err := c.List(ctx, workloads, client.MatchingFields{mkindexer.WorkloadsWithAdmissionCheckKey: admissionCheckName}); err != nil {
 		return err
 	}
 	for _, workload := range workloads.Items {
@@ -1435,11 +1436,13 @@ func queueWorkloadsForAdmissionCheck(
 	return nil
 }
 
+var configGK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig").GroupKind()
+
 func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	if ac == nil || ac.Spec.Parameters == nil {
 		return ""
 	}
-	if ac.Spec.Parameters.APIGroup != configGVK.Group || ac.Spec.Parameters.Kind != configGVK.Kind {
+	if ac.Spec.Parameters.APIGroup != configGK.Group || ac.Spec.Parameters.Kind != configGK.Kind {
 		return ""
 	}
 	return ac.Spec.Parameters.Name
