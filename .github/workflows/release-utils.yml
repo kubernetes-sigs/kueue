@@ -68,7 +68,6 @@ jobs:
             "hack/releasing/authorize_release_actor_test.py"
             "hack/releasing/log_to_issue.py"
             "hack/releasing/mark_step_done.py"
-            "hack/releasing/release_issue_pin.py"
             "hack/releasing/requirements.txt"
           )
           MISSING=()
@@ -149,9 +148,9 @@ jobs:
             COMMAND="merge-main-into-website"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-milestone[[:space:]]*$'; then
             COMMAND="create-milestone"
-          elif [[ "$BODY" =~ ^[[:space:]]*/pin-release-issue[[:space:]]*$ ]]; then
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/pin-release-issue[[:space:]]*$'; then
             COMMAND="pin-release-issue"
-          elif [[ "$BODY" =~ ^[[:space:]]*/unpin-release-issue[[:space:]]*$ ]]; then
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/unpin-release-issue[[:space:]]*$'; then
             COMMAND="unpin-release-issue"
           else
             echo "error_message=❌ Invalid command format in comment: $COMMENT." >> "$GITHUB_OUTPUT"
@@ -242,10 +241,15 @@ jobs:
 
       - name: Set release issue pin state
         env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_ID: ${{ github.event.issue.node_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           COMMAND: ${{ needs.authorize.outputs.command }}
-        run: python3 hack/releasing/release_issue_pin.py --issue-id "$ISSUE_ID" --command "$COMMAND"
+        run: |
+          if [ "$COMMAND" = "pin-release-issue" ]; then
+            gh issue pin "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+          else
+            gh issue unpin "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+          fi
 
       - name: Report Success
         if: ${{ success() }}

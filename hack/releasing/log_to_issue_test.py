@@ -17,6 +17,8 @@
 import contextlib
 import io
 import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,6 +37,65 @@ def checked_lines(body: str) -> list[str]:
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_release_pin_command_parsing(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+        parse = next(step for step in workflow["jobs"]["authorize"]["steps"] if step.get("id") == "parse")
+        cases = {
+            "/pin-release-issue": "pin-release-issue",
+            "/unpin-release-issue\r\n": "unpin-release-issue",
+            "/pin-release-issue\nThanks": "pin-release-issue",
+            "/unpin-release-issue\r\nThanks": "unpin-release-issue",
+            "/publish-release\nThanks": "publish-release",
+            "please /pin-release-issue": None,
+            "/pin-release-issue 123": None,
+            "/unpin-release-issue; echo extra": None,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            for body, command in cases.items():
+                with self.subTest(body=body):
+                    output.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", parse["run"]],
+                        env={**os.environ, "BODY": body, "TITLE": "Release v0.21.0",
+                             "COMMENT": "https://example.com/comment", "ISSUE_BODY": "",
+                             "GITHUB_OUTPUT": str(output)},
+                        text=True, capture_output=True,
+                    )
+                    lines = output.read_text().splitlines()
+                    if command is None:
+                        self.assertEqual(1, result.returncode, result.stderr)
+                        self.assertFalse(any(line.startswith("command=") for line in lines))
+                    else:
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertIn(f"command={command}", lines)
+
+    def test_release_pin_cli_arguments_and_failures(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+        steps = workflow["jobs"]["release-issue-pin"]["steps"]
+        update = next(step for step in steps if step["name"] == "Set release issue pin state")
+        with tempfile.TemporaryDirectory() as directory:
+            cli = Path(directory) / "gh"
+            cli.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GH_ARGS_FILE"\nexit "$GH_STATUS"\n')
+            cli.chmod(0o755)
+            output = Path(directory) / "arguments"
+            for command, action in [("pin-release-issue", "pin"), ("unpin-release-issue", "unpin")]:
+                for status in (0, 1):
+                    with self.subTest(command=command, status=status):
+                        result = subprocess.run(
+                            ["bash", "-e", "-c", update["run"]],
+                            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                                 "COMMAND": command, "ISSUE_NUMBER": "42",
+                                 "GITHUB_REPOSITORY": "kubernetes-sigs/kueue",
+                                 "GH_ARGS_FILE": str(output), "GH_STATUS": str(status)},
+                            text=True, capture_output=True,
+                        )
+                        self.assertEqual(status, result.returncode, result.stderr)
+                        self.assertEqual(
+                            ["issue", action, "42", "--repo", "kubernetes-sigs/kueue"],
+                            output.read_text().splitlines(),
+                        )
+
     def test_only_success_reports_mark_done(self) -> None:
         jobs = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"]
         for job_name, job in jobs.items():
