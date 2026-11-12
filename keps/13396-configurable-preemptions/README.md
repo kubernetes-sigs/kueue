@@ -456,7 +456,7 @@ Requested functionalities from the community can be satisfied with the following
                      - "batch-low"
    ```
 
-4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):**
+4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596) and [Issue #9876](https://github.com/kubernetes-sigs/kueue/issues/9876)):**
    Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes). Available since v0.21:
 
    ```yaml
@@ -470,8 +470,9 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             executionTime:
-               minSeconds: 900
+             timeConstraints:
+               execution:
+                 minSeconds: 900
    ```
 
 5. **SLA protection based on workload creation time:**
@@ -488,8 +489,9 @@ Requested functionalities from the community can be satisfied with the following
                 priority:
                   mode: "Boosted"
                   comparison: "LessThan"
-                timeSinceCreation:
-                  maxSeconds: 3600
+                timeConstraints:
+                  sinceCreation:
+                    maxSeconds: 3600
       ```
     * Avoid preempting workloads older than the preemptor to give them a better chance of finishing within their defined SLA. Available since v0.21:
       ```yaml
@@ -503,8 +505,9 @@ Requested functionalities from the community can be satisfied with the following
                 priority:
                   mode: "Boosted"
                   comparison: "LessThan"
-                timeSinceCreation:
-                  comparison: "LessThan"
+                timeConstraints:
+                  sinceCreation:
+                    comparison: "LessThan"
       ```
 
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
@@ -803,38 +806,55 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   //
   // +optional
   PriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"priorityClassSelector,omitempty"`
-  
-  // executionTime defines the requirements for candidates based on cumulative execution time.
-  // A workload's cumulative execution time is the total time spent in the Admitted=True
-  // state across admission cycles. It is a sum of previous execution time and current execution time.
-  // Workloads not matching these requirements will not be considered as preemption candidates.
-  // If nil, no execution time requirements are enforced.
+
+  // timeConstraints defines time-based constraints (such as cumulative execution
+  // duration or elapsed duration since creation) for preemption candidates.
+  // Workloads not matching these constraints will not be considered as preemption candidates.
+  // If not specified, no time constraints are enforced.
   //
   // +optional
-  ExecutionTime *PreemptionConfigTimeConstraint `json:"executionTime,omitempty"`
+  TimeConstraints *PreemptionConfigTimeConstraints `json:"timeConstraints,omitempty"`
+}
 
-  // timeSinceCreation defines the requirements for candidates based on workload age since creation.
+// PreemptionConfigTimeConstraints groups time-based constraints for filtering
+// preemption candidates.
+// Multiple constraints are joined using logical AND (all specified constraints must be satisfied).
+// At least one constraint must be specified.
+//
+// +kubebuilder:validation:MinProperties=1
+type PreemptionConfigTimeConstraints struct {
+  // execution defines the requirements for candidates based on cumulative execution duration.
+  // A workload's cumulative execution duration is the total duration spent in the Admitted
+  // state across admission cycles (the sum of accumulated past execution duration and the
+  // elapsed duration of the current admission, if currently admitted).
+  // Workloads not matching these requirements will not be considered as preemption candidates.
+  // If not specified, no execution requirements are enforced.
+  //
+  // +optional
+  Execution *PreemptionConfigDurationConstraint `json:"execution,omitempty"`
+
+  // sinceCreation defines the requirements for candidates based on workload age since creation.
   // A workload's time since creation is the elapsed duration measured from metadata.creationTimestamp
   // until the time of preemption evaluation.
   // Workloads not matching these requirements will not be considered as preemption candidates.
-  // If nil, no creation time requirements are enforced.
+  // If not specified, no since creation requirements are enforced.
   //
   // +optional
-  TimeSinceCreation *PreemptionConfigTimeConstraint `json:"timeSinceCreation,omitempty"`
+  SinceCreation *PreemptionConfigDurationConstraint `json:"sinceCreation,omitempty"`
 }
 
-// PreemptionConfigTimeConstraint describes the rules for filtering preemption candidates based on a
-// time duration metric, such as cumulative execution time or age since creation.
+// PreemptionConfigDurationConstraint describes the rules for filtering preemption candidates
+// based on an elapsed duration, such as cumulative execution duration or duration since creation.
 // For example, this can be used to protect newly admitted workloads from immediate preemption by
-// setting minSeconds on executionTime, or to protect older workloads near completion by setting
-// maxSeconds on timeSinceCreation.
-// Multiple fields are joined using AND-rule (all specified bounds and comparisons have to be satisfied).
+// setting minSeconds on execution, or to protect older workloads near completion by setting
+// maxSeconds on sinceCreation.
+// Multiple fields are joined using logical AND (all specified bounds and comparisons must be satisfied).
 // At least one property must be specified.
 //
 // +kubebuilder:validation:AtLeastOneOf=minSeconds;maxSeconds;comparison
 // +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
-type PreemptionConfigTimeConstraint struct {
-  // minSeconds specifies the minimum duration (inclusive) a candidate workload must have
+type PreemptionConfigDurationConstraint struct {
+  // minSeconds specifies the minimum elapsed duration, in seconds (inclusive), a candidate workload must have
   // accumulated for the time metric to be considered for preemption.
   // If not specified, no lower bound is enforced.
   //
@@ -842,7 +862,7 @@ type PreemptionConfigTimeConstraint struct {
   // +kubebuilder:validation:Minimum=1
   MinSeconds *int32 `json:"minSeconds,omitempty"`
 
-  // maxSeconds specifies the maximum duration (inclusive) a candidate workload can have
+  // maxSeconds specifies the maximum elapsed duration, in seconds (inclusive),a candidate workload can have
   // accumulated for the time metric to be considered for preemption.
   // If not specified, no upper bound is enforced.
   //
@@ -851,14 +871,12 @@ type PreemptionConfigTimeConstraint struct {
   MaxSeconds *int32 `json:"maxSeconds,omitempty"`
 
   // comparison defines how the candidate's duration compares to the preemptor's
-  // duration for the same time metric.
+  // duration for the same constraint.
   // If not specified, no relative comparison against the preemptor is enforced.
   //
   // +optional
   Comparison *NumericComparison `json:"comparison,omitempty"`
 }
-
-
 
 // PreemptionConfigNumericLabelConstraint describes the rule for filtering a custom numerical label.
 // For example, this can be used to filter candidates based on the label describing the
@@ -1069,6 +1087,8 @@ const (
 )
 ```
 
+Grouping time-based filters under the nested `timeConstraints` struct keeps `candidateSelectors` concise, avoids Kubernetes API naming ambiguity (`*Time` fields represent RFC 3339 timestamps rather than durations), and allows future extensions with additional condition-based duration constraints (such as `sinceAdmission` or `sinceEviction`) without restructuring the API.
+
 #### Default Candidate Ordering
 
 In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules for classical preemption and fair sharing (reusing the logic from [`pkg/scheduler/preemption/common/ordering.go`](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)):
@@ -1076,9 +1096,9 @@ In the initial iteration, candidate workloads are evaluated and ordered using th
 Configurable candidate ordering via an `Ordering` field is deferred to [Future Work](FUTURE_WORK.md#configurable-candidate-ordering).
 
 #### Workload Requeuing When No Candidates Are Available
-If a workload cannot be admitted due to current preemption config (for example `executionTime.minSeconds`), the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue moves the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
+If a workload cannot be admitted due to current preemption config (for example `timeConstraints.execution.minSeconds`), the candidate-finder computes a retry time indicating when candidate searching can be retried. When this timestamp elapses, Kueue moves the workload from the inadmissible queue back to the active queue, so scheduling can proceed.
 
-The returned timestamp corresponds to the minimum from encountered constraint until candidate searching halts, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as the state of the system can change in the meantime.
+The computed timestamp corresponds to the minimum of the encountered constraints until candidate searching halts, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The computed timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times, as the state of the system can change in the meantime.
 
 ### Integration
 
