@@ -19,6 +19,16 @@
 
 set -e
 
+# The combined suite owns the existing cluster and collects artifacts on exit.
+# With no arguments this script still provisions and cleans up its own cluster.
+USE_EXISTING_CLUSTER=false
+if [[ $# -eq 1 && $1 == --use-existing-cluster ]]; then
+  USE_EXISTING_CLUSTER=true
+elif [[ $# -ne 0 ]]; then
+  echo "Usage: $0 [--use-existing-cluster]" >&2
+  exit 2
+fi
+
 SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT_DIR="$(cd "${SOURCE_DIR}/../.." && pwd -P)"
 
@@ -32,19 +42,26 @@ source "${SOURCE_DIR}/e2e-common.sh"
 cleanup() {
   e2e_timed_log_unfinished "$?"
   echo "Cleaning up kueueviz processes"
-  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
-  cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
-  cluster_cleanup "${KIND_CLUSTER_NAME}"
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
+  if [[ "${USE_EXISTING_CLUSTER}" == false ]]; then
+    cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
+    cluster_cleanup "${KIND_CLUSTER_NAME}"
+  fi
 }
 
 trap cleanup EXIT
 
-echo Creating kind cluster "${KIND_CLUSTER_NAME}"
-e2e_timed "kueueviz-rbac/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
-echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-e2e_timed "kueueviz-rbac/prepare_images" prepare_docker_images
-e2e_timed "kueueviz-rbac/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
-e2e_timed "kueueviz-rbac/deploy" kueue_deploy
+if [[ "${USE_EXISTING_CLUSTER}" == false ]]; then
+  echo Creating kind cluster "${KIND_CLUSTER_NAME}"
+  e2e_timed "kueueviz-rbac/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
+  echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
+  e2e_timed "kueueviz-rbac/prepare_images" prepare_docker_images
+  e2e_timed "kueueviz-rbac/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
+  e2e_timed "kueueviz-rbac/deploy" kueue_deploy
+fi
 
 VICTIM_NS="kueueviz-rbac-victim"
 ATTACKER_NS="kueueviz-rbac-attacker"

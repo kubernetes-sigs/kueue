@@ -37,7 +37,10 @@ cleanup() {
   echo "Cleaning up kueueviz processes"
   # BACKEND_PID may be unset if we exit before the backend starts (e.g. while
   # waiting for the Kueue webhook), so guard against an empty kill argument.
-  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
   cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
   cluster_cleanup "${KIND_CLUSTER_NAME}"
 }
@@ -95,4 +98,11 @@ e2e_timed "kueueviz/frontend" docker run -i --entrypoint /workspace/hack/testing
            -v /var/run/docker.sock:/var/run/docker.sock "${CYPRESS_IMAGE_NAME}"
 
 set +x  # Disable debug mode
+
+# Stop the unauthenticated backend before starting the TokenReview backend, which
+# may use the same port. Keep the cluster alive; this script owns its cleanup.
+kill "${BACKEND_PID}"
+wait "${BACKEND_PID}" || true
+BACKEND_PID=""
+e2e_timed "kueueviz/rbac" "${SOURCE_DIR}/e2e-kueueviz-rbac-bypass.sh" --use-existing-cluster
 # The trap will handle cleanup 
