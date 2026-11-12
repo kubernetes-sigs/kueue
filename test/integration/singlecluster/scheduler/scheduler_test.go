@@ -5176,5 +5176,19 @@ var _ = ginkgo.Describe("Scheduler with multiple ResourceGroups for shared licen
 
 		ginkgo.By("Verifying workload 3 is now admitted after license release")
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
+
+		ginkgo.By("Creating workload 5 requiring 1 license while license quota is full again (wl2 and wl3)")
+		wl5 := utiltestingapi.MakeWorkload("wl5", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Request(corev1.ResourceName(licenseResource), "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl5)
+
+		ginkgo.By("Verifying workload 5 remains pending to confirm the other license remains reserved")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl5), wl5)).To(gomega.Succeed())
+			g.Expect(wl5.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

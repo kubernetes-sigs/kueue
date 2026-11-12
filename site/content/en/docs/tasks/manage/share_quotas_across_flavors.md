@@ -330,9 +330,22 @@ When Kueue evaluates this Job:
 - Once admitted, Kueue unsuspends the Job. The license quota remains reserved until the Job completes, at which point Kueue frees the license for the next queued workload.
 
 {{% alert title="Note on Pod Schedulability" color="primary" %}}
-Because Kueue's built-in Job integration derives quota from container `requests`, extended resources like `example.com/license` must be present on the Job's containers. In Kubernetes, `kube-scheduler` verifies all container resource requests against each node's `allocatable` capacity.
+In the configuration shown here, Kueue's built-in Job integration derives quota directly from container `requests`, so extended resources like `example.com/license` must be present on the Job's containers (alternatively, [resource transformations](/docs/tasks/manage/administer_cluster_quotas/#transform-resources-for-quota-management) can derive `example.com/license` quota from other Pod resources without adding the license resource to the Pod, though under different accounting constraints). In Kubernetes, `kube-scheduler` checks all container resource requests against each node's `allocatable` capacity.
 
-Since floating software licenses represent cluster-wide limits rather than physical node resources, worker nodes do not have this capacity by default. To allow `kube-scheduler` to schedule admitted pods, cluster administrators typically run a lightweight node daemon or dummy device plugin that advertises the license resource on worker nodes.
+Since software licenses represent cluster-wide pool limits rather than physical node hardware, worker nodes do not have this capacity by default. Without it, `kube-scheduler` marks admitted pods unschedulable (`insufficient example.com/license`).
+
+To let `kube-scheduler` place admitted pods, cluster operators typically ensure worker nodes advertise capacity for the extended resource:
+
+1. **Advertise capacity directly on nodes**: Patch candidate worker nodes to include `example.com/license` under `status.capacity` (set to a value matching or exceeding the ClusterQueue quota):
+   ```bash
+   kubectl patch node <node-name> --subresource=status --type=json \
+     -p='[{"op": "add", "path": "/status/capacity/example.com~1license", "value": "10"}]'
+   ```
+   Kubelet automatically updates `status.allocatable` from capacity.
+
+2. **Run a dummy device plugin**: Deploy a minimal DaemonSet running a device plugin that registers `example.com/license` with kubelet over `/var/lib/kubelet/device-plugins/kubelet.sock` and reports available dummy device IDs. The plugin must detect kubelet restarts (which delete plugin sockets) and re-register with kubelet to restore reported capacity. This keeps node capacity populated automatically across node reboots and autoscaling.
+
+*(Note: If using Dynamic Resource Allocation (DRA) instead of container resource requests, licenses can be modeled via ResourceClaims and a DRA driver, but standard batch/Job integration relies on container extended resource requests as shown above).*
 {{% /alert %}}
 
 For more examples of resource transformations, see:
