@@ -31,12 +31,11 @@ import (
 var _ = ginkgo.Describe("JobSet Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {

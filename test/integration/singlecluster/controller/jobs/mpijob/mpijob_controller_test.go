@@ -465,10 +465,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(true))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(true))
 	})
 
 	var (
@@ -607,14 +604,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(false, jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}})))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(false, jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}})))
 
 		ginkgo.By("Create a resource flavor")
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 	})
 	ginkgo.AfterAll(func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -838,10 +834,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -977,11 +970,7 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -1188,7 +1177,7 @@ var _ = ginkgo.Describe("MPIJob controller interacting with Workload controller 
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetupWithConfiguration(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithConfiguration(
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			false,
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
@@ -1205,7 +1194,6 @@ var _ = ginkgo.Describe("MPIJob controller interacting with Workload controller 
 	ginkgo.JustAfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("unscheduledTimeout is configured", func() {

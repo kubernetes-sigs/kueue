@@ -38,7 +38,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 
 	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
 				// Necessary to initialize the runtimes
 				if _, err := workloadtrainjob.NewReconciler(
 					ctx,
@@ -54,7 +54,6 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should succed creating the TrainJob", func() {

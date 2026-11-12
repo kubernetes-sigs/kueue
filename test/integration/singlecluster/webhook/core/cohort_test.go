@@ -35,10 +35,7 @@ import (
 
 var _ = ginkgo.Describe("Cohort Webhook", func() {
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-	})
-	ginkgo.AfterEach(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 	})
 	ginkgo.When("Creating a Cohort", func() {
 		ginkgo.DescribeTable("Validate Cohort on creation", func(cohort *kueue.Cohort, matcher types.GomegaMatcher) {

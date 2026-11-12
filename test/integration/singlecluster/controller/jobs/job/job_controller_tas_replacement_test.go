@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(true, true, nil))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-replacement-")
 		nodes = nil
 		for _, name := range []string{"node1", "node2", "node3", "node4"} {
@@ -87,7 +87,6 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		for i := range nodes {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
 		}
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("replaces failed nodes without eviction when the feature is enabled", framework.SlowSpec, func() {

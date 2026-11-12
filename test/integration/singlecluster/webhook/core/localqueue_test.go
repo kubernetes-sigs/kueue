@@ -34,12 +34,11 @@ const queueName = "queue-test"
 
 var _ = ginkgo.Describe("Queue validating webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	var _ = ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 	ginkgo.When("Updating a Queue", func() {
 		ginkgo.It("Should reject bad value for spec.clusterQueue", func() {

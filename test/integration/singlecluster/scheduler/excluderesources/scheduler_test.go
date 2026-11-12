@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -82,10 +82,6 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should admit workload ignoring excluded resource", func() {
@@ -223,7 +219,7 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configuration))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -286,10 +282,6 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 		for _, node := range nodes {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should use excluded resource from PodSpec for TAS placement", func() {

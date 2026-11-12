@@ -51,11 +51,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 
 	ginkgo.BeforeAll(func() {
 		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 	})
 
 	ginkgo.BeforeEach(func() {

@@ -46,17 +46,13 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		)
 
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				configapi.QuotaCheckIgnoreUndeclared,
 				&configapi.AdmissionFairSharing{
 					UsageSamplingInterval: metav1.Duration{Duration: 100 * time.Millisecond},
 					UsageHalfLifeTime:     metav1.Duration{Duration: time.Hour},
 				},
 			))
-		})
-
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.BeforeEach(func() {
@@ -159,11 +155,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		)
 
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(configapi.QuotaCheckIgnoreUndeclared, nil))
-		})
-
-		ginkgo.AfterAll(func() {
-			fwk.StopManager(ctx)
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configapi.QuotaCheckIgnoreUndeclared, nil))
 		})
 
 		ginkgo.BeforeEach(func() {

@@ -65,7 +65,8 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 		behavioral.MustCreate(ctx, k8sClient, limitRange)
 
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		expectLimitRangesInManagerCache(limitRange)
 
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
@@ -97,8 +98,6 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, largeFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, smallFlavor, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	expectAdmittedOnFlavor := func(wl *kueue.Workload, flavorName string) {
@@ -173,7 +172,8 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 		behavioral.MustCreate(ctx, k8sClient, lrLarge)
 
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		expectLimitRangesInManagerCache(lrSmall, lrLarge)
 
 		flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -199,8 +199,6 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, nsLarge)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		fwk.StopManager(ctx)
-		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("reports two distinct hashes for raw-identical workloads under different defaults", func() {

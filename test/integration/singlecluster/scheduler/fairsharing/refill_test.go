@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingRefill, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(nil))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -84,7 +84,6 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, poorCQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, richCQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("gives the freed capacity to the poorest ClusterQueue instead of an over-share sibling", func() {

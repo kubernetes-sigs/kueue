@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		unmanagedNsName := "unmanaged-ns-" + rand.String(8)
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			job.SetupWebhook,
 			jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding(unmanagedNsName)),
@@ -65,7 +65,6 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, unmanagedNs)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("checking the workload is not created when JobMinParallelismAnnotation is invalid", func() {
@@ -155,12 +154,11 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should suspend a Job when created in unsuspend state", func() {

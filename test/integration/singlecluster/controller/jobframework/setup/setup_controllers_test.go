@@ -50,8 +50,9 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{}
 		cfg = fwk.Init()
+		ginkgo.DeferCleanup(fwk.Teardown)
 		ctx, k8sClient = fwk.SetupClient(cfg)
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
@@ -73,9 +74,6 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-
-		fwk.StopManager(ctx)
-		fwk.Teardown()
 	})
 
 	ginkgo.It("Should setup controller and webhook after CRD installation", framework.SlowSpec, func() {

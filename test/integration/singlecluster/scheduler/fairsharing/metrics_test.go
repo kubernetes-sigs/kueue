@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			lqs = make(map[string]*kueue.LocalQueue)
 			wls = make(map[string]*kueue.Workload)
 
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				&config.AdmissionFairSharing{
 					UsageHalfLifeTime: metav1.Duration{
 						Duration: 1 * time.Second,
@@ -133,7 +133,6 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			for _, ac := range admissionChecks {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 			}
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("follows reporting correct metrics", func() {

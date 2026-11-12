@@ -65,10 +65,7 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 	})
 
 	ginkgo.BeforeEach(func() {

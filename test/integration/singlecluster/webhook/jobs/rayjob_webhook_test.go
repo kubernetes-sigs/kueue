@@ -38,13 +38,12 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {

@@ -52,14 +52,10 @@ const (
 
 var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkapplication", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	var (
@@ -95,7 +91,7 @@ var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabl
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -110,7 +106,6 @@ var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabl
 
 	ginkgo.AfterAll(func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -222,11 +217,7 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -380,11 +371,7 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
 	})
 
 	ginkgo.BeforeEach(func() {

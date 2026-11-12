@@ -145,10 +145,7 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 
 	ginkgo.BeforeAll(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 	})
 
 	ginkgo.BeforeEach(func() {
