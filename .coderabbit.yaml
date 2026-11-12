@@ -12,6 +12,7 @@ knowledge_base:
 tone_instructions: |
   Before opening an issue, read and follow the instructions in AGENTS.md.
   Keep issue title and description concise.
+  Do not assign anyone to newly opened issues, unless requested.
 
 reviews:
   request_changes_workflow: false
