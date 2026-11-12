@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
@@ -107,6 +108,7 @@ var _ jobframework.GenericJob = (*TrainJob)(nil)
 var _ jobframework.JobWithCustomStop = (*TrainJob)(nil)
 var _ jobframework.JobWithReclaimablePods = (*TrainJob)(nil)
 var _ jobframework.JobWithManagedBy = (*TrainJob)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*TrainJob)(nil)
 
 func NewJob() jobframework.GenericJob {
 	return &TrainJob{}
@@ -118,6 +120,15 @@ func fromObject(obj runtime.Object) *TrainJob {
 
 func (t *TrainJob) Object() client.Object {
 	return (*kftrainer.TrainJob)(t)
+}
+
+// CustomEquivalenceOptions ignores container images, because Trainer v2.4.0 also applies
+// the .spec.trainer.image override to the MPI nodes, not only to the launcher
+// (kubeflow/trainer#4301). Without this, Workloads of MPI TrainJobs created by earlier
+// Kueue versions no longer match their TrainJobs, and running TrainJobs are suspended
+// and requeued after a Kueue upgrade.
+func (t *TrainJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	return []equality.ComparePodSetsOption{equality.WithIgnoreContainerImages()}
 }
 
 func (t *TrainJob) IsSuspended() bool {
@@ -163,7 +174,7 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 	if err != nil {
 		return nil, fmt.Errorf("runtime '%s' not found", trainJob.Spec.RuntimeRef.Name)
 	}
-	info, err := runtime.RuntimeInfo(trainJob, trSpec.Template, trSpec.MLPolicy, trSpec.PodGroupPolicy)
+	info, err := runtime.RuntimeInfo(trainJob, trSpec.Template, trSpec.MLPolicy, trSpec.PodGroupPolicy, trSpec.Scheduling)
 	if err != nil {
 		return nil, err
 	}
@@ -173,12 +184,35 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 	if !ok {
 		return nil, err
 	}
+	syncPodSetImages(jobSetSpec, info.TemplateSpec.PodSets)
 
 	jobsetApply := kftrainerjobset.NewBuilder(jobsetapplyapi.JobSet(t.Name, t.Namespace).
 		WithSpec(jobSetSpec)).Initializer(trainJob).Trainer(info, trainJob).PodLabels(info.Scheduler.PodLabels).Build()
 
 	// convert to jobset with the defaults set
 	return jobsetApplyToJobset(jobsetApply)
+}
+
+// syncPodSetImages copies the container images resolved by the Trainer runtime plugins,
+// such as the .spec.trainer.image override, into the JobSet spec. The Trainer JobSet
+// builder no longer sets them, so we mirror the image sync of the Trainer JobSet plugin's Build.
+func syncPodSetImages(jobSetSpec *jobsetapplyapi.JobSetSpecApplyConfiguration, podSets []kftrainerruntime.PodSet) {
+	for psIdx, ps := range podSets {
+		if psIdx >= len(jobSetSpec.ReplicatedJobs) {
+			return
+		}
+		podSpec := jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec
+		for containerIdx, container := range ps.Containers {
+			if container.Image != "" && containerIdx < len(podSpec.Containers) {
+				podSpec.Containers[containerIdx].Image = new(container.Image)
+			}
+		}
+		for containerIdx, container := range ps.InitContainers {
+			if container.Image != "" && containerIdx < len(podSpec.InitContainers) {
+				podSpec.InitContainers[containerIdx].Image = new(container.Image)
+			}
+		}
+	}
 }
 
 func jobsetApplyToJobset(jobsetApply *jobsetapplyapi.JobSetApplyConfiguration) (*jobsetapi.JobSet, error) {

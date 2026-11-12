@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"slices"
 
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -40,11 +41,13 @@ type Framework struct {
 	plugins                      map[string]framework.Plugin
 	enforceMLPlugins             []framework.EnforceMLPolicyPlugin
 	enforcePodGroupPolicyPlugins []framework.EnforcePodGroupPolicyPlugin
+	enforceSchedulingPlugins     []framework.EnforceSchedulingPlugin
 	enforcePodSpecPlugins        []framework.EnforcePodSpecPlugin
 	customValidationPlugins      []framework.CustomValidationPlugin
 	watchExtensionPlugins        []framework.WatchExtensionPlugin
 	preComponentBuilderPlugins   []framework.PreComponentBuilderPlugin
 	componentBuilderPlugins      []framework.ComponentBuilderPlugin
+	componentDeleterPlugins      []framework.ComponentDeleterPlugin
 	trainJobStatusPlugin         framework.TrainJobStatusPlugin
 }
 
@@ -57,7 +60,16 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		return nil, err
 	}
 
-	for name, factory := range r {
+	// Instantiate plugins in a deterministic order for consistency across restarts.
+	// The order is arbitrary.
+	names := make([]string, 0, len(r))
+	for name := range r {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	for _, name := range names {
+		factory := r[name]
 		plugin, err := factory(ctx, c, indexer, cfg)
 		if err != nil {
 			return nil, err
@@ -68,6 +80,9 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		}
 		if p, ok := plugin.(framework.EnforcePodGroupPolicyPlugin); ok {
 			f.enforcePodGroupPolicyPlugins = append(f.enforcePodGroupPolicyPlugins, p)
+		}
+		if p, ok := plugin.(framework.EnforceSchedulingPlugin); ok {
+			f.enforceSchedulingPlugins = append(f.enforceSchedulingPlugins, p)
 		}
 		if p, ok := plugin.(framework.EnforcePodSpecPlugin); ok {
 			f.enforcePodSpecPlugins = append(f.enforcePodSpecPlugins, p)
@@ -83,6 +98,9 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		}
 		if p, ok := plugin.(framework.ComponentBuilderPlugin); ok {
 			f.componentBuilderPlugins = append(f.componentBuilderPlugins, p)
+		}
+		if p, ok := plugin.(framework.ComponentDeleterPlugin); ok {
+			f.componentDeleterPlugins = append(f.componentDeleterPlugins, p)
 		}
 		if p, ok := plugin.(framework.TrainJobStatusPlugin); ok {
 			if f.trainJobStatusPlugin != nil {
@@ -112,6 +130,21 @@ func (f *Framework) RunEnforceMLPolicyPlugins(info *runtime.Info, trainJob *trai
 func (f *Framework) RunEnforcePodGroupPolicyPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	for _, plugin := range f.enforcePodGroupPolicyPlugins {
 		if err := plugin.EnforcePodGroupPolicy(info, trainJob); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunEnforceSchedulingPlugins configures the Workload-Aware Scheduling parameters declared in the
+// runtime `.spec.scheduling` on the Info object. It must run after RunEnforceMLPolicyPlugins, which
+// can still adjust the PodSet counts.
+func (f *Framework) RunEnforceSchedulingPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
+	if info == nil {
+		return nil
+	}
+	for _, plugin := range f.enforceSchedulingPlugins {
+		if err := plugin.EnforceScheduling(info, trainJob); err != nil {
 			return err
 		}
 	}
@@ -164,6 +197,20 @@ func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtim
 	var objs []apiruntime.ApplyConfiguration
 	for _, plugin := range f.componentBuilderPlugins {
 		components, err := plugin.Build(ctx, info, trainJob)
+		if err != nil {
+			return nil, err
+		}
+		objs = append(objs, components...)
+	}
+	return objs, nil
+}
+
+// RunComponentDeleterPlugins aggregates the objects returned by all ComponentDeleterPlugins.
+// It performs no deletion itself.
+func (f *Framework) RunComponentDeleterPlugins(ctx context.Context, trainJob *trainer.TrainJob) ([]client.Object, error) {
+	var objs []client.Object
+	for _, plugin := range f.componentDeleterPlugins {
+		components, err := plugin.Delete(ctx, trainJob)
 		if err != nil {
 			return nil, err
 		}

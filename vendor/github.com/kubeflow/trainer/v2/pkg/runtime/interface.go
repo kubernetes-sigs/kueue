@@ -33,7 +33,11 @@ type ReconcilerBuilder func(*builder.Builder, client.Client, cache.Cache) *build
 
 type Runtime interface {
 	NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]runtime.ApplyConfiguration, error)
-	RuntimeInfo(trainJob *trainer.TrainJob, runtimeTemplateSpec any, mlPolicy *trainer.MLPolicy, podGroupPolicy *trainer.PodGroupPolicy) (*Info, error)
+	// DeleteObjects returns the previously materialized objects that should now be
+	// removed for the TrainJob. It must be safe to call on every reconcile, regardless
+	// of the TrainJob's status, and must be idempotent.
+	DeleteObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]client.Object, error)
+	RuntimeInfo(trainJob *trainer.TrainJob, runtimeTemplateSpec any, mlPolicy *trainer.MLPolicy, podGroupPolicy *trainer.PodGroupPolicy, scheduling *trainer.TrainingRuntimeScheduling) (*Info, error)
 	TrainJobStatus(ctx context.Context, trainJob *trainer.TrainJob) (*trainer.TrainJobStatus, error)
 	EventHandlerRegistrars() []ReconcilerBuilder
 	ValidateObjects(ctx context.Context, old, new *trainer.TrainJob) (admission.Warnings, field.ErrorList)

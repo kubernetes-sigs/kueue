@@ -18,10 +18,13 @@ package jobset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -56,6 +59,9 @@ import (
 var (
 	runtimeRefPath     = field.NewPath("spec").Child("runtimeRef")
 	runtimePatchesPath = field.NewPath("spec").Child("runtimePatches")
+
+	errorInvalidReplicas                = errors.New("replicatedJob replicas must be greater than or equal to 1")
+	errorPodCountNotDivisibleByReplicas = errors.New("replicatedJob Pod count must be divisible by replicas")
 )
 
 type JobSet struct {
@@ -171,7 +177,7 @@ func (j *JobSet) Validate(ctx context.Context, info *runtime.Info, oldObj, newOb
 
 	allErrs = append(allErrs, j.checkRuntimePatchesImmutability(ctx, oldObj, newObj)...)
 
-	// TODO (andreyvelich): Validate Volumes, VolumeMounts, and Tolerations.
+	// Validate per-patch: ensure patched resources exist in the runtime template
 	for _, runtimePatch := range newObj.Spec.RuntimePatches {
 		allErrs = append(allErrs, validation.IsDomainPrefixedPath(runtimePatchesPath.Child("manager"), runtimePatch.Manager)...)
 		if runtimePatch.TrainingRuntimeSpec == nil || runtimePatch.TrainingRuntimeSpec.Template == nil ||
@@ -190,6 +196,7 @@ func (j *JobSet) Validate(ctx context.Context, info *runtime.Info, oldObj, newOb
 				continue
 			}
 			podSpecPatch := rJobPatch.Template.Spec.Template.Spec
+
 			for _, c := range podSpecPatch.InitContainers {
 				if !containers.Has(c.Name) {
 					allErrs = append(allErrs, field.Invalid(runtimePatchesPath, newObj.Spec.RuntimePatches,
@@ -208,7 +215,156 @@ func (j *JobSet) Validate(ctx context.Context, info *runtime.Info, oldObj, newOb
 		}
 	}
 
+	// Every container resources.claims entry must reference a Pod-level resourceClaims entry,
+	// otherwise the API server rejects the Pod only after the JobSet is created.
+	// The runtime webhook rejects dangling claims in the runtime template and
+	// spec.trainer.resourceClaimsPerNode adds both the Pod-level and the container-level entries
+	// (or neither while the feature gate is disabled), so a dangling reference in the merged spec
+	// comes from spec.runtimePatches, or from a runtime (or runtime snapshot) created before that
+	// validation existed.
+	for _, rJob := range jobSetSpec.ReplicatedJobs {
+		podSpec := rJob.Template.Spec.Template.Spec
+		podClaims := sets.New[string]()
+		for _, pc := range podSpec.ResourceClaims {
+			podClaims.Insert(ptr.Deref(pc.Name, ""))
+		}
+		for _, c := range slices.Concat(podSpec.InitContainers, podSpec.Containers) {
+			if c.Resources == nil {
+				continue
+			}
+			for _, claim := range c.Resources.Claims {
+				if name := ptr.Deref(claim.Name, ""); !podClaims.Has(name) {
+					allErrs = append(allErrs, field.Invalid(runtimePatchesPath, name,
+						fmt.Sprintf("container %q in job %q references resourceClaim %q which is not defined in the Pod's resourceClaims",
+							ptr.Deref(c.Name, ""), ptr.Deref(rJob.Name, ""), name)))
+				}
+			}
+		}
+	}
+
+	// Validate volumeMounts and tolerations introduced by runtime patches.
+	allErrs = append(allErrs, validateRuntimePatchesPodSpec(jobSetSpec, runtimePatchesPath, newObj)...)
+
+	// numNodes is the total number of nodes across all trainer replicas, so it must be
+	// divisible by replicas to have the same number of nodes in every replicated Job.
+	if trainerReplicas := runtime.TrainerReplicas(info); trainerReplicas > 1 {
+		numNodes := ptr.Deref(ptr.Deref(info.FindPodSetByAncestor(constants.AncestorTrainer), runtime.PodSet{}).Count, 1)
+		if newObj.Spec.Trainer != nil && newObj.Spec.Trainer.NumNodes != nil {
+			numNodes = *newObj.Spec.Trainer.NumNodes
+		}
+		if numNodes%trainerReplicas != 0 {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "trainer", "numNodes"), numNodes,
+				fmt.Sprintf("must be divisible by the trainer replicatedJob replicas: %d", trainerReplicas)))
+		}
+	}
+
+	// Validate TrainJob name length against JobSet pod name constraints.
+	if oldObj == nil {
+		minMaxLen := runtime.MaxTrainJobNameLength(info, newObj)
+		if len(newObj.Name) > minMaxLen {
+			allErrs = append(allErrs, field.Invalid(
+				field.NewPath("metadata", "name"),
+				newObj.Name,
+				fmt.Sprintf("TrainJob name is too long, pod names generated for this JobSet will exceed 63 characters (maximum length is %d)", minMaxLen),
+			))
+		}
+	}
+
 	return nil, allErrs
+}
+
+// validateRuntimePatchesPodSpec validates volumeMounts and tolerations introduced by each runtime patch.
+func validateRuntimePatchesPodSpec(jobSetSpec *jobsetv1alpha2ac.JobSetSpecApplyConfiguration, runtimePatchesPath *field.Path, trainJob *trainer.TrainJob) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(trainJob.Spec.RuntimePatches) == 0 {
+		return allErrs
+	}
+
+	// For each runtime patch, validate the fields it introduces
+	for i, patch := range trainJob.Spec.RuntimePatches {
+		patchPath := runtimePatchesPath.Index(i)
+
+		if patch.TrainingRuntimeSpec == nil || patch.TrainingRuntimeSpec.Template == nil ||
+			patch.TrainingRuntimeSpec.Template.Spec == nil || patch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs == nil {
+			continue
+		}
+
+		for j, patchRJob := range patch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
+			if patchRJob.Template == nil || patchRJob.Template.Spec == nil ||
+				patchRJob.Template.Spec.Template == nil || patchRJob.Template.Spec.Template.Spec == nil {
+				continue
+			}
+
+			patchPodSpec := patchRJob.Template.Spec.Template.Spec
+			replicatedJobPath := patchPath.Child("trainingRuntimeSpec", "template", "spec", "replicatedJobs").Index(j)
+			podSpecPath := replicatedJobPath.Child("template", "spec", "template", "spec")
+
+			// Validate InitContainers from this patch
+			allErrs = append(allErrs, validateVolumeMountsPatch(podSpecPath.Child("initContainers"), patchPodSpec.InitContainers)...)
+
+			// Validate Containers from this patch
+			allErrs = append(allErrs, validateVolumeMountsPatch(podSpecPath.Child("containers"), patchPodSpec.Containers)...)
+
+			// Validate Tolerations from this patch
+			for t, tol := range patchPodSpec.Tolerations {
+				tolerationPath := podSpecPath.Child("tolerations").Index(t)
+				// Validate operator (if specified)
+				if tol.Operator != "" && !slices.Contains([]corev1.TolerationOperator{corev1.TolerationOpEqual, corev1.TolerationOpExists, corev1.TolerationOpLt, corev1.TolerationOpGt}, tol.Operator) {
+					allErrs = append(allErrs, field.NotSupported(tolerationPath.Child("operator"), tol.Operator, []string{string(corev1.TolerationOpEqual), string(corev1.TolerationOpExists), string(corev1.TolerationOpLt), string(corev1.TolerationOpGt)}))
+				}
+				// Validate operator Exists must have empty value
+				if tol.Operator == corev1.TolerationOpExists && tol.Value != "" {
+					allErrs = append(allErrs, field.Forbidden(tolerationPath.Child("value"), "must be empty when operator is Exists"))
+				}
+				// Validate empty key must use operator Exists
+				if tol.Key == "" && tol.Operator != corev1.TolerationOpExists {
+					allErrs = append(allErrs, field.Invalid(tolerationPath.Child("operator"), tol.Operator, "must be Exists when key is empty"))
+				}
+				// Validate tolerationSeconds requires effect NoExecute
+				if tol.TolerationSeconds != nil && tol.Effect != corev1.TaintEffectNoExecute {
+					allErrs = append(allErrs, field.Invalid(tolerationPath.Child("effect"), tol.Effect, "must be NoExecute when tolerationSeconds is set"))
+				}
+				// Validate effect (if specified)
+				// Empty effect ("") is valid and matches any taint effect
+				if tol.Effect != "" && tol.Effect != corev1.TaintEffectNoSchedule && tol.Effect != corev1.TaintEffectPreferNoSchedule && tol.Effect != corev1.TaintEffectNoExecute {
+					allErrs = append(allErrs, field.NotSupported(tolerationPath.Child("effect"), tol.Effect, []string{string(corev1.TaintEffectNoSchedule), string(corev1.TaintEffectPreferNoSchedule), string(corev1.TaintEffectNoExecute), ""}))
+				}
+			}
+		}
+	}
+
+	return allErrs
+}
+
+// validateVolumeMountsPatch validates volumeMounts in containers (or initContainers).
+// It checks that volumeMounts have non-empty mountPath and no duplicate mountPaths.
+// Note: Volume existence is not validated here because plugins may inject volumes during
+// the EnforceMLPolicy stage (after ValidateObjects). Kubernetes will validate volume
+// references when the Pod is created.
+func validateVolumeMountsPatch(fldPath *field.Path, containers []trainer.ContainerPatch) field.ErrorList {
+	var allErrs field.ErrorList
+
+	for k, container := range containers {
+		containerPath := fldPath.Index(k)
+		mountPaths := sets.New[string]()
+		for l, vm := range container.VolumeMounts {
+			volumeMountPath := containerPath.Child("volumeMounts").Index(l)
+			// Validate mountPath is not empty
+			if vm.MountPath == "" {
+				allErrs = append(allErrs, field.Required(volumeMountPath.Child("mountPath"), ""))
+			}
+			// Validate duplicate mountPath within the same container
+			if vm.MountPath != "" {
+				if mountPaths.Has(vm.MountPath) {
+					allErrs = append(allErrs, field.Duplicate(volumeMountPath.Child("mountPath"), vm.MountPath))
+				}
+				mountPaths.Insert(vm.MountPath)
+			}
+		}
+	}
+
+	return allErrs
 }
 
 func (j *JobSet) checkRuntimePatchesImmutability(ctx context.Context, oldObj, newObj *trainer.TrainJob) field.ErrorList {
@@ -294,11 +450,14 @@ func (j *JobSet) syncPodNetwork(info *runtime.Info, trainJob *trainer.TrainJob) 
 		subDomain = *jobSetNet.Subdomain
 	}
 	for rJobIdx, rJob := range spec.ReplicatedJobs {
-		podCount := info.TemplateSpec.PodSets[rJobIdx].Count
 		rJobReplicas := ptr.Deref(rJob.Replicas, constants.DefaultJobReplicas)
+		perReplica, err := podsPerReplica(info.TemplateSpec.PodSets[rJobIdx].Count, rJobReplicas, ptr.Deref(rJob.Name, ""))
+		if err != nil {
+			return err
+		}
 		info.TemplateSpec.PodSets[rJobIdx].Endpoints = func(yield func(string) bool) {
-			for replicaIdx := 0; replicaIdx < int(rJobReplicas); replicaIdx++ {
-				for podIdx := range ptr.Deref(podCount, 1) {
+			for replicaIdx := range rJobReplicas {
+				for podIdx := range perReplica {
 					endpoint := fmt.Sprintf("%s-%s-%d-%d.%s", trainJob.Name, *rJob.Name, replicaIdx, podIdx, subDomain)
 					if !yield(endpoint) {
 						return
@@ -311,6 +470,8 @@ func (j *JobSet) syncPodNetwork(info *runtime.Info, trainJob *trainer.TrainJob) 
 }
 
 // SyncParallelCount propagates PodSets.Count into template-level Parallelism/Completions.
+// PodSets.Count is the total number of Pods across all replicas, so each replicated Job
+// gets PodSets.Count / replicas Pods.
 func (j *JobSet) syncParallelCount(info *runtime.Info) error {
 	if info == nil {
 		return nil
@@ -324,14 +485,32 @@ func (j *JobSet) syncParallelCount(info *runtime.Info) error {
 			continue
 		}
 		for rJobIdx := range jobSetSpec.ReplicatedJobs {
-			if jobSetSpec.ReplicatedJobs[rJobIdx].Name != nil && *jobSetSpec.ReplicatedJobs[rJobIdx].Name == ps.Name {
-				jobSetSpec.ReplicatedJobs[rJobIdx].Template.Spec.Parallelism = ps.Count
-				jobSetSpec.ReplicatedJobs[rJobIdx].Template.Spec.Completions = ps.Count
+			rJob := &jobSetSpec.ReplicatedJobs[rJobIdx]
+			if rJob.Name != nil && *rJob.Name == ps.Name {
+				count, err := podsPerReplica(ps.Count, ptr.Deref(rJob.Replicas, constants.DefaultJobReplicas), ps.Name)
+				if err != nil {
+					return err
+				}
+				rJob.Template.Spec.Parallelism = &count
+				rJob.Template.Spec.Completions = &count
 				break
 			}
 		}
 	}
 	return nil
+}
+
+// podsPerReplica returns the number of Pods in a single replicated Job, given the total
+// number of Pods across all replicas.
+func podsPerReplica(totalCount *int32, replicas int32, rJobName string) (int32, error) {
+	count := ptr.Deref(totalCount, 1)
+	if replicas < 1 {
+		return 0, fmt.Errorf("%w: replicatedJob %q has %d replicas", errorInvalidReplicas, rJobName, replicas)
+	}
+	if count%replicas != 0 {
+		return 0, fmt.Errorf("%w: replicatedJob %q has %d Pods and %d replicas", errorPodCountNotDivisibleByReplicas, rJobName, count, replicas)
+	}
+	return count / replicas, nil
 }
 
 func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
@@ -368,6 +547,10 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 
 	for psIdx, ps := range info.TemplateSpec.PodSets {
 		apply.UpsertVolumes(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Volumes, ps.Volumes...)
+		if ps.SchedulingGroup != nil {
+			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.SchedulingGroup = ps.SchedulingGroup
+		}
+		apply.UpsertPodResourceClaims(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.ResourceClaims, ps.ResourceClaims...)
 		for containerIdx, container := range ps.Containers {
 			if len(container.Command) > 0 {
 				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Command = container.Command
@@ -387,6 +570,7 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
 				container.VolumeMounts...,
 			)
+			upsertContainerResourceClaims(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx], container.ResourceClaims...)
 		}
 		initContainers := jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers
 		for containerIdx, container := range ps.InitContainers {
@@ -418,6 +602,7 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].VolumeMounts,
 				container.VolumeMounts...,
 			)
+			upsertContainerResourceClaims(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx], container.ResourceClaims...)
 		}
 	}
 
@@ -482,4 +667,15 @@ func (j *JobSet) Status(ctx context.Context, trainJob *trainer.TrainJob) (*train
 	status.JobsStatus = statuses
 
 	return status, nil
+}
+
+// upsertContainerResourceClaims upserts the DRA resource claims into the container resources.claims.
+func upsertContainerResourceClaims(container *corev1ac.ContainerApplyConfiguration, claims ...corev1ac.ResourceClaimApplyConfiguration) {
+	if len(claims) == 0 {
+		return
+	}
+	if container.Resources == nil {
+		container.Resources = corev1ac.ResourceRequirements()
+	}
+	apply.UpsertResourceClaims(&container.Resources.Claims, claims...)
 }

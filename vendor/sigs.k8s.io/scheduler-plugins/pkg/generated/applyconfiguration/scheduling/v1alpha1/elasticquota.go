@@ -26,11 +26,16 @@ import (
 
 // ElasticQuotaApplyConfiguration represents a declarative configuration of the ElasticQuota type for use
 // with apply.
+//
+// ElasticQuota sets elastic quota restrictions per namespace
 type ElasticQuotaApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:",inline"`
+	// Standard object's metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *ElasticQuotaSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *ElasticQuotaStatusApplyConfiguration `json:"status,omitempty"`
+	// ElasticQuotaSpec defines the Min and Max for Quota.
+	Spec *ElasticQuotaSpecApplyConfiguration `json:"spec,omitempty"`
+	// ElasticQuotaStatus defines the observed use.
+	Status *ElasticQuotaStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // ElasticQuota constructs a declarative configuration of the ElasticQuota type for use with
@@ -43,6 +48,7 @@ func ElasticQuota(name, namespace string) *ElasticQuotaApplyConfiguration {
 	b.WithAPIVersion("scheduling.x-k8s.io/v1alpha1")
 	return b
 }
+
 func (b ElasticQuotaApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

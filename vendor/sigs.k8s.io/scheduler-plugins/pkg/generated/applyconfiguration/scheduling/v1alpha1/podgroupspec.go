@@ -24,10 +24,20 @@ import (
 
 // PodGroupSpecApplyConfiguration represents a declarative configuration of the PodGroupSpec type for use
 // with apply.
+//
+// PodGroupSpec represents the template of a pod group.
 type PodGroupSpecApplyConfiguration struct {
-	MinMember              *int32           `json:"minMember,omitempty"`
-	MinResources           *v1.ResourceList `json:"minResources,omitempty"`
-	ScheduleTimeoutSeconds *int32           `json:"scheduleTimeoutSeconds,omitempty"`
+	// MinMember defines the minimal number of members/tasks to run the pod group;
+	// if there's not enough resources to start all tasks, the scheduler
+	// will not start any.
+	// The minimum is 1
+	MinMember *int32 `json:"minMember,omitempty"`
+	// MinResources defines the minimal resource of members/tasks to run the pod group;
+	// if there's not enough resources to start all tasks, the scheduler
+	// will not start any.
+	MinResources *v1.ResourceList `json:"minResources,omitempty"`
+	// ScheduleTimeoutSeconds defines the maximal time of members/tasks to wait before run the pod group;
+	ScheduleTimeoutSeconds *int32 `json:"scheduleTimeoutSeconds,omitempty"`
 }
 
 // PodGroupSpecApplyConfiguration constructs a declarative configuration of the PodGroupSpec type for use with
