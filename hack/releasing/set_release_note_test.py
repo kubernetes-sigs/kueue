@@ -292,6 +292,38 @@ class SetReleaseNoteTest(unittest.TestCase):
                 + "````\n\n```release-note\nnew note\n```\n\n"
                 + coderabbit_section,
             ),
+            "ignore a fenced end-marker example inside a generated section": (
+                "Summary\n\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "Example:\n\n````markdown\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+                "````\n\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n",
+                "Summary\n\n```release-note\nnew note\n```\n\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "Example:\n\n````markdown\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+                "````\n\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n",
+            ),
+            "replace the author block next to a fenced end-marker example": (
+                "```release-note\nold note\n```\n\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "~~~\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+                "~~~\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n",
+                "```release-note\nnew note\n```\n\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "~~~\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+                "~~~\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n",
+            ),
             "insert at the top when the body is only a generated section": (
                 coderabbit_section,
                 "```release-note\nnew note\n```\n\n" + coderabbit_section,
@@ -330,6 +362,14 @@ class SetReleaseNoteTest(unittest.TestCase):
                 "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
                 "```release-note\nsuggested note\n```\n"
                 "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n"
+            ),
+            "end marker only inside a fenced example": (
+                "```release-note\nfirst note\n```\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+                "```\n"
+                "```release-note\nsuggested note\n```\n"
             ),
             "two author blocks next to a generated section": (
                 "```release-note\nfirst note\n```\n"

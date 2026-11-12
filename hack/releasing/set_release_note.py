@@ -103,11 +103,12 @@ COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.
 # "Suggested release note" block. They are delimited by marker comments like
 # "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->"
 # and "<!-- end of auto-generated comment: release notes by coderabbit.ai -->".
-AUTO_GENERATED_SECTION_RE = re.compile(
-    r"<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)[ \t]*-->"
-    r".*?"
-    r"<!--[ \t]*end of auto-generated comment:[ \t]*(?P=label)[ \t]*-->",
-    re.DOTALL | re.IGNORECASE,
+AUTO_GENERATED_START_RE = re.compile(
+    r"<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)[ \t]*-->",
+    re.IGNORECASE,
+)
+AUTO_GENERATED_END_TEMPLATE = (
+    r"<!--[ \t]*end of auto-generated comment:[ \t]*{label}[ \t]*-->"
 )
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
@@ -297,20 +298,42 @@ def _auto_generated_sections(pr_body: str) -> list[tuple[int, int]]:
     """Find sections of the PR body that were added by a bot.
 
     Markers inside fenced code blocks, such as a documented example of a
-    generated section, are not treated as a generated section.
+    generated section, are not treated as markers: an opening marker in a
+    fence does not start a section, and an end marker in a fence does not
+    close one.
     """
     fenced_code = _fenced_code_spans(pr_body)
+
+    def in_fenced_code(position: int) -> bool:
+        return any(start <= position < end for start, end in fenced_code)
+
     sections: list[tuple[int, int]] = []
     position = 0
     while True:
-        match = AUTO_GENERATED_SECTION_RE.search(pr_body, position)
-        if match is None:
+        opening = AUTO_GENERATED_START_RE.search(pr_body, position)
+        if opening is None:
             return sections
-        if any(start <= match.start() < end for start, end in fenced_code):
-            position = match.start() + 1
+        if in_fenced_code(opening.start()):
+            position = opening.start() + 1
             continue
-        sections.append(match.span())
-        position = match.end()
+
+        end_re = re.compile(
+            AUTO_GENERATED_END_TEMPLATE.format(label=re.escape(opening.group("label"))),
+            re.IGNORECASE,
+        )
+        closing = next(
+            (
+                match
+                for match in end_re.finditer(pr_body, opening.end())
+                if not in_fenced_code(match.start())
+            ),
+            None,
+        )
+        if closing is None:
+            position = opening.start() + 1
+            continue
+        sections.append((opening.start(), closing.end()))
+        position = closing.end()
 
 
 def _separator_before_block(text: str) -> str:
