@@ -684,33 +684,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	conditionToCheck := kueue.WorkloadAdmitted
 	remoteCond, admittingRemote := group.bestMatchByCondition(conditionToCheck)
 
-	// 6a. No admitted remote is visible while the admission check is still Ready. The
-	// reachability of the admitting worker decides the response:
-	//   - A known admitting worker that is unreachable (e.g. its watch is reconnecting): the
-	//     remote is likely still running, so keep the workload admitted and retry only once the
-	//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
-	//     observed.
-	//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
-	//   - Otherwise (reachable with no admitted remote, e.g. its remote was deleted above as out
-	//     of sync): the admitted remote is gone, so retry immediately.
+	// 6a. No admitted remote is visible while the admission check is still Ready.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
-		admitting := ptr.Deref(group.local.Status.ClusterName, "")
-		if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
-			lostSince := w.admittingWorkerLostSince(admitting)
-			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
-				log.V(3).Info("Admitting remote temporarily unreachable, waiting before retry", "cluster", admitting, "retryAfter", remainingWaitTime)
-				return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-			}
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote lost")
-		}
-		if admitting == "" {
-			// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
-			// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
-			log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
-			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
-				"Admission check is Ready but no admitting cluster is recorded; this is unexpected, please report it")
-		}
-		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
+		return w.reconcileAdmittingRemoteLost(ctx, log, group, acs)
 	}
 
 	// 6b. An admitting remote is visible: converge onto it.
@@ -959,6 +935,35 @@ func (w *wlReconciler) reconcileRemoteEviction(
 		return true, reconcile.Result{}, nil
 	}
 	return false, reconcile.Result{}, nil
+}
+
+// reconcileAdmittingRemoteLost handles a Ready admission check when no remote workload
+// is admitted. The reachability of the admitting worker decides the response:
+//   - A known admitting worker that is unreachable (e.g. its watch is reconnecting): the
+//     remote is likely still running, so keep the workload admitted and retry only once the
+//     worker stays unreachable past workerLostTimeout, measured from when the loss was first
+//     observed.
+//   - An empty ClusterName: this cannot arise from normal admission, so surface it and retry.
+//   - Otherwise (reachable with no admitted remote, e.g. reconcileGroup deleted its remote
+//     as out of sync): the admitted remote is gone, so retry immediately.
+func (w *wlReconciler) reconcileAdmittingRemoteLost(ctx context.Context, log klog.Logger, group *wlGroup, acs *kueue.AdmissionCheckState) (reconcile.Result, error) {
+	admitting := ptr.Deref(group.local.Status.ClusterName, "")
+	if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
+		lostSince := w.admittingWorkerLostSince(admitting)
+		if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
+			log.V(3).Info("Admitting remote temporarily unreachable, waiting before retry", "cluster", admitting, "retryAfter", remainingWaitTime)
+			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+		}
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote lost")
+	}
+	if admitting == "" {
+		// Under normal operation this is unreachable: A Ready check with no ClusterName indicates a bug in Kueue
+		// (or an externally modified / stale workload), so surface it and retry instead of looping silently.
+		log.V(2).Info("Admission check Ready but ClusterName is empty; treating as misconfigured and retrying")
+		return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry,
+			"Admission check is Ready but no admitting cluster is recorded; this is unexpected, please report it")
+	}
+	return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, "Admitting remote no longer exists")
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
