@@ -95,15 +95,23 @@ filters:
   "Dockerfile$|\\.dockerignore$":
     approvers:
       - infra-approvers
+    reviewers:
+      - infra-reviewers
 
   "^\\.github/dependabot\\.ya?ml$":
     approvers:
       - infra-approvers
+    reviewers:
+      - infra-reviewers
 
   "^cloudbuild(-periodic)?\\.yaml$":
     approvers:
       - infra-approvers
+    reviewers:
+      - infra-reviewers
 
   "^\\.krew.yaml$":
     approvers:
       - infra-approvers
+    reviewers:
+      - infra-reviewers

@@ -21,3 +21,5 @@ filters:
       - hugo-approvers
       - infra-approvers
       - release-team
+    reviewers:
+      - infra-reviewers
