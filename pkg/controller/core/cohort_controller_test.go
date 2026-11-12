@@ -942,7 +942,6 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 }
 
 func TestCohortReconcileCustomLabelChangeCounters(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	unbounded := []configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).Obj(),
 	}

@@ -4049,7 +4049,6 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			var customLabels *metrics.CustomLabels
 			if tc.cqTeam != "" {
-				features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 				customLabels = metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 				customLabels.CQStore(cqName, map[string]string{"team": tc.cqTeam}, nil)

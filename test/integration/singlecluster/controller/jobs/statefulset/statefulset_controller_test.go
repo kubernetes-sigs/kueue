@@ -997,7 +997,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	})
 
 	ginkgo.It("Should copy the configured labels and annotations from the StatefulSet into its Workload when CustomMetricLabels is enabled", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 
 		wl := createStatefulSetWithMetadataToCopyAndGetWorkload(ns.Name)
 

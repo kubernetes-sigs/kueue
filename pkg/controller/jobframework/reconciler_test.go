@@ -590,9 +590,6 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 		},
 		"handle job with annotations to copy": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
 			reconcilerOptions: []Option{
 				WithLabelKeysToCopy(sets.New("toCopyKey")),
 				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),

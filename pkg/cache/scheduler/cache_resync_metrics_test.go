@@ -42,7 +42,6 @@ import (
 func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithResourceMetrics(true))
@@ -206,7 +205,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			defer metrics.InitMetricVectors(nil)
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 			queueSelector := tc.queueSelector
@@ -348,7 +346,6 @@ func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
 func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindCohort)}})
 	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithFairSharing(true))

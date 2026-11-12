@@ -37,7 +37,6 @@ import (
 
 func TestLocalQueueCreateReportsPendingWorkloadsWithCustomLabels(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 	customLabels := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{{
 		Name: "team", SourceKind: new(config.SourceKindLocalQueue),

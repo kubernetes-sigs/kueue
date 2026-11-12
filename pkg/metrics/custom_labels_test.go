@@ -30,7 +30,6 @@ import (
 )
 
 func TestCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		labels      map[string]string
@@ -172,7 +171,6 @@ func TestCustomLabels(t *testing.T) {
 }
 
 func TestStoreCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		setup              func(*CustomLabels) (store func(map[string]string, map[string]string) bool, get func() []string, clear func())
 		entries            []configapi.ControllerMetricsCustomLabel
@@ -302,7 +300,6 @@ func TestStoreCustomLabels(t *testing.T) {
 }
 
 func TestUpdateRequired(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		kind        configapi.SourceKind
@@ -383,7 +380,6 @@ func TestUpdateRequired(t *testing.T) {
 }
 
 func TestValuesChanged(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		kind        configapi.SourceKind
@@ -494,7 +490,6 @@ func TestValuesChanged(t *testing.T) {
 }
 
 func TestAllLabelsHaveTrackedValues(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	tests := map[string]struct {
 		entries     []configapi.ControllerMetricsCustomLabel
 		kind        configapi.SourceKind
@@ -560,7 +555,6 @@ func TestAllLabelsHaveTrackedValues(t *testing.T) {
 }
 
 func TestSwap(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	entries := []configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
 		utiltestingapi.MakeCustomLabel("cost").SourceKind(configapi.SourceKindCohort).Obj(),
@@ -921,7 +915,6 @@ func allSourceKindEntries() []configapi.ControllerMetricsCustomLabel {
 // user-controlled objects (Workloads above all) would otherwise accumulate in
 // the store for the lifetime of the process.
 func TestDeleteClearsStoredLabelValues(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	const (
 		keptRef    = "kept"
@@ -1002,7 +995,6 @@ func TestDeleteClearsStoredLabelValues(t *testing.T) {
 // which the controllers call on delete events, and asserts each one addresses
 // its own SourceKind store.
 func TestTypedDeleteClearsStoredLabelValues(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	const ref = "obj"
 	tests := map[string]struct {
@@ -1068,7 +1060,6 @@ func TestTypedDeleteClearsStoredLabelValues(t *testing.T) {
 // delete is treated as new: the stale values must not survive the delete and
 // suppress the re-report of its metrics.
 func TestDeleteResetsUpdateRequired(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	labels := map[string]string{"team": "platform"}
 	cl := NewCustomLabels(allSourceKindEntries())

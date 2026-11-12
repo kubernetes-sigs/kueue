@@ -1237,6 +1237,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

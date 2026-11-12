@@ -432,7 +432,6 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
@@ -499,7 +498,6 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	defer metrics.InitMetricVectors(nil)
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)}})
 	fakeClient := utiltesting.NewFakeClient(
@@ -3744,7 +3742,6 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 	// Verify that local_queue_pending_workloads breaks down by workload custom
 	// labels when SourceKindWorkload is configured alongside LocalQueueMetrics.
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
@@ -3819,7 +3816,6 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 // TestLQPendingWorkloads_InadmissibleAndDelete verifies that inadmissible workloads
 // are counted per workload-label value, and that deleting a workload removes its series.
 func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
