@@ -43,6 +43,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -372,7 +374,7 @@ func (j *SparkApplication) Finished(ctx context.Context) (message string, succes
 			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
-func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
+func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, options ...jobframework.PodsReadyOption) bool {
 	// Driver must be running.
 	if j.Status.AppState.State != sparkv1beta2.ApplicationStateRunning {
 		return false
@@ -381,14 +383,7 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
-	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
-	// When dynamic allocation is enabled, the actual number of executors can
-	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
-	// expected count since it's the guaranteed minimum. If neither the CRD
-	// field nor sparkConf is set, use Spec.Executor.Instances as default.
-	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
-		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
-	}
+	expected := int(j.minReadyExecutors(jobframework.PodsReadyWorkload(options...)))
 	if expected == 0 {
 		return true
 	}
@@ -402,18 +397,65 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...
 	return ready >= expected
 }
 
+// minReadyExecutors returns the executors that must be ready for PodsReady in
+// the workload wl. Without dynamic allocation, it's the executor instances. With
+// dynamic allocation, the driver starts with its initial executors, and they must
+// be ready (see startingExecutors). Once they have been, the executors can
+// fluctuate between minExecutors and maxExecutors, and minExecutors, Spark's
+// default of 0 if it is not set, is how far the application tolerates scaling
+// down.
+func (j *SparkApplication) minReadyExecutors(wl *kueue.Workload) int32 {
+	if !j.dynamicAllocationEnabled() {
+		return ptr.Deref(j.Spec.Executor.Instances, 0)
+	}
+	if startedExecutors(wl) {
+		return ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0)
+	}
+	return j.startingExecutors(wl)
+}
+
+// startedExecutors reports whether the application's executors have started in
+// the workload wl: they have been ready in it, or it replaces a workload slice,
+// which Kueue creates only once the driver stops ramping up to its initial
+// executors (see numExecutors).
+func startedExecutors(wl *kueue.Workload) bool {
+	return wl != nil && (workload.HasBeenReady(wl) || workloadslicing.ReplacementForKey(wl) != nil)
+}
+
+// startingExecutors returns the initial executors, capped at the executors the
+// workload wl is granted: the driver can lower its target before it creates
+// them all, and the workload slices then follow it.
+func (j *SparkApplication) startingExecutors(wl *kueue.Workload) int32 {
+	expected := j.initialExecutors()
+	if wl != nil && workload.IsAdmitted(wl) {
+		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[executorPodSetName]; ok {
+			expected = min(expected, granted)
+		}
+	}
+	return expected
+}
+
+// initialExecutors returns the executors the driver starts with under dynamic
+// allocation: the largest of instances, minExecutors and initialExecutors.
+func (j *SparkApplication) initialExecutors() int32 {
+	return max(j.numInitialExecutors(),
+		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
+		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+}
+
+func (j *SparkApplication) dynamicAllocationEnabled() bool {
+	return ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled
+}
+
 // numExecutors returns the executor count to request quota for. With dynamic
 // allocation, an elastic job follows the executors the driver keeps (pending or
 // running), so terminating executors hold quota until they stop. Without a
 // client (the webhook), the count follows the spec only.
 func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (int32, error) {
-	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+	if !isAnElasticJob(j) || !j.dynamicAllocationEnabled() {
 		return j.numInitialExecutors(), nil
 	}
-	// The driver starts with the largest of instances, minExecutors and initialExecutors.
-	initialExecutors := max(j.numInitialExecutors(),
-		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
-		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+	initialExecutors := j.initialExecutors()
 	if c == nil || !j.driverStarted() {
 		return initialExecutors, nil
 	}

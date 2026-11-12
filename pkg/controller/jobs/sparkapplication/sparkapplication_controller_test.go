@@ -1273,7 +1273,8 @@ func TestReconciler(t *testing.T) {
 	sparkAppDriverRunningOnly := withDriverRunningOnly(withUID(testSparkApp.DeepCopy()), 2)
 	sparkAppAllExecutorsReady := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 2)
 	// Dynamic allocation variant: Instances=10, MinExecutors=5, 5 executors Running.
-	// PodsReady should use MinExecutors (5) as the expected count, not Instances (10).
+	// The driver starts with the instances (10), so PodsReady waits for them; once the
+	// workload has been ready, MinExecutors (5) is the expected count.
 	sparkAppDynamicAllocation := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 5)
 	sparkAppDynamicAllocation.Spec.Executor.Instances = new(int32(10))
 	sparkAppDynamicAllocation.Spec.DynamicAllocation = &sparkappv1beta2.DynamicAllocation{
@@ -1344,7 +1345,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"PodsReady becomes True/Started with dynamic allocation when MinExecutors executors are ready": {
+		"PodsReady stays False/WaitForStart with dynamic allocation until the initial executors are ready": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
@@ -1353,6 +1354,34 @@ func TestReconciler(t *testing.T) {
 			sparkApp: sparkAppDynamicAllocation,
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDynamicAllocation).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadWaitForStart,
+						Message: "Not all pods are ready or succeeded",
+					}).
+					Obj(),
+			},
+		},
+		"PodsReady stays True/Started with dynamic allocation while MinExecutors executors are ready": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			sparkApp: sparkAppDynamicAllocation,
+			workloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDynamicAllocation).
@@ -1485,4 +1514,104 @@ func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+}
+
+func TestPodsReadyDynamicAllocationFloor(t *testing.T) {
+	podsReady := func(status metav1.ConditionStatus, reason string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: status, Reason: reason}).
+			Obj()
+	}
+	grantedExecutors := func(n int32) *kueue.Workload {
+		now := time.Now()
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet(driverPodSetName, 1).Obj(), *utiltestingapi.MakePodSet(executorPodSetName, 3).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment(driverPodSetName).Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment(executorPodSetName).Count(n).Obj(),
+			).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	replacementSlice := utiltestingapi.MakeWorkload("wl-2", "ns").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/wl-1").
+		Obj()
+	initialThree := &sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), InitialExecutors: new(int32(3))}
+	testCases := map[string]struct {
+		dynamicAllocation *sparkappv1beta2.DynamicAllocation
+		workload          *kueue.Workload
+		running           int
+		want              bool
+	}{
+		"without dynamic allocation: the executor instances": {
+			running: 2,
+			want:    true,
+		},
+		"not ready yet: fewer than the initial executors": {
+			dynamicAllocation: initialThree,
+			running:           2,
+			want:              false,
+		},
+		"not ready yet: the initial executors": {
+			dynamicAllocation: initialThree,
+			running:           3,
+			want:              true,
+		},
+		"not ready yet: the instances are the initial executors": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))},
+			running:           1,
+			want:              false,
+		},
+		"not ready yet: granted fewer than the initial executors": {
+			dynamicAllocation: initialThree,
+			workload:          grantedExecutors(2),
+			running:           2,
+			want:              true,
+		},
+		"started: minExecutors is the floor": {
+			dynamicAllocation: initialThree,
+			workload:          podsReady(metav1.ConditionTrue, kueue.WorkloadStarted),
+			running:           1,
+			want:              true,
+		},
+		"started: below minExecutors": {
+			dynamicAllocation: initialThree,
+			workload:          podsReady(metav1.ConditionTrue, kueue.WorkloadStarted),
+			want:              false,
+		},
+		"waiting for recovery: minExecutors is the floor": {
+			dynamicAllocation: initialThree,
+			workload:          podsReady(metav1.ConditionFalse, kueue.WorkloadWaitForRecovery),
+			running:           1,
+			want:              true,
+		},
+		"a replacement slice: minExecutors is the floor": {
+			dynamicAllocation: initialThree,
+			workload:          replacementSlice,
+			running:           1,
+			want:              true,
+		},
+		"without minExecutors, started: the driver running is enough": {
+			dynamicAllocation: &sparkappv1beta2.DynamicAllocation{Enabled: true},
+			workload:          podsReady(metav1.ConditionTrue, kueue.WorkloadStarted),
+			want:              true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj()
+			app.Spec.DynamicAllocation = tc.dynamicAllocation
+			app.Status.ExecutorState = make(map[string]sparkappv1beta2.ExecutorState, tc.running)
+			for i := range tc.running {
+				app.Status.ExecutorState[fmt.Sprintf("sparkapp-exec-%d", i+1)] = sparkappv1beta2.ExecutorStateRunning
+			}
+			if got := (*SparkApplication)(app).PodsReady(ctx, nil, jobframework.WithWorkload(tc.workload)); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

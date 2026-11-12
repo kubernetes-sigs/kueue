@@ -1397,6 +1397,14 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
+// HasBeenReady returns true if the workload's Pods have been ready since it was
+// admitted: its PodsReady condition is True, or False while it waits for them to
+// recover.
+func HasBeenReady(w *kueue.Workload) bool {
+	c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadPodsReady)
+	return c != nil && (c.Status == metav1.ConditionTrue || c.Reason == kueue.WorkloadWaitForRecovery)
+}
+
 // IsActive returns true if the workload is active.
 func IsActive(w *kueue.Workload) bool {
 	return ptr.Deref(w.Spec.Active, true)

@@ -5053,6 +5053,44 @@ func TestTotalExecutionTime(t *testing.T) {
 	}
 }
 
+func TestHasBeenReady(t *testing.T) {
+	podsReady := func(status metav1.ConditionStatus, reason string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: status, Reason: reason}).
+			Obj()
+	}
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"no conditions": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"waiting to start": {
+			workload: podsReady(metav1.ConditionFalse, kueue.WorkloadWaitForStart),
+		},
+		"started": {
+			workload: podsReady(metav1.ConditionTrue, kueue.WorkloadStarted),
+			want:     true,
+		},
+		"waiting for recovery": {
+			workload: podsReady(metav1.ConditionFalse, kueue.WorkloadWaitForRecovery),
+			want:     true,
+		},
+		"recovered": {
+			workload: podsReady(metav1.ConditionTrue, kueue.WorkloadRecovered),
+			want:     true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := HasBeenReady(tc.workload); got != tc.want {
+				t.Errorf("HasBeenReady() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHasPodsScheduledCondition(t *testing.T) {
 	testCases := map[string]struct {
 		workload *kueue.Workload
