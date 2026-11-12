@@ -34,8 +34,12 @@ RETRY="${PROJECT_DIR}/hack/testing/retry.sh"
 # Function to clean up background processes
 cleanup() {
   echo "Cleaning up kueueviz processes"
-  kill "${FRONTEND_PID}"
+  if [[ -n "${FRONTEND_PID:-}" ]]; then
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+    wait "${FRONTEND_PID}" 2>/dev/null || true
+  fi
 }
+trap cleanup EXIT
 
 # Run frontend unit tests before starting the app
 cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
@@ -43,12 +47,21 @@ cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
 npm test
 
 # Start kueueviz frontend
-npm start & FRONTEND_PID=$!
+npm run dev & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
 cd "${PROJECT_DIR}/test/e2e/kueueviz"
 "${RETRY}" --attempts 5 --delay 5 --stream -- npm install
 "${RETRY}" --attempts 5 --delay 5 --stream -- npx cypress install
+# The parent owns the cluster preparation deadline and cancels this container on
+# failure. A new container has no stale marker from an earlier run.
+if [[ -n "${KUEUEVIZ_BACKEND_START_FILE:-}" ]]; then
+  while [[ ! -f "${KUEUEVIZ_BACKEND_START_FILE}" ]]; do
+    sleep 1
+  done
+fi
+"${RETRY}" --attempts 120 --delay 1 --no-exponential -- \
+  curl --fail --silent --show-error --max-time 2 "${KUEUEVIZ_HEALTH_URL:-http://localhost:8080/healthz}"
 npm run cypress:run --headless --config-file cypress.config.js
 
 # The trap will handle cleanup 
