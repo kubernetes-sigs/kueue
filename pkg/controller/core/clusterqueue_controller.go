@@ -336,8 +336,13 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	default:
 		return
 	}
+	cqs := r.cache.ClusterQueuesUsingCohort(cohortName)
+	if r.fairSharingEnabled {
+		// The weighted share divides borrowing by the tree's lendable quota.
+		cqs = r.cache.ClusterQueuesInCohortTree(cohortName)
+	}
 	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
-		Object: slices.Values(r.cache.ClusterQueuesUsingCohort(cohortName)),
+		Object: slices.Values(cqs),
 	}
 }
 
@@ -394,7 +399,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		return true
 	}
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	specUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec)
+	specUpdated := clusterQueueSpecUpdated(e.ObjectOld, e.ObjectNew)
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
