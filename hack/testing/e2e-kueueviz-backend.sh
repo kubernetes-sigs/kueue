@@ -51,8 +51,9 @@ trap cleanup EXIT
 echo Creating kind cluster "${KIND_CLUSTER_NAME}"
 e2e_timed "kueueviz/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-e2e_timed "kueueviz/prepare_images" prepare_docker_images
-e2e_timed "kueueviz/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
+# KueueViz fixtures do not use agnhost or external job operators.
+e2e_timed "kueueviz/prepare_images" prepare_kueue_image
+e2e_timed "kueueviz/load_images" cluster_kind_load_kueue_image "${KIND_CLUSTER_NAME}"
 e2e_timed "kueueviz/deploy" kueue_deploy
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 

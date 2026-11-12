@@ -557,4 +557,60 @@ if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
   exit 1
 fi
 
+# Preparing only the manager must retain remote-first selection, local fallback,
+# failure propagation, and forced refresh even when dev dependency reuse is on.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  E2E_MODE=dev
+  E2E_SKIP_IMAGE_RELOAD=true
+  e2e_docker_manifest_available() { return "${remote_status}"; }
+  e2e_docker_pull_if_needed() {
+    [[ "$1" == "${IMAGE_TAG}" && "${E2E_SKIP_IMAGE_RELOAD}" == false ]] || exit 9
+    echo pull
+    return "${pull_status}"
+  }
+  docker() {
+    [[ "$*" == "image inspect ${IMAGE_TAG}" ]] || exit 9
+    return "${local_status}"
+  }
+  while read -r remote_status local_status pull_status expected_status expected_pull; do
+    status=0
+    prepare_kueue_image >"${test_dir}/prepare-manager.out" 2>&1 || status=$?
+    pulls=$(grep -c '^pull$' "${test_dir}/prepare-manager.out" || true)
+    if [[ "${status}" != "${expected_status}" || "${pulls}" != "${expected_pull}" ]]; then
+      cat "${test_dir}/prepare-manager.out" >&2
+      echo "unexpected manager preparation: remote=${remote_status} local=${local_status} pull=${pull_status}; status=${status}, pulls=${pulls}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+0 0 0 0 1
+0 0 7 7 1
+1 0 0 0 0
+1 1 0 1 0
+EOF
+)
+
+# Rebuilt manager tags must be imported again unless dev explicitly skips
+# reinstalling Kueue. Both load paths must return their failures to the caller.
+(
+  IMAGE_TAG=registry.example.com/kueue:test
+  cluster_kind_load_image() { echo "cached $*"; return "${load_status}"; }
+  cluster_kind_load_image_impl() { echo "forced $*"; return "${load_status}"; }
+  while read -r E2E_MODE E2E_SKIP_REINSTALL load_status expected_path; do
+    status=0
+    output=$(cluster_kind_load_kueue_image example) || status=$?
+    if [[ "${status}" != "${load_status}" || "${output}" != "${expected_path} example ${IMAGE_TAG}" ]]; then
+      echo "unexpected manager loading: mode=${E2E_MODE} skip=${E2E_SKIP_REINSTALL}; status=${status}, output=${output}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+ci false 0 forced
+ci true 0 forced
+dev false 0 forced
+dev true 0 cached
+ci false 7 forced
+dev true 7 cached
+EOF
+)
+
 echo "e2e-common tests passed" >&3
