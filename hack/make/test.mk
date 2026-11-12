@@ -1047,15 +1047,19 @@ test-kueueviz-backend: ## Run KueueViz backend tests.
 .PHONY: test-e2e-kueueviz
 # Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
 test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
+test-e2e-kueueviz: export KUEUEVIZ_MAKE = $(MAKE)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GOFLAGS = $(GOFLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_FLAGS = $(GO_TEST_FLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GO_CMD = $(GO_CMD)
 # Temporary opt-in for this PR's remote experiment; local runs stay single-pass.
 ifeq ($(JOB_NAME),pull-kueue-test-e2e-kueueviz-main)
 test-e2e-kueueviz: export KUEUEVIZ_COMPILE_EXPERIMENT = 1
 endif
-test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) KUEUEVIZ_RUN_BACKEND_TESTS=true \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
 	@if [ "$${KUEUEVIZ_COMPILE_EXPERIMENT:-0}" = 1 ] && [ -f "${PROJECT_DIR}/hack/testing/kueueviz-overlap-experiment.sh" ]; then \
 		ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR) \
