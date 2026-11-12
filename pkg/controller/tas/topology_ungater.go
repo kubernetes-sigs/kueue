@@ -27,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -222,10 +221,11 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
 	rankOffsets := utiltasranks.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
-	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
+	isElastic := workload.IsElasticWorkload(wl)
+	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && isElastic
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		toUngate, err := r.podsToUngateForPodSet(ctx, wl, workloadSliceName, &psa,
-			psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
+			psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], isElastic, lendFreeCapacity)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -247,13 +247,14 @@ func (r *topologyUngater) podsToUngateForPodSet(
 	psa *kueue.PodSetAssignment,
 	psReq *kueue.PodSetTopologyRequest,
 	rankOffset int32,
+	waitForElasticGate bool,
 	lendFreeCapacity bool) ([]podWithUngateInfo, error) {
 	if psa.TopologyAssignment == nil {
 		return nil, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 
-	pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa)
+	pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa, waitForElasticGate)
 	if err != nil {
 		return nil, fmt.Errorf("listing Pods for PodSet %s: %w", psa.Name, err)
 	}
@@ -452,14 +453,14 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	return workload.IsAdmittedByTAS(wl)
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psa *kueue.PodSetAssignment) ([]*corev1.Pod, error) {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psa *kueue.PodSetAssignment, waitForElasticGate bool) ([]*corev1.Pod, error) {
 	log := ctrl.LoggerFrom(ctx)
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
 		client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
 	if err != nil {
 		return nil, err
 	}
-	assignedDomains := sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...)
+	assignedDomains := utiltas.NewAssignedDomainSet(psa.TopologyAssignment)
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
 		if utilpod.IsTerminated(pod) {
@@ -467,16 +468,15 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 			// so we don't want to count them as already ungated Pods.
 			continue
 		}
-		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
-			domainID := utiltas.DomainID(utiltas.LevelValues(psa.TopologyAssignment.Levels, pod.Spec.NodeSelector))
-			if !assignedDomains.Has(domainID) {
-				// ignore ungated pods assigned to domains outside the current
-				// TopologyAssignment (e.g. pods stuck terminating on a failed node
-				// after node replacement or workload re-admission).
-				log.V(3).Info("Ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
-					"pod", klog.KObj(pod), "domainID", domainID)
-				continue
-			}
+		// Elastic admission selects the pods before TAS assigns domains. Selecting
+		// independently can leave different replacements holding each gate, with
+		// neither able to run. Still count pods whose topology gate is already
+		// removed: they reserve domain capacity even if another gate remains.
+		if waitForElasticGate && utilpod.HasGate(pod, kueue.TopologySchedulingGate) && utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		if !assignedDomains.IsTopologyGatedOrInAssignedDomain(log, pod) {
+			continue
 		}
 		result = append(result, pod)
 	}

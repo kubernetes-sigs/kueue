@@ -2937,6 +2937,78 @@ func TestReconcile(t *testing.T) {
 			},
 			wantCounts: []counts{countsR1, countsR2},
 		},
+		"ranks: elastic admission selects pods before topology assignment": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate, kueue.TopologySchedulingGate).Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate, kueue.TopologySchedulingGate).Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").
+					NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantCounts:             []counts{{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r2"}, Count: 1}},
+		},
+		"ranks: elastic admission selects pods before topology assignment when ElasticJobsViaWorkloadSlicesWithTAS is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+			},
+			workloads: []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate, kueue.TopologySchedulingGate).Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate, kueue.TopologySchedulingGate).Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").
+					NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantCounts:             []counts{{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r2"}, Count: 1}},
+		},
+		"ranks: topology ungater does not wait for elastic gate when ElasticJobsViaWorkloadSlices is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate, kueue.TopologySchedulingGate).Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate).
+					NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").
+					NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantCounts:             []counts{countsR1, countsR2},
+		},
+		"ranks: topology capacity remains reserved by a pod retaining its elastic gate": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("a").UID("a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("b").UID("b").Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantCounts:             []counts{{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r1"}, Count: 1}},
+		},
 		"ranks: elastic Job scale-down keeps rank-based ordering for the remaining Pods": {
 			featureGates: elasticJobsWithTAS,
 			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
