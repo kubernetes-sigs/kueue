@@ -57,6 +57,9 @@ type clusterQueue struct {
 	ResourceGroups    []ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
+	// sliceTracker holds the workload slices covered by another slice of their chain, which are
+	// not in Workloads.
+	sliceTracker      workloadSliceTracker
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	FairWeight        float64
@@ -503,8 +506,20 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 	w := wi.Obj
 	k := workload.Key(w)
+	var (
+		chain   sliceChainKey
+		isSlice bool
+	)
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		c.sliceTracker.forget(k)
+		chain, isSlice = sliceChainOf(wi)
+	}
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
+	}
+	if isSlice && c.coveredByChargedSlice(chain, wi) {
+		c.sliceTracker.cover(k, wi)
+		return
 	}
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
@@ -515,6 +530,45 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.WorkloadsNotReady.Insert(k)
 	}
 	c.reportActiveWorkloads()
+	if isSlice {
+		c.sliceTracker.charge(chain, k)
+		c.unchargeSlicesCoveredBy(log, chain, wi)
+	}
+}
+
+// coveredByChargedSlice reports whether a charged slice of chain covers wi.
+func (c *clusterQueue) coveredByChargedSlice(chain sliceChainKey, wi *workload.Info) bool {
+	for k := range c.sliceTracker.charged[chain] {
+		if covers(c.Workloads[k], wi) {
+			return true
+		}
+	}
+	return false
+}
+
+// unchargeSlicesCoveredBy stops charging the slices of chain that wi covers.
+func (c *clusterQueue) unchargeSlicesCoveredBy(log logr.Logger, chain sliceChainKey, wi *workload.Info) {
+	for k := range c.sliceTracker.charged[chain] {
+		if old := c.Workloads[k]; covers(wi, old) {
+			c.deleteWorkload(log, k)
+			c.sliceTracker.cover(k, old)
+		}
+	}
+}
+
+// untrackChargedSlice stops tracking wi as a charged slice of its chain. It returns a func to call
+// once wi has left Workloads, which charges again the slices of the chain that no other one covers.
+func (c *clusterQueue) untrackChargedSlice(log logr.Logger, k workload.Reference, wi *workload.Info) (chargeUncovered func()) {
+	chain, isSlice := sliceChainOf(wi)
+	if !isSlice {
+		return func() {}
+	}
+	c.sliceTracker.uncharge(chain, k)
+	return func() {
+		for _, old := range c.sliceTracker.coveredSlicesOf(chain) {
+			c.addOrUpdateWorkload(log, old)
+		}
+	}
 }
 
 func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference) {
@@ -522,9 +576,16 @@ func (c *clusterQueue) forgetWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference) {
+	sliceTracking := features.Enabled(features.ElasticJobsViaWorkloadSlices)
+	if sliceTracking {
+		c.sliceTracker.forget(wlKey)
+	}
 	wi, exist := c.Workloads[wlKey]
 	if !exist {
 		return
+	}
+	if sliceTracking {
+		defer c.untrackChargedSlice(log, wlKey, wi)()
 	}
 	c.updateWorkloadUsage(log, wi, subtract)
 	if c.podsReadyTracking {
