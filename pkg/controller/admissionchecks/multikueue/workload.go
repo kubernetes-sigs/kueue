@@ -599,18 +599,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
-		var errs []error
-		for rem := range group.remotes {
-			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
-				log.Error(err, "Failed to remove remote objects", "workerCluster", rem)
-				errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err))
-			}
-		}
-		if len(group.unavailableClusters) > 0 {
-			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
-			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
-		}
-		return reconcile.Result{}, errors.Join(errs...)
+		return w.deleteRemoteWorkloads(ctx, log, group)
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
@@ -887,6 +876,24 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
+}
+
+// deleteRemoteWorkloads deletes the remote workloads of a group whose local workload
+// is finished or has no quota reservation. It requeues after workerLostTimeout while
+// some worker clusters are unavailable.
+func (w *wlReconciler) deleteRemoteWorkloads(ctx context.Context, log klog.Logger, group *wlGroup) (reconcile.Result, error) {
+	var errs []error
+	for rem := range group.remotes {
+		if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
+			log.Error(err, "Failed to remove remote objects", "workerCluster", rem)
+			errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err))
+		}
+	}
+	if len(group.unavailableClusters) > 0 {
+		log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+	}
+	return reconcile.Result{}, errors.Join(errs...)
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
