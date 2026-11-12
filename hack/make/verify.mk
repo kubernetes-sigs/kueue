@@ -283,6 +283,7 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 
 .PHONY: verify-e2e-common-test
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
+	python3 $(PROJECT_DIR)/hack/testing/kueueviz-e2e_test.py
 	$(_e2e_common_test_recipe)
 
 .PHONY: verify-unit-test-selection
