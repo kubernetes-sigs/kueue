@@ -1057,7 +1057,12 @@ test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-en
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
-	@if [ "$${KUEUEVIZ_COMPILE_EXPERIMENT:-0}" = 1 ]; then \
+	@if [ "$${KUEUEVIZ_COMPILE_EXPERIMENT:-0}" = 1 ] && [ -f "${PROJECT_DIR}/hack/testing/kueueviz-overlap-experiment.sh" ]; then \
+		ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+		bash "${PROJECT_DIR}/hack/testing/kueueviz-overlap-experiment.sh"; \
+	fi
+	@if [ "$${KUEUEVIZ_COMPILE_EXPERIMENT:-0}" = 1 ] && [ -f "${PROJECT_DIR}/hack/testing/kueueviz-compile-experiment.sh" ]; then \
 		ARTIFACTS=$(ARTIFACTS) PROJECT_DIR=$(PROJECT_DIR) GIT_TAG=$(GIT_TAG) GIT_COMMIT=$(GIT_COMMIT) \
 		bash "${PROJECT_DIR}/hack/testing/kueueviz-compile-experiment.sh"; \
 	fi
