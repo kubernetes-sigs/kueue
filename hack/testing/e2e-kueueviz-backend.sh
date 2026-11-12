@@ -35,6 +35,11 @@ fi
 cleanup() {
   e2e_timed_log_unfinished "$?"
   echo "Cleaning up kueueviz processes"
+  if [[ -n "${BACKEND_TEST_PID:-}" ]]; then
+    # The worker has its own process group, including Make, Go and compilers.
+    kill -- "-${BACKEND_TEST_PID}" 2>/dev/null || true
+    wait "${BACKEND_TEST_PID}" 2>/dev/null || true
+  fi
   # Stop the container itself: terminating the attached Docker client alone
   # would leave frontend preparation or Cypress running in the daemon.
   if [[ -n "${FRONTEND_CONTAINER_NAME:-}" ]]; then
@@ -57,6 +62,26 @@ cleanup() {
 
 # Set trap to clean up on exit
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [[ "${KUEUEVIZ_RUN_BACKEND_TESTS:-false}" == true ]]; then
+  # Job control gives the worker a separate process group on both Linux and
+  # macOS. Disable it inside the worker so all descendants stay in that group.
+  set -m
+  (
+    set +m
+    trap 'e2e_timed_log_unfinished "$?"' EXIT
+    # Defer the worker's exit until its foreground Make process has reaped the
+    # compilers receiving the same group signal.
+    trap 'exit 143' TERM
+    e2e_timed "kueueviz/backend_tests" "${KUEUEVIZ_MAKE:-make}" -C "${ROOT_DIR}" \
+      "GOFLAGS=${KUEUEVIZ_TEST_GOFLAGS-${GOFLAGS:-}}" \
+      "GO_TEST_FLAGS=${KUEUEVIZ_TEST_FLAGS--race}" \
+      "GO_CMD=${KUEUEVIZ_TEST_GO_CMD:-go}" test-kueueviz-backend
+  ) & BACKEND_TEST_PID=$!
+  set +m
+fi
 
 set -x  # Enable debug mode
 
@@ -132,6 +157,12 @@ e2e_timed "kueueviz/prepare_images" prepare_kueue_image
 e2e_timed "kueueviz/load_images" cluster_kind_load_kueue_image "${KIND_CLUSTER_NAME}"
 e2e_timed "kueueviz/deploy" kueue_deploy
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
+
+if [[ -n "${BACKEND_TEST_PID:-}" ]]; then
+  # Reuse the race-test compilation cache only after every test has passed.
+  e2e_timed "kueueviz/backend_tests_wait" wait "${BACKEND_TEST_PID}"
+  BACKEND_TEST_PID=""
+fi
 
 cd "${ROOT_DIR}/cmd/kueueviz/backend"
 # Match the preceding backend tests to reuse their compiled dependencies.

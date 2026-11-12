@@ -51,11 +51,25 @@ cluster_create() {
         read -r frontend_started < "$VIZ_TEST_FRONTEND_STARTED"
         [[ "$frontend_started" == started ]] || return 1
     fi
+    if [[ "$KUEUEVIZ_RUN_BACKEND_TESTS" == true ]]; then
+        read -r tests_started < "$VIZ_TEST_TESTS_STARTED"
+        [[ "$tests_started" == started ]] || return 1
+    fi
+    if [[ "$VIZ_TEST_FAILURE" == suite_term ]]; then
+        builtin kill -TERM "$$"
+    elif [[ "$VIZ_TEST_FAILURE" == suite_int ]]; then
+        builtin kill -INT "$$"
+    fi
     [[ "$VIZ_TEST_FAILURE" != create ]]
 }
 prepare_kueue_image() { record prepare; [[ "$VIZ_TEST_FAILURE" != prepare ]]; }
 cluster_kind_load_kueue_image() { record load; [[ "$VIZ_TEST_FAILURE" != load ]]; }
-kueue_deploy() { record deploy; }
+kueue_deploy() {
+    record deploy
+    if [[ "$KUEUEVIZ_RUN_BACKEND_TESTS" == true ]]; then
+        printf 'ready\\n' > "$VIZ_TEST_TESTS_RELEASE"
+    fi
+}
 cluster_collect_artifacts() { record artifacts; }
 cluster_cleanup() { record cleanup; }
 # Synchronize an early process exit before the actual termination attempt, so
@@ -70,7 +84,7 @@ kill() {
 ''')
             stub = root / "bin/stub"
             stub.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, signal, sys
+import json, os, pathlib, signal, subprocess, sys
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["VIZ_TEST_COMMANDS"], "a") as log:
@@ -84,6 +98,8 @@ def wait_for_backend():
             assert pipe.read() == "ready\\n"
         acknowledged.touch()
 if name == "go":
+    if os.environ.get("KUEUEVIZ_RUN_BACKEND_TESTS") == "true":
+        assert pathlib.Path(os.environ["VIZ_TEST_TESTS_DONE"]).exists(), "Build started before tests passed"
     previous = pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"])
     if previous.exists():
         try:
@@ -96,6 +112,26 @@ if name == "go":
     acknowledged.unlink(missing_ok=True)
     binary.write_text(pathlib.Path(os.environ["VIZ_TEST_BACKEND_TEMPLATE"]).read_text())
     binary.chmod(0o755)
+elif name == "make":
+    assert args[-1] == "test-kueueviz-backend"
+    pathlib.Path(os.environ["VIZ_TEST_WORKER_GROUP"]).write_text(str(os.getpgrp()))
+    child = subprocess.Popen(["sleep", "60"])
+    pathlib.Path(os.environ["VIZ_TEST_COMPILER_PID"]).write_text(str(child.pid))
+    def stopped(*_):
+        # The suite must signal the entire group, not just Make. If the compiler
+        # never receives the signal, this wait exposes the leaked descendant.
+        child.wait()
+        sys.exit(143)
+    signal.signal(signal.SIGTERM, stopped)
+    with open(os.environ["VIZ_TEST_TESTS_STARTED"], "w") as pipe:
+        pipe.write("started\\n")
+    with open(os.environ["VIZ_TEST_TESTS_RELEASE"]) as pipe:
+        assert pipe.read() == "ready\\n"
+    child.terminate()
+    child.wait()
+    if failure == "backend_tests":
+        sys.exit(7)
+    pathlib.Path(os.environ["VIZ_TEST_TESTS_DONE"]).touch()
 elif name == "npm":
     if args[:2] == ["run", "dev"]:
         os.execlp("sleep", "sleep", "60")
@@ -106,6 +142,9 @@ elif name == "npm":
             sys.exit(7)
         sys.exit(7 if failure == "cypress" else 0)
 elif name == "docker" and args[0] == "create":
+    if failure == "frontend_create" and os.environ["KUEUEVIZ_RUN_BACKEND_TESTS"] == "true":
+        with open(os.environ["VIZ_TEST_TESTS_STARTED"]) as pipe:
+            assert pipe.read() == "started\\n"
     sys.exit(7 if failure == "frontend_create" else 0)
 elif name == "docker" and args[0] == "rm":
     frontend_pid = pathlib.Path(os.environ["VIZ_TEST_FRONTEND_PID"])
@@ -151,7 +190,7 @@ elif name == "curl":
         print("500" if failure == "rbac" else "403", end="")
 ''')
             stub.chmod(0o755)
-            for name in ("go", "docker", "jq", "kubectl", "curl", "npm"):
+            for name in ("go", "docker", "jq", "kubectl", "curl", "npm", "make"):
                 (root / "bin" / name).symlink_to(stub)
             events = root / "events"
             commands = root / "commands"
@@ -161,6 +200,10 @@ elif name == "curl":
             os.mkfifo(frontend_started)
             frontend_release = root / "frontend.release"
             os.mkfifo(frontend_release)
+            tests_started = root / "tests.started"
+            os.mkfifo(tests_started)
+            tests_release = root / "tests.release"
+            os.mkfifo(tests_release)
             backend = root / "backend-template"
             backend.write_text('''#!/usr/bin/env python3
 import os, pathlib, signal, sys
@@ -178,6 +221,12 @@ signal.pause()
                    "ARTIFACTS": str(root / "artifacts"), "KIND_CLUSTER_NAME": "test",
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
+                   "KUEUEVIZ_RUN_BACKEND_TESTS": "false", "KUEUEVIZ_MAKE": "make",
+                   "VIZ_TEST_TESTS_STARTED": str(tests_started),
+                   "VIZ_TEST_TESTS_RELEASE": str(tests_release),
+                   "VIZ_TEST_TESTS_DONE": str(root / "tests.done"),
+                   "VIZ_TEST_COMPILER_PID": str(root / "compiler.pid"),
+                   "VIZ_TEST_WORKER_GROUP": str(root / "worker.group"),
                    "VIZ_TEST_SCRIPT": script,
                    "VIZ_TEST_FRONTEND_PID": str(root / "frontend.pid"),
                    "VIZ_TEST_FRONTEND_STARTED": str(frontend_started),
@@ -195,8 +244,24 @@ signal.pause()
             try:
                 stdout, stderr = process.communicate(timeout=15)
                 result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+                compiler = root / "compiler.pid"
+                if compiler.exists():
+                    with self.assertRaises(ProcessLookupError, msg="Compiler survived suite cleanup"):
+                        os.kill(int(compiler.read_text()), 0)
             finally:
                 # A failed assertion or timeout must not leave simulated services behind.
+                worker_group = root / "worker.group"
+                if worker_group.exists():
+                    try:
+                        os.killpg(int(worker_group.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                compiler = root / "compiler.pid"
+                if compiler.exists():
+                    try:
+                        os.kill(int(compiler.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -222,6 +287,35 @@ signal.pause()
                     if script == "backend":
                         self.assertTrue(any(c[:3] == ["docker", "start", "--attach"] for c in commands))
                         self.assertEqual(sum(c[:3] == ["docker", "rm", "-f"] for c in commands), 1)
+
+    def test_backend_tests_overlap_setup_preserve_failure_and_stop_compilers(self):
+        for failure in ("", "backend_tests", "frontend_create", "create", "prepare", "load", "suite_term", "suite_int"):
+            with self.subTest(failure=failure):
+                result, events, commands = self.run_suite(
+                    failure=failure, backend_env={"KUEUEVIZ_RUN_BACKEND_TESTS": "true"})
+                expected = {"backend_tests": 7, "frontend_create": 7, "suite_term": 143, "suite_int": 130}.get(failure, 1 if failure else 0)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertEqual(sum(c[0] == "make" for c in commands), 1)
+                self.assertEqual(events[-2:], [] if failure == "frontend_create" else ["artifacts", "cleanup"])
+                self.assertEqual("SECURE:" in result.stdout, not failure)
+                if failure:
+                    self.assertFalse(any(c[:2] == ["go", "build"] for c in commands))
+
+    def test_backend_worker_preserves_make_arguments(self):
+        for test_flags in ("", "-race -count=1"):
+            with self.subTest(test_flags=test_flags):
+                go_flags = '"-ldflags=-s -w" -trimpath'
+                result, _, commands = self.run_suite(backend_env={
+                    "KUEUEVIZ_RUN_BACKEND_TESTS": "true",
+                    "KUEUEVIZ_TEST_GOFLAGS": go_flags,
+                    "KUEUEVIZ_TEST_FLAGS": test_flags,
+                    "KUEUEVIZ_TEST_GO_CMD": "custom-go",
+                })
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                invocation = next(c for c in commands if c[0] == "make")
+                self.assertIn(f"GOFLAGS={go_flags}", invocation)
+                self.assertIn(f"GO_TEST_FLAGS={test_flags}", invocation)
+                self.assertIn("GO_CMD=custom-go", invocation)
 
     def test_frontend_container_failures_stop_the_suite_and_clean_up(self):
         for failure in ("frontend_create", "frontend_start", "frontend_signal"):
@@ -301,16 +395,29 @@ signal.pause()
                     root = Path(temp)
                     script = root / "hack/testing/e2e-kueueviz-backend.sh"
                     script.parent.mkdir(parents=True)
-                    script.write_text('#!/bin/sh\nprintf "%s" "$KUEUEVIZ_BACKEND_GOFLAGS" > "$PROJECT_DIR/build-flags"\n')
+                    script.write_text('''#!/usr/bin/env python3
+import json, os, pathlib
+names = ("KUEUEVIZ_BACKEND_GOFLAGS", "KUEUEVIZ_RUN_BACKEND_TESTS",
+         "KUEUEVIZ_TEST_GOFLAGS", "KUEUEVIZ_TEST_FLAGS", "KUEUEVIZ_TEST_GO_CMD", "KUEUEVIZ_MAKE")
+pathlib.Path(os.environ["PROJECT_DIR"], "build-flags").write_text(
+    json.dumps({name: os.environ[name] for name in names}))
+''')
                     script.chmod(0o755)
                     command = ["make", "-f", str(ROOT / "hack/make/test.mk"),
                                "-o", "test-kueueviz-backend", "-o", "setup-kueueviz-e2e-env",
-                               "test-e2e-kueueviz", f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}"]
+                               "test-e2e-kueueviz", f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}",
+                               "GO_CMD=custom-go"]
                     if test_flags is not None:
                         command.append(f"GO_TEST_FLAGS={test_flags}")
                     result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertEqual((root / "build-flags").read_text().strip(), expected)
+                    exported = json.loads((root / "build-flags").read_text())
+                    self.assertEqual(exported["KUEUEVIZ_BACKEND_GOFLAGS"].strip(), expected)
+                    self.assertEqual(exported["KUEUEVIZ_RUN_BACKEND_TESTS"], "true")
+                    self.assertEqual(exported["KUEUEVIZ_TEST_GOFLAGS"], go_flags)
+                    self.assertEqual(exported["KUEUEVIZ_TEST_FLAGS"], "-race" if test_flags is None else test_flags)
+                    self.assertEqual(exported["KUEUEVIZ_TEST_GO_CMD"], "custom-go")
+                    self.assertTrue(exported["KUEUEVIZ_MAKE"])
 
     def test_frontend_waits_for_backend_and_preserves_failures(self):
         for failure in ("", "unit", "health", "cypress", "slow_setup", "transient_health"):
