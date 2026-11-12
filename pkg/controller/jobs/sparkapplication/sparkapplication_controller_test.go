@@ -37,6 +37,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1175,7 +1176,29 @@ func TestReconciler(t *testing.T) {
 			states[fmt.Sprintf("%s-exec-%d", s.Name, i)] = sparkappv1beta2.ExecutorStateRunning
 		}
 		s.Status.ExecutorState = states
+		s.Status.SubmissionID = "sub-1"
 		return s
+	}
+	// readyExecutorPods are the n executor pods of s, running and ready, from which
+	// PodsReady counts the ready executors.
+	readyExecutorPods := func(s *sparkappv1beta2.SparkApplication, n int32) []corev1.Pod {
+		pods := make([]corev1.Pod, 0, n)
+		for i := int32(1); i <= n; i++ {
+			pods = append(pods, corev1.Pod{
+				Name:      fmt.Sprintf("%s-exec-%d", s.Name, i),
+				Namespace: s.Namespace,
+				Labels: map[string]string{
+					sparkcommon.LabelSparkAppName: s.Name,
+					sparkcommon.LabelSparkRole:    sparkcommon.SparkRoleExecutor,
+					sparkcommon.LabelSubmissionID: s.Status.SubmissionID,
+				},
+				Status: corev1.PodStatus{
+					Phase:      corev1.PodRunning,
+					Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				},
+			})
+		}
+		return pods
 	}
 	withDriverRunningOnly := func(s *sparkappv1beta2.SparkApplication, expected int32) *sparkappv1beta2.SparkApplication {
 		s.Spec.Executor.Instances = new(expected)
@@ -1227,6 +1250,7 @@ func TestReconciler(t *testing.T) {
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		sparkApp          *sparkappv1beta2.SparkApplication
+		pods              []corev1.Pod
 		workloads         []kueue.Workload
 		wantWorkloads     []kueue.Workload
 	}{
@@ -1273,6 +1297,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
 			sparkApp: sparkAppAllExecutorsReady,
+			pods:     readyExecutorPods(sparkAppAllExecutorsReady, 2),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppAllExecutorsReady).Obj(),
 			},
@@ -1294,6 +1319,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
 			sparkApp: sparkAppDynamicAllocation,
+			pods:     readyExecutorPods(sparkAppDynamicAllocation, 5),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDynamicAllocation).Obj(),
 			},
@@ -1318,8 +1344,12 @@ func TestReconciler(t *testing.T) {
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
+			objs := []client.Object{tc.sparkApp, testNamespace}
+			for i := range tc.pods {
+				objs = append(objs, &tc.pods[i])
+			}
 			kClient := clientBuilder.
-				WithObjects(tc.sparkApp, testNamespace).
+				WithObjects(objs...).
 				WithStatusSubresource(&kueue.Workload{}).
 				Build()
 			// Pre-existing workloads must be created via the client (not WithObjects)
@@ -1428,4 +1458,111 @@ func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+}
+
+func TestPodsReadyCountsReadyExecutorPods(t *testing.T) {
+	executorPod := func(name string, phase corev1.PodPhase, ready bool, submissionID string) *corev1.Pod {
+		pod := testingpod.MakePod(name, "ns").
+			Label(sparkcommon.LabelSparkAppName, "sparkapp").
+			Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+			Label(sparkcommon.LabelSubmissionID, submissionID).
+			StatusPhase(phase).
+			Obj()
+		if ready {
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		}
+		return pod
+	}
+	testCases := map[string]struct {
+		pods          []*corev1.Pod
+		deleting      []*corev1.Pod
+		executorState map[string]sparkappv1beta2.ExecutorState
+		want          bool
+	}{
+		"ready executor pods reach the instances, though status.executorState lists none": {
+			pods: []*corev1.Pod{executorPod("e6", corev1.PodRunning, true, "sub-1"), executorPod("e7", corev1.PodRunning, true, "sub-1")},
+			want: true,
+		},
+		"completed entries of status.executorState don't count": {
+			executorState: map[string]sparkappv1beta2.ExecutorState{
+				"e1": sparkappv1beta2.ExecutorStateCompleted,
+				"e2": sparkappv1beta2.ExecutorStateCompleted,
+			},
+			want: false,
+		},
+		"unready executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodRunning, false, "sub-1")},
+			want: false,
+		},
+		"succeeded executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodSucceeded, true, "sub-1")},
+			want: false,
+		},
+		"terminating executors don't count": {
+			pods:     []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1")},
+			deleting: []*corev1.Pod{executorPod("e2", corev1.PodRunning, true, "sub-1")},
+			want:     false,
+		},
+		"other submissions' executors don't count": {
+			pods: []*corev1.Pod{executorPod("e1", corev1.PodRunning, true, "sub-1"), executorPod("e2", corev1.PodRunning, true, "sub-0")},
+			want: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+				ExecutorInstances(2).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj()
+			app.Status.SubmissionID = "sub-1"
+			app.Status.ExecutorState = tc.executorState
+			builder := utiltesting.NewClientBuilder()
+			for _, pod := range tc.pods {
+				builder = builder.WithObjects(pod)
+			}
+			for _, pod := range tc.deleting {
+				pod.Finalizers = []string{"test"} // the fake client keeps an object being deleted only with a finalizer
+				builder = builder.WithObjects(pod)
+			}
+			c := builder.Build()
+			for _, pod := range tc.deleting {
+				if err := c.Delete(ctx, pod); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := (*SparkApplication)(app).PodsReady(ctx, c); got != tc.want {
+				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecutorPodChanged(t *testing.T) {
+	base := testingpod.MakePod("e1", "ns").StatusPhase(corev1.PodRunning).Obj()
+	ready := base.DeepCopy()
+	ready.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	deleting := base.DeepCopy()
+	deleting.DeletionTimestamp = &metav1.Time{}
+	succeeded := testingpod.MakePod("e1", "ns").StatusPhase(corev1.PodSucceeded).Obj()
+	relabeled := base.DeepCopy()
+	relabeled.Labels = map[string]string{"other": "x"}
+	testCases := map[string]struct {
+		old, updated *corev1.Pod
+		want         bool
+	}{
+		"phase change":            {old: base, updated: succeeded, want: true},
+		"becomes ready":           {old: base, updated: ready, want: true},
+		"becomes unready":         {old: ready, updated: base, want: true},
+		"starts being deleted":    {old: base, updated: deleting, want: true},
+		"unrelated metadata only": {old: base, updated: relabeled, want: false},
+		"no change":               {old: base, updated: base.DeepCopy(), want: false},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := executorPodChanged(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.updated}); got != tc.want {
+				t.Errorf("executorPodChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
