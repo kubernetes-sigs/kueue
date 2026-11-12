@@ -30,6 +30,7 @@ KIND_CLUSTER_FILE="${KIND_CLUSTER_FILE:-kind-cluster.yaml}"
 source "${SOURCE_DIR}/e2e-common.sh"
 
 cleanup() {
+  e2e_timed_log_unfinished "$?"
   echo "Cleaning up kueueviz processes"
   [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
   cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
@@ -39,11 +40,11 @@ cleanup() {
 trap cleanup EXIT
 
 echo Creating kind cluster "${KIND_CLUSTER_NAME}"
-cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
+e2e_timed "kueueviz-rbac/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-prepare_docker_images
-cluster_kind_load "${KIND_CLUSTER_NAME}"
-kueue_deploy
+e2e_timed "kueueviz-rbac/prepare_images" prepare_docker_images
+e2e_timed "kueueviz-rbac/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
+e2e_timed "kueueviz-rbac/deploy" kueue_deploy
 
 VICTIM_NS="kueueviz-rbac-victim"
 ATTACKER_NS="kueueviz-rbac-attacker"
@@ -64,7 +65,7 @@ fail_setup() {
 echo "== KueueViz RBAC-bypass reproduction =="
 
 cd "${ROOT_DIR}/cmd/kueueviz/backend"
-go build -o bin/kueueviz .
+e2e_timed "kueueviz-rbac/build_backend" go build -o bin/kueueviz .
 KUEUEVIZ_PORT="${KUEUEVIZ_RBAC_PORT}" KUEUEVIZ_AUTH_MODE="TokenReview" ./bin/kueueviz & BACKEND_PID=$!
 cd -
 
