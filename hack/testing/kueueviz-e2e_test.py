@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -58,6 +59,13 @@ args = sys.argv[1:]
 with open(os.environ["VIZ_TEST_COMMANDS"], "a") as log:
     log.write(json.dumps([name, *args]) + "\\n")
 failure = os.environ["VIZ_TEST_FAILURE"]
+ready = pathlib.Path(os.environ["VIZ_TEST_BACKEND_READY"])
+acknowledged = ready.with_suffix(".ack")
+def wait_for_backend():
+    if not acknowledged.exists():
+        with ready.open() as pipe:
+            assert pipe.read() == "ready\\n"
+        acknowledged.touch()
 if name == "go":
     previous = pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"])
     if previous.exists():
@@ -68,17 +76,20 @@ if name == "go":
         else:
             sys.exit("Previous backend is still running")
     binary = pathlib.Path("bin/kueueviz")
-    binary.write_text('#!/bin/bash\\necho $$ > "$VIZ_TEST_BACKEND_PID"\\nexec sleep 60\\n')
+    acknowledged.unlink(missing_ok=True)
+    binary.write_text('#!/bin/bash\\necho $$ > "$VIZ_TEST_BACKEND_PID"\\necho ready > "$VIZ_TEST_BACKEND_READY"\\nexec sleep 60\\n')
     binary.chmod(0o755)
 elif name == "npm":
     if args[:2] == ["run", "dev"]:
         os.execlp("sleep", "sleep", "60")
     if args[:2] == ["run", "cypress:run"]:
+        wait_for_backend()
         if failure == "backend_exit":
             os.kill(int(pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).read_text()), signal.SIGTERM)
             sys.exit(7)
         sys.exit(7 if failure == "cypress" else 0)
 elif name == "docker" and args[0] == "run":
+    wait_for_backend()
     if failure == "backend_exit":
         os.kill(int(pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).read_text()), signal.SIGTERM)
         sys.exit(7)
@@ -95,6 +106,7 @@ elif name == "kubectl":
     elif args[0] == "apply":
         sys.stdin.read()
 elif name == "curl":
+    wait_for_backend()
     if "-w" in args:
         print("500" if failure == "rbac" else "403", end="")
 ''')
@@ -103,16 +115,30 @@ elif name == "curl":
                 (root / "bin" / name).symlink_to(stub)
             events = root / "events"
             commands = root / "commands"
+            ready = root / "backend.ready"
+            os.mkfifo(ready)
             env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
                    "ARTIFACTS": str(root / "artifacts"), "KIND_CLUSTER_NAME": "test",
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
                    "VIZ_TEST_BACKEND_PID": str(root / "backend.pid"),
+                   "VIZ_TEST_BACKEND_READY": str(ready),
                    "VIZ_TEST_COMMANDS": str(commands), "VIZ_TEST_FAILURE": failure}
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["bash", str(scripts / f"e2e-kueueviz-{script}.sh"), *args],
-                cwd=root, env=env, capture_output=True, text=True, timeout=15,
+                cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, start_new_session=True,
             )
+            try:
+                stdout, stderr = process.communicate(timeout=15)
+                result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+            finally:
+                # A failed assertion or timeout must not leave simulated services behind.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
             return (result, events.read_text().splitlines() if events.exists() else [],
                     [json.loads(line) for line in commands.read_text().splitlines()]
                     if commands.exists() else [])
@@ -136,6 +162,8 @@ elif name == "curl":
                 with self.subTest(script=script, failure=failure):
                     result, events, _ = self.run_suite(script, failure=failure)
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    if failure in ("cypress", "backend_exit"):
+                        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
                     self.assertEqual(events.count("create"), 1)
                     self.assertEqual(events[-2:], ["artifacts", "cleanup"])
                     self.assertEqual(events.count("cleanup"), 1)
