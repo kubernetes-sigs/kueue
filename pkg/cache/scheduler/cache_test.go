@@ -4542,7 +4542,6 @@ func TestAncestors(t *testing.T) {
 func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
