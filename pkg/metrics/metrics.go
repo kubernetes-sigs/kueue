@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"maps"
 	"strconv"
 	"time"
 
@@ -1143,10 +1144,20 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
+// ClearClusterQueueGaugeMetrics removes the cluster_queue-scoped gauges for cq.
+// Cache and resource gauges are cleared by ClearCacheMetrics and
+// ClearClusterQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearClusterQueueGaugeMetrics(cq kueue.ClusterQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": string(cq)})
+}
+
+// ClearClusterQueueMetrics removes the gauges cleared by
+// ClearClusterQueueGaugeMetrics, and the counters and histograms that carry
+// ClusterQueue custom labels for cq.
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	// Clears all cluster_queue-scoped gauges for cqName.
-	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
+	ClearClusterQueueGaugeMetrics(cq)
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1165,14 +1176,19 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
+// Cache and resource gauges are cleared by ClearLocalQueueCacheMetrics and
+// ClearLocalQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
 func ClearLocalQueueGaugeMetrics(lq LocalQueueReference) {
-	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
-	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
 }
 
+// ClearLocalQueueMetrics removes the gauges cleared by
+// ClearLocalQueueGaugeMetrics, and the counters and histograms keyed by lq.
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
-	ClearLocalQueueGaugeMetrics(lq)
 	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
+	ClearLocalQueueGaugeMetrics(lq)
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
@@ -1188,8 +1204,17 @@ func ClearCohortMetrics(cohortName kueue.CohortReference) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeCohort, prometheus.Labels{"cohort": string(cohortName)})
 }
 
+// ClearCohortCounterMetrics removes the counters keyed by cohortName whose
+// labels also match customLabels. A nil customLabels matches every series of
+// the Cohort.
+func ClearCohortCounterMetrics(cohortName kueue.CohortReference, customLabels map[string]string) {
+	lbls := prometheus.Labels{"cohort": string(cohortName)}
+	maps.Copy(lbls, customLabels)
+	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
+}
+
 func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
-	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+	ClearCohortCounterMetrics(cohortName, nil)
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
