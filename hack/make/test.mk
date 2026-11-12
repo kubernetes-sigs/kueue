@@ -1042,6 +1042,7 @@ test-kueueviz-backend: ## Run KueueViz backend tests.
 	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
+ifeq ($(KUEUEVIZ_BENCHMARK_CHILD),1)
 # Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
 test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
 test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
@@ -1050,6 +1051,11 @@ test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-en
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
+else
+test-e2e-kueueviz:
+	KUEUEVIZ_BENCHMARK_GIT_TAG="$(GIT_TAG)" KUEUEVIZ_BENCHMARK_IMAGE_TAG="$(IMAGE_TAG)" \
+	bash $(PROJECT_DIR)/hack/testing/kueueviz-benchmark.sh
+endif
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
