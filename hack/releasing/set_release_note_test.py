@@ -268,7 +268,29 @@ class SetReleaseNoteTest(unittest.TestCase):
             ),
             "insert before a generated section when it holds the only block": (
                 "Summary\n\n\n" + coderabbit_section,
+                "Summary\n\n\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "keep a trailing hard break before a generated section": (
+                "Summary  \n" + coderabbit_section,
+                "Summary  \n\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "keep CRLF line breaks before a generated section": (
+                "Summary\r\n" + coderabbit_section,
+                "Summary\r\n\r\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "add a blank line when the text does not end with a newline": (
+                "Summary" + coderabbit_section,
                 "Summary\n\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "ignore generated-section markers in a fenced example": (
+                "Example:\n\n````markdown\n"
+                + coderabbit_section
+                + "````\n\n"
+                + coderabbit_section,
+                "Example:\n\n````markdown\n"
+                + coderabbit_section
+                + "````\n\n```release-note\nnew note\n```\n\n"
+                + coderabbit_section,
             ),
             "insert at the top when the body is only a generated section": (
                 coderabbit_section,

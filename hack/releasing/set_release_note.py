@@ -258,9 +258,76 @@ def _release_note_spans(pr_body: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _fenced_code_spans(pr_body: str) -> list[tuple[int, int]]:
+    """Find fenced code blocks, so that examples inside them can be ignored.
+
+    An unclosed fence runs to the end of the body, as in CommonMark.
+    """
+    lines = pr_body.splitlines(keepends=True)
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    line_index = 0
+    while line_index < len(lines):
+        opening = _match_fence(lines[line_index])
+        if opening is None:
+            offset += len(lines[line_index])
+            line_index += 1
+            continue
+
+        fence = opening.group("fence")
+        start = offset
+        offset += len(lines[line_index])
+        line_index += 1
+        while line_index < len(lines):
+            candidate = _match_fence(lines[line_index])
+            offset += len(lines[line_index])
+            line_index += 1
+            if (
+                candidate is not None
+                and candidate.group("info").strip() == ""
+                and candidate.group("fence")[0] == fence[0]
+                and len(candidate.group("fence")) >= len(fence)
+            ):
+                break
+        spans.append((start, offset))
+    return spans
+
+
 def _auto_generated_sections(pr_body: str) -> list[tuple[int, int]]:
-    """Find sections of the PR body that were added by a bot."""
-    return [match.span() for match in AUTO_GENERATED_SECTION_RE.finditer(pr_body)]
+    """Find sections of the PR body that were added by a bot.
+
+    Markers inside fenced code blocks, such as a documented example of a
+    generated section, are not treated as a generated section.
+    """
+    fenced_code = _fenced_code_spans(pr_body)
+    sections: list[tuple[int, int]] = []
+    position = 0
+    while True:
+        match = AUTO_GENERATED_SECTION_RE.search(pr_body, position)
+        if match is None:
+            return sections
+        if any(start <= match.start() < end for start, end in fenced_code):
+            position = match.start() + 1
+            continue
+        sections.append(match.span())
+        position = match.end()
+
+
+def _separator_before_block(text: str) -> str:
+    """Return the separator needed between text and a new block after it.
+
+    The text itself is kept as is, including trailing spaces, blank lines and
+    CRLF sequences; only the missing line breaks are added.
+    """
+    if not text or text.endswith(("\n\n", "\r\n\r\n")):
+        return ""
+    if not text.strip():
+        return "" if text.endswith("\n") else "\n"
+    if text.endswith("\r\n"):
+        return "\r\n"
+    if text.endswith("\n"):
+        return "\n"
+    return "\n\n"
 
 
 def set_release_note(pr_body: str, release_note: str) -> str:
@@ -306,9 +373,10 @@ def set_release_note(pr_body: str, release_note: str) -> str:
         updated_body = f"{pr_body[:start]}{new_block}{pr_body[end:]}"
     elif generated_sections:
         start = generated_sections[0][0]
-        before = pr_body[:start].rstrip()
-        prefix = f"{before}\n\n" if before else ""
-        updated_body = f"{prefix}{new_block}\n\n{pr_body[start:]}"
+        before = pr_body[:start]
+        updated_body = (
+            f"{before}{_separator_before_block(before)}{new_block}\n\n{pr_body[start:]}"
+        )
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:
