@@ -1270,7 +1270,7 @@ func makeIterator(ctx context.Context, entries []entry, workloadOrdering workloa
 // 1. entries with quota already reserved first, as such workloads may
 // be considered for a second pass.
 // 2. request under nominal quota before borrowing.
-// 3. higher priority first, when PrioritySortingWithinCohort is enabled.
+// 3. higher priority first.
 // 4. FIFO on eviction or creation timestamp.
 //
 // Ordering on DominantResourceShare when Fair Sharing is enabled is
@@ -1319,13 +1319,11 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return cmp.Compare(aBorrows, bBorrows)
 		}
 
-		// 3. Higher priority first if not disabled.
-		if features.Enabled(features.PrioritySortingWithinCohort) {
-			p1 := priority.EffectivePriority(log, a.Obj)
-			p2 := priority.EffectivePriority(log, b.Obj)
-			if p1 != p2 {
-				return cmp.Compare(p2, p1)
-			}
+		// 3. Higher priority first.
+		p1 := priority.EffectivePriority(log, a.Obj)
+		p2 := priority.EffectivePriority(log, b.Obj)
+		if p1 != p2 {
+			return cmp.Compare(p2, p1)
 		}
 
 		// 4. FIFO.
