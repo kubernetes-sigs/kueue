@@ -58,7 +58,8 @@ kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
 # Start KueueViz backend
 cd "${ROOT_DIR}/cmd/kueueviz/backend"
-e2e_timed "kueueviz/build_backend" go build -o bin/kueueviz
+# Match the preceding backend tests to reuse their compiled dependencies.
+GOFLAGS="${KUEUEVIZ_BACKEND_GOFLAGS:-${GOFLAGS:-}}" e2e_timed "kueueviz/build_backend" go build -o bin/kueueviz
 ./bin/kueueviz & BACKEND_PID=$!
 cd -
 
@@ -102,7 +103,10 @@ set +x  # Disable debug mode
 # Stop the unauthenticated backend before starting the TokenReview backend, which
 # may use the same port. Keep the cluster alive; this script owns its cleanup.
 kill "${BACKEND_PID}"
-wait "${BACKEND_PID}" || true
+wait "${BACKEND_PID}" || {
+  backend_status=$?
+  [[ $backend_status -eq 143 ]] || exit "$backend_status"
+}
 BACKEND_PID=""
 e2e_timed "kueueviz/rbac" "${SOURCE_DIR}/e2e-kueueviz-rbac-bypass.sh" --use-existing-cluster
 # The trap will handle cleanup 

@@ -40,16 +40,24 @@ KIND_CLUSTER_FILE="${KIND_CLUSTER_FILE:-kind-cluster.yaml}"
 source "${SOURCE_DIR}/e2e-common.sh"
 
 cleanup() {
-  e2e_timed_log_unfinished "$?"
+  local status=$?
+  local backend_status=0
+  e2e_timed_log_unfinished "$status"
   echo "Cleaning up kueueviz processes"
   if [[ -n "${BACKEND_PID:-}" ]]; then
     kill "${BACKEND_PID}" 2>/dev/null || true
-    wait "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || backend_status=$?
   fi
   if [[ "${USE_EXISTING_CLUSTER}" == false ]]; then
     cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
     cluster_cleanup "${KIND_CLUSTER_NAME}"
   fi
+  # A race-enabled server can report a race on shutdown. Preserve that failure
+  # after collecting artifacts, while allowing ordinary SIGTERM termination.
+  if [[ $status -eq 0 && $backend_status -ne 0 && $backend_status -ne 143 ]]; then
+    status=$backend_status
+  fi
+  return "$status"
 }
 
 trap cleanup EXIT
@@ -82,7 +90,7 @@ fail_setup() {
 echo "== KueueViz RBAC-bypass reproduction =="
 
 cd "${ROOT_DIR}/cmd/kueueviz/backend"
-e2e_timed "kueueviz-rbac/build_backend" go build -o bin/kueueviz .
+GOFLAGS="${KUEUEVIZ_BACKEND_GOFLAGS:-${GOFLAGS:-}}" e2e_timed "kueueviz-rbac/build_backend" go build -o bin/kueueviz .
 KUEUEVIZ_PORT="${KUEUEVIZ_RBAC_PORT}" KUEUEVIZ_AUTH_MODE="TokenReview" ./bin/kueueviz & BACKEND_PID=$!
 cd -
 
