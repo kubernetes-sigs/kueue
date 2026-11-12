@@ -610,51 +610,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
 	if remoteEvictCond != nil {
-		remoteCl := group.remoteClients[evictedRemote].getClient()
-		remoteWl := group.remotes[evictedRemote]
-
-		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
+		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(group.remotes[evictedRemote]))
 		ctx = ctrl.LoggerInto(ctx, log)
-
-		// workload evicted on manager cluster
-		if workloadevict.IsEvicted(group.local) {
-			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
-				log.Error(err, "validating remote controller object", "cluster", evictedRemote)
-				return reconcile.Result{}, err
-			}
-
-			deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
-			if err != nil {
-				log.Error(err, "Syncing remote controller object")
-				// We'll retry this in the next reconciling.
-				return reconcile.Result{}, err
-			}
-			if deferred {
-				// Eviction re-suspended the local Job; requeue short to retry the
-				// status sync instead of dropping it. See syncDeferredRequeueAfter.
-				log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
-				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
-			}
-			return reconcile.Result{}, nil
-		}
-
-		if acs.State == kueue.CheckStateReady {
-			// workload evicted on worker cluster
-			log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
-				acs.State = kueue.CheckStateRetry
-				acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
-				return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
-			}); err != nil {
-				log.Error(err, "Failed to patch workload status")
-				return reconcile.Result{}, err
-			}
-
-			metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
-
-			w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
-			return reconcile.Result{}, nil
+		if done, result, err := w.reconcileRemoteEviction(ctx, log, group, acs, evictedRemote, remoteEvictCond); done {
+			return result, err
 		}
 	}
 
@@ -942,6 +901,64 @@ func (w *wlReconciler) reconcileRemoteFinished(
 
 	// finish workload and copy the status to the local one
 	return reconcile.Result{}, workloadfinish.Finish(ctx, w.client, group.local, remoteFinishedCond.Reason, remoteFinishedCond.Message, w.clock)
+}
+
+// reconcileRemoteEviction handles a workload whose remote workload is evicted.
+// When the workload is also evicted on the manager cluster, it syncs the remote job
+// status. When the admission check is Ready, it resets the check to Retry so that
+// the workload is admitted again.
+// Returns done=true when reconciliation should stop.
+func (w *wlReconciler) reconcileRemoteEviction(
+	ctx context.Context,
+	log klog.Logger,
+	group *wlGroup,
+	acs *kueue.AdmissionCheckState,
+	evictedRemote string,
+	remoteEvictCond *metav1.Condition,
+) (done bool, result reconcile.Result, err error) {
+	remoteCl := group.remoteClients[evictedRemote].getClient()
+
+	// workload evicted on manager cluster
+	if workloadevict.IsEvicted(group.local) {
+		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
+			log.Error(err, "validating remote controller object", "cluster", evictedRemote)
+			return true, reconcile.Result{}, err
+		}
+
+		deferred, err := group.jobAdapter.SyncJob(ctx, w.client, remoteCl, group.controllerKey, group.local.Name, w.origin)
+		if err != nil {
+			log.Error(err, "Syncing remote controller object")
+			// We'll retry this in the next reconciling.
+			return true, reconcile.Result{}, err
+		}
+		if deferred {
+			// Eviction re-suspended the local Job; requeue short to retry the
+			// status sync instead of dropping it. See syncDeferredRequeueAfter.
+			log.V(3).Info("Sync deferred until local job is unsuspended; requeuing on short timer")
+			return true, reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+		}
+		return true, reconcile.Result{}, nil
+	}
+
+	if acs.State == kueue.CheckStateReady {
+		// workload evicted on worker cluster
+		log.V(3).Info("Workload was evicted in the remote cluster", "cluster", evictedRemote)
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			acs.Message = fmt.Sprintf("Workload evicted on worker cluster: %q, resetting for re-admission. Previously: %q", *group.local.Status.ClusterName, acs.State)
+			acs.State = kueue.CheckStateRetry
+			acs.LastTransitionTime = metav1.NewTime(w.clock.Now())
+			return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *acs, w.clock), nil
+		}); err != nil {
+			log.Error(err, "Failed to patch workload status")
+			return true, reconcile.Result{}, err
+		}
+
+		metrics.ReportMultiKueueWorkloadEvicted(admittedClusterQueue(group.local), evictedRemote, remoteEvictCond.Reason, w.roleTracker)
+
+		w.recorder.Eventf(group.local, nil, corev1.EventTypeNormal, "MultiKueue", "MultiKueue", acs.Message)
+		return true, reconcile.Result{}, nil
+	}
+	return false, reconcile.Result{}, nil
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
