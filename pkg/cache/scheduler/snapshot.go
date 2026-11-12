@@ -97,6 +97,15 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	}
 }
 
+func (s *Snapshot) HasWorkload(wl *workload.Info) bool {
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	_, found := cq.Workloads[workload.Key(wl.Obj)]
+	return found
+}
+
 // ReleaseWorkloadUsage removes a workload's usage while keeping the workload in
 // its ClusterQueue, for a workload the rest of the cycle must still find, such
 // as a replaced workload slice.
@@ -211,9 +220,9 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
-// forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
 // use it after changing what the scheduling simulator reports.
-func (s *Snapshot) forgetSimulatedFeasibility() {
+func (s *Snapshot) ForgetSimulatedFeasibility() {
 	for _, cq := range s.ClusterQueues() {
 		for _, tasSnapshot := range cq.TASFlavors {
 			tasSnapshot.forgetMatchingLeaves()
@@ -556,14 +565,14 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 	}
 	// The simulator reports a different cluster now, so results cached before this
 	// no longer hold. The revert changes it back, so they are dropped again there.
-	s.forgetSimulatedFeasibility()
+	s.ForgetSimulatedFeasibility()
 	return func() {
 		for _, revert := range reverts {
 			if err := revert(); err != nil {
 				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
 			}
 		}
-		s.forgetSimulatedFeasibility()
+		s.ForgetSimulatedFeasibility()
 	}
 }
 
@@ -624,7 +633,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 			log.V(2).Info("Could not simulate residual TAS Pod release", "error", err)
 			return func() {}, false
 		}
-		s.forgetSimulatedFeasibility()
+		s.ForgetSimulatedFeasibility()
 	}
 	seen := make(map[*TASFlavorSnapshot]struct{})
 	for _, cq := range s.ClusterQueues() {
@@ -651,7 +660,7 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 			if err := revertPods(); err != nil {
 				log.V(2).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
 			}
-			s.forgetSimulatedFeasibility()
+			s.ForgetSimulatedFeasibility()
 		}
 	}, true
 }

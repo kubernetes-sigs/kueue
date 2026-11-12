@@ -82,7 +82,7 @@ type PodRequirements struct {
 type PreemptionFilter interface {
 	// PreemptWorkload notifies the filter that the candidate workload with wlKey
 	// has been tentatively preempted during the simulation.
-	PreemptWorkload(wlKey workload.Reference)
+	PreemptWorkload(wlKey workload.Reference, wlInfo *workload.Info)
 	// UnpreemptWorkload notifies the filter that the candidate workload with wlKey
 	// has been reprieved and is no longer preempted in the simulation.
 	UnpreemptWorkload(wlKey workload.Reference)
@@ -94,17 +94,18 @@ type PreemptionFilter interface {
 type ScheduleOptions struct {
 	// PreemptionCandidates is the ordered sequence of candidate workloads
 	// that may be preempted to make room for the scheduled workload.
-	PreemptionCandidates iter.Seq[workload.Reference]
+	// The yielded list of candidates cannot include workloads passed in CommittedPreemptionVictims.
+	PreemptionCandidates iter.Seq2[workload.Reference, *workload.Info]
 	// PreemptionFilter evaluates whether preempting candidate workloads
 	// satisfies non-node constraints (such as quota).
 	PreemptionFilter PreemptionFilter
 	// SimulateEmpty configures the simulator to schedule the workload against
 	// a cluster snapshot containing only Pods not managed by Kueue.
 	SimulateEmpty bool
-	// CommittedPreemptionVictims lists the References of workloads that have
+	// CommittedPreemptionVictims represents workloads that have
 	// already been established as preemption targets/victims.
-	// The list should never contain duplicate keys.
-	CommittedPreemptionVictims []workload.Reference
+	// Any items in CommittedPreemptionVictims cannot be yielded as PreemptionCandidates.
+	CommittedPreemptionVictims map[workload.Reference]*workload.Info
 }
 
 type ScheduleOption func(*ScheduleOptions)
@@ -122,7 +123,7 @@ func BuildScheduleOptions(options ...ScheduleOption) *ScheduleOptions {
 
 // WithPreemptionCandidates configures the ordered sequence of candidate workloads
 // that may be preempted to make room for the scheduled workload.
-func WithPreemptionCandidates(candidates iter.Seq[workload.Reference]) ScheduleOption {
+func WithPreemptionCandidates(candidates iter.Seq2[workload.Reference, *workload.Info]) ScheduleOption {
 	return func(o *ScheduleOptions) {
 		o.PreemptionCandidates = candidates
 	}
@@ -147,9 +148,8 @@ func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
 
 // WithCommittedPreemptionVictims configures the simulator to recognize Pods that
 // are still running on the cluster but are meant for preemption.
-// Takes the References representing Victim Workloads as input.
-// All Workloads listed as input must be absent from the ScheduleSimulator's cache.
-func WithCommittedPreemptionVictims(targets []workload.Reference) ScheduleOption {
+// All Workloads passed as input must be absent from the ScheduleSimulator's cache.
+func WithCommittedPreemptionVictims(targets map[workload.Reference]*workload.Info) ScheduleOption {
 	return func(opts *ScheduleOptions) {
 		opts.CommittedPreemptionVictims = targets
 	}
@@ -157,9 +157,20 @@ func WithCommittedPreemptionVictims(targets []workload.Reference) ScheduleOption
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.
 type SchedulingResult struct {
-	PodPlacements     PodPlacements
+	// PodPlacements maps Pods to the result of their placement.
+	// Includes exactly one entry for each Pod of the Workload.
+	PodPlacements PodPlacements
+	// PreemptionVictims lists Workloads that must be preempted
+	// for a successful placement to be feasible.
+	// This list does not include committed victims required for the placement to work.
 	PreemptionVictims []workload.Reference
-	Error             error
+	// ImmediateFit informs if the placement can be exercised
+	// without waiting for any preemptions (including both new and committed victims).
+	// Can only be true when there are no PreemptionVictims present and all PodPlacements are valid.
+	ImmediateFit bool
+	// Error denotes an internal system error.
+	// If set, all other fields are left empty.
+	Error error
 }
 
 type PodPlacements map[client.ObjectKey]*PodPlacement

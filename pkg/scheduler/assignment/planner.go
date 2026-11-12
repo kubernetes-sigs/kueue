@@ -54,9 +54,41 @@ func (p *Plan) CanFit() bool {
 		return false
 	}
 	arm := p.Assignment.RepresentativeMode()
-	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
+	return arm == flavorassigner.Fit ||
+		(arm == flavorassigner.DeferredFit && !p.Assignment.WaitingForResidualTASPods) ||
+		(arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
 }
 
-type options struct{}
+type Options struct {
+	// CommittedPreemptionVictims are the workloads marked
+	// for preemption by preemptors (workloads) already processed within
+	// the ongoing scheduler cycle.
+	CommittedPreemptionVictims preemption.PreemptedWorkloads
+	// PreemptionManager allows performing preempt/unpreempt workload operations
+	// on the snapshot and a fit check based on its updated state.
+	PreemptionManager *preemption.PreemptionManager
+}
 
-type PlannerOption func(*options)
+type PlannerOption func(*Options)
+
+func BuildOptions(options ...PlannerOption) *Options {
+	opts := &Options{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts
+}
+
+func WithCommittedPreemptionVictims(preemptionVictims preemption.PreemptedWorkloads) PlannerOption {
+	return func(opts *Options) {
+		opts.CommittedPreemptionVictims = preemptionVictims
+	}
+}
+
+func WithPreemptionManager(mgr *preemption.PreemptionManager) PlannerOption {
+	return func(opts *Options) {
+		opts.PreemptionManager = mgr
+	}
+}

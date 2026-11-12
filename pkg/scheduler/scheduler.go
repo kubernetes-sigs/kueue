@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -653,27 +652,30 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	if s.failedTASReplacementRecoveryTimeout <= 0 {
 		return false
 	}
+	// To get the projected cluster state after the in-flight evictions complete,
+	// pass their workloads (and, by extension, their Pods) as committed victims.
 	victims := inFlightEvictionVictims(snapshot)
 	if len(victims) == 0 {
 		return false
 	}
 	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
-	// To get the projected cluster state after the in-flight evictions complete,
-	// simulate the removal of their workloads and their Pods. The simulation is
-	// reverted below as the snapshot is shared across the scheduling cycle.
-	revertRemoval := snapshot.SimulateRemovals(ctx, log, victims)
 	// Clear the flavor scan state so that the recomputation starts from the
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot, victims)
 	e.NominationMapping = nil
-	revertRemoval()
 	if err != nil {
 		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
 		return false
 	}
-	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+	// Defer if the replacement fits once the in-flight evictions complete, reported either as
+	// Fit (victims removed from the snapshot) or as DeferredFit (placement relies on the victims' Pods).
+	// Residual-Pod waits are rejected; this is a result of combining #15263 & #16339 and may be worth revisiting.
+	arm := newAssignment.RepresentativeMode()
+	canDefer := arm == flavorassigner.Fit ||
+		(arm == flavorassigner.DeferredFit && !newAssignment.WaitingForResidualTASPods)
+	if !canDefer {
 		return false
 	}
 	e.recordAssignment(newAssignment, newTargets)
@@ -700,13 +702,13 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 // inFlightEvictionVictims returns the workloads that are marked Evicted but
 // still hold usage in the snapshot, i.e. the victims of in-flight evictions
 // that are expected to free capacity once they complete.
-func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
-	var victims []*workload.Info
+func inFlightEvictionVictims(snapshot *schdcache.Snapshot) preemption.PreemptedWorkloads {
+	victims := make(preemption.PreemptedWorkloads)
 	for _, cq := range snapshot.ClusterQueues() {
 		for _, w := range cq.Workloads {
 			usage := w.Usage()
 			if workloadevict.IsEvicted(w.Obj) && (len(usage.Quota.Assigned) > 0 || len(usage.TAS) > 0) {
-				victims = append(victims, w)
+				victims[workload.Key(w.Obj)] = w
 			}
 		}
 	}
@@ -950,7 +952,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
-	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap, nil); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
@@ -976,7 +978,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 
-	var revertRemoval func()
+	var committedVictims preemption.PreemptedWorkloads
 	switch {
 	case needsOverlapRecompute:
 		// The recompute can only turn a Fit into a DeferredFit, and refill
@@ -987,7 +989,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 			return schdcache.FitsCheckOk == fitsCheck, nil
 		}
 		log.V(3).Info("Re-computing the assignment as preemption targets overlap")
-		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
+		committedVictims = preemptedWorkloads
 	case needsTASRecompute:
 		log.V(3).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
@@ -1002,10 +1004,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
-	if revertRemoval != nil {
-		revertRemoval()
-	}
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot, committedVictims)
+
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
@@ -1096,12 +1096,6 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
 	return nil
-}
-
-// simulateOtherPreemptions projects the victims of preemptions already decided this cycle
-// out of the snapshot and returns the single undo.
-func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
@@ -1658,7 +1652,24 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, inCycleCommittedVictims preemption.PreemptedWorkloads) (
+	fullAssignment flavorassigner.Assignment,
+	targets []*preemption.Target,
+	err error,
+) {
+	if features.Enabled(features.SchedulerLibraryIntegration) && snap.SchedulerSimulator != nil {
+		simulationError := snap.SchedulerSimulator.Simulate(ctx, func() {
+			fullAssignment, targets, err = s.getAssignmentsSimulation(ctx, wl, snap, inCycleCommittedVictims)
+		})
+		snap.ForgetSimulatedFeasibility()
+		err = errors.Join(err, simulationError)
+	} else {
+		fullAssignment, targets, err = s.getAssignmentsSimulation(ctx, wl, snap, inCycleCommittedVictims)
+	}
+	return
+}
+
+func (s *Scheduler) getAssignmentsSimulation(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, inCycleCommittedVictims preemption.PreemptedWorkloads) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 	err error,
@@ -1676,21 +1687,41 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
+	preemptionManager := preemption.BuildManager(log, snap, wl, inCycleCommittedVictims)
+	// Sets the state of the snapshot to one with committed victims preempted
+	preemptionManager.ResetToDefault()
+	// Ensures all preemptions are cleaned up from the snapshot at simulation end
+	defer preemptionManager.ResetAll()
+
+	if len(inCycleCommittedVictims) > 0 {
+		// Revert is handled by the Simulation.
+		snap.SimulatePodRemoval(ctx, log, inCycleCommittedVictims.Workloads())
+	}
+
+	// The ReplacedWorkloadSlice call and the configuration of FlavorAssigner
+	// have to happen after committed victims are removed from the snapshot.
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
+	// The preemptor sees the state of the cluster without committed victims.
+	// The strategy it generates will yield candidates based on an assumption
+	// that all committed victims have been removed.
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}
+	plannerOptions := []assignment.PlannerOption{
+		assignment.WithPreemptionManager(preemptionManager),
+		assignment.WithCommittedPreemptionVictims(inCycleCommittedVictims),
+	}
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	assignmentPlan := planner.Plan(ctx, &initialAssignment)
+	assignmentPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...)
 
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
@@ -1698,11 +1729,10 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts workload.PodSetsCounts) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
-				// A reduced count may fit only by evicting another victim. Keep
-				// waiting for residual Pods unless it fits without preemption.
-				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
-					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+			if partialPlan := planner.Plan(ctx, &initialAssignment, plannerOptions...); partialPlan.CanFit() {
+				// When WaitingForResidualTASPods, a reduced count may fit only by evicting another victim.
+				// Keep waiting for victim Pods unless it fits without preemption.
+				if assignmentPlan.Assignment.WaitingForResidualTASPods && partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
 					return false
 				}
 				bestPartialPlan = &partialPlan
