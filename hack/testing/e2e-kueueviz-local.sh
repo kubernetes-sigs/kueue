@@ -72,7 +72,10 @@ cd -
 # Stop the unauthenticated backend before starting the TokenReview backend, which
 # may use the same port. Keep the cluster alive; this script owns its cleanup.
 kill "${BACKEND_PID}"
-wait "${BACKEND_PID}" || true
+wait "${BACKEND_PID}" || {
+  backend_status=$?
+  [[ $backend_status -eq 143 ]] || exit "$backend_status"
+}
 BACKEND_PID=""
 "${SOURCE_DIR}/e2e-kueueviz-rbac-bypass.sh" --use-existing-cluster
 

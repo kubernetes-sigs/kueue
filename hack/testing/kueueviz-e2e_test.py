@@ -77,7 +77,7 @@ if name == "go":
             sys.exit("Previous backend is still running")
     binary = pathlib.Path("bin/kueueviz")
     acknowledged.unlink(missing_ok=True)
-    binary.write_text('#!/bin/bash\\necho $$ > "$VIZ_TEST_BACKEND_PID"\\necho ready > "$VIZ_TEST_BACKEND_READY"\\nexec sleep 60\\n')
+    binary.write_text(pathlib.Path(os.environ["VIZ_TEST_BACKEND_TEMPLATE"]).read_text())
     binary.chmod(0o755)
 elif name == "npm":
     if args[:2] == ["run", "dev"]:
@@ -117,12 +117,25 @@ elif name == "curl":
             commands = root / "commands"
             ready = root / "backend.ready"
             os.mkfifo(ready)
+            backend = root / "backend-template"
+            backend.write_text('''#!/usr/bin/env python3
+import os, pathlib, signal, sys
+failure = os.environ["VIZ_TEST_FAILURE"]
+is_rbac = os.environ.get("KUEUEVIZ_AUTH_MODE") == "TokenReview"
+status = 66 if failure == ("rbac_race" if is_rbac else "backend_race") else 0
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(status))
+pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).write_text(str(os.getpid()))
+with open(os.environ["VIZ_TEST_BACKEND_READY"], "w") as pipe:
+    pipe.write("ready\\n")
+signal.pause()
+''')
             env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
                    "ARTIFACTS": str(root / "artifacts"), "KIND_CLUSTER_NAME": "test",
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
                    "VIZ_TEST_BACKEND_PID": str(root / "backend.pid"),
                    "VIZ_TEST_BACKEND_READY": str(ready),
+                   "VIZ_TEST_BACKEND_TEMPLATE": str(backend),
                    "VIZ_TEST_COMMANDS": str(commands), "VIZ_TEST_FAILURE": failure}
             process = subprocess.Popen(
                 ["bash", str(scripts / f"e2e-kueueviz-{script}.sh"), *args],
@@ -158,16 +171,19 @@ elif name == "curl":
 
     def test_failures_propagate_and_owner_collects_artifacts_and_cleans_up(self):
         for script in ("backend", "local"):
-            for failure in ("create", "cypress", "rbac", "backend_exit"):
+            for failure in ("create", "cypress", "rbac", "backend_exit", "backend_race", "rbac_race"):
                 with self.subTest(script=script, failure=failure):
                     result, events, _ = self.run_suite(script, failure=failure)
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                     if failure in ("cypress", "backend_exit"):
                         self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+                    if failure in ("backend_race", "rbac_race"):
+                        self.assertEqual(result.returncode, 66, result.stdout + result.stderr)
                     self.assertEqual(events.count("create"), 1)
                     self.assertEqual(events[-2:], ["artifacts", "cleanup"])
                     self.assertEqual(events.count("cleanup"), 1)
-                    self.assertNotIn("SECURE:", result.stdout)
+                    if failure != "rbac_race":
+                        self.assertNotIn("SECURE:", result.stdout)
 
     def test_standalone_rbac_keeps_owning_its_cluster(self):
         result, events, _ = self.run_suite("rbac-bypass")
@@ -189,14 +205,15 @@ elif name == "curl":
 
     def test_make_preserves_build_flags_and_reuses_only_the_race_test_flag(self):
         cases = (("", None, "-race"), ("-trimpath", "-race -count=1", "-trimpath -race"),
-                 ("-trimpath", "-count=1", "-trimpath"), ("", "", ""))
+                 ("-trimpath", "-count=1", "-trimpath"), ("", "", ""),
+                 ('"-ldflags=-s -w"', "-race", '"-ldflags=-s -w" -race'))
         for go_flags, test_flags, expected in cases:
             with self.subTest(go_flags=go_flags, test_flags=test_flags):
                 with tempfile.TemporaryDirectory() as temp:
                     root = Path(temp)
                     script = root / "hack/testing/e2e-kueueviz-backend.sh"
                     script.parent.mkdir(parents=True)
-                    script.write_text('#!/bin/sh\nprintf "%s" "$GOFLAGS" > "$PROJECT_DIR/build-flags"\n')
+                    script.write_text('#!/bin/sh\nprintf "%s" "$KUEUEVIZ_BACKEND_GOFLAGS" > "$PROJECT_DIR/build-flags"\n')
                     script.chmod(0o755)
                     command = ["make", "-f", str(ROOT / "hack/make/test.mk"),
                                "-o", "test-kueueviz-backend", "-o", "setup-kueueviz-e2e-env",
