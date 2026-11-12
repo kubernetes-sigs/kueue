@@ -187,6 +187,26 @@ elif name == "curl":
         self.assertEqual(events, [])
         self.assertEqual(commands, [])
 
+    def test_make_preserves_build_flags_and_reuses_only_the_race_test_flag(self):
+        cases = (("", None, "-race"), ("-trimpath", "-race -count=1", "-trimpath -race"),
+                 ("-trimpath", "-count=1", "-trimpath"), ("", "", ""))
+        for go_flags, test_flags, expected in cases:
+            with self.subTest(go_flags=go_flags, test_flags=test_flags):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    script = root / "hack/testing/e2e-kueueviz-backend.sh"
+                    script.parent.mkdir(parents=True)
+                    script.write_text('#!/bin/sh\nprintf "%s" "$GOFLAGS" > "$PROJECT_DIR/build-flags"\n')
+                    script.chmod(0o755)
+                    command = ["make", "-f", str(ROOT / "hack/make/test.mk"),
+                               "-o", "test-kueueviz-backend", "-o", "setup-kueueviz-e2e-env",
+                               "test-e2e-kueueviz", f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}"]
+                    if test_flags is not None:
+                        command.append(f"GO_TEST_FLAGS={test_flags}")
+                    result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual((root / "build-flags").read_text().strip(), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

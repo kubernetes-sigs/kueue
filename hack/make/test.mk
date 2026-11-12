@@ -960,6 +960,8 @@ test-kueueviz-backend: ## Run KueueViz backend tests.
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
+	# Reuse dependencies compiled by the backend race tests when building its server.
+	GOFLAGS="$(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))" \
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
