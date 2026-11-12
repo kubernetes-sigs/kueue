@@ -121,6 +121,10 @@ var (
 	PendingWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	OldestPendingWorkloadAge *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PendingSchedulingHashes *prometheus.GaugeVec
 
@@ -485,6 +489,15 @@ Globally configured custom ClusterQueue labels are also appended to the base lab
 		}, append([]string{"cluster_queue", "status", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
+
+	OldestPendingWorkloadAge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "oldest_pending_workload_age_seconds",
+			Help:      "The age in seconds of the oldest currently pending workload awaiting quota reservation, per 'cluster_queue'. Includes active, inadmissible, and inflight workloads. Zero when none are pending. Refreshed every 5 seconds.",
+		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(OldestPendingWorkloadAge, gaugeCleanupScopeClusterQueue)
 
 	PendingSchedulingHashes = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1240,6 +1253,12 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
+// ReportOldestPendingWorkloadAge reports the longest current wait for quota reservation.
+func ReportOldestPendingWorkloadAge(cqName kueue.ClusterQueueReference, age time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	OldestPendingWorkloadAge.WithLabelValues(labels...).Set(max(0, age.Seconds()))
+}
+
 func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	labels := append([]string{string(cqName), pendingStatus, role}, customLabelValues...)
@@ -1718,6 +1737,7 @@ func Register() {
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
+		OldestPendingWorkloadAge,
 		PendingSchedulingHashes,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,

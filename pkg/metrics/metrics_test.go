@@ -686,7 +686,7 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueMetrics("cq_follower")
 }
 
-func TestRegisterExposesReplacedWorkloadSlicesTotal(t *testing.T) {
+func TestRegisterExposesQueueMetrics(t *testing.T) {
 	const cqName = "cq-registered"
 
 	registry := prometheus.NewRegistry()
@@ -699,13 +699,18 @@ func TestRegisterExposesReplacedWorkloadSlicesTotal(t *testing.T) {
 
 	Register()
 	ReportReplacedWorkloadSlices(cqName, nil, nil)
+	ReportOldestPendingWorkloadAge(cqName, time.Hour, nil, nil)
 
-	count, err := testutil.GatherAndCount(registry, "kueue_replaced_workload_slices_total")
-	if err != nil {
-		t.Fatalf("Failed to gather metrics: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Unexpected number of kueue_replaced_workload_slices_total series in the registry: got %d, want 1", count)
+	for _, name := range []string{"kueue_replaced_workload_slices_total", "kueue_oldest_pending_workload_age_seconds"} {
+		t.Run(name, func(t *testing.T) {
+			count, err := testutil.GatherAndCount(registry, name)
+			if err != nil {
+				t.Fatalf("Failed to gather metrics: %v", err)
+			}
+			if count != 1 {
+				t.Errorf("Unexpected number of %s series in the registry: got %d, want 1", name, count)
+			}
+		})
 	}
 }
 

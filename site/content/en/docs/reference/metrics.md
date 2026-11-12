@@ -61,6 +61,7 @@ Use the following metrics to monitor the status of your ClusterQueues:
 | `kueue_execution_time_seconds` | Histogram | The total execution time of a finished admitted workload (from first admission to completion, including time across evict/readmit cycles), per 'cluster_queue' | `cluster_queue`: the name of the ClusterQueue<br> `priority_class`: the priority class name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_finished_workloads` | Gauge | The number of finished workloads per 'cluster_queue'. | `cluster_queue`: the name of the ClusterQueue<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_finished_workloads_total` | Counter | The total number of finished workloads per 'cluster_queue' | `cluster_queue`: the name of the ClusterQueue<br> `priority_class`: the priority class name<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
+| `kueue_oldest_pending_workload_age_seconds` | Gauge | The age in seconds of the oldest currently pending workload awaiting quota reservation, per 'cluster_queue'. Includes active, inadmissible, and inflight workloads. Zero when none are pending. Refreshed every 5 seconds. | `cluster_queue`: the name of the ClusterQueue<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_pending_scheduling_hashes` | Gauge | The number of unique pending scheduling equivalence hashes, per 'cluster_queue' and 'status'. Reported only when SchedulingEquivalenceHashing is enabled.<br>'status' can have the following values:<br>- "active" means that the workloads are in the admission queue.<br>- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change | `cluster_queue`: the name of the ClusterQueue<br> `status`: one of `active` or `inadmissible`<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_pending_workloads` | Gauge | The number of pending workloads, per 'cluster_queue' and 'status'.<br>'status' can have the following values:<br>- "active" means that the workloads are in the admission queue.<br>- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change | `cluster_queue`: the name of the ClusterQueue<br> `status`: status label (varies by metric)<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_pods_ready_to_evicted_time_seconds` | Histogram | The number of seconds between a workload's pods being ready and eviction workloads per 'cluster_queue',<br>The label 'reason' can have the following values:<br>- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.<br>- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.<br>- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.<br>- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.<br>- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.<br>- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.<br>- "Deactivated" means that the workload was evicted because spec.active is set to false.<br>The label 'underlying_cause' can have the following values:<br>- "" means that the value in 'reason' label is the root cause for eviction.<br>- "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.<br>- "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.<br>- "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded. | `cluster_queue`: the name of the ClusterQueue<br> `reason`: eviction or preemption reason<br> `underlying_cause`: root cause for eviction<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
@@ -73,6 +74,41 @@ Use the following metrics to monitor the status of your ClusterQueues:
 | `kueue_unadmitted_workloads` | Gauge | The number of unadmitted workloads, per 'cluster_queue', 'reason', and 'underlying_cause'. This metric is only emitted when UnadmittedWorkloadsObservability feature gate is enabled. | `cluster_queue`: the name of the ClusterQueue<br> `reason`: the reason why the workload is not admitted<br> `underlying_cause`: the underlying cause for the quota reservation deficit<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 | `kueue_workload_eviction_latency_seconds` | Histogram | The time from workload eviction (WorkloadEvicted condition becomes True) until the workload returns to Pending (quota released).<br>Observed on status transition from admitted or quota-reserved to pending while WorkloadEvicted remains True.<br>Each matching update observes one latency sample (seconds) into this histogram; Prometheus aggregates samples across workloads.<br>Uses the eviction condition LastTransitionTime on the updated object as the start time; cluster_queue is taken from status.admission.cluster_queue on the pre-update object when set and non-empty (otherwise no sample is recorded for that update).<br>The label 'reason' can have the following values:<br>- "Preempted" means that the workload was evicted in order to free resources for a workload with a higher priority or reclamation of nominal quota.<br>- "PodsReadyTimeout" means that the eviction took place due to a PodsReady timeout.<br>- "AdmissionCheck" means that the workload was evicted because at least one admission check transitioned to False.<br>- "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.<br>- "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.<br>- "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.<br>- "Deactivated" means that the workload was evicted because spec.active is set to false. | `cluster_queue`: the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)<br> `reason`: eviction or preemption reason (same values as evicted_workloads_total)<br> `replica_role`: one of `leader`, `follower`, or `standalone` |
 <!-- END GENERATED TABLE: clusterqueue -->
+
+### Alert on long-pending workloads
+
+`kueue_oldest_pending_workload_age_seconds` reports the longest current wait for
+quota reservation in each ClusterQueue, including inadmissible workloads and
+workloads currently being evaluated by the scheduler. It is refreshed every five
+seconds, even without queue activity, and is zero when the queue is empty. The
+series is removed when the ClusterQueue is deleted.
+
+The wait starts at Workload creation or its most recent `Requeued` transition.
+For an evicted Workload, a later `QuotaReserved=False` transition starts a new
+wait when quota is released. These persisted timestamps preserve the age across
+controller restarts. Failed scheduling attempts do not reset the age. Negative
+ages caused by clock skew are clamped to zero.
+
+The metric follows the pending queue's membership. Inactive, finished, and
+quota-reserved workloads are excluded; deleting workloads are also excluded.
+In particular, workloads with quota that are waiting on admission checks are
+outside this metric's scope. A stopped ClusterQueue's pending workloads are
+still included. Only ClusterQueue custom labels apply; the gauge does not split
+by Workload or priority.
+
+For example, alert when any workload has been pending for more than four hours,
+including when other workloads in the same ClusterQueue are being admitted:
+
+```yaml
+- alert: KueueWorkloadPendingTooLong
+  expr: kueue_oldest_pending_workload_age_seconds{replica_role=~"leader|standalone"} > 4 * 60 * 60
+  annotations:
+    summary: 'Workload pending for over four hours in {{ $labels.cluster_queue }}'
+```
+
+The expression measures the current wait directly; a `for: 4h` clause would add
+another four hours after the threshold is crossed. Detection can lag by the
+five-second refresh interval plus Prometheus scrape and rule evaluation intervals.
 
 ## LocalQueue Status (alpha)
 

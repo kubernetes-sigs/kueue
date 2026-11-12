@@ -19,11 +19,13 @@ package queue
 import (
 	"errors"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -109,10 +111,11 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 			metrics.InitMetricVectors(nil)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
-			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+			now := time.Now().Truncate(time.Second)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Creation(now.Add(-time.Hour)).Obj()
 			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
-			manager := NewManagerForUnitTests(cl, nil)
+			manager := NewManagerForUnitTests(cl, nil, WithClock(testingclock.NewFakeClock(now)))
 			for cqName, missing := range map[string]bool{"old": tc.missingOldCQ, "new": tc.missingNewCQ} {
 				if !missing {
 					if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue(cqName).Obj()); err != nil {
@@ -144,6 +147,7 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 				manager.DeleteLocalQueue(log, lq)
 			}
 
+			manager.ResyncGaugeMetrics()
 			for cqName, missing := range map[string]bool{"old": tc.missingOldCQ, "new": tc.missingNewCQ} {
 				if missing {
 					continue
@@ -154,6 +158,11 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 				}
 				if got := len(manager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cqName))); got != wantPending {
 					t.Errorf("ClusterQueue %s pending workloads = %d, want %d", cqName, got, wantPending)
+				}
+				wantAge := float64(wantPending) * time.Hour.Seconds()
+				ages := testingmetrics.CollectFilteredGaugeVec(metrics.OldestPendingWorkloadAge, map[string]string{"cluster_queue": cqName})
+				if len(ages) != 1 || ages[0].Value != wantAge {
+					t.Errorf("ClusterQueue %s age metrics = %v, want one series with value %v", cqName, ages, wantAge)
 				}
 				for _, status := range []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible} {
 					var want float64

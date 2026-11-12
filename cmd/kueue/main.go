@@ -399,6 +399,10 @@ func main() {
 		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
 	}
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
+	if err := mgr.Add(queues); err != nil {
+		setupLog.Error(err, "Unable to add queue metrics reporting to manager")
+		os.Exit(1)
+	}
 
 	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)
 

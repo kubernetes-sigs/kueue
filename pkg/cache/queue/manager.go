@@ -1210,6 +1210,7 @@ func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {
 		return
 	}
 	reportCQPendingWorkloads(m, cq)
+	m.reportOldestPendingWorkloadAge(cq)
 	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		m.resyncUnadmittedWorkloadsMetricsLocked(cq.name)
