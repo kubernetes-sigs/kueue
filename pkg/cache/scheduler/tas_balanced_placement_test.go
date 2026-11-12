@@ -485,7 +485,8 @@ func TestPruneDomainsBelowThresholdPreservesAffinityScore(t *testing.T) {
 	if got, want := s.domainStateOf(prunedLeaf).affinityScore, int64(100); got != want {
 		t.Errorf("Unexpected pruned leaf affinity score: got %d, want %d", got, want)
 	}
-	if got, want := s.domainStateOf(parent).affinityScore, int64(110); got != want {
+	// The pruned leaf has no room left, so its score does not add to its parent.
+	if got, want := s.domainStateOf(parent).affinityScore, int64(10); got != want {
 		t.Errorf("Unexpected parent affinity score: got %d, want %d", got, want)
 	}
 }
