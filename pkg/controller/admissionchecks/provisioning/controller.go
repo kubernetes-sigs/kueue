@@ -17,12 +17,14 @@ limitations under the License.
 package provisioning
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
+	arrayslices "slices"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -321,9 +323,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
+			mergedPodSets, err := mergePodSets(ctx, c.client, wl, &prc.Spec)
 			if err != nil {
-				return err
+				msg := fmt.Sprintf("Error merging PodSets: %v", err)
+				return c.handleError(ctx, wl, ac, nil, msg, err)
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -454,13 +457,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 	}
 
 	// apply the admission node selectors to the Template
-	psi, err := podset.FromAssignment(ctx, c.client, psa, ps)
-	if err != nil {
-		return nil, err
-	}
-
-	err = podset.Merge(ctrl.LoggerFrom(ctx), &newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
-	if err != nil {
+	if err := applyPodSetAssignment(ctx, c.client, &newPt.Template, ps, psa); err != nil {
 		return nil, err
 	}
 
@@ -1019,6 +1016,51 @@ type MergedPodSet struct {
 
 func mergePodSets(
 	ctx context.Context,
+	cl client.Client,
+	wl *kueue.Workload,
+	prcSpec *kueue.ProvisioningRequestConfigSpec,
+) ([]MergedPodSet, error) {
+	requested, err := requestedPodSets(ctx, wl, prcSpec)
+	if err != nil {
+		return nil, err
+	}
+	mergePolicy := prcSpec.PodSetMergePolicy
+	if mergePolicy == nil {
+		return requested, nil
+	}
+
+	mergedPodSets := make([]MergedPodSet, 0, len(requested))
+	// effectiveTemplates[i] is the effective template of mergedPodSets[i].
+	effectiveTemplates := make([]*corev1.PodTemplateSpec, 0, len(requested))
+	for _, candidate := range requested {
+		template, err := effectivePodTemplate(ctx, cl, candidate.PodSet, candidate.PodSetAssignment)
+		if err != nil {
+			return nil, err
+		}
+
+		if i := findMergeTarget(effectiveTemplates, template, mergePolicy); i >= 0 {
+			mergedPodSets[i].Count += candidate.Count
+			continue
+		}
+		mergedPodSets = append(mergedPodSets, candidate)
+		effectiveTemplates = append(effectiveTemplates, template)
+	}
+
+	return mergedPodSets, nil
+}
+
+// findMergeTarget returns the index of the first of templates that template can
+// merge with, or -1 if there is none.
+func findMergeTarget(templates []*corev1.PodTemplateSpec, template *corev1.PodTemplateSpec, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) int {
+	return arrayslices.IndexFunc(templates, func(other *corev1.PodTemplateSpec) bool {
+		return canMergePodSets(other, template, mergePolicy)
+	})
+}
+
+// requestedPodSets returns the PodSets that the ProvisioningRequest must cover,
+// each with the number of pods to request, before any merging.
+func requestedPodSets(
+	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
 ) ([]MergedPodSet, error) {
@@ -1027,8 +1069,7 @@ func mergePodSets(
 	psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
 	podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 
-	mergePolicy := prcSpec.PodSetMergePolicy
-	mergedPodSets := []MergedPodSet{}
+	requested := []MergedPodSet{}
 	for _, psName := range expectedPodSets {
 		ps, psFound := podSetMap[psName]
 		psa, psaFound := psaMap[psName]
@@ -1042,48 +1083,66 @@ func mergePodSets(
 			continue
 		}
 
-		merged := false
-		if mergePolicy != nil {
-			for i, mps := range mergedPodSets {
-				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
-					mergedPodSets[i].Count += count
-					break
-				}
-			}
-		}
-
-		if !merged {
-			mergedPodSets = append(mergedPodSets, MergedPodSet{
-				Name:             psName,
-				PodSet:           ps,
-				PodSetAssignment: psa,
-				Count:            count,
-			})
-		}
+		requested = append(requested, MergedPodSet{
+			Name:             psName,
+			PodSet:           ps,
+			PodSetAssignment: psa,
+			Count:            count,
+		})
 	}
 
-	return mergedPodSets, nil
+	return requested, nil
 }
 
-func canMergePodSets(ps1, ps2 *kueue.PodSet, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) bool {
+// applyPodSetAssignment applies the node labels and tolerations of the flavors
+// assigned to the PodSet to template.
+func applyPodSetAssignment(ctx context.Context, cl client.Client, template *corev1.PodTemplateSpec, ps *kueue.PodSet, psa *kueue.PodSetAssignment) error {
+	psi, err := podset.FromAssignment(ctx, cl, psa, ps)
+	if err != nil {
+		return err
+	}
+	return podset.Merge(ctrl.LoggerFrom(ctx), &template.ObjectMeta, &template.Spec, psi)
+}
+
+// effectivePodTemplate returns the PodSet template with its assigned flavors
+// applied, in a form that can be compared with the template of another PodSet.
+func effectivePodTemplate(ctx context.Context, cl client.Client, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplateSpec, error) {
+	template := ps.Template.DeepCopy()
+	if err := applyPodSetAssignment(ctx, cl, template, ps, psa); err != nil {
+		return nil, err
+	}
+	// The flavors of an assignment are kept in a map, so tolerations coming from
+	// several flavors have no stable order.
+	arrayslices.SortFunc(template.Spec.Tolerations, func(a, b corev1.Toleration) int {
+		return cmp.Or(
+			cmp.Compare(a.Key, b.Key),
+			cmp.Compare(a.Operator, b.Operator),
+			cmp.Compare(a.Value, b.Value),
+			cmp.Compare(a.Effect, b.Effect),
+		)
+	})
+	return template, nil
+}
+
+func canMergePodSets(template1, template2 *corev1.PodTemplateSpec, mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy) bool {
 	switch *mergePolicy {
 	case kueue.IdenticalPodTemplates:
-		return equality.Semantic.DeepEqual(ps1.Template, ps2.Template)
+		return equality.Semantic.DeepEqual(template1, template2)
 	case kueue.IdenticalWorkloadSchedulingRequirements:
-		return arePodSetsSimilar(ps1, ps2)
+		return arePodTemplatesSimilar(template1, template2)
 	default:
 		return false
 	}
 }
 
-func arePodSetsSimilar(ps1, ps2 *kueue.PodSet) bool {
-	return areContainersEqual(ps1.Template.Spec.Containers, ps2.Template.Spec.Containers) &&
-		areContainersEqual(ps1.Template.Spec.InitContainers, ps2.Template.Spec.InitContainers) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Resources, ps2.Template.Spec.Resources) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.NodeSelector, ps2.Template.Spec.NodeSelector) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Tolerations, ps2.Template.Spec.Tolerations) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.Affinity, ps2.Template.Spec.Affinity) &&
-		equality.Semantic.DeepEqual(ps1.Template.Spec.ResourceClaims, ps2.Template.Spec.ResourceClaims)
+func arePodTemplatesSimilar(template1, template2 *corev1.PodTemplateSpec) bool {
+	return areContainersEqual(template1.Spec.Containers, template2.Spec.Containers) &&
+		areContainersEqual(template1.Spec.InitContainers, template2.Spec.InitContainers) &&
+		equality.Semantic.DeepEqual(template1.Spec.Resources, template2.Spec.Resources) &&
+		equality.Semantic.DeepEqual(template1.Spec.NodeSelector, template2.Spec.NodeSelector) &&
+		equality.Semantic.DeepEqual(template1.Spec.Tolerations, template2.Spec.Tolerations) &&
+		equality.Semantic.DeepEqual(template1.Spec.Affinity, template2.Spec.Affinity) &&
+		equality.Semantic.DeepEqual(template1.Spec.ResourceClaims, template2.Spec.ResourceClaims)
 }
 
 // areContainersEqual compares the resource requests of containers between two lists of PodSet containers.
