@@ -217,8 +217,7 @@ signal.pause()
                     script.chmod(0o755)
                     command = ["make", "-f", str(ROOT / "hack/make/test.mk"),
                                "-o", "test-kueueviz-backend", "-o", "setup-kueueviz-e2e-env",
-                               "test-e2e-kueueviz", "KUEUEVIZ_BENCHMARK_CHILD=1",
-                               f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}"]
+                               "test-e2e-kueueviz", f"PROJECT_DIR={root}", f"GOFLAGS={go_flags}"]
                     if test_flags is not None:
                         command.append(f"GO_TEST_FLAGS={test_flags}")
                     result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
