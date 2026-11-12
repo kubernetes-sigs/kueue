@@ -45,8 +45,8 @@ record() { printf '%s\\n' "$1" >> "$VIZ_TEST_EVENTS"; }
 e2e_timed() { shift; "$@"; }
 e2e_timed_log_unfinished() { :; }
 cluster_create() { record create; [[ "$VIZ_TEST_FAILURE" != create ]]; }
-prepare_docker_images() { record prepare; }
-cluster_kind_load() { record load; }
+prepare_kueue_image() { record prepare; [[ "$VIZ_TEST_FAILURE" != prepare ]]; }
+cluster_kind_load_kueue_image() { record load; [[ "$VIZ_TEST_FAILURE" != load ]]; }
 kueue_deploy() { record deploy; }
 cluster_collect_artifacts() { record artifacts; }
 cluster_cleanup() { record cleanup; }
@@ -182,7 +182,7 @@ signal.pause()
 
     def test_failures_propagate_and_owner_collects_artifacts_and_cleans_up(self):
         for script in ("backend", "local"):
-            for failure in ("create", "cypress", "rbac", "backend_exit", "backend_race", "rbac_race", "backend_already_exited"):
+            for failure in ("create", "prepare", "load", "cypress", "rbac", "backend_exit", "backend_race", "rbac_race", "backend_already_exited"):
                 with self.subTest(script=script, failure=failure):
                     result, events, _ = self.run_suite(script, failure=failure)
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)

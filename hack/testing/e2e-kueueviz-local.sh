@@ -45,8 +45,8 @@ trap cleanup EXIT
 
 cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-prepare_docker_images
-cluster_kind_load "${KIND_CLUSTER_NAME}"
+prepare_kueue_image
+cluster_kind_load_kueue_image "${KIND_CLUSTER_NAME}"
 kueue_deploy
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 

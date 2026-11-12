@@ -66,8 +66,8 @@ if [[ "${USE_EXISTING_CLUSTER}" == false ]]; then
   echo Creating kind cluster "${KIND_CLUSTER_NAME}"
   e2e_timed "kueueviz-rbac/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
   echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-  e2e_timed "kueueviz-rbac/prepare_images" prepare_docker_images
-  e2e_timed "kueueviz-rbac/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
+  e2e_timed "kueueviz-rbac/prepare_images" prepare_kueue_image
+  e2e_timed "kueueviz-rbac/load_images" cluster_kind_load_kueue_image "${KIND_CLUSTER_NAME}"
   e2e_timed "kueueviz-rbac/deploy" kueue_deploy
 fi
 

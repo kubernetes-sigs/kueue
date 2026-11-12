@@ -28,7 +28,8 @@ RETRY="${PROJECT_DIR}/hack/testing/retry.sh"
 
 # Install missing dependencies
 "${RETRY}" --attempts 5 --delay 5 --stream -- apt-get update
-"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get install -y curl make xdg-utils
+# Headless tests do not need xdg-utils' recommended desktop packages.
+"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get install -y --no-install-recommends curl make xdg-utils
 
 # Function to clean up background processes
 cleanup() {
