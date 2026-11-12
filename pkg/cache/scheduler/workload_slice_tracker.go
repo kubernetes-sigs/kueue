@@ -51,7 +51,7 @@ func sliceChainOf(wi *workload.Info) (sliceChainKey, bool) {
 // when a replacement shrinks. Slices that each charge more of some resource, and slices with the
 // same usage created in the same second, stay charged.
 func covers(a, b *workload.Info) bool {
-	ua, ub := a.ResourceUsage().Assigned, b.ResourceUsage().Assigned
+	ua, ub := a.FlavorResourceUsage(), b.FlavorResourceUsage()
 	for fr, q := range ub {
 		if ua[fr].Cmp(q) < 0 {
 			return false
