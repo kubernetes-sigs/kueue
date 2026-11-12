@@ -4950,6 +4950,72 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", func() {
 	})
 })
 
+// watchClusterQueueQuota watches the ClusterQueue cqName and records every status that reserves
+// more cpu than quota or has more than one reserving workload. The returned func stops the watch
+// and returns the recorded statuses.
+func watchClusterQueueQuota(cqName string, quota resource.Quantity) (stop func() []string) {
+	ginkgo.GinkgoHelper()
+	watchClient, ok := k8sClient.(client.WithWatch)
+	gomega.Expect(ok).Should(gomega.BeTrue(), "k8sClient must implement client.WithWatch")
+	watcher, err := watchClient.Watch(ctx, &kueue.ClusterQueueList{})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+	var violations []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ev := range watcher.ResultChan() {
+			cq, ok := ev.Object.(*kueue.ClusterQueue)
+			if !ok || cq.Name != cqName {
+				continue
+			}
+			var cpu resource.Quantity
+			for _, f := range cq.Status.FlavorsReservation {
+				for _, r := range f.Resources {
+					if r.Name == corev1.ResourceCPU {
+						cpu.Add(r.Total)
+					}
+				}
+			}
+			if cpu.Cmp(quota) > 0 || cq.Status.ReservingWorkloads > 1 {
+				violations = append(violations, fmt.Sprintf("reserved cpu %s, reserving workloads %d", cpu.String(), cq.Status.ReservingWorkloads))
+			}
+		}
+	}()
+	return func() []string {
+		watcher.Stop()
+		<-done
+		return violations
+	}
+}
+
+// setJobParallelism updates the parallelism of job.
+func setJobParallelism(job *batchv1.Job, parallelism int32) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+		job.Spec.Parallelism = new(parallelism)
+		g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// expectUnfinishedSliceCounts waits until the unfinished workload slices in nsName that are admitted,
+// or pending when admitted is false, have the given first PodSet counts.
+func expectUnfinishedSliceCounts(nsName string, admitted bool, counts ...int32) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		workloads := &kueue.WorkloadList{}
+		g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(nsName))).Should(gomega.Succeed())
+		var got []int32
+		for i := range workloads.Items {
+			wl := &workloads.Items[i]
+			if !workloadfinish.IsFinished(wl) && workload.IsAdmitted(wl) == admitted {
+				got = append(got, wl.Spec.PodSets[0].Count)
+			}
+		}
+		g.Expect(got).Should(gomega.Equal(counts))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 func ungatedPodNames(g gomega.Gomega, nsName, gateName string) sets.Set[string] {
 	ginkgo.GinkgoHelper()
 	pods := &corev1.PodList{}
@@ -6364,6 +6430,45 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", fun
 		behavioral.ExpectLQFinishedWorkloadsTotalMetric(localQueue, lowPriorityClass.Name, 0)
 		behavioral.ExpectFinishedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 0)
 		behavioral.ExpectLQFinishedWorkloadsTotalMetric(localQueue, highPriorityClass.Name, 0)
+	})
+
+	ginkgo.It("Should not charge a workload slice and the slice it replaces together", func() {
+		elasticJob := testingjob.MakeJob("job-slice-charge", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(2).
+			Completions(10).
+			Obj()
+
+		ginkgo.By("watching the ClusterQueue status")
+		stopWatch := watchClusterQueueQuota(clusterQueue.Name, resource.MustParse(strconv.Itoa(cpuNominalQuota)))
+		defer func() { _ = stopWatch() }()
+
+		behavioral.MustCreate(ctx, k8sClient, elasticJob)
+		ginkgo.By("admitting the job at 2 Pods")
+		expectUnfinishedSliceCounts(ns.Name, true, 2)
+
+		ginkgo.By("scaling up to 4 and 5 Pods; each replacement fits only once the slice it replaces is released")
+		setJobParallelism(elasticJob, 4)
+		expectUnfinishedSliceCounts(ns.Name, true, 4)
+		setJobParallelism(elasticJob, 5)
+		expectUnfinishedSliceCounts(ns.Name, true, 5)
+
+		ginkgo.By("scaling to 8 Pods, so the replacement waits for quota, and then to 1 Pod, so it shrinks")
+		setJobParallelism(elasticJob, 8)
+		expectUnfinishedSliceCounts(ns.Name, false, 8)
+		setJobParallelism(elasticJob, 1)
+		expectUnfinishedSliceCounts(ns.Name, true, 1)
+
+		ginkgo.By("the ClusterQueue never reported a slice and its replacement charged together")
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
+			g.Expect(cq.Status.ReservingWorkloads).Should(gomega.Equal(int32(1)))
+			g.Expect(cq.Status.FlavorsReservation[0].Resources[0].Total.Equal(resource.MustParse("1"))).Should(gomega.BeTrue())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(stopWatch()).Should(gomega.BeEmpty())
 	})
 
 	ginkgo.It("Should not finish old workload-slice before new slice is admitted", func() {
