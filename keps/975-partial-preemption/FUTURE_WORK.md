@@ -6,7 +6,6 @@
   - [A cost function](#a-cost-function)
 - [Fill-back order](#fill-back-order)
 - [Spreading reductions across victims](#spreading-reductions-across-victims)
-- [Faster candidate selection](#faster-candidate-selection)
 - [Multiple PodSets per Workload](#multiple-podsets-per-workload)
 - [Overlap recomputation](#overlap-recomputation)
 - [Timeout](#timeout)
@@ -19,39 +18,41 @@ re-evaluated for Beta, and production feedback may bring one forward to a later 
 
 ## Cost model and candidate ordering
 
-In Alpha, within a single pass over the non-evicted segments, any shrink counts as cheaper than any
-whole eviction: a priority band is round-robin-shrunk to its victims' floors and only then evicted
-whole, and the walk never advances to a higher-priority band while the current one still has a
-victim above its floor. Within the evicted/shrinking segments (same hierarchical or same-queue advantage),
-a same-queue victim can still shrink before borrowed quota is reclaimed from other queues.
+Alpha uses the existing candidate ordering and performs a shrink pass followed by a whole-eviction
+pass. It does not define priority bands or a cost trade-off between shrinking a higher-priority
+victim and evicting a lower-priority one. Those policies may be revisited with user feedback.
 
 ### Partial-preemption-aware ordering
 
-Three criteria could be added to the existing candidate comparator:
+The existing candidate comparator could be extended with partial-preemption-specific criteria:
 
-1. **Resume an in-flight reduction first.** A candidate whose current count is still above an
-   in-flight `preemptionTargetCount` sorts just after already-evicting candidates, so a reduction
-   already in progress is resumed before a fresh victim is picked. This is what keeps the scheduler
-   from spreading reductions across new victims while an earlier target is still converging.
-2. **Prefer shrinking over evicting.** Once priority ties, an eligible partial-preemptible candidate
-   is preferred over a whole-eviction-only one, because shrinking a PodSet is cheaper than evicting a
-   whole Workload.
-3. **Among partial peers, prefer the one that can give back more.** The tie-break key is how far the
-   candidate's effective used count exceeds its `preemptionMinCount` (capped by any in-flight
-   `preemptionTargetCount`) — the number of replicas it can still shed — not the raw used count.
-   Because this key is recomputed each scheduling cycle, a victim that was already shrunk falls
-   behind its peers, so repeated rounds rotate across candidates and spread the reduction instead of
-   repeatedly hitting the same Workload.
+1. **Resume an in-flight reduction first.** A candidate with an in-flight
+   `partialPreemption.targetCount` could be resumed before a fresh victim is picked, so a reduction
+   already in progress converges before another victim is selected.
+2. **Prefer shrinking over evicting.** An eligible partial-preemption candidate could be preferred
+   over a whole-eviction-only candidate, because shrinking a PodSet may be less disruptive than
+   evicting a whole Workload.
+3. **Account for remaining reclaimable replicas.** A tie-break could consider how far a candidate's
+   effective used count exceeds its `partialPreemption.minCount`, capped by any in-flight target,
+   rather than its raw used count.
 
-In Alpha, shrinking already wins over evicting within a band by construction (see [Cost model and
-candidate ordering](#cost-model-and-candidate-ordering) above), and an in-flight target counts at
-that target before a band is walked.
+These criteria interact with the existing priority and queue ordering. Alpha deliberately leaves the
+existing ordering unchanged; a future cost model should make the trade-offs explicit rather than
+implicitly changing priority semantics.
 
 ### A cost function
 
 Priority is not workload importance. A cost function, for example the number of preempted Pods
 weighted by workload importance, could choose between shrinking a higher-priority victim and evicting
-a lower-priority one. Users may also want to decide this themselves.
+a lower-priority one. Users may also want to decide this themselves. A related policy question is
+whether candidates should be grouped into priority bands and when the scheduler may advance to a
+higher-priority band; Alpha makes no such guarantee.
+
+A shrunk Workload may later regrow through the existing scale-up path. Alpha does not coordinate
+that regrowth with preemption by priority, so a higher-priority Workload may reclaim quota currently
+used by a lower-priority Workload. The lower-priority Workload may then be shrunk or evicted, and
+repeated regrowth and preemption can cause quota oscillation. Beta should define priority-aware
+coordination so regrowth does not continually undo preemption decisions.
 
 ## Fill-back order
 
@@ -65,28 +66,23 @@ could keep more victims running:
 
 ## Spreading reductions across victims
 
+Alpha reduces a selected candidate directly from its effective used count to its configured
+`partialPreemption.minCount`. This can remove more replicas from one victim than the preemptor needs
+while other eligible victims remain untouched. A future strategy could spread the required reduction
+across multiple candidates, for example by limiting how many replicas are reclaimed from each victim
+per round and revisiting candidates until the preemptor fits or all candidates reach their minimum.
+
 An optional `kueue.x-k8s.io/partial-preemption-max-reclaimed-count` annotation could cap how many
-replicas one round takes from a victim. The Kueue scheduler would then walk the victims again over
-more rounds until the preemptor fits or every victim reaches its floor. The cap would not limit how
-much a victim loses in total, only the order in which victims lose Pods, and a capped victim would
-shift its loss onto uncapped peers. A bounded step per victim per round, as a scheduler default
-rather than a per-victim annotation, would spread reductions without that side effect.
-
-## Faster candidate selection
-
-Fill-back finds the best count for a single shrunk victim by binary search
-(`fillbackPartialPreemption`), but the forward walk that picks candidates in the first place is a
-linear scan: each round re-walks the current priority band from its start looking for the next
-valid, still-above-floor candidate, and `maxReclaimedReplicasPerRound` is fixed at 1, so shrinking a
-band by N replicas total takes multiple rounds, each rescanning the band. For a band with many
-victims or a reduction that needs many rounds to converge, this adds up. A future version could
-track the scan position across rounds instead of restarting from the top of the band, or compute the
-needed reduction directly from the preemptor's request instead of reclaiming one replica at a time.
+replicas one round takes from a victim. The cap would limit only how much that victim loses in a
+round, not its total loss; a capped victim may shift more of the reduction onto uncapped peers. A
+scheduler-wide bounded step per victim per round could provide spreading without a per-victim cap
+and its side effect. The policy, configuration surface, and interaction with candidate ordering need
+user feedback.
 
 ## Multiple PodSets per Workload
 
 In Alpha, at most one PodSet per Workload may have an effective used count above its
-`preemptionMinCount` and therefore be shrinkable. PodSets at or below their floor do not count toward
+`partialPreemption.minCount` and therefore be shrinkable. PodSets at or below their floor do not count toward
 this limit; a Workload with multiple shrinkable PodSets is evicted whole instead of shrinking them.
 Most elastic workloads in scope for Alpha (a Ray worker group, a Spark executor pool) only have one
 shrinkable PodSet, so this does not block the primary use cases. Supporting several shrinkable
@@ -122,7 +118,7 @@ A `partialPreemption.timeout` in the Configuration API, defaulting to 5m, could 
 
 ## Proactive downscaling
 
-In proactive downscaling, the job's runtime shrinks itself to `preemptionTargetCount`: for example,
+In proactive downscaling, the job's runtime shrinks itself to `partialPreemption.targetCount`: for example,
 a Kueue-aware Spark driver lowers its executor target, or the batch/Job integration lowers
 `parallelism`. The runtime chooses which Pods leave, and quota is released through the existing
 elastic scale-down path when the Workload's spec count drops. A framework would opt in per
