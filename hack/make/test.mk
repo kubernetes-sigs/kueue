@@ -1050,6 +1050,11 @@ test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-en
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
+	@if [ -f "${PROJECT_DIR}/hack/testing/kueueviz-preparation-benchmark.sh" ]; then \
+		ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+		bash "${PROJECT_DIR}/hack/testing/kueueviz-preparation-benchmark.sh"; \
+	fi
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
