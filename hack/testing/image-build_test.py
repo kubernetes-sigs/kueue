@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ImageBuildTest(unittest.TestCase):
-    def build_images(self, fail=""):
+    def build_images(self, fail="", settings=(), target="image-presubmit"):
         """Run real Make recipes with a recording stub and optional failure injection."""
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
@@ -60,19 +60,22 @@ else:
             log = directory / "commands.jsonl"
             env = {**os.environ, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
                    "IMAGE_TEST_LOCK": str(directory / "build.lock")}
+            if target == "image-build":
+                env["BUILDX_BUILDER"] = "test-builder"
             # The image pipeline must remain sequential even under parallel verify.
             # Execute the real parent and component Makefiles, replacing only Docker.
             result = subprocess.run(
-                ["make", "--no-print-directory", "-j4", "image-presubmit",
+                ["make", "--no-print-directory", "-j4", target,
                  f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
                  "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
                  "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
-                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain"],
+                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *settings],
                 cwd=ROOT, env=env, text=True, capture_output=True,
             )
             return result, [json.loads(line) for line in log.read_text().splitlines()]
 
     def test_all_images_share_one_builder_and_keep_platform_coverage(self):
+        """Keep one builder and apply parallelism settings only to the manager."""
         result, commands = self.build_images()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(commands[0]["args"], ["buildx", "create", "--driver", "docker-container"])
@@ -97,7 +100,31 @@ else:
                     self.assertIn("--load", args)
                 else:
                     self.assertNotIn("--load", args)
+                    self.assertIn("IMAGE_BUILD_GOMAXPROCS=2", args)
+                    self.assertIn("IMAGE_BUILD_GO_PARALLELISM=2", args)
                 self.assertNotIn("--push", args)
+                if index:
+                    self.assertFalse(any(arg.startswith("IMAGE_BUILD_GOMAXPROCS=") or
+                                         arg.startswith("IMAGE_BUILD_GO_PARALLELISM=") for arg in args))
+
+    def test_manager_parallelism_can_be_overridden_or_left_automatic(self):
+        """Route independent budgets and explicit automatic defaults to the manager."""
+        for gomaxprocs, parallelism in (("1", "4"), ("", "")):
+            with self.subTest(gomaxprocs=gomaxprocs, parallelism=parallelism):
+                result, commands = self.build_images(settings=(
+                    f"IMAGE_PRESUBMIT_GOMAXPROCS={gomaxprocs}", f"IMAGE_PRESUBMIT_GO_PARALLELISM={parallelism}",
+                ))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"IMAGE_BUILD_GOMAXPROCS={gomaxprocs}", commands[1]["args"])
+                self.assertIn(f"IMAGE_BUILD_GO_PARALLELISM={parallelism}", commands[1]["args"])
+
+    def test_standalone_image_build_keeps_automatic_parallelism(self):
+        result, commands = self.build_images(target="image-build")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0]["args"][:2], ["buildx", "build"])
+        self.assertIn("IMAGE_BUILD_GOMAXPROCS=", commands[0]["args"])
+        self.assertIn("IMAGE_BUILD_GO_PARALLELISM=", commands[0]["args"])
 
     def test_failed_build_stops_remaining_images_and_removes_builder(self):
         result, commands = self.build_images("build")
