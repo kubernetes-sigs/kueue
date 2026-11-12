@@ -632,23 +632,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
-		var errs []error
-		for rem := range group.remotes {
-			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
-				log.Error(err, "Failed to remove remote objects", "workerCluster", rem)
-				errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err))
-			}
-		}
-		if !group.IsFinished() {
-			if err := w.resetLocalStatus(ctx, group); err != nil {
-				errs = append(errs, fmt.Errorf("resetting local job status: %w", err))
-			}
-		}
-		if len(group.unavailableClusters) > 0 {
-			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
-			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
-		}
-		return reconcile.Result{}, errors.Join(errs...)
+		return w.deleteRemoteWorkloads(ctx, log, group)
 	}
 
 	// 3. Finish the local workload when the remote workload is finished.
@@ -943,6 +927,30 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(resetErr, reportErr, err)
 	}
 	return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, errors.Join(resetErr, reportErr)
+}
+
+// deleteRemoteWorkloads deletes the remote workloads of a group whose local workload
+// is finished or has no quota reservation. When the local workload is not finished,
+// it also resets the status copied from a remote object onto the local job. It
+// requeues after workerLostTimeout while some worker clusters are unavailable.
+func (w *wlReconciler) deleteRemoteWorkloads(ctx context.Context, log klog.Logger, group *wlGroup) (reconcile.Result, error) {
+	var errs []error
+	for rem := range group.remotes {
+		if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
+			log.Error(err, "Failed to remove remote objects", "workerCluster", rem)
+			errs = append(errs, fmt.Errorf("removing remote objects on worker cluster %q: %w", rem, err))
+		}
+	}
+	if !group.IsFinished() {
+		if err := w.resetLocalStatus(ctx, group); err != nil {
+			errs = append(errs, fmt.Errorf("resetting local job status: %w", err))
+		}
+	}
+	if len(group.unavailableClusters) > 0 {
+		log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+	}
+	return reconcile.Result{}, errors.Join(errs...)
 }
 
 // syncQuotaReservationFailures sets the admission check message to the reasons the
