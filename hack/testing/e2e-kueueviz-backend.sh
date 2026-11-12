@@ -102,7 +102,7 @@ set +x  # Disable debug mode
 
 # Stop the unauthenticated backend before starting the TokenReview backend, which
 # may use the same port. Keep the cluster alive; this script owns its cleanup.
-kill "${BACKEND_PID}"
+kill "${BACKEND_PID}" 2>/dev/null || true
 wait "${BACKEND_PID}" || {
   backend_status=$?
   [[ $backend_status -eq 143 ]] || exit "$backend_status"

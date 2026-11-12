@@ -50,6 +50,15 @@ cluster_kind_load() { record load; }
 kueue_deploy() { record deploy; }
 cluster_collect_artifacts() { record artifacts; }
 cluster_cleanup() { record cleanup; }
+# Synchronize an early process exit before the actual termination attempt, so
+# testing a failed kill does not depend on the backend's scheduling.
+kill() {
+    if [[ "$VIZ_TEST_FAILURE" == backend_already_* && "$1" != -0 ]]; then
+        builtin kill "$@" 2>/dev/null || true
+        wait "$1" 2>/dev/null || true
+    fi
+    builtin kill "$@"
+}
 ''')
             stub = root / "bin/stub"
             stub.write_text('''#!/usr/bin/env python3
@@ -122,7 +131,8 @@ elif name == "curl":
 import os, pathlib, signal, sys
 failure = os.environ["VIZ_TEST_FAILURE"]
 is_rbac = os.environ.get("KUEUEVIZ_AUTH_MODE") == "TokenReview"
-status = 66 if failure == ("rbac_race" if is_rbac else "backend_race") else 0
+race_failures = ("rbac_race",) if is_rbac else ("backend_race", "backend_already_exited")
+status = 66 if failure in race_failures else 0
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(status))
 pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).write_text(str(os.getpid()))
 with open(os.environ["VIZ_TEST_BACKEND_READY"], "w") as pipe:
@@ -158,26 +168,27 @@ signal.pause()
 
     def test_combined_suites_share_cluster_and_preserve_rbac_assertions(self):
         for script in ("backend", "local"):
-            with self.subTest(script=script):
-                result, events, commands = self.run_suite(script)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(events, ["create", "prepare", "load", "deploy", "artifacts", "cleanup"])
-                self.assertIn("SECURE: the backend denied", result.stdout)
-                self.assertTrue(any(c[:3] == ["kubectl", "auth", "can-i"] for c in commands))
-                self.assertTrue(any(c[:3] == ["kubectl", "get", "pod"] and
-                                    "--kubeconfig=/dev/null" in c for c in commands))
-                self.assertTrue(any(c[0] == "curl" and "Authorization: Bearer test-token" in c
-                                    for c in commands))
+            for failure in ("", "backend_already_stopped"):
+                with self.subTest(script=script, failure=failure):
+                    result, events, commands = self.run_suite(script, failure=failure)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(events, ["create", "prepare", "load", "deploy", "artifacts", "cleanup"])
+                    self.assertIn("SECURE: the backend denied", result.stdout)
+                    self.assertTrue(any(c[:3] == ["kubectl", "auth", "can-i"] for c in commands))
+                    self.assertTrue(any(c[:3] == ["kubectl", "get", "pod"] and
+                                        "--kubeconfig=/dev/null" in c for c in commands))
+                    self.assertTrue(any(c[0] == "curl" and "Authorization: Bearer test-token" in c
+                                        for c in commands))
 
     def test_failures_propagate_and_owner_collects_artifacts_and_cleans_up(self):
         for script in ("backend", "local"):
-            for failure in ("create", "cypress", "rbac", "backend_exit", "backend_race", "rbac_race"):
+            for failure in ("create", "cypress", "rbac", "backend_exit", "backend_race", "rbac_race", "backend_already_exited"):
                 with self.subTest(script=script, failure=failure):
                     result, events, _ = self.run_suite(script, failure=failure)
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                     if failure in ("cypress", "backend_exit"):
                         self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
-                    if failure in ("backend_race", "rbac_race"):
+                    if failure in ("backend_race", "rbac_race", "backend_already_exited"):
                         self.assertEqual(result.returncode, 66, result.stdout + result.stderr)
                     self.assertEqual(events.count("create"), 1)
                     self.assertEqual(events[-2:], ["artifacts", "cleanup"])
