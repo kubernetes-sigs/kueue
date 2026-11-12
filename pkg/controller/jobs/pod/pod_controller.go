@@ -187,13 +187,14 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob                      = (*Pod)(nil)
-	_ jobframework.JobWithFinalize                 = (*Pod)(nil)
-	_ jobframework.JobWithSkip                     = (*Pod)(nil)
-	_ jobframework.ComposableJob                   = (*Pod)(nil)
-	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
-	_ jobframework.TopLevelJob                     = (*Pod)(nil)
-	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.GenericJob                              = (*Pod)(nil)
+	_ jobframework.JobWithFinalize                         = (*Pod)(nil)
+	_ jobframework.JobWithSkip                             = (*Pod)(nil)
+	_ jobframework.ComposableJob                           = (*Pod)(nil)
+	_ jobframework.JobWithCustomWorkloadConditions         = (*Pod)(nil)
+	_ jobframework.TopLevelJob                             = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChange            = (*Pod)(nil)
+	_ jobframework.JobWithCustomQueueNameChangePreparation = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -392,6 +393,17 @@ func (p *Pod) CustomQueueNameChange(ctx context.Context, c client.Client, wl *ku
 		return nil
 	}
 	return jobframework.QueueNameChange(ctx, c, p, wl)
+}
+
+// PrepareQueueNameChange stages a queue change without writing to the API server.
+// Serving Pod groups retain their queue, matching CustomQueueNameChange.
+// The return value reports whether the workload was changed.
+func (p *Pod) PrepareQueueNameChange(wl *kueue.Workload) bool {
+	if p.isServing() || wl.Spec.QueueName == jobframework.QueueName(p) {
+		return false
+	}
+	wl.Spec.QueueName = jobframework.QueueName(p)
+	return true
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
