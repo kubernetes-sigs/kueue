@@ -21,6 +21,8 @@ reviews:
 
     Add a "Suggested release note" sub-section with a release note suggestion describing
     the user-facing change introduced by this PR.
+    Do not put the suggestion in a ```release-note block, because Prow reads the
+    first such block in the PR body. Use a ```text block instead.
 
     Follow the release-note guidance in cmd/experimental/skills/kueue-release-notes/SKILL.md.
     In particular:
