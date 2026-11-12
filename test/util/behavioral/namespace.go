@@ -98,6 +98,57 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+	if err := DeleteAllAppWrappersInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllCronJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllJobSetsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllRayJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllRayServicesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllRayClustersInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllTrainJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllLeaderWorkerSetsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllMPIJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllPyTorchJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllTFJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllPaddleJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllXGBoostJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllJAXJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllSparkApplicationsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	return nil
 }
 
