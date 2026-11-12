@@ -251,15 +251,25 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	var labelsUpdated bool
+	var oldLabels map[string]string
 	if features.Enabled(features.CustomMetricLabels) {
-		labelsUpdated = r.customLabels.CohortStore(
-			kueue.CohortReference(cohort.Name),
+		oldLabels, labelsUpdated = r.customLabels.Swap(
+			config.SourceKindCohort, req.Name,
 			cohort.GetLabels(), cohort.GetAnnotations(),
 		)
 	}
 
 	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
+	// The new label values are stored above, before AddOrUpdateCohort takes
+	// the cache write lock. Admissions read the values and record the counter
+	// under the read lock, so once the write lock is taken, every admission
+	// that read the old values has finished, and later ones use the new values.
+	// Remove only the old series, so the new ones are kept. Do it before the
+	// error checks: this label change is not seen again on a retry.
+	if labelsUpdated && !r.customLabels.AllLabelsHaveTrackedValues(config.SourceKindCohort) {
+		metrics.ClearCohortCounterMetrics(kueue.CohortReference(req.Name), oldLabels)
+	}
 	if addErr != nil && !errors.Is(addErr, schdcache.ErrCohortHasCycle) {
 		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
 		return ctrl.Result{}, addErr

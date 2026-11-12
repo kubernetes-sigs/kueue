@@ -769,25 +769,47 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	clConfig := []configapi.ControllerMetricsCustomLabel{
+	unbounded := []configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	}
+	bounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("alpha", "beta").Obj(),
+	}
+	mixed := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).TrackedValues("alpha", "beta").Obj(),
+		utiltestingapi.MakeCustomLabel("cost_cq").SourceLabelKey("cost").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 	}
 
 	testCases := map[string]struct {
+		clConfig              []configapi.ControllerMetricsCustomLabel
 		reconcileBeforeUpdate bool
+		wantOldCountersKept   bool
 	}{
-		"reconcile before update": {
+		"unbounded labels, reconcile before update": {
+			clConfig:              unbounded,
 			reconcileBeforeUpdate: true,
 		},
-		"update before reconcile": {
-			reconcileBeforeUpdate: false,
+		"unbounded labels, update before reconcile": {
+			clConfig: unbounded,
+		},
+		"bounded labels, reconcile before update": {
+			clConfig:              bounded,
+			reconcileBeforeUpdate: true,
+			wantOldCountersKept:   true,
+		},
+		"bounded labels, update before reconcile": {
+			clConfig:            bounded,
+			wantOldCountersKept: true,
+		},
+		"mixed labels": {
+			clConfig: mixed,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			cLabels := metrics.NewCustomLabels(clConfig)
+			cLabels := metrics.NewCustomLabels(tc.clConfig)
 			t.Cleanup(func() {
 				metrics.InitMetricVectors(nil)
 			})
@@ -826,6 +848,8 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			if len(initialAlpha) == 0 {
 				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
 			}
+			cqRef := kueue.ClusterQueueReference(cq.Name)
+			metrics.AdmittedWorkload(cqRef, "", time.Second, cLabels.CQGet(cqRef), nil)
 
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}
 			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
@@ -862,6 +886,21 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			})
 			if len(gotBeta) == 0 {
 				t.Errorf("Expected custom_team_cq=beta series to be reported")
+			}
+
+			// Counters and histograms keep their old series only for bounded labels
+			alphaLabels := map[string]string{"cluster_queue": cq.Name, "custom_team_cq": "alpha"}
+			wantSeries := 0
+			if tc.wantOldCountersKept {
+				wantSeries = 1
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedWorkloadsTotal, alphaLabels); len(got) != wantSeries {
+				t.Errorf("Unexpected admitted workloads counter with custom_team_cq=alpha: want %d series, got %v", wantSeries, got)
+			} else if len(got) == 1 && got[0].Value != 1 {
+				t.Errorf("Expected the kept admitted workloads counter with custom_team_cq=alpha to keep value 1, got %v", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmissionWaitTime, alphaLabels); len(got) != wantSeries {
+				t.Errorf("Unexpected admission wait time histogram with custom_team_cq=alpha: want %d series, got %v", wantSeries, got)
 			}
 		})
 	}

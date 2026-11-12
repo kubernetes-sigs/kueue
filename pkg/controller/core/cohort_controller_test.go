@@ -32,9 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -725,6 +727,122 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 				if diff := cmp.Diff(*tc.wantWeightedShareMetric, dps[0].Value, cmpopts.EquateNaNs()); diff != "" {
 					t.Errorf("unexpected CohortWeightedShare metric value (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestCohortReconcileCustomLabelChangeCounters(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	unbounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+	bounded := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).TrackedValues("alpha", "beta").Obj(),
+	}
+	mixed := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(configapi.SourceKindCohort).TrackedValues("alpha", "beta").Obj(),
+		utiltestingapi.MakeCustomLabel("cost_cohort").SourceLabelKey("cost").SourceKind(configapi.SourceKindCohort).Obj(),
+	}
+
+	testCases := map[string]struct {
+		clConfig           []configapi.ControllerMetricsCustomLabel
+		inCycle            bool
+		wantOldCounterKept bool
+	}{
+		"unbounded labels": {
+			clConfig: unbounded,
+		},
+		"bounded labels": {
+			clConfig:           bounded,
+			wantOldCounterKept: true,
+		},
+		"mixed labels": {
+			clConfig: mixed,
+		},
+		"unbounded labels, Cohort in a cycle": {
+			clConfig: unbounded,
+			inCycle:  true,
+		},
+		"bounded labels, Cohort in a cycle": {
+			clConfig:           bounded,
+			inCycle:            true,
+			wantOldCounterKept: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cLabels := metrics.NewCustomLabels(tc.clConfig)
+			t.Cleanup(func() {
+				metrics.InitMetricVectors(nil)
+			})
+
+			cohortWrapper := utiltestingapi.MakeCohort("cohort-a").Label("team", "alpha")
+			cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+			objs := []client.Object{}
+			if tc.inCycle {
+				cohortWrapper = cohortWrapper.Parent("cohort-b")
+				objs = append(objs, cohortB)
+			}
+			cohort := cohortWrapper.Obj()
+			objs = append(objs, cohort)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(&kueue.Cohort{}).
+				Build()
+			cache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithCustomLabels(cLabels))
+
+			if tc.inCycle {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile error: %v", err)
+			}
+			cohortRef := kueue.CohortReference(cohort.Name)
+			metrics.ReportCohortSubtreeAdmittedWorkload(cohortRef, "", cLabels.CohortGet(cohortRef), nil)
+
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(cohort), cohort); err != nil {
+				t.Fatalf("Getting cohort: %v", err)
+			}
+			cohort.Labels["team"] = "beta"
+			if err := cl.Update(ctx, cohort); err != nil {
+				t.Fatalf("Updating cohort: %v", err)
+			}
+			// An admission recorded under the new value must survive the clear.
+			cLabels.Store(configapi.SourceKindCohort, "new-values", cohort.Labels, cohort.Annotations)
+			metrics.ReportCohortSubtreeAdmittedWorkload(cohortRef, "", cLabels.Get(configapi.SourceKindCohort, "new-values"), nil)
+			cLabels.Delete(configapi.SourceKindCohort, "new-values")
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile error: %v", err)
+			}
+
+			wantSeries := 0
+			if tc.wantOldCounterKept {
+				wantSeries = 1
+			}
+			got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedWorkloadsTotal, map[string]string{
+				"cohort":             cohort.Name,
+				"custom_team_cohort": "alpha",
+			})
+			if len(got) != wantSeries {
+				t.Errorf("Unexpected subtree admitted workloads counter with custom_team_cohort=alpha: want %d series, got %v", wantSeries, got)
+			}
+			if len(got) == 1 && got[0].Value != 1 {
+				t.Errorf("Expected the kept subtree admitted workloads counter with custom_team_cohort=alpha to keep value 1, got %v", got)
+			}
+			gotNew := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedWorkloadsTotal, map[string]string{
+				"cohort":             cohort.Name,
+				"custom_team_cohort": "beta",
+			})
+			if len(gotNew) != 1 || gotNew[0].Value != 1 {
+				t.Errorf("Expected the subtree admitted workloads counter with custom_team_cohort=beta to be kept with value 1, got %v", gotNew)
 			}
 		})
 	}
