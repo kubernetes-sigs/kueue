@@ -33,10 +33,14 @@ fi
 
 # Function to clean up background processes
 cleanup() {
+  e2e_timed_log_unfinished "$?"
   echo "Cleaning up kueueviz processes"
   # BACKEND_PID may be unset if we exit before the backend starts (e.g. while
   # waiting for the Kueue webhook), so guard against an empty kill argument.
-  [ -n "${BACKEND_PID:-}" ] && kill "${BACKEND_PID}"
+  if [[ -n "${BACKEND_PID:-}" ]]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
   cluster_collect_artifacts "${KIND_CLUSTER_NAME}" ""
   cluster_cleanup "${KIND_CLUSTER_NAME}"
 }
@@ -45,16 +49,17 @@ cleanup() {
 trap cleanup EXIT
 
 echo Creating kind cluster "${KIND_CLUSTER_NAME}"
-cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
+e2e_timed "kueueviz/cluster_create" cluster_create "${KIND_CLUSTER_NAME}" "$SOURCE_DIR/$KIND_CLUSTER_FILE" ""
 echo Waiting for kind cluster "${KIND_CLUSTER_NAME}" to start...
-prepare_docker_images
-cluster_kind_load "${KIND_CLUSTER_NAME}"
-kueue_deploy
+e2e_timed "kueueviz/prepare_images" prepare_docker_images
+e2e_timed "kueueviz/load_images" cluster_kind_load "${KIND_CLUSTER_NAME}"
+e2e_timed "kueueviz/deploy" kueue_deploy
 kubectl create -f "${ROOT_DIR}/cmd/kueueviz/examples/"
 
 # Start KueueViz backend
 cd "${ROOT_DIR}/cmd/kueueviz/backend"
-go build -o bin/kueueviz
+# Match the preceding backend tests to reuse their compiled dependencies.
+GOFLAGS="${KUEUEVIZ_BACKEND_GOFLAGS:-${GOFLAGS:-}}" e2e_timed "kueueviz/build_backend" go build -o bin/kueueviz
 ./bin/kueueviz & BACKEND_PID=$!
 cd -
 
@@ -84,7 +89,7 @@ fi
 
 # Start KueueViz frontend and cypress in a container
 echo "Current container information: CONTAINER_ID=${CONTAINER_ID} WORKSPACE_VOLUME=${WORKSPACE_VOLUME}"
-docker run -i --entrypoint /workspace/hack/testing/e2e-kueueviz-frontend.sh \
+e2e_timed "kueueviz/frontend" docker run -i --entrypoint /workspace/hack/testing/e2e-kueueviz-frontend.sh \
            -e CYPRESS_SCREENSHOTS_FOLDER="${CYPRESS_SCREENSHOTS_FOLDER}" \
            -e CYPRESS_VIDEOS_FOLDER="${CYPRESS_VIDEOS_FOLDER}" \
            -e PROJECT_DIR="/workspace" -w /workspace --network host \
@@ -94,4 +99,14 @@ docker run -i --entrypoint /workspace/hack/testing/e2e-kueueviz-frontend.sh \
            -v /var/run/docker.sock:/var/run/docker.sock "${CYPRESS_IMAGE_NAME}"
 
 set +x  # Disable debug mode
+
+# Stop the unauthenticated backend before starting the TokenReview backend, which
+# may use the same port. Keep the cluster alive; this script owns its cleanup.
+kill "${BACKEND_PID}" 2>/dev/null || true
+wait "${BACKEND_PID}" || {
+  backend_status=$?
+  [[ $backend_status -eq 143 ]] || exit "$backend_status"
+}
+BACKEND_PID=""
+e2e_timed "kueueviz/rbac" "${SOURCE_DIR}/e2e-kueueviz-rbac-bypass.sh" --use-existing-cluster
 # The trap will handle cleanup 
