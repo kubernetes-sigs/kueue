@@ -339,6 +339,66 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	}
 }
 
+// TestAddQueuesRespectRequeueBackoff tests that a workload still waiting for
+// its requeue backoff is not made available to the scheduler when its
+// LocalQueue or ClusterQueue is added, for example when Kueue starts.
+func TestAddQueuesRespectRequeueBackoff(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+
+	cases := map[string]struct {
+		localQueueFirst bool
+	}{
+		"LocalQueue added after the ClusterQueue": {},
+		"ClusterQueue added after the LocalQueue": {
+			localQueueFirst: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			kClient := utiltesting.NewFakeClient(
+				utiltestingapi.MakeWorkload("ready", "earth").Queue("foo").Obj(),
+				utiltestingapi.MakeWorkload("backoff", "earth").Queue("foo").
+					RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadRequeued,
+						Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					}).
+					Obj(),
+				lq,
+			)
+			manager := NewManagerForUnitTests(kClient, nil,
+				WithClock(testingclock.NewFakeClock(now)),
+				WithPreemptionExpectations(preemptexpectations.New()))
+			if tc.localQueueFirst {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Failed adding queue: %v", err)
+				}
+			}
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if !tc.localQueueFirst {
+				if err := manager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Failed adding queue: %v", err)
+				}
+			}
+
+			wantActive := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"earth/ready"}}
+			if diff := gocmp.Diff(wantActive, manager.Dump(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
+			}
+			wantInadmissible := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {"earth/backoff"}}
+			if diff := gocmp.Diff(wantInadmissible, manager.DumpInadmissible(), cmpDump...); diff != "" {
+				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
 // Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
