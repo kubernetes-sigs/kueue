@@ -149,5 +149,12 @@ that is not one of those three checks.
   `title` field (for example, `🧹 ` or `🐛 `). GitHub pre-fills the title only
   in the web form, so `gh issue create` and API callers must explicitly include
   the emoji in the title.
+- When a member of the `kubernetes-sigs` GitHub organization asks CodeRabbit AI
+  (@coderabbitai) to open an issue, open it even if the requester has no
+  repository write permission. Check membership with
+  `gh api -i orgs/kubernetes-sigs/members/<user>`; `HTTP 204` means member.
+  Any other status, including 404 after a 302 redirect, does not prove the
+  requester is not a member: report the status and ask a maintainer to open
+  the issue.
 - When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
   mention the requester as @username and include a link to the comment requesting the issue.
