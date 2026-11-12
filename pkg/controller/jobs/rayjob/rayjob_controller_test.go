@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -1089,11 +1090,14 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func Test_RayJobFinished(t *testing.T) {
+	now := time.Now()
 	testcases := []struct {
-		name             string
-		status           rayv1.RayJobStatus
-		expectedSuccess  bool
-		expectedFinished bool
+		name                    string
+		status                  rayv1.RayJobStatus
+		ttlSecondsAfterFinished int32
+		enableRetainQuota       bool
+		expectedSuccess         bool
+		expectedFinished        bool
 	}{
 		{
 			name: "jobStatus=Running, jobDeploymentStatus=Running",
@@ -1140,12 +1144,94 @@ func Test_RayJobFinished(t *testing.T) {
 			expectedSuccess:  false,
 			expectedFinished: true,
 		},
+		{
+			name: "completed job whose RayCluster is retained by the TTL",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+				EndTime:             new(metav1.NewTime(now.Add(-time.Minute))),
+			},
+			ttlSecondsAfterFinished: 600,
+			enableRetainQuota:       true,
+			expectedSuccess:         true,
+			expectedFinished:        false,
+		},
+		{
+			name: "failed job whose RayCluster is retained by the TTL",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusFailed,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+				EndTime:             new(metav1.NewTime(now.Add(-time.Minute))),
+			},
+			ttlSecondsAfterFinished: 600,
+			enableRetainQuota:       true,
+			expectedSuccess:         false,
+			expectedFinished:        false,
+		},
+		{
+			name: "completed job past the clock skew cutoff, before the shutdown deadline",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+				EndTime:             new(metav1.NewTime(now.Add(-590 * time.Second))),
+			},
+			ttlSecondsAfterFinished: 600,
+			enableRetainQuota:       true,
+			expectedSuccess:         true,
+			expectedFinished:        true,
+		},
+		{
+			name: "completed job past the shutdown deadline",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+				EndTime:             new(metav1.NewTime(now.Add(-time.Hour))),
+			},
+			ttlSecondsAfterFinished: 600,
+			enableRetainQuota:       true,
+			expectedSuccess:         true,
+			expectedFinished:        true,
+		},
+		{
+			name: "completed job without endTime",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+			},
+			ttlSecondsAfterFinished: 600,
+			enableRetainQuota:       true,
+			expectedSuccess:         true,
+			expectedFinished:        true,
+		},
+		{
+			name: "completed job without TTL",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+				EndTime:             new(metav1.NewTime(now.Add(-time.Minute))),
+			},
+			enableRetainQuota: true,
+			expectedSuccess:   true,
+			expectedFinished:  true,
+		},
+		{
+			name: "completed job whose RayCluster is retained by the TTL, feature gate disabled",
+			status: rayv1.RayJobStatus{
+				JobStatus:           rayv1.JobStatusSucceeded,
+				JobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+				EndTime:             new(metav1.NewTime(now.Add(-time.Minute))),
+			},
+			ttlSecondsAfterFinished: 600,
+			expectedSuccess:         true,
+			expectedFinished:        true,
+		},
 	}
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayJobRetainQuotaUntilClusterShutdown, testcase.enableRetainQuota)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
+			rayJob := testingrayutil.MakeJob("job", "ns").TTLSecondsAfterFinished(testcase.ttlSecondsAfterFinished).Obj()
 			rayJob.Status = testcase.status
 
 			_, success, finished := ((*RayJob)(rayJob)).Finished(ctx)

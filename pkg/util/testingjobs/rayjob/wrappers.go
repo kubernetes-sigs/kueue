@@ -18,10 +18,12 @@ package rayjob
 
 import (
 	"fmt"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -145,6 +147,11 @@ func (j *JobWrapper) ShutdownAfterJobFinishes(value bool) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) TTLSecondsAfterFinished(value int32) *JobWrapper {
+	j.Spec.TTLSecondsAfterFinished = value
+	return j
+}
+
 func (j *JobWrapper) ClusterSelector(value map[string]string) *JobWrapper {
 	j.Spec.ClusterSelector = value
 	return j
@@ -233,6 +240,12 @@ func (j *JobWrapper) JobDeploymentStatus(ds rayv1.JobDeploymentStatus) *JobWrapp
 // JobStatus sets a status of the job
 func (j *JobWrapper) JobStatus(s rayv1.JobStatus) *JobWrapper {
 	j.Status.JobStatus = s
+	return j
+}
+
+// EndTime sets the time when the job reached a terminal deployment status.
+func (j *JobWrapper) EndTime(t time.Time) *JobWrapper {
+	j.Status.EndTime = new(metav1.NewTime(t))
 	return j
 }
 
