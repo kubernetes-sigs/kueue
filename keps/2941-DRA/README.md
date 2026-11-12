@@ -599,10 +599,12 @@ released.
 
 **Excluded classes escape quota**: Kueue does not charge ResourceClaimTemplate requests for a
 DeviceClass in `excludeDeviceClassNames`, or requests for an extended resource it backs. If an
-admin lists a GPU class by mistake, its devices escape quota.
+admin lists a GPU class by mistake, its devices escape quota. A listed class that backs an
+extended resource through `extendedResourceName` also stops the containers' requests for that
+name being charged on every node, including nodes where a device plugin serves it.
 Mitigation: the list is opt-in and takes exact names, not prefixes. Validation rejects a class
 that is also in `deviceClassMappings`. The user documentation says to list only companion
-devices that need no quota.
+devices that need no quota, and to check a class's `extendedResourceName` before listing it.
 
 ## Design Details
 
@@ -861,6 +863,9 @@ So while the list is set, turning the gate off fails startup. A downgrade to a K
 without the field fails startup too, because the Configuration is decoded strictly and that
 version does not know the gate. The administrator removes the list first, and for a downgrade
 the gate entry too.
+
+Admitted Workloads keep the usage recorded at admission. So a change to the list only affects
+Workloads admitted after Kueue restarts with it.
 
 Interactions:
 
@@ -2714,8 +2719,8 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - feedback from users running companion devices, such as RDMA NICs or ComputeDomain
   channels, alongside accelerator quota
 - the two device feasibility gaps for `All` requests are closed by the
-  [KueueDRADeviceFeasibility](#kueuedradevicefeasibility) Beta work, or documented as known
-  limits
+  [KueueDRADeviceFeasibility](#kueuedradevicefeasibility) Beta work, or that gate is still
+  disabled by default
 - e2e tests covering a Pod with an `allocationMode: All` claim on a listed class next to a
   charged device
 
