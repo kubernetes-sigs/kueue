@@ -420,6 +420,12 @@ exit 1
                     for handler in configure.call_args.kwargs["handlers"]:
                         handler.close()
 
+    def test_default_logs_are_ignored_by_git(self):
+        with patch.dict(os.environ, {}, clear=True):
+            log = installer.log_directory() / "install-kind.log"
+        result = subprocess.run(["git", "check-ignore", "--quiet", str(log)], cwd=Path(__file__).parent, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_supported_release_names(self):
         expected = {
             "golangci-lint": ("golangci/golangci-lint", "v1.2.3", "golangci-lint-1.2.3-darwin-arm64.tar.gz"),
