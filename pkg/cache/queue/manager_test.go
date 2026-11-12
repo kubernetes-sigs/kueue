@@ -194,6 +194,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		"requeues with the charges it holds while the object has not changed": {
 			draIntegration:    true,
 			clientGeneration:  1,
+			requeueReason:     RequeueReasonGeneric,
 			wantRequeued:      true,
 			wantTotalRequests: gpuCharge,
 		},
@@ -217,10 +218,12 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		"hands the workload to the controller once the object has moved on": {
 			draIntegration:     true,
 			clientGeneration:   2,
+			requeueReason:      RequeueReasonGeneric,
 			wantSentGeneration: 2,
 		},
 		"requeues without a hand-back when KueueDRAIntegration is off": {
 			clientGeneration: 2,
+			requeueReason:    RequeueReasonGeneric,
 			wantRequeued:     true,
 			// Preprocessed DRA charges are ignored while the integration is off.
 			wantTotalRequests: []workload.PodSetResources{{
@@ -246,6 +249,8 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 					ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
 				}).Obj(),
 			).Obj()
+			peer := wl.DeepCopy()
+			peer.Name = "peer"
 			clientWl := wl.DeepCopy()
 			clientWl.Generation = tc.clientGeneration
 			clientWl.ResourceVersion = "1"
@@ -297,6 +302,17 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			}
 			inflight := &head.Info
 			if tc.refreshCharges {
+				if tc.requeueReason == RequeueReasonNoFit {
+					peerCharges := workload.WithPreprocessedDRAResources(
+						map[kueue.PodSetReference]corev1.ResourceList{
+							kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
+						},
+						nil,
+					)
+					if err := manager.AddOrUpdateWorkload(ctx, log, peer, peerCharges); err != nil {
+						t.Fatalf("Failed adding peer workload with refreshed charges: %v", err)
+					}
+				}
 				refreshedCharges := workload.WithPreprocessedDRAResources(
 					map[kueue.PodSetReference]corev1.ResourceList{
 						kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
@@ -311,21 +327,26 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				inflight.SchedulingHash = probe
 			}
 
-			requeueReason := tc.requeueReason
-			if requeueReason == "" {
-				requeueReason = RequeueReasonGeneric
-			}
-			if tc.refreshCharges && tc.requeueReason == "" {
-				// A NoFit result for the old charge shape must not leave the
-				// refreshed workload parked in BestEffortFIFO's inadmissible set.
-				requeueReason = RequeueReasonNoFit
-			}
-			if got := manager.RequeueWorkload(ctx, inflight, requeueReason, ""); got != tc.wantRequeued {
+			if got := manager.RequeueWorkload(ctx, inflight, tc.requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
 			}
 			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
 			if tc.refreshCharges && gotInadmissible != tc.wantInadmissible {
 				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
+			}
+			if tc.requeueReason == RequeueReasonNoFit {
+				peerInfo := manager.hm.ClusterQueue("cq").trackedInfo(workload.Key(peer))
+				if peerInfo == nil {
+					t.Fatal("peer workload was not retained in the ClusterQueue")
+				}
+				if manager.hm.ClusterQueue("cq").workloads.GetActive(workload.Key(peer)) == nil {
+					t.Error("peer with refreshed DRA charges was not kept active")
+				}
+				if diff := gocmp.Diff(refreshedGPUCharge, peerInfo.TotalRequests,
+					cmpopts.IgnoreFields(workload.PodSetResources{}, "Flavors"),
+					gocmp.Comparer(resources.Equal)); diff != "" {
+					t.Errorf("peer TotalRequests (-want,+got):\n%s", diff)
+				}
 			}
 			if tc.refreshCharges && inflight.SchedulingHash == probe {
 				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)
