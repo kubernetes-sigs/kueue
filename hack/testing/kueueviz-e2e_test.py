@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class KueueVizE2ETest(unittest.TestCase):
-    def run_suite(self, script="backend", args=(), failure=""):
+    def run_suite(self, script="backend", args=(), failure="", backend_env=None):
         """Run the real scripts with recording substitutes for external services."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -44,7 +44,15 @@ class KueueVizE2ETest(unittest.TestCase):
 record() { printf '%s\\n' "$1" >> "$VIZ_TEST_EVENTS"; }
 e2e_timed() { shift; "$@"; }
 e2e_timed_log_unfinished() { :; }
-cluster_create() { record create; [[ "$VIZ_TEST_FAILURE" != create ]]; }
+cluster_create() {
+    record create
+    if [[ "$VIZ_TEST_SCRIPT" == backend ]]; then
+        # Prove frontend preparation starts before cluster preparation finishes.
+        read -r frontend_started < "$VIZ_TEST_FRONTEND_STARTED"
+        [[ "$frontend_started" == started ]] || return 1
+    fi
+    [[ "$VIZ_TEST_FAILURE" != create ]]
+}
 prepare_kueue_image() { record prepare; [[ "$VIZ_TEST_FAILURE" != prepare ]]; }
 cluster_kind_load_kueue_image() { record load; [[ "$VIZ_TEST_FAILURE" != load ]]; }
 kueue_deploy() { record deploy; }
@@ -97,8 +105,31 @@ elif name == "npm":
             os.kill(int(pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).read_text()), signal.SIGTERM)
             sys.exit(7)
         sys.exit(7 if failure == "cypress" else 0)
-elif name == "docker" and args[0] == "run":
+elif name == "docker" and args[0] == "create":
+    sys.exit(7 if failure == "frontend_create" else 0)
+elif name == "docker" and args[0] == "rm":
+    frontend_pid = pathlib.Path(os.environ["VIZ_TEST_FRONTEND_PID"])
+    if frontend_pid.exists():
+        try:
+            os.kill(int(frontend_pid.read_text()), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+elif name == "docker" and args[0] == "exec":
+    if failure in ("frontend_start", "frontend_signal"):
+        sys.exit(1)
+    with open(os.environ["VIZ_TEST_FRONTEND_RELEASE"], "w") as pipe:
+        pipe.write("started\\n")
+elif name == "docker" and args[0] == "inspect":
+    print(7 if failure == "frontend_start" else 0)
+elif name == "docker" and args[0] == "start":
+    pathlib.Path(os.environ["VIZ_TEST_FRONTEND_PID"]).write_text(str(os.getpid()))
+    with open(os.environ["VIZ_TEST_FRONTEND_STARTED"], "w") as pipe:
+        pipe.write("started\\n")
+    if failure == "frontend_start":
+        sys.exit(7)
     wait_for_backend()
+    with open(os.environ["VIZ_TEST_FRONTEND_RELEASE"]) as pipe:
+        assert pipe.read() == "started\\n"
     if failure == "backend_exit":
         os.kill(int(pathlib.Path(os.environ["VIZ_TEST_BACKEND_PID"]).read_text()), signal.SIGTERM)
         sys.exit(7)
@@ -126,6 +157,10 @@ elif name == "curl":
             commands = root / "commands"
             ready = root / "backend.ready"
             os.mkfifo(ready)
+            frontend_started = root / "frontend.started"
+            os.mkfifo(frontend_started)
+            frontend_release = root / "frontend.release"
+            os.mkfifo(frontend_release)
             backend = root / "backend-template"
             backend.write_text('''#!/usr/bin/env python3
 import os, pathlib, signal, sys
@@ -143,10 +178,15 @@ signal.pause()
                    "ARTIFACTS": str(root / "artifacts"), "KIND_CLUSTER_NAME": "test",
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
+                   "VIZ_TEST_SCRIPT": script,
+                   "VIZ_TEST_FRONTEND_PID": str(root / "frontend.pid"),
+                   "VIZ_TEST_FRONTEND_STARTED": str(frontend_started),
+                   "VIZ_TEST_FRONTEND_RELEASE": str(frontend_release),
                    "VIZ_TEST_BACKEND_PID": str(root / "backend.pid"),
                    "VIZ_TEST_BACKEND_READY": str(ready),
                    "VIZ_TEST_BACKEND_TEMPLATE": str(backend),
                    "VIZ_TEST_COMMANDS": str(commands), "VIZ_TEST_FAILURE": failure}
+            env.update(backend_env or {})
             process = subprocess.Popen(
                 ["bash", str(scripts / f"e2e-kueueviz-{script}.sh"), *args],
                 cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -179,6 +219,43 @@ signal.pause()
                                         "--kubeconfig=/dev/null" in c for c in commands))
                     self.assertTrue(any(c[0] == "curl" and "Authorization: Bearer test-token" in c
                                         for c in commands))
+                    if script == "backend":
+                        self.assertTrue(any(c[:3] == ["docker", "start", "--attach"] for c in commands))
+                        self.assertEqual(sum(c[:3] == ["docker", "rm", "-f"] for c in commands), 1)
+
+    def test_frontend_container_failures_stop_the_suite_and_clean_up(self):
+        for failure in ("frontend_create", "frontend_start", "frontend_signal"):
+            with self.subTest(failure=failure):
+                result, events, commands = self.run_suite(failure=failure)
+                self.assertEqual(result.returncode, 1 if failure == "frontend_signal" else 7,
+                                 result.stdout + result.stderr)
+                self.assertNotIn("SECURE:", result.stdout)
+                self.assertEqual(sum(c[:3] == ["docker", "rm", "-f"] for c in commands), 1)
+                if failure == "frontend_create":
+                    self.assertEqual(events, [])
+                else:
+                    self.assertEqual(events.count("create"), 1)
+                    self.assertEqual(events[-2:], ["artifacts", "cleanup"])
+
+    def test_frontend_health_address_matches_backend_overrides(self):
+        cases = (
+            ({}, "http://localhost:8080/healthz"),
+            ({"KUEUEVIZ_PORT": "8181"}, "http://localhost:8181/healthz"),
+            ({"KUEUEVIZ_LISTEN": "8182", "KUEUEVIZ_PORT": "9999"}, "http://localhost:8182/healthz"),
+            ({"KUEUEVIZ_LISTEN": "localhost", "KUEUEVIZ_PORT": "9999"}, "http://localhost:8080/healthz"),
+            ({"KUEUEVIZ_LISTEN": "0.0.0.0", "KUEUEVIZ_PORT": "9999"}, "http://127.0.0.1:8080/healthz"),
+            ({"KUEUEVIZ_LISTEN": "0.0.0.0:8182"}, "http://127.0.0.1:8182/healthz"),
+            ({"KUEUEVIZ_LISTEN": "[::]:8183"}, "http://[::1]:8183/healthz"),
+            ({"KUEUEVIZ_LISTEN": "127.0.0.2:8184"}, "http://127.0.0.2:8184/healthz"),
+            ({"KUEUEVIZ_HEALTH_URL": "http://example.test/ready"}, "http://example.test/ready"),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                env = {"KUEUEVIZ_PORT": "", "KUEUEVIZ_LISTEN": "", "KUEUEVIZ_HEALTH_URL": "", **overrides}
+                result, _, commands = self.run_suite(backend_env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                create = next(c for c in commands if c[:2] == ["docker", "create"])
+                self.assertIn(f"KUEUEVIZ_HEALTH_URL={expected}", create)
 
     def test_failures_propagate_and_owner_collects_artifacts_and_cleans_up(self):
         for script in ("backend", "local"):
@@ -234,6 +311,89 @@ signal.pause()
                     result = subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=15)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertEqual((root / "build-flags").read_text().strip(), expected)
+
+    def test_frontend_waits_for_backend_and_preserves_failures(self):
+        for failure in ("", "unit", "health", "cypress", "slow_setup", "transient_health"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for directory in ("hack/testing", "cmd/kueueviz/frontend", "test/e2e/kueueviz", "bin"):
+                    (root / directory).mkdir(parents=True)
+                script = root / "hack/testing/e2e-kueueviz-frontend.sh"
+                shutil.copy2(ROOT / "hack/testing/e2e-kueueviz-frontend.sh", script)
+                retry = root / "hack/testing/retry.sh"
+                shutil.copy2(ROOT / "hack/testing/retry.sh", retry)
+                stub = root / "bin/stub"
+                stub.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, signal, sys
+name = pathlib.Path(sys.argv[0]).name
+args = sys.argv[1:]
+with open(os.environ["VIZ_TEST_COMMANDS"], "a") as log:
+    log.write(json.dumps([name, *args]) + "\\n")
+failure = os.environ["VIZ_TEST_FAILURE"]
+ready = pathlib.Path(os.environ["KUEUEVIZ_BACKEND_START_FILE"])
+def count(name):
+    counter = ready.with_suffix(name)
+    value = int(counter.read_text()) + 1 if counter.exists() else 1
+    counter.write_text(str(value))
+    return value
+if name == "sleep":
+    # Simulate cluster preparation taking longer than the health-retry budget,
+    # without a wall-clock wait. Health probing must start only after the marker.
+    if failure == "slow_setup" and count(".sleeps") == 130:
+        ready.touch()
+if name == "curl":
+    assert ready.exists(), "Health deadline started before cluster preparation completed"
+    assert args[-1] == os.environ["KUEUEVIZ_HEALTH_URL"]
+    if failure == "transient_health" and count(".requests") < 3:
+        sys.exit(7)
+if name == "npm" and args == ["run", "dev"]:
+    signal.pause()
+if (name == "npm" and args == ["test"] and failure == "unit" or
+    name == "curl" and failure == "health" or
+    name == "npm" and args[:2] == ["run", "cypress:run"] and failure == "cypress"):
+    sys.exit(7)
+''')
+                stub.chmod(0o755)
+                for name in ("apt-get", "npm", "npx", "curl", "sleep"):
+                    (root / "bin" / name).symlink_to(stub)
+                commands_file = root / "commands"
+                ready_file = root / "backend-started"
+                if failure != "slow_setup":
+                    ready_file.touch()
+                env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
+                       "PROJECT_DIR": str(root), "VIZ_TEST_COMMANDS": str(commands_file),
+                       "KUEUEVIZ_BACKEND_START_FILE": str(ready_file),
+                       "KUEUEVIZ_HEALTH_URL": "http://127.0.0.1:8181/healthz",
+                       "VIZ_TEST_FAILURE": failure}
+                process = subprocess.Popen(["bash", str(script)], cwd=root, env=env,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, start_new_session=True)
+                try:
+                    stdout, stderr = process.communicate(timeout=30)
+                finally:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                expected_status = {"unit": 7, "health": 1, "cypress": 7}.get(failure, 0)
+                self.assertEqual(process.returncode, expected_status, stdout + stderr)
+                commands = [json.loads(line) for line in commands_file.read_text().splitlines()]
+                unit = commands.index(["npm", "test"])
+                health = [i for i, c in enumerate(commands) if c[0] == "curl"]
+                cypress = [i for i, c in enumerate(commands) if c[:3] == ["npm", "run", "cypress:run"]]
+                if failure == "unit":
+                    self.assertEqual(health, [])
+                else:
+                    self.assertEqual(len(health), {"health": 120, "transient_health": 3}.get(failure, 1))
+                    self.assertGreater(health[0], unit)
+                    if failure == "slow_setup":
+                        self.assertEqual(sum(c[0] == "sleep" for c in commands[:health[0]]), 130)
+                if failure in ("unit", "health"):
+                    self.assertEqual(cypress, [])
+                else:
+                    self.assertEqual(len(cypress), 1)
+                    self.assertGreater(cypress[0], health[0])
 
 
 if __name__ == "__main__":
