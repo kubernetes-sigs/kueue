@@ -864,8 +864,8 @@ without the field fails startup too, because the Configuration is decoded strict
 version does not know the gate. The administrator removes the list first, and for a downgrade
 the gate entry too.
 
-Admitted Workloads keep the usage recorded at admission. So a change to the list only affects
-Workloads admitted after Kueue restarts with it.
+Workloads that already reserved quota keep the usage recorded in `status.admission`. So a change
+to the list only affects Workloads that reserve quota after Kueue restarts with it.
 
 Interactions:
 
