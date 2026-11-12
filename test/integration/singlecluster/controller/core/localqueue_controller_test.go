@@ -79,14 +79,12 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
-	})
 
-	ginkgo.BeforeEach(func() {
 		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		behavioral.MustCreate(ctx, k8sClient, ac)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
@@ -107,7 +105,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", framework.SlowSpec, func() {
@@ -568,12 +565,12 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 				},
 			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(customCfg))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
 		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		behavioral.MustCreate(ctx, k8sClient, ac)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.metrics-test").
@@ -599,7 +596,6 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &rf, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should expose metrics based on LocalQueue labels", func() {
@@ -718,7 +714,7 @@ var _ = ginkgo.Describe("LocalQueue counters across a stop", ginkgo.Label("contr
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-stopped-")
 		flavor = utiltestingapi.MakeResourceFlavor("lq-stopped").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -733,7 +729,6 @@ var _ = ginkgo.Describe("LocalQueue counters across a stop", ginkgo.Label("contr
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("removes the LocalQueue counters on delete when stopped under HoldAndDrain and resumed before delete", func() {

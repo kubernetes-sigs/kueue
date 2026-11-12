@@ -80,7 +80,7 @@ var _ = ginkgo.Describe(
 			)
 
 			ginkgo.BeforeAll(func() {
-				managerTestCluster.fwk.StartManager(
+				managerTestCluster.fwk.StartManagerForSpec(
 					managerTestCluster.ctx,
 					managerTestCluster.cfg,
 					func(ctx context.Context, mgr manager.Manager) {
@@ -162,10 +162,6 @@ var _ = ginkgo.Describe(
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					},
 				)
-			})
-
-			ginkgo.AfterAll(func() {
-				managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
 			})
 
 			ginkgo.BeforeEach(func() {

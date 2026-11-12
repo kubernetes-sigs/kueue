@@ -46,8 +46,7 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil,
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(false, true, nil,
 			jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
 		))
 

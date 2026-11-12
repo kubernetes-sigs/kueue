@@ -37,13 +37,12 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
-			fwk.StartManager(ctx, cfg, managerSetup(rayservice.SetupRayServiceWebhook))
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(rayservice.SetupRayServiceWebhook))
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("should reject removing the queue name from an unsuspended RayService", func() {
