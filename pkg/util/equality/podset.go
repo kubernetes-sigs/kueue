@@ -30,6 +30,7 @@ type ComparePodSetsOptions struct {
 	ignoreTolerations         bool
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
+	ignoreContainerImages     bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -52,6 +53,12 @@ func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	}
 }
 
+func WithIgnoreContainerImages() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreContainerImages = true
+	}
+}
+
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
 func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
@@ -62,16 +69,34 @@ func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
-	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
+	if !compareContainers(a.InitContainers, b.InitContainers, opts) {
 		return false
 	}
-	if !equality.Semantic.DeepEqual(a.Containers, b.Containers) {
+	if !compareContainers(a.Containers, b.Containers, opts) {
 		return false
 	}
 	if !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
 		return false
 	}
 	return compareResourceClaims(a.ResourceClaims, b.ResourceClaims)
+}
+
+func compareContainers(a, b []corev1.Container, opts *ComparePodSetsOptions) bool {
+	if !opts.ignoreContainerImages {
+		return equality.Semantic.DeepEqual(a, b)
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		// Shallow copies are enough, since only the Image field is changed.
+		aContainer, bContainer := a[i], b[i]
+		aContainer.Image, bContainer.Image = "", ""
+		if !equality.Semantic.DeepEqual(aContainer, bContainer) {
+			return false
+		}
+	}
+	return true
 }
 
 // compareResourceClaims compares PodSpec.ResourceClaims order-independently, keyed

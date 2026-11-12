@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -189,7 +188,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		ginkgo.By("scaling the worker replicas from 1 to 4")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](4)
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(4))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 

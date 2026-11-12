@@ -72,8 +72,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 	}
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetupWithClientTransform(&config.Configuration{}, func(c client.Client) client.Client {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithClientTransform(&config.Configuration{}, func(c client.Client) client.Client {
 			return &secondPassBumpClient{Client: c, plain: k8sClient, wlKey: &wlKey, fired: &fired}
 		}))
 

@@ -138,7 +138,26 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 		validationErrs = append(validationErrs, field.Forbidden(elasticJobAnnotationPath,
 			"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate"))
 	}
+	// Validated only on create so that existing elastic SparkApplications with
+	// required or preferred topology remain updatable (e.g. by Kueue) after an
+	// upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, validateElasticJobTopologyRequest(fromObject(obj))...)
 	return nil, validationErrs.ToAggregate()
+}
+
+// validateElasticJobTopologyRequest rejects required or preferred topology on the
+// driver and executor of an elastic SparkApplication, see
+// jobframework.ValidateElasticJobTopologyRequest. The topology annotations are
+// read from the merged Pod metadata, as for the PodSets.
+func validateElasticJobTopologyRequest(sparkApp *SparkApplication) field.ErrorList {
+	var allErrs field.ErrorList
+	if driver, err := sparkApp.buildDriverPodTemplateSpec(); err == nil {
+		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(sparkApp, driverSpecPath, &driver.ObjectMeta)...)
+	}
+	if executor, err := sparkApp.buildExecutorPodTemplateSpec(); err == nil {
+		allErrs = append(allErrs, jobframework.ValidateElasticJobTopologyRequest(sparkApp, executorSpecPath, &executor.ObjectMeta)...)
+	}
+	return allErrs
 }
 
 // isAnElasticJob returns whether the SparkApplication is an elastic job. It

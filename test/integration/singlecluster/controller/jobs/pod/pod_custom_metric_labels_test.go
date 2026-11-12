@@ -37,94 +37,87 @@ import (
 )
 
 // The gate is removed before the metric is recorded, so a regression drops the series.
-var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
-	ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-		var (
-			defaultFlavor *kueue.ResourceFlavor
-			clusterQueue  *kueue.ClusterQueue
-			localQueue    *kueue.LocalQueue
-			ns            *corev1.Namespace
-		)
+var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels", ginkgo.Label("job:pod", "area:jobs"), func() {
+	var (
+		defaultFlavor *kueue.ResourceFlavor
+		clusterQueue  *kueue.ClusterQueue
+		localQueue    *kueue.LocalQueue
+		ns            *corev1.Namespace
+	)
 
-		ginkgo.BeforeAll(func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
-			configuration := &configapi.Configuration{}
-			configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
-				{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
-			}
-			fwk.StartManager(ctx, cfg, managerSetup(false, false, configuration,
-				jobframework.WithEnabledFrameworks([]string{"pod"}),
-			))
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+		configuration := &configapi.Configuration{}
+		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
+			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
+		}
+		ginkgo.DeferCleanup(func() { metrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(false, false, configuration,
+			jobframework.WithEnabledFrameworks([]string{"pod"}),
+		))
 
-			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			clusterQueue = utiltestingapi.MakeClusterQueue("cq-custom-metric-labels").
-				Label("team", "platform").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
-				).Obj()
-			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
-		})
+		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
+		clusterQueue = utiltestingapi.MakeClusterQueue("cq-custom-metric-labels").
+			Label("team", "platform").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
+			).Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-		ginkgo.AfterAll(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-			metrics.InitMetricVectors(nil)
-		})
-
-		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
-			localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			behavioral.MustCreate(ctx, k8sClient, localQueue)
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		})
-
-		ginkgo.It("should remove the gate and record it with the ClusterQueue's custom label", func() {
-			pod := testingpod.MakePod(podName, ns.Name).
-				Queue(localQueue.Name).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, pod)
-
-			ginkgo.By("waiting for the Workload the Pod is admitted through")
-			wlKey := types.NamespacedName{
-				Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
-				Namespace: ns.Name,
-			}
-			createdWorkload := &kueue.Workload{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("admitting it so the controller removes the gate")
-			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(defaultFlavor.Name), "1").
-					Count(createdWorkload.Spec.PodSets[0].Count).
-					Obj()).
-				Obj()
-			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-
-			createdPod := &corev1.Pod{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
-				g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("checking the observation carries the ClusterQueue's label value")
-			gomega.Eventually(func(g gomega.Gomega) {
-				got := testingmetrics.CollectFilteredGaugeVec(metrics.PodSchedulingGateRemovalSeconds, map[string]string{
-					"cluster_queue": clusterQueue.Name,
-					"is_group":      "false",
-					"custom_team":   "platform",
-				})
-				g.Expect(got).Should(gomega.HaveLen(1))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
+		localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+	})
+
+	ginkgo.It("should remove the gate and record it with the ClusterQueue's custom label", func() {
+		pod := testingpod.MakePod(podName, ns.Name).
+			Queue(localQueue.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("waiting for the Workload the Pod is admitted through")
+		wlKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID),
+			Namespace: ns.Name,
+		}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting it so the controller removes the gate")
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(defaultFlavor.Name), "1").
+				Count(createdWorkload.Spec.PodSets[0].Count).
+				Obj()).
+			Obj()
+		integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the observation carries the ClusterQueue's label value")
+		gomega.Eventually(func(g gomega.Gomega) {
+			got := testingmetrics.CollectFilteredGaugeVec(metrics.PodSchedulingGateRemovalSeconds, map[string]string{
+				"cluster_queue": clusterQueue.Name,
+				"is_group":      "false",
+				"custom_team":   "platform",
+			})
+			g.Expect(got).Should(gomega.HaveLen(1))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+})

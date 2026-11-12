@@ -130,6 +130,10 @@ func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RaySe
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, raycluster.ValidateElasticJobTopologyRequest(obj, &obj.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)...)
 	// Validated only on create so that existing RayServices remain updatable
 	// (e.g. unsuspend or finalizer removal by Kueue) after an upgrade.
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {

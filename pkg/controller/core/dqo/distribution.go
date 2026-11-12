@@ -37,6 +37,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
 // reconcileDistribution performs Phase 2 reconciliation: validates subtree conflicts, resolves the target hierarchy, and distributes effective quotas.
@@ -77,6 +78,9 @@ func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *ku
 
 	allocatedQuantities := calculateAllocations(effectiveCapacity, targetCohorts, targetClusterQueues)
 	if err := r.applyEffectiveQuotas(ctx, orchestrator.Name, targetClusterQueues, targetCohorts, allocatedQuantities); err != nil {
+		// Earlier participants may already have received new quotas.
+		r.setDistributionCondition(orchestrator, metav1.ConditionUnknown,
+			kueuealpha.DynamicQuotaOrchestratorReasonDistributionIncomplete, err.Error())
 		return err
 	}
 
@@ -597,6 +601,6 @@ func (r *Reconciler) setDistributionCondition(orchestrator *kueuealpha.DynamicQu
 		Status:             status,
 		ObservedGeneration: orchestrator.Generation,
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 	})
 }

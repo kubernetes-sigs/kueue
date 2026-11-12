@@ -29,12 +29,15 @@ import (
 type TrainerStatusApplyConfiguration struct {
 	// progressPercentage gives an estimate of how complete the TrainJob is as a percentage.
 	// The value will be between 0 and 100, or empty if unknown.
+	//
 	ProgressPercentage *int32 `json:"progressPercentage,omitempty"`
 	// estimatedRemainingSeconds gives the estimated remaining training time in seconds
 	// before the train job is completed.
 	// The value will be empty if it is unknown.
+	//
 	EstimatedRemainingSeconds *int32 `json:"estimatedRemainingSeconds,omitempty"`
 	// metrics contains the current metrics for the model.
+	//
 	Metrics []MetricApplyConfiguration `json:"metrics,omitempty"`
 	// lastUpdatedTime is the timestamp when the runtime status was observed.
 	LastUpdatedTime *v1.Time `json:"lastUpdatedTime,omitempty"`

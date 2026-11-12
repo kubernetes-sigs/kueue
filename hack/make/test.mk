@@ -100,9 +100,11 @@ OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
 # Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
 # $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
-# generated, client-go, mock, and kueuectl test helper code so it does not
-# inflate the denominator.
-UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing)/
+# generated, client-go, mock, kueuectl test helper and test/ helper code so it
+# does not inflate the denominator. This is the only exclusion list: the
+# merged profile (hack/testing/merge-unit-coverage.sh) uses the shards'
+# filtered.cov as is.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing|test)/
 
 ##@ Tests
 
@@ -127,6 +129,14 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 	grep -Ev '$(UNIT_COVERAGE_EXCLUDE)' "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" \
 		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
 	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
+
+# Run by the Prow jobs pull-kueue-test-unit-coverage-main and
+# post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+# The shard count lives in that script (UNIT_COVERAGE_SHARDS).
+.PHONY: test-unit-coverage-merge
+test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) \
+		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
@@ -1017,12 +1027,14 @@ setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),he
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
-test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
+
+# KueueViz uses Cypress and a shell RBAC test, not Ginkgo or external job operators.
+.PHONY: setup-kueueviz-e2e-env
+setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
@@ -1030,15 +1042,14 @@ test-kueueviz-backend: ## Run KueueViz backend tests.
 	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+# Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
+test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
+test-e2e-kueueviz: test-kueueviz-backend setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.

@@ -33,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -1616,6 +1615,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			ac             *kueue.AdmissionCheck
 			prc            *kueue.ProvisioningRequestConfig
 			rf             *kueue.ResourceFlavor
+			workerFlavor   *kueue.ResourceFlavor
 			cq             *kueue.ClusterQueue
 			lq             *kueue.LocalQueue
 			admission      *kueue.Admission
@@ -1698,6 +1698,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workerFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
@@ -1735,6 +1736,95 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Expect(mergedTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(mergedTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
 				gomega.Expect(mergedTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
+
+		expectNodeSelector := func(podSet autoscaling.PodSet, want map[string]string) {
+			ginkgo.GinkgoHelper()
+			template := &corev1.PodTemplate{}
+			templateKey := types.NamespacedName{
+				Namespace: createdRequest.Namespace,
+				Name:      podSet.PodTemplateRef.Name,
+			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, templateKey, template)).Should(gomega.Succeed())
+				g.Expect(template.Template.Spec.NodeSelector).To(gomega.BeComparableTo(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("Should keep PodSets in separate PodTemplates when their flavors have different node labels", func() {
+			workerFlavor = utiltestingapi.MakeResourceFlavor("worker-flavor").NodeLabel("ns1", "ns1-worker").Obj()
+			behavioral.MustCreate(ctx, k8sClient, workerFlavor)
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("master").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(workerFlavor.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(workerFlavor.Name), "2Gi").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that each PodSet requests capacity on the nodes of its flavor", func() {
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				expectNodeSelector(createdRequest.Spec.PodSets[0], map[string]string{"ns1": "ns1v"})
+				gomega.Expect(createdRequest.Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+				expectNodeSelector(createdRequest.Spec.PodSets[1], map[string]string{"ns1": "ns1-worker"})
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
+
+		ginkgo.It("Should merge PodSets into one PodTemplate when different flavors have the same node labels", func() {
+			workerFlavor = utiltestingapi.MakeResourceFlavor("worker-flavor").NodeLabel("ns1", "ns1v").Obj()
+			behavioral.MustCreate(ctx, k8sClient, workerFlavor)
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("master").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(workerFlavor.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(workerFlavor.Name), "2Gi").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the PodSets share one PodTemplate", func() {
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(3)))
+				expectNodeSelector(createdRequest.Spec.PodSets[0], map[string]string{"ns1": "ns1v"})
 			})
 
 			ginkgo.By("Removing the quota reservation from the workload", func() {
@@ -2647,7 +2737,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2689,7 +2779,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job again to 6 workers before the intermediate request is provisioned", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](6)
+					job.Spec.Parallelism = new(int32(6))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2864,7 +2954,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -3051,7 +3141,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

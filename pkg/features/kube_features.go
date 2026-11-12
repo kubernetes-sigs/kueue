@@ -970,6 +970,15 @@ const (
 	//   them to the Workloads of the LeaderWorkerSet and, in MultiKueue, to the
 	//   remote Workloads and LeaderWorkerSet.
 	AllowAddingPodTemplateTolerations featuregate.Feature = "AllowAddingPodTemplateTolerations"
+
+	// owner: @HristoMohamed
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/18516
+	//
+	// Break ties between equal-capacity TAS topology domains by comparing
+	// ancestor free capacity bottom-up (ascending) before falling back to
+	// alphabetical domain names, so smaller or partially-occupied parent
+	// domains are packed before splitting larger intact ancestor blocks.
+	TASAncestorCapacityTieBreak featuregate.Feature = "TASAncestorCapacityTieBreak"
 )
 
 func init() {
@@ -1509,6 +1518,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	AllowAddingPodTemplateTolerations: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASAncestorCapacityTieBreak: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

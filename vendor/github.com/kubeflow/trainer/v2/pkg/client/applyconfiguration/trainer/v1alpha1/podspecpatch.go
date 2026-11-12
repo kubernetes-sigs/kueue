@@ -28,10 +28,19 @@ import (
 //
 // PodSpecPatch contains the Pod spec fields that managers are permitted to patch.
 type PodSpecPatchApplyConfiguration struct {
+	// schedulerName patches the scheduler for the Pods in the target job templates.
+	// When omitted, the scheduler specified in the runtime template is preserved.
+	SchedulerName *string `json:"schedulerName,omitempty"`
 	// serviceAccountName patches the service account for the Pods in the target job templates.
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
 	// volumes patches the Pod's volumes.
 	Volumes []v1.VolumeApplyConfiguration `json:"volumes,omitempty"`
+	// resourceClaims patches the Pod's resourceClaims, typically for sidecar and init containers.
+	// Entries are merged by name with the runtime template using strategic merge patch.
+	// For a claim of the same name, spec.trainer.resourceClaimsPerNode takes precedence over
+	// this field, which takes precedence over the runtime template. Containers consume a claim
+	// by referencing its name in the container's resources.claims of this runtime patch.
+	ResourceClaims []corev1.PodResourceClaim `json:"resourceClaims,omitempty"`
 	// initContainers patches the init containers in the target job templates.
 	InitContainers []ContainerPatchApplyConfiguration `json:"initContainers,omitempty"`
 	// containers patches specific containers in the target job templates.
@@ -61,6 +70,14 @@ func PodSpecPatch() *PodSpecPatchApplyConfiguration {
 	return &PodSpecPatchApplyConfiguration{}
 }
 
+// WithSchedulerName sets the SchedulerName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SchedulerName field is set to the value of the last call.
+func (b *PodSpecPatchApplyConfiguration) WithSchedulerName(value string) *PodSpecPatchApplyConfiguration {
+	b.SchedulerName = &value
+	return b
+}
+
 // WithServiceAccountName sets the ServiceAccountName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ServiceAccountName field is set to the value of the last call.
@@ -78,6 +95,16 @@ func (b *PodSpecPatchApplyConfiguration) WithVolumes(values ...*v1.VolumeApplyCo
 			panic("nil value passed to WithVolumes")
 		}
 		b.Volumes = append(b.Volumes, *values[i])
+	}
+	return b
+}
+
+// WithResourceClaims adds the given value to the ResourceClaims field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResourceClaims field.
+func (b *PodSpecPatchApplyConfiguration) WithResourceClaims(values ...corev1.PodResourceClaim) *PodSpecPatchApplyConfiguration {
+	for i := range values {
+		b.ResourceClaims = append(b.ResourceClaims, values[i])
 	}
 	return b
 }

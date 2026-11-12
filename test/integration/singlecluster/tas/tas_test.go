@@ -189,8 +189,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup())
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 	})
 
@@ -306,6 +305,30 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), tasFlavor)).To(gomega.Succeed())
 				tasFlavor.Spec.TopologyName = new(kueue.TopologyReference("invalid"))
 				gomega.Expect(k8sClient.Update(ctx, tasFlavor)).Should(gomega.HaveOccurred())
+			})
+
+			ginkgo.It("should not allow to unset topologyName", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.TopologyName = nil
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
+						utiltesting.BeInvalidError(),
+						gomega.MatchError(gomega.ContainSubstring("topologyName is immutable when topologyName is set")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.It("should not allow to remove all nodeLabels", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.ResourceFlavor
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updated)).To(gomega.Succeed())
+					updated.Spec.NodeLabels = nil
+					g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.And(
+						utiltesting.BeInvalidError(),
+						gomega.MatchError(gomega.ContainSubstring("at least one nodeLabel is required when topology is set")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("should allow to update nodeTaints", func() {
@@ -11337,8 +11360,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 
 	ginkgo.BeforeEach(func() {
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetup(config.ResourceTransformation{
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(config.ResourceTransformation{
 			Input:    corev1.ResourceCPU,
 			Strategy: new(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
@@ -11591,8 +11613,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – WaitForPodsReady with Unh
 	)
 
 	ginkgo.BeforeEach(func() {
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
-		fwk.StartManager(ctx, cfg, managerSetupWithConfig(&config.Configuration{
+		fwk.StartManagerForSpec(ctx, cfg, managerSetupWithConfig(&config.Configuration{
 			WaitForPodsReady: &config.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				RecoveryTimeout: &metav1.Duration{Duration: 1 * time.Second},

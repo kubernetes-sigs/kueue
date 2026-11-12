@@ -41,7 +41,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1488,7 +1487,7 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Annotations(map[string]string{
 							kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`,
 						}).
@@ -1511,7 +1510,7 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 						PodSpec(*pod.pod.Spec.DeepCopy()).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj(),
 				}
 			},
@@ -1611,7 +1610,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1631,7 +1630,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 						Request(corev1.ResourceCPU, "500m").
 						RoleHash(string(podSetRole)).
 						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1643,7 +1642,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1688,7 +1687,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -1709,7 +1708,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 						Request(corev1.ResourceCPU, "500m").
 						RoleHash(string(podSetRole)).
 						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
@@ -3431,7 +3430,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
-							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 							Obj(),
 					).
 					Queue(localUserQueueName).
