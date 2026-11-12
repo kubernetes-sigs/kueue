@@ -44,6 +44,9 @@ import (
 
 func TestValidateCreate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
+	elasticSparkApp := testSparkApp.Clone().Queue("local-queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate})
 	testcases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
 		featureGates map[featuregate.Feature]bool
@@ -145,6 +148,106 @@ func TestValidateCreate(t *testing.T) {
 			).Obj(),
 			wantErr: nil,
 		},
+		"elastic job with driver required topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				driverSpecPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+				"required topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with driver preferred topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().DriverAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				driverSpecPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+				"preferred topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with executor required topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				executorSpecPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+				"required topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with executor preferred topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				executorSpecPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+				"preferred topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with driver template topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().DriverTemplate(&corev1.PodTemplateSpec{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				driverSpecPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+				"required topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with executor template topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().ExecutorTemplate(&corev1.PodTemplateSpec{
+				Annotations: map[string]string{
+					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				},
+				Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}}},
+			}).Obj(),
+			wantErr: field.ErrorList{field.Forbidden(
+				executorSpecPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+				"preferred topology is not supported with elastic jobs",
+			)}.ToAggregate(),
+		},
+		"elastic job with unconstrained topology": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+			sparkApp: elasticSparkApp.Clone().
+				DriverAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				ExecutorAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").Obj(),
+		},
+		"elastic job with topology without ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             false,
+				features.TopologyAwareScheduling:                         true,
+			},
+			sparkApp: elasticSparkApp.Clone().
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+		},
+		"non-elastic job with topology with ElasticJobsViaWorkloadSlicesWithTAS": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+		},
 		"invalid TAS configuration": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").ExecutorAnnotation(
@@ -193,6 +296,18 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"existing elastic job with topology can be unsuspended with ElasticJobsViaWorkloadSlicesWithTAS": {
+			oldSparkApp: elasticSparkApp.Clone().Suspend(true).
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			newSparkApp: elasticSparkApp.Clone().Suspend(false).
+				DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
+			},
+		},
 		"elastic job must not drop the ElasticJobSchedulingGate": {
 			oldSparkApp:  elasticSparkApp.Clone().Obj(),
 			newSparkApp:  elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),

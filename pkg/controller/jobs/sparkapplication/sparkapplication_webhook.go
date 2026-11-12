@@ -138,6 +138,16 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 		validationErrs = append(validationErrs, field.Forbidden(elasticJobAnnotationPath,
 			"an elastic SparkApplication requires the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate"))
 	}
+	// Validate only on create so existing elastic jobs remain updatable after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workloadslicing.Enabled(obj) {
+		podSets, err := fromObject(obj).PodSets(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		validationErrs = append(validationErrs, jobframework.ValidateElasticJobTopologyRequest(obj, driverSpecPath, &podSets[driverPodSetIndex].Template.ObjectMeta)...)
+		validationErrs = append(validationErrs, jobframework.ValidateElasticJobTopologyRequest(obj, executorSpecPath, &podSets[executorPodSetIndex].Template.ObjectMeta)...)
+	}
 	return nil, validationErrs.ToAggregate()
 }
 

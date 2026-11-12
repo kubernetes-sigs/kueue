@@ -72,6 +72,46 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			})
 
+			ginkgo.When("ElasticJobsViaWorkloadSlicesWithTAS is enabled", func() {
+				var app *testingspark.SparkApplicationWrapper
+
+				ginkgo.BeforeEach(func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+					app = testingspark.MakeSparkApplication("sparkapp", ns.Name).
+						Queue("queue-name").
+						Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+						DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MaxExecutors: new(int32(4))})
+				})
+
+				expectTopologyRejected := func(podRole, topologyAnnotation string) {
+					ginkgo.GinkgoHelper()
+					err := k8sClient.Create(ctx, app.Obj())
+					gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+					gomega.Expect(err.Error()).Should(gomega.ContainSubstring("spec." + podRole + ".annotations." + topologyAnnotation))
+					gomega.Expect(err.Error()).Should(gomega.ContainSubstring("topology is not supported with elastic jobs"))
+				}
+
+				ginkgo.It("should reject elastic SparkApplication with driver required topology", func() {
+					app.DriverAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block")
+					expectTopologyRejected("driver", kueue.PodSetRequiredTopologyAnnotation)
+				})
+
+				ginkgo.It("should reject elastic SparkApplication with driver preferred topology", func() {
+					app.DriverAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block")
+					expectTopologyRejected("driver", kueue.PodSetPreferredTopologyAnnotation)
+				})
+
+				ginkgo.It("should reject elastic SparkApplication with executor required topology", func() {
+					app.ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block")
+					expectTopologyRejected("executor", kueue.PodSetRequiredTopologyAnnotation)
+				})
+
+				ginkgo.It("should reject elastic SparkApplication with executor preferred topology", func() {
+					app.ExecutorAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block")
+					expectTopologyRejected("executor", kueue.PodSetPreferredTopologyAnnotation)
+				})
+			})
+
 			ginkgo.It("should gate the executors of an elastic SparkApplication and keep the gate on update", func() {
 				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).
 					Queue("queue-name").
