@@ -18,8 +18,10 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -28,13 +30,16 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
@@ -43,6 +48,8 @@ import (
 // Its main task being to maintain the active state of the admission checks based on the heath
 // of its referenced MultiKueueClusters.
 type ACReconciler struct {
+	// Serialize complete metric refreshes, including reads, across concurrent AdmissionChecks.
+	metricsMu   sync.Mutex
 	client      client.Client
 	helper      *admissioncheck.MultiKueueStoreHelper
 	roleTracker *roletracker.RoleTracker
@@ -51,6 +58,14 @@ type ACReconciler struct {
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
 
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	result, err := a.reconcileAdmissionCheck(ctx, req)
+	if features.Enabled(features.MultiKueueMetricForClusterByStatus) {
+		err = errors.Join(err, a.reportWorkerClusterStatuses(ctx))
+	}
+	return result, err
+}
+
+func (a *ACReconciler) reconcileAdmissionCheck(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	ac := &kueue.AdmissionCheck{}
 	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != kueue.MultiKueueControllerName {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
@@ -143,14 +158,27 @@ func newACReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelp
 }
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_admissioncheck").
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
-		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
-		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck-reconciler"),
-		}).
+		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client})
+	if features.Enabled(features.MultiKueueMetricForClusterByStatus) {
+		b = b.Watches(&kueue.ClusterQueue{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			cq := obj.(*kueue.ClusterQueue)
+			if cq.Spec.AdmissionChecksStrategy == nil {
+				return nil
+			}
+			requests := make([]reconcile.Request, 0, len(cq.Spec.AdmissionChecksStrategy.AdmissionChecks))
+			for _, rule := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
+				requests = append(requests, reconcile.Request{Name: string(rule.Name)})
+			}
+			return requests
+		}), builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+	}
+	return b.WithOptions(controller.Options{
+		LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck-reconciler"),
+	}).
 		Complete(a)
 }
 
