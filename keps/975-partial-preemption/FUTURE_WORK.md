@@ -91,16 +91,15 @@ to reason about the combination of all of a Workload's floors rather than a sing
 
 ## Overlap recomputation
 
-In Alpha, `PartialPreemption` cannot be enabled together with
+In Alpha, `PartialPreemption` may be enabled together with
 `RecomputeAssignmentUponPreemptionTargetsOverlap`. The current overlap-recomputation path does not
-consistently account for a partially preempted Workload's reduced assignment: both the simulated
-quota usage and the `preemptedWorkloads` handling during overlap resolution need to agree on how an
-in-flight target affects the assignment. Changing only the usage passed to the simulation is not
-sufficient.
+consistently account for the quota retained by partially preempted victims, so it may recompute an
+assignment using lower quota usage than will actually remain after partial preemption.
 
-Supporting both features is deferred to Beta. The implementation must define and consistently apply
-the reduced-assignment semantics through overlap recomputation, including how existing partial
-preemption targets participate, before removing the feature-gate incompatibility validation.
+Full support for this interaction is deferred to Beta. Both the simulated quota usage and the
+`preemptedWorkloads` handling during overlap resolution must consistently account for partially
+preempted Workloads' reduced assignments, including existing pending targets. Changing only the
+usage passed to the simulation is not sufficient.
 
 ## Timeout
 
