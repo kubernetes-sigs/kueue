@@ -1,5 +1,6 @@
 # See https://cloud.google.com/cloud-build/docs/build-config
 timeout: 3000s
+serviceAccount: projects/k8s-staging-images/serviceAccounts/kueue-sa@k8s-staging-images.iam.gserviceaccount.com
 # A build step specifies an action that you want cloudbuild to perform.
 # For each build step, cloudbuild executes a docker container.
 steps:
