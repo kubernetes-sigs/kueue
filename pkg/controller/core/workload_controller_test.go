@@ -3931,7 +3931,7 @@ func TestReconcileScaleDown(t *testing.T) {
 			AdmittedAt(true, now).
 			Obj()
 		tgt := target
-		wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = &tgt
+		wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{TargetCount: &tgt}
 		workload.SetPartiallyPreemptedCondition(wl, now, true, kueue.InClusterQueueReason, "scale-down")
 		return wl
 	}
@@ -3953,19 +3953,19 @@ func TestReconcileScaleDown(t *testing.T) {
 			kClient := utiltesting.NewClientBuilder().WithStatusSubresource(wl).WithObjects(wl).Build()
 			r := &WorkloadReconciler{client: kClient, clock: fakeClock}
 
-			changed, err := r.reconcileScaleDown(ctx, wl)
+			done, err := r.reconcileScaleDown(ctx, wl)
 			if err != nil {
 				t.Fatalf("reconcileScaleDown: %v", err)
 			}
-			if changed != tc.wantChanged {
-				t.Errorf("changed = %v, want %v", changed, tc.wantChanged)
+			if done != tc.wantChanged {
+				t.Errorf("done = %v, want %v", done, tc.wantChanged)
 			}
 
 			var got kueue.Workload
 			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
 				t.Fatalf("get workload: %v", err)
 			}
-			cleared := got.Status.Admission.PodSetAssignments[0].PreemptionTargetCount == nil
+			cleared := got.Status.Admission.PodSetAssignments[0].PartialPreemption == nil
 			if cleared != tc.wantCleared {
 				t.Errorf("target cleared = %v, want %v", cleared, tc.wantCleared)
 			}

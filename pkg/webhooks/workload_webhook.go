@@ -440,23 +440,31 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
-	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+	if len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		partialPreemptionEnabled := features.Enabled(features.PartialPreemption)
 		for i := range new.PodSetAssignments {
 			np := &new.PodSetAssignments[i]
 			op := &old.PodSetAssignments[i]
-			if np.PreemptionTargetCount != nil && *np.PreemptionTargetCount > ptr.Deref(np.Count, 0) {
+			if !partialPreemptionEnabled {
+				op.PartialPreemption = np.PartialPreemption
+				continue
+			}
+
+			oldCount := ptr.Deref(op.Count, 0)
+			hasPendingPartialPreemption := op.PartialPreemption != nil &&
+				op.PartialPreemption.TargetCount != nil &&
+				*op.PartialPreemption.TargetCount < oldCount
+			if np.PartialPreemption != nil && np.PartialPreemption.TargetCount != nil && *np.PartialPreemption.TargetCount > ptr.Deref(np.Count, 0) {
 				allErrs = append(allErrs, field.Invalid(
-					path.Child("podSetAssignments").Index(i).Child("preemptionTargetCount"),
-					*np.PreemptionTargetCount,
+					path.Child("podSetAssignments").Index(i).Child("partialPreemption", "targetCount"),
+					*np.PartialPreemption.TargetCount,
 					fmt.Sprintf("should be less than or equal to count (%d)", ptr.Deref(np.Count, 0))))
 				continue
 			}
-			// Kueue owns preemptionTargetCount and updates it on an already-admitted Workload to request (or
-			// clear) a partial-preemption scale-down; allow it to change.
-			op.PreemptionTargetCount = np.PreemptionTargetCount
-			// On the release of a partial preemption, Kueue lowers an elastic Workload's admitted count and
-			// resourceUsage to the target (a decrease only); allow that.
-			if ptr.Deref(np.Count, 0) <= ptr.Deref(op.Count, 0) {
+			// Kueue owns the target and may update or clear it to request scale-down.
+			op.PartialPreemption = np.PartialPreemption
+			// On release, count and resourceUsage may decrease only for a pending request.
+			if hasPendingPartialPreemption && ptr.Deref(np.Count, 0) <= oldCount {
 				op.Count = np.Count
 				op.ResourceUsage = np.ResourceUsage
 			}

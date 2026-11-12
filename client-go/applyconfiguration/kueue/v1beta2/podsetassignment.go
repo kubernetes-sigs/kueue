@@ -163,14 +163,16 @@ type PodSetAssignmentApplyConfiguration struct {
 	// topologyAssignment.
 	//
 	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
-	// preemptionTargetCount requests the elastic job to scale this PodSet down to
-	// preemptionTargetCount so partial preemption can reclaim its quota, when set and
-	// lower than count. Kueue owns this field; the job runtime reads it and sheds
-	// pods down to preemptionTargetCount. Kueue clears this field once the PodSet's
-	// desired spec count has converged to preemptionTargetCount or below.
-	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	// partialPreemption describes an in-progress partial preemption of this
+	// PodSet. Only Kueue sets it. Kueue releases the quota of the Pods in
+	// excess of targetCount only after they have terminated: it then lowers
+	// count to targetCount and resourceUsage in proportion, and clears this
+	// field.
 	//
-	PreemptionTargetCount *int32 `json:"preemptionTargetCount,omitempty"`
+	// This field is alpha-level. Kueue sets it only when the PartialPreemption
+	// feature gate is enabled.
+	//
+	PartialPreemption *PodSetPartialPreemptionStatusApplyConfiguration `json:"partialPreemption,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -233,10 +235,10 @@ func (b *PodSetAssignmentApplyConfiguration) WithDelayedTopologyRequest(value ku
 	return b
 }
 
-// WithPreemptionTargetCount sets the PreemptionTargetCount field in the declarative configuration to the given value
+// WithPartialPreemption sets the PartialPreemption field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PreemptionTargetCount field is set to the value of the last call.
-func (b *PodSetAssignmentApplyConfiguration) WithPreemptionTargetCount(value int32) *PodSetAssignmentApplyConfiguration {
-	b.PreemptionTargetCount = &value
+// If called multiple times, the PartialPreemption field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithPartialPreemption(value *PodSetPartialPreemptionStatusApplyConfiguration) *PodSetAssignmentApplyConfiguration {
+	b.PartialPreemption = value
 	return b
 }

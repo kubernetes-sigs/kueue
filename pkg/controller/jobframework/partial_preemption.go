@@ -24,7 +24,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,8 +49,8 @@ func (r *JobReconciler) reconcilePartialPreemption(ctx context.Context, job Gene
 	targets := make(map[kueue.PodSetReference]int32)
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
-		if psa.PreemptionTargetCount != nil {
-			targets[psa.Name] = *psa.PreemptionTargetCount
+		if psa.PartialPreemption != nil && psa.PartialPreemption.TargetCount != nil {
+			targets[psa.Name] = *psa.PartialPreemption.TargetCount
 		}
 	}
 	if len(targets) == 0 {
@@ -58,9 +60,8 @@ func (r *JobReconciler) reconcilePartialPreemption(ctx context.Context, job Gene
 	if err != nil || len(pods) == 0 {
 		return err
 	}
-	log := ctrl.LoggerFrom(ctx)
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return evictPodForReclaim(ctx, r.client, log, pods[i])
+		return evictPodForReclaim(ctx, r.client, ctrl.LoggerFrom(ctx), pods[i])
 	})
 }
 
@@ -76,9 +77,13 @@ func (r *JobReconciler) reclaimCandidates(ctx context.Context, job GenericJob, w
 
 // evictPodForReclaim evicts one Pod through the Eviction API.
 func evictPodForReclaim(ctx context.Context, c client.Client, log logr.Logger, pod *corev1.Pod) error {
+	// TODO: Derive the grace period from the Kueue partial preemption timeout once it is configurable.
 	eviction := &policyv1.Eviction{
 		Name:      pod.Name,
 		Namespace: pod.Namespace,
+		DeleteOptions: &metav1.DeleteOptions{
+			GracePeriodSeconds: ptr.To[int64](30),
+		},
 	}
 	if err := c.SubResource("eviction").Create(ctx, pod, eviction); err != nil {
 		if apierrors.IsNotFound(err) {

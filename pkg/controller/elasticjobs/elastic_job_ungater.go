@@ -363,11 +363,13 @@ func (r *elasticJobUngater) releaseReclaimedQuota(ctx context.Context, wl *kueue
 		updated := false
 		for i := range wl.Status.Admission.PodSetAssignments {
 			psa := &wl.Status.Admission.PodSetAssignments[i]
-			if psa.PreemptionTargetCount == nil {
+			if psa.PartialPreemption == nil || psa.PartialPreemption.TargetCount == nil {
 				continue
 			}
-			target := *psa.PreemptionTargetCount
+			target := *psa.PartialPreemption.TargetCount
 			admitCount := ptr.Deref(psa.Count, target)
+			// The newCount must not be less than target to prevent some Pods from
+			// being killed or failing unexpectedly.
 			newCount := max(min(admitCount, ungatedPerPodSet[psa.Name]), target)
 			if newCount >= admitCount {
 				continue

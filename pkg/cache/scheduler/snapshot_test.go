@@ -1949,8 +1949,6 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 func TestSimulateWorkloadRemovalWithPartialPreemption(t *testing.T) {
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 	cases := map[string]struct {
-		// reducedCount > 0 builds a Reduced replacement scaled to that count (partial-preemption
-		// shrink); reducedCount == 0 leaves Reduced nil (whole eviction).
 		reducedCount     int32
 		wantUsageAfter   int64
 		wantWorkloadKept bool

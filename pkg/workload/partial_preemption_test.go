@@ -34,9 +34,21 @@ func TestIsPartialPreemptionJob(t *testing.T) {
 		annotated   bool
 		want        bool
 	}{
-		"gate off":               {gateEnabled: false, annotated: true, want: false},
-		"gate on, not annotated": {gateEnabled: true, annotated: false, want: false},
-		"gate on, annotated":     {gateEnabled: true, annotated: true, want: true},
+		"gate off": {
+			gateEnabled: false,
+			annotated:   true,
+			want:        false,
+		},
+		"gate on, not annotated": {
+			gateEnabled: true,
+			annotated:   false,
+			want:        false,
+		},
+		"gate on, annotated": {
+			gateEnabled: true,
+			annotated:   true,
+			want:        true,
+		},
 	}
 
 	for name, tc := range cases {
@@ -65,15 +77,23 @@ func TestPreemptionTargetCount(t *testing.T) {
 				Obj(),
 		).
 		Obj()
-	wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = ptr.To[int32](7)
+	wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{TargetCount: ptr.To[int32](7)}
 
 	cases := map[string]struct {
 		name      kueue.PodSetReference
 		wantCount int32
 		wantOk    bool
 	}{
-		"main with target": {name: "main", wantCount: 7, wantOk: true},
-		"missing podset":   {name: "missing", wantCount: 0, wantOk: false},
+		"main with target": {
+			name:      "main",
+			wantCount: 7,
+			wantOk:    true,
+		},
+		"missing podset": {
+			name:      "missing",
+			wantCount: 0,
+			wantOk:    false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -81,64 +101,6 @@ func TestPreemptionTargetCount(t *testing.T) {
 			gotCount, gotOk := PreemptionTargetCount(wl, tc.name)
 			if gotCount != tc.wantCount || gotOk != tc.wantOk {
 				t.Errorf("PreemptionTargetCount(%q) = (%d, %t), want (%d, %t)", tc.name, gotCount, gotOk, tc.wantCount, tc.wantOk)
-			}
-		})
-	}
-}
-
-// TestPartialPreemptionUsedCount exercises the pure computation that reports how many replicas a
-// partial-preemption job may shed above its PodSets' PreemptionMinCount, capped by any pending
-// reclaim target. The effective count is derived from spec.PodSets (minus reclaimable pods), so
-// every case admits the workload with Count == specCount to make the admitted and effective counts
-// agree.
-func TestPartialPreemptionUsedCount(t *testing.T) {
-	makeWorkload := func(specCount, preemptionMinCount int32, target *int32) *kueue.Workload {
-		wl := utiltesting.MakeWorkload("wl", "ns").
-			PodSets(*utiltesting.MakePodSet("executor", int(specCount)).
-				Request(corev1.ResourceCPU, "1").
-				SetPreemptionMinimumCount(preemptionMinCount).
-				Obj()).
-			Obj()
-		wl.Status.Admission = utiltesting.MakeAdmission("cq").
-			PodSets(utiltesting.MakePodSetAssignment("executor").
-				Assignment(corev1.ResourceCPU, "default", "1").
-				Count(specCount).
-				Obj()).
-			Obj()
-		if target != nil {
-			wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = target
-		}
-		return wl
-	}
-
-	cases := map[string]struct {
-		specCount          int32
-		preemptionMinCount int32
-		target             *int32
-		want               int32
-	}{
-		"far above minCount": {
-			specCount: 5, preemptionMinCount: 1, want: 4,
-		},
-		"partially above minCount": {
-			specCount: 5, preemptionMinCount: 4, want: 1,
-		},
-		"at minCount": {
-			specCount: 2, preemptionMinCount: 2, want: 0,
-		},
-		"target caps used below minCount": {
-			specCount: 5, preemptionMinCount: 3, target: ptr.To[int32](2), want: 0,
-		},
-		"target caps used above minCount": {
-			specCount: 5, preemptionMinCount: 1, target: ptr.To[int32](3), want: 2,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			wl := makeWorkload(tc.specCount, tc.preemptionMinCount, tc.target)
-			if got := PartialPreemptionUsedCount(wl); got != tc.want {
-				t.Fatalf("PartialPreemptionUsedCount() = %d, want %d", got, tc.want)
 			}
 		})
 	}
@@ -165,8 +127,8 @@ func TestHasPendingPreemptionTargetCount(t *testing.T) {
 					Obj()).
 				Obj()
 		}
-		if target != nil {
-			wl.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = target
+		if target != nil && wl.Status.Admission != nil {
+			wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{TargetCount: target}
 		}
 		if reclaimable > 0 {
 			wl.Status.ReclaimablePods = []kueue.ReclaimablePod{{Name: "executor", Count: reclaimable}}
@@ -182,12 +144,43 @@ func TestHasPendingPreemptionTargetCount(t *testing.T) {
 		target              *int32
 		want                bool
 	}{
-		"no admission":               {specCount: 5, want: false},
-		"admission without target":   {admitted: true, specCount: 5, want: false},
-		"target above spec":          {admitted: true, specCount: 5, target: ptr.To[int32](2), want: true},
-		"spec lowered to target":     {admitted: true, specCount: 2, target: ptr.To[int32](2), want: false},
-		"reclaimable reaches target": {reclaimablePodsGate: true, admitted: true, specCount: 5, reclaimable: 3, target: ptr.To[int32](2), want: false},
-		"reclaimable above target":   {reclaimablePodsGate: true, admitted: true, specCount: 5, reclaimable: 1, target: ptr.To[int32](2), want: true},
+		"no admission": {
+			specCount: 5,
+			want:      false,
+		},
+		"admission without target": {
+			admitted:  true,
+			specCount: 5,
+			want:      false,
+		},
+		"target above spec": {
+			admitted:  true,
+			specCount: 5,
+			target:    ptr.To[int32](2),
+			want:      true,
+		},
+		"spec lowered to target": {
+			admitted:  true,
+			specCount: 2,
+			target:    ptr.To[int32](2),
+			want:      false,
+		},
+		"reclaimable reaches target": {
+			reclaimablePodsGate: true,
+			admitted:            true,
+			specCount:           5,
+			reclaimable:         3,
+			target:              ptr.To[int32](2),
+			want:                false,
+		},
+		"reclaimable above target": {
+			reclaimablePodsGate: true,
+			admitted:            true,
+			specCount:           5,
+			reclaimable:         1,
+			target:              ptr.To[int32](2),
+			want:                true,
+		},
 	}
 
 	for name, tc := range cases {

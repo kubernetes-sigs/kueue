@@ -920,19 +920,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"PartialPreemption and overlapping-target recomputation cannot be enabled together": {
-			featureGates: map[featuregate.Feature]bool{
-				features.PartialPreemption:                               true,
-				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
-			},
-			cfg: &configapi.Configuration{Integrations: defaultIntegrations},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeForbidden,
-					Field: "featureGates[PartialPreemption]",
-				},
-			},
-		},
 		"incompatible readiness gates are rejected without waitForPodsReady configuration": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,

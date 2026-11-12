@@ -737,7 +737,7 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 		return true, result, err
 	}
 
-	if changed, err := r.reconcileScaleDown(ctx, wl); changed || err != nil {
+	if done, err := r.reconcileScaleDown(ctx, wl); done {
 		return true, ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -777,46 +777,21 @@ func (r *WorkloadReconciler) reconcileActive(ctx context.Context, wl *kueue.Work
 	return false, ctrl.Result{}, nil
 }
 
-// reconcileScaleDown clears a partial-preemption reclaim target once the PodSet's effective count -
+// reconcileScaleDown clears a partial-preemption request once the PodSet's effective count -
 // the smaller of its spec-derived count and its admitted count psa.Count - has fallen to the target,
 // and flips the PartiallyPreempted condition to False with reason QuotaReleased.
-func (r *WorkloadReconciler) reconcileScaleDown(ctx context.Context, wl *kueue.Workload) (bool, error) {
-	if !workload.IsPartialPreemptionJob(wl) || wl.Status.Admission == nil {
-		return false, nil
-	}
-	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
+// It returns done=true when reconciliation should stop after handling a pending request.
+func (r *WorkloadReconciler) reconcileScaleDown(ctx context.Context, wl *kueue.Workload) (done bool, err error) {
+	if !workload.IsPartialPreemptionJob(wl) || wl.Status.Admission == nil || !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPartiallyPreempted) {
 		return false, nil
 	}
 	updated := false
-	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		// Recompute from scratch: the closure may re-run on a patch conflict.
-		updated = false
-		effectiveCounts := workload.PodSetsCountsAfterReclaim(wl)
-		for i := range wl.Status.Admission.PodSetAssignments {
-			psa := &wl.Status.Admission.PodSetAssignments[i]
-			if psa.PreemptionTargetCount == nil {
-				continue
-			}
-			target := *psa.PreemptionTargetCount
-			// Take the smaller of spec-derived and admitted count; the reactive path lowers only psa.Count.
-			effective := effectiveCounts[psa.Name]
-			if admitted := ptr.Deref(psa.Count, effective); admitted < effective {
-				effective = admitted
-			}
-			if effective <= target {
-				psa.PreemptionTargetCount = nil
-				updated = true
-			}
-		}
-		if updated {
-			workload.SetPartiallyPreemptedCondition(wl, r.clock.Now(), false,
-				kueue.WorkloadPartiallyPreemptedReasonQuotaReleased,
-				"Partial-preemption reclaim target satisfied; quota released")
-		}
+	err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updated = workload.ReleaseSatisfiedPreemptionTargets(wl, r.clock.Now())
 		return updated, nil
 	}, workloadpatching.WithLooseOnApply())
 	if err != nil {
-		return false, err
+		return true, err
 	}
 	return updated, nil
 }

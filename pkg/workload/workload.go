@@ -226,37 +226,6 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
-
-	// IsPartialPreemptionJob indicates whether this workload is an elastic job that has
-	// opted in to partial preemption (PartialPreemption gate on + annotation set).
-	// Computed once at Info construction time so comparators and iterators avoid
-	// per-call featureGate lookups and annotation map access.
-	IsPartialPreemptionJob bool
-
-	// HasPendingPreemptionTarget indicates whether this workload has any admitted PodSet with
-	// an in-flight partial-preemption reclaim target above its current count.
-	HasPendingPreemptionTarget bool
-
-	// PartialPreemptionUsedCount caches the effective preemptible replica count for a
-	// partial-preemption job.
-	PartialPreemptionUsedCount int32
-
-	// PreemptionTargetSlot records this workload's index in the preemption targets slice within a
-	// single attempt (sentinel-0 encoded: 0 = unset). Owned by the preemption package.
-	PreemptionTargetSlot int
-}
-
-// SetPreemptionTargetSlot stores idx as the slot, sentinel-0 encoded (idx+1).
-func (i *Info) SetPreemptionTargetSlot(idx int) {
-	i.PreemptionTargetSlot = idx + 1
-}
-
-// GetPreemptionTargetSlot returns the stored slot and whether it was set.
-func (i *Info) GetPreemptionTargetSlot() (int, bool) {
-	if i.PreemptionTargetSlot == 0 {
-		return 0, false
-	}
-	return i.PreemptionTargetSlot - 1, true
 }
 
 type PodSetResources struct {
@@ -369,14 +338,6 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.rebuildTotalRequests(&options)
 	if i.shouldUpdateDerivedFields(prev) {
 		i.updateDerivedFields(log, options.skipSchedulingHash)
-	}
-	i.IsPartialPreemptionJob = IsPartialPreemptionJob(wl)
-	if i.IsPartialPreemptionJob {
-		i.HasPendingPreemptionTarget = HasPendingPreemptionTargetCount(wl)
-		i.PartialPreemptionUsedCount = PartialPreemptionUsedCount(wl)
-	} else {
-		i.HasPendingPreemptionTarget = false
-		i.PartialPreemptionUsedCount = 0
 	}
 }
 
@@ -789,7 +750,7 @@ func ReclaimableCounts(wl *kueue.Workload) PodSetsCounts {
 	})
 }
 
-func PodSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+func podSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
 	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
@@ -838,7 +799,7 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	currentCounts := PodSetsCountsAfterReclaim(wl)
+	currentCounts := podSetsCountsAfterReclaim(wl)
 	for i, ps := range wl.Spec.PodSets {
 		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
@@ -879,7 +840,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	currentCounts := PodSetsCountsAfterReclaim(wl)
+	currentCounts := podSetsCountsAfterReclaim(wl)
 	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
