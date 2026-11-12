@@ -249,6 +249,83 @@ class SetReleaseNoteTest(unittest.TestCase):
         ):
             set_release_note.set_release_note(pr_body, "new note")
 
+    def test_ignores_release_notes_in_auto_generated_sections(self) -> None:
+        coderabbit_section = (
+            "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+            "## Summary by CodeRabbit\n\n"
+            "Suggested release note:\n\n"
+            "```release-note\nsuggested note\n```\n"
+            "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+        )
+        test_cases = {
+            "replace the author block before a generated section": (
+                "Summary\n\n```release-note\nold note\n```\n\n" + coderabbit_section,
+                "Summary\n\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "replace the author block after a generated section": (
+                coderabbit_section + "\n```release-note\nold note\n```\n",
+                coderabbit_section + "\n```release-note\nnew note\n```\n",
+            ),
+            "insert before a generated section when it holds the only block": (
+                "Summary\n\n\n" + coderabbit_section,
+                "Summary\n\n```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "insert at the top when the body is only a generated section": (
+                coderabbit_section,
+                "```release-note\nnew note\n```\n\n" + coderabbit_section,
+            ),
+            "ignore blocks in several generated sections": (
+                "```release-note\nold note\n```\n"
+                + coderabbit_section
+                + "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
+                "```release-note\nanother suggestion\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n",
+                "```release-note\nnew note\n```\n"
+                + coderabbit_section
+                + "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n"
+                "```release-note\nanother suggestion\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n",
+            ),
+        }
+
+        for name, (pr_body, want) in test_cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    want, set_release_note.set_release_note(pr_body, "new note")
+                )
+
+    def test_rejects_multiple_release_note_blocks_outside_generated_sections(
+        self,
+    ) -> None:
+        test_cases = {
+            "unterminated generated section": (
+                "```release-note\nfirst note\n```\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "```release-note\nsuggested note\n```\n"
+            ),
+            "mismatched end marker": (
+                "```release-note\nfirst note\n```\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: summarize by coderabbit.ai -->\n"
+            ),
+            "two author blocks next to a generated section": (
+                "```release-note\nfirst note\n```\n"
+                "```release-note\nsecond note\n```\n"
+                "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n"
+                "```release-note\nsuggested note\n```\n"
+                "<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n"
+            ),
+        }
+
+        for name, pr_body in test_cases.items():
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "The pull request body contains multiple release-note blocks.",
+                ):
+                    set_release_note.set_release_note(pr_body, "new note")
+
     def test_enforces_updated_body_length_limit(self) -> None:
         pr_body = "Summary"
         release_note = "new note"

@@ -99,6 +99,16 @@ PROW_COMMANDS = frozenset(
 # A line holding a single command, such as "/kind bug" or "/lgtm". Prow only
 # matches a command at the start of a line and ignores the case of its name.
 COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.IGNORECASE)
+# Sections that bots such as CodeRabbit add to the PR body, for example its
+# "Suggested release note" block. They are delimited by marker comments like
+# "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->"
+# and "<!-- end of auto-generated comment: release notes by coderabbit.ai -->".
+AUTO_GENERATED_SECTION_RE = re.compile(
+    r"<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)[ \t]*-->"
+    r".*?"
+    r"<!--[ \t]*end of auto-generated comment:[ \t]*(?P=label)[ \t]*-->",
+    re.DOTALL | re.IGNORECASE,
+)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -248,6 +258,11 @@ def _release_note_spans(pr_body: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _auto_generated_sections(pr_body: str) -> list[tuple[int, int]]:
+    """Find sections of the PR body that were added by a bot."""
+    return [match.span() for match in AUTO_GENERATED_SECTION_RE.finditer(pr_body)]
+
+
 def set_release_note(pr_body: str, release_note: str) -> str:
     """Replace an existing release-note block or append a standard block.
 
@@ -267,8 +282,21 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     ...     "new note",
     ... )
     'Summary\\n\\n```release-note\\nnew note\\n```\\nold note\\n\\nDetails\\n'
+
+    Release-note blocks inside a bot generated section, such as the CodeRabbit
+    "Suggested release note", are left untouched. When only such blocks exist,
+    the new block is inserted before the first generated section, so that it
+    stays the first release-note block in the body.
     """
-    spans = _release_note_spans(pr_body)
+    generated_sections = _auto_generated_sections(pr_body)
+    spans = [
+        span
+        for span in _release_note_spans(pr_body)
+        if not any(
+            section_start <= span[0] < section_end
+            for section_start, section_end in generated_sections
+        )
+    ]
     if len(spans) > 1:
         raise ValueError("The pull request body contains multiple release-note blocks.")
 
@@ -276,6 +304,11 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     if spans:
         start, end = spans[0]
         updated_body = f"{pr_body[:start]}{new_block}{pr_body[end:]}"
+    elif generated_sections:
+        start = generated_sections[0][0]
+        before = pr_body[:start].rstrip()
+        prefix = f"{before}\n\n" if before else ""
+        updated_body = f"{prefix}{new_block}\n\n{pr_body[start:]}"
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:
