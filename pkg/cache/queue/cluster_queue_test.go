@@ -979,6 +979,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 	now := time.Now()
 
 	tests := map[string]struct {
+		requeueAt          *metav1.Time
 		beforeResync       func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info)
 		afterResync        func(cq *ClusterQueue, wInfo *workload.Info)
 		wantInHeap         bool
@@ -1026,6 +1027,11 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			wantPendingActive: 1,
 			wantCPU:           singleWorkloadCPU,
 		},
+		"an untracked workload waiting for its requeue backoff becomes inadmissible": {
+			requeueAt:          new(metav1.NewTime(now.Add(time.Hour))),
+			wantInInadmissible: true,
+			wantCPU:            singleWorkloadCPU,
+		},
 	}
 
 	for name, tc := range tests {
@@ -1033,17 +1039,23 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 				Request(corev1.ResourceCPU, "1")
-			wInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("workload", defaultNamespace).
+			wl := utiltestingapi.MakeWorkload("workload", defaultNamespace).
 				PodSets(*ps.Obj()).
-				Creation(now).Obj())
+				Creation(now)
+			if tc.requeueAt != nil {
+				wl.RequeueState(new(int32(1)), tc.requeueAt)
+			}
+			wInfo := workload.NewInfo(log, wl.Obj())
 			key := workloadKey(wInfo)
 
-			tc.beforeResync(t, cq, wInfo)
+			if tc.beforeResync != nil {
+				tc.beforeResync(t, cq, wInfo)
+			}
 			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
 				key: wInfo,
 			}}
 			if added := cq.AddFromLocalQueue(lq, nil, nil); added {
-				t.Error("AddFromLocalQueue() = true, want false; the workload is already tracked")
+				t.Error("AddFromLocalQueue() = true, want false; the workload must not be added to the heap")
 			}
 
 			if tc.afterResync != nil {
