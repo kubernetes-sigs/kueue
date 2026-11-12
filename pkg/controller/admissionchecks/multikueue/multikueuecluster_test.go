@@ -1151,6 +1151,71 @@ func TestClustersReconcilerConnectedClient(t *testing.T) {
 	}
 }
 
+func TestRemoteClientRemembersWorkloadEvictions(t *testing.T) {
+	evicted := metav1.Condition{
+		Type:   kueue.WorkloadEvicted,
+		Status: metav1.ConditionTrue,
+		Reason: kueue.WorkloadEvictedByPreemption,
+	}
+	wlKey := types.NamespacedName{Name: "wl1", Namespace: TestNamespace}
+	admittedWl := utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj()
+	evictedWl := utiltestingapi.MakeWorkload("wl1", TestNamespace).Condition(evicted).Obj()
+
+	type watchEvent struct {
+		eventType watch.EventType
+		wl        *kueue.Workload
+		after     time.Duration
+	}
+	cases := map[string]struct {
+		events      []watchEvent
+		wantEvicted bool
+	}{
+		"no event seen": {},
+		"workload seen evicted": {
+			events:      []watchEvent{{eventType: watch.Modified, wl: evictedWl}},
+			wantEvicted: true,
+		},
+		"workload deleted after being seen evicted": {
+			events: []watchEvent{
+				{eventType: watch.Modified, wl: evictedWl},
+				{eventType: watch.Deleted, wl: evictedWl},
+			},
+			wantEvicted: true,
+		},
+		"workload seen admitted again after an eviction": {
+			events: []watchEvent{
+				{eventType: watch.Modified, wl: evictedWl},
+				{eventType: watch.Deleted, wl: evictedWl},
+				{eventType: watch.Added, wl: admittedWl},
+			},
+		},
+		"eviction seen longer ago than the retention": {
+			events: []watchEvent{
+				{eventType: watch.Modified, wl: evictedWl},
+				{after: evictedWorkloadRetention},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			fakeClock := testingclock.NewFakeClock(time.Now())
+			wlUpdateCh := make(chan event.TypedGenericEvent[workloadEvent], len(tc.events))
+			rc := newRemoteClient(getClientBuilder(ctx).Build(), wlUpdateCh, nil, nil, defaultOrigin, "worker1", nil)
+			rc.clock = fakeClock
+			for _, e := range tc.events {
+				fakeClock.Step(e.after)
+				if e.wl != nil {
+					rc.handleWatchEvent(ctx, log, watch.Event{Type: e.eventType, Object: e.wl.DeepCopy()}, &workloadKueueWatcher{})
+				}
+			}
+			if got := rc.wasWorkloadEvicted(wlKey); got != tc.wantEvicted {
+				t.Errorf("unexpected eviction record, want %v got %v", tc.wantEvicted, got)
+			}
+		})
+	}
+}
+
 func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
