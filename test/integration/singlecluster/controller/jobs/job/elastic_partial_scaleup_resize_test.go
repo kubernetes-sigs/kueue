@@ -103,6 +103,37 @@ var _ = ginkgo.Describe("Elastic partial Job resizing", ginkgo.Label("job:batch"
 		behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)
 	})
 
+	ginkgo.It("Should keep the lowered minimum in the new workload slice when a partial Job scales up after scaling below its minimum", func() {
+		behavioral.MustCreate(ctx, k8sClient, job)
+		wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, kueue.DefaultPodSetName, 4)
+		gomega.Expect(wl.Spec.PodSets[0].MinCount).To(gomega.Equal(new(int32(4))))
+
+		ginkgo.By("scaling the admitted Job from four pods to one")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = new(int32(1))
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+			g.Expect(wl.Spec.PodSets[0].MinCount).To(gomega.Equal(new(int32(1))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling the Job from one pod to five")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		newSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, newSlice, kueue.DefaultPodSetName, 5)
+		gomega.Expect(newSlice.Spec.PodSets[0].Count).To(gomega.Equal(int32(5)))
+		gomega.Expect(newSlice.Spec.PodSets[0].MinCount).To(gomega.Equal(new(int32(1))))
+	})
+
 	ginkgo.It("Should admit a pending partial Job after it scales below its minimum", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
