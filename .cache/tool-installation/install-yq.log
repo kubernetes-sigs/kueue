@@ -1,0 +1,9 @@
+2026-11-12 18:32:57,976 DEBUG Installing yq v4.53.6 for darwin/arm64 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/yq
+2026-11-12 18:32:57,976 INFO Downloading yq v4.53.6 for darwin/arm64
+2026-11-12 18:32:57,976 DEBUG Selected release mikefarah/yq@v4.53.6, asset yq_darwin_arm64
+2026-11-12 18:32:57,976 DEBUG Downloading https://github.com/mikefarah/yq/releases/download/v4.53.6/checksums-bsd
+2026-11-12 18:32:59,536 DEBUG Downloaded 162363 bytes from https://github.com/mikefarah/yq/releases/download/v4.53.6/checksums-bsd
+2026-11-12 18:32:59,540 DEBUG Downloading https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_darwin_arm64
+2026-11-12 18:33:23,227 DEBUG Downloaded 13430242 bytes from https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_darwin_arm64
+2026-11-12 18:33:23,232 DEBUG Verified SHA256 cceb0b8d71ea5294334121f8429f33f92b920e7217d904a2f9f35443968ac424 for yq_darwin_arm64
+2026-11-12 18:33:23,238 INFO Installed yq v4.53.6 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/yq

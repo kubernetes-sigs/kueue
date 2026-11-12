@@ -1,0 +1,9 @@
+2026-11-07 10:10:19,392 DEBUG Installing mdtoc v1.4.0 for darwin/arm64 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/mdtoc
+2026-11-07 10:10:19,392 INFO Downloading mdtoc v1.4.0 for darwin/arm64
+2026-11-07 10:10:19,392 DEBUG Selected release kubernetes-sigs/mdtoc@v1.4.0, asset mdtoc-arm64-darwin
+2026-11-07 10:10:19,392 DEBUG Downloading https://github.com/kubernetes-sigs/mdtoc/releases/download/v1.4.0/checksums.txt (attempt 1/7)
+2026-11-07 10:10:20,757 DEBUG Downloaded 686 bytes from https://github.com/kubernetes-sigs/mdtoc/releases/download/v1.4.0/checksums.txt
+2026-11-07 10:10:20,757 DEBUG Downloading https://github.com/kubernetes-sigs/mdtoc/releases/download/v1.4.0/mdtoc-arm64-darwin (attempt 1/7)
+2026-11-07 10:10:22,209 DEBUG Downloaded 6714242 bytes from https://github.com/kubernetes-sigs/mdtoc/releases/download/v1.4.0/mdtoc-arm64-darwin
+2026-11-07 10:10:22,212 DEBUG Verified SHA256 923e8b6f7810b6bd4c7c8a3bb68131d582ff6fe03548fe8df4730b546c145d8a for mdtoc-arm64-darwin
+2026-11-07 10:10:22,220 INFO Installed mdtoc v1.4.0 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/mdtoc

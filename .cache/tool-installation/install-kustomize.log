@@ -1,0 +1,9 @@
+2026-11-12 18:33:23,373 DEBUG Installing kustomize v5.8.1 for darwin/arm64 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/kustomize
+2026-11-12 18:33:23,374 INFO Downloading kustomize v5.8.1 for darwin/arm64
+2026-11-12 18:33:23,374 DEBUG Selected release kubernetes-sigs/kustomize@kustomize/v5.8.1, asset kustomize_v5.8.1_darwin_arm64.tar.gz
+2026-11-12 18:33:23,374 DEBUG Downloading https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/checksums.txt
+2026-11-12 18:33:24,150 DEBUG Downloaded 818 bytes from https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/checksums.txt
+2026-11-12 18:33:24,150 DEBUG Downloading https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_darwin_arm64.tar.gz
+2026-11-12 18:33:25,735 DEBUG Downloaded 4918398 bytes from https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_darwin_arm64.tar.gz
+2026-11-12 18:33:25,739 DEBUG Verified SHA256 8886f8a78474e608cc81234f729fda188a9767da23e28925802f00ece2bab288 for kustomize_v5.8.1_darwin_arm64.tar.gz
+2026-11-12 18:33:25,780 INFO Installed kustomize v5.8.1 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/kustomize

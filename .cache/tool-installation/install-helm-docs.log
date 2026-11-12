@@ -1,0 +1,2 @@
+2026-11-12 18:33:25,877 DEBUG Installing helm-docs v1.14.2 for darwin/arm64 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/helm-docs
+2026-11-12 18:33:25,881 INFO Reusing helm-docs v1.14.2 for darwin/arm64

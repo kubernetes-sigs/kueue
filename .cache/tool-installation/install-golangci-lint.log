@@ -1,0 +1,9 @@
+2026-11-07 10:10:17,404 DEBUG Installing golangci-lint v2.15.0 for darwin/arm64 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/golangci-lint
+2026-11-07 10:10:17,405 INFO Downloading golangci-lint v2.15.0 for darwin/arm64
+2026-11-07 10:10:17,405 DEBUG Selected release golangci/golangci-lint@v2.15.0, asset golangci-lint-2.15.0-darwin-arm64.tar.gz
+2026-11-07 10:10:17,405 DEBUG Downloading https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-checksums.txt (attempt 1/7)
+2026-11-07 10:10:17,929 DEBUG Downloaded 8413 bytes from https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-checksums.txt
+2026-11-07 10:10:17,929 DEBUG Downloading https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-darwin-arm64.tar.gz (attempt 1/7)
+2026-11-07 10:10:24,242 DEBUG Downloaded 14858012 bytes from https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-darwin-arm64.tar.gz
+2026-11-07 10:10:24,248 DEBUG Verified SHA256 d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5 for golangci-lint-2.15.0-darwin-arm64.tar.gz
+2026-11-07 10:10:24,370 INFO Installed golangci-lint v2.15.0 into /Users/mykhailo_bobrovskyi/Projects/mbobrovskyi/kueue/bin/golangci-lint
