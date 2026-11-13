@@ -18,14 +18,19 @@ package scheduler
 
 import (
 	"context"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -198,6 +203,163 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 		})
 	})
 
+	ginkgo.It("should fall back to spec when validUntil passes after the DQO that wrote the effective quota is deleted", func() {
+		cp := utiltestingalpha.MakeCapacityProvider("dynquota-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors(flavor.Name).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cp)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+		})
+
+		ginkgo.By("reporting 0 CPU for the flavor", func() {
+			setCapacityProviderStatus(ctx, k8sClient, cp, flavor, "0", metav1.ConditionTrue)
+		})
+
+		orchestrator := utiltestingalpha.MakeDynamicQuotaOrchestrator("dynquota-dqo").
+			DiscoveryProvider(cp.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, clusterQueue.Name).
+			EffectiveQuotaTTL(time.Minute).
+			Obj()
+		ginkgo.By("distributing an effective quota of 0 CPU with a 1m TTL", func() {
+			behavioral.MustCreate(ctx, k8sClient, orchestrator)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, orchestrator, true)
+			})
+			expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, behavioral.Timeout)
+		})
+
+		wl := utiltestingapi.MakeWorkload("wl-dqo-deleted", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		ginkgo.By("creating a workload that fits spec but not the effective quota", func() {
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("deleting the DQO", func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, orchestrator, true)
+		})
+
+		ginkgo.By("moving validUntil to a few seconds from now as if the TTL had passed", func() {
+			setCQValidUntil(ctx, k8sClient, clusterQueue, time.Now().Add(expiryDelay))
+		})
+
+		ginkgo.By("verifying the effective quota expires and the workload is admitted under spec", func() {
+			expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, behavioral.MediumTimeout)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+	})
+
+	ginkgo.DescribeTable("should fall back to spec when the DQO stops renewing and use the effective quota again when it resumes",
+		func(stop, resume func(cp *kueuealpha.CapacityProvider, orchestrator *kueuealpha.DynamicQuotaOrchestrator)) {
+			cp := utiltestingalpha.MakeCapacityProvider("dynquota-cp").
+				ControllerName("example.com/test-provider").
+				OrchestratedFlavors(flavor.Name).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cp)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+			})
+			setCapacityProviderStatus(ctx, k8sClient, cp, flavor, "0", metav1.ConditionTrue)
+
+			orchestrator := utiltestingalpha.MakeDynamicQuotaOrchestrator("dynquota-dqo").
+				DiscoveryProvider(cp.Name, nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, clusterQueue.Name).
+				EffectiveQuotaTTL(time.Minute).
+				Obj()
+			ginkgo.By("distributing an effective quota of 0 CPU with a 1m TTL", func() {
+				behavioral.MustCreate(ctx, k8sClient, orchestrator)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, orchestrator, true)
+				})
+				expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, behavioral.Timeout)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-dqo-stopped", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("creating a workload that fits spec but not the effective quota", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("stopping distribution", func() {
+				stop(cp, orchestrator)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var latest kueuealpha.DynamicQuotaOrchestrator
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orchestrator), &latest)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(latest.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)).To(gomega.BeFalse())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("moving validUntil to a few seconds from now as if the TTL had passed", func() {
+				setCQValidUntil(ctx, k8sClient, clusterQueue, time.Now().Add(expiryDelay))
+			})
+
+			ginkgo.By("verifying the effective quota expires and the workload is admitted under spec", func() {
+				expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, behavioral.MediumTimeout)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("verifying the info metric no longer reports the orchestrator", func() {
+				behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
+			})
+
+			ginkgo.By("resuming distribution with 3 CPU", func() {
+				resume(cp, orchestrator)
+				expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, behavioral.Timeout)
+			})
+
+			ginkgo.By("verifying a workload that only fits the effective quota is admitted", func() {
+				wl2 := utiltestingapi.MakeWorkload("wl-dqo-resumed", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "2").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			})
+		},
+		ginkgo.Entry("after the CapacityProvider stops being ready",
+			func(cp *kueuealpha.CapacityProvider, _ *kueuealpha.DynamicQuotaOrchestrator) {
+				setCapacityProviderStatus(ctx, k8sClient, cp, flavor, "0", metav1.ConditionFalse)
+			},
+			func(cp *kueuealpha.CapacityProvider, _ *kueuealpha.DynamicQuotaOrchestrator) {
+				setCapacityProviderStatus(ctx, k8sClient, cp, flavor, "3", metav1.ConditionTrue)
+			},
+		),
+		ginkgo.Entry("after capacityDistribution is removed",
+			func(_ *kueuealpha.CapacityProvider, orchestrator *kueuealpha.DynamicQuotaOrchestrator) {
+				setCapacityDistribution(ctx, k8sClient, orchestrator, nil)
+			},
+			func(cp *kueuealpha.CapacityProvider, orchestrator *kueuealpha.DynamicQuotaOrchestrator) {
+				setCapacityProviderStatus(ctx, k8sClient, cp, flavor, "3", metav1.ConditionTrue)
+				setCapacityDistribution(ctx, k8sClient, orchestrator, orchestrator.Spec.CapacityDistribution)
+			},
+		),
+	)
+
+	ginkgo.It("should never expire an effective quota without validUntil", func() {
+		updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "5", "external-controller")
+
+		wl := utiltestingapi.MakeWorkload("wl-no-valid-until", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		expectEffectiveQuotaActive(ctx, k8sClient, clusterQueue, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, behavioral.Timeout)
+
+		gomega.Consistently(func(g gomega.Gomega) {
+			var currentCQ kueue.ClusterQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &currentCQ)).To(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(currentCQ.Status.Conditions, kueue.EffectiveQuotaActive)).To(gomega.BeTrue())
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.Context("with Cohort", func() {
 		ginkgo.BeforeEach(func() {
 			cohort = utiltestingapi.MakeCohort("dynquota-cohort").
@@ -315,6 +477,51 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 			})
 		})
 
+		ginkgo.It("should fall back to Cohort spec after validUntil is added to an unchanged effective quota and passes", func() {
+			wl := utiltestingapi.MakeWorkload("wl-cohort-expiry", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			ginkgo.By("setting a Cohort effective quota of 0 CPU without validUntil", func() {
+				updateCohortEffectiveQuotas(ctx, k8sClient, cohort, flavor, "0", "dqo-test")
+				behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "dqo-test", 1)
+			})
+
+			ginkgo.By("creating a workload that needs to borrow the Cohort spec quota", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("adding only validUntil, an hour from now, to the Cohort effective quota", func() {
+				setCohortEffectiveQuotaStatus(ctx, k8sClient, cohort,
+					utiltestingapi.MakeEffectiveQuotaStatus().
+						Name("dqo-test").
+						ResourceGroups(utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj())).
+						ValidUntil(time.Now().Add(time.Hour)).
+						Obj())
+				expectEffectiveQuotaActive(ctx, k8sClient, cohort, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, behavioral.Timeout)
+			})
+
+			ginkgo.By("moving validUntil to a few seconds from now", func() {
+				setCohortEffectiveQuotaStatus(ctx, k8sClient, cohort,
+					utiltestingapi.MakeEffectiveQuotaStatus().
+						Name("dqo-test").
+						ResourceGroups(utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj())).
+						ValidUntil(time.Now().Add(expiryDelay)).
+						Obj())
+			})
+
+			ginkgo.By("verifying the Cohort effective quota expires and the workload borrows under Cohort spec", func() {
+				expectEffectiveQuotaActive(ctx, k8sClient, cohort, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, behavioral.MediumTimeout)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("verifying the Cohort info metric no longer reports the orchestrator", func() {
+				behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
+			})
+		})
+
 		ginkgo.It("should ignore Cohort EffectiveQuotas status when DynamicQuotaOrchestration feature gate is disabled", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicQuotaOrchestration, false)
 
@@ -420,4 +627,83 @@ func makeEffectiveQuotaStatus(flavor *kueue.ResourceFlavor, cpuQty, orchestrator
 			),
 		},
 	}
+}
+
+const expiryDelay = 5 * time.Second
+
+func setCohortEffectiveQuotaStatus(ctx context.Context, k8sClient client.Client, cohort *kueue.Cohort, eq *kueue.EffectiveQuotaStatus) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		var currentCohort kueue.Cohort
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &currentCohort)).To(gomega.Succeed())
+		currentCohort.Status.EffectiveQuotas = eq
+		g.Expect(k8sClient.Status().Update(ctx, &currentCohort)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// expectEffectiveQuotaActive waits for the EffectiveQuotaActive condition on a ClusterQueue or a Cohort.
+func expectEffectiveQuotaActive(ctx context.Context, k8sClient client.Client, obj client.Object, status metav1.ConditionStatus, reason string, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		var conditions []metav1.Condition
+		switch obj.(type) {
+		case *kueue.ClusterQueue:
+			var current kueue.ClusterQueue
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &current)).To(gomega.Succeed())
+			conditions = current.Status.Conditions
+		case *kueue.Cohort:
+			var current kueue.Cohort
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &current)).To(gomega.Succeed())
+			conditions = current.Status.Conditions
+		}
+		condition := apimeta.FindStatusCondition(conditions, kueue.EffectiveQuotaActive)
+		g.Expect(condition).NotTo(gomega.BeNil())
+		g.Expect(condition.Status).To(gomega.Equal(status))
+		g.Expect(condition.Reason).To(gomega.Equal(reason))
+	}, timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+func setCQValidUntil(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, validUntil time.Time) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		var currentCQ kueue.ClusterQueue
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &currentCQ)).To(gomega.Succeed())
+		g.Expect(currentCQ.Status.EffectiveQuotas).NotTo(gomega.BeNil())
+		currentCQ.Status.EffectiveQuotas.ValidUntil = &metav1.Time{Time: validUntil}
+		g.Expect(k8sClient.Status().Update(ctx, &currentCQ)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// setCapacityProviderStatus reports cpuQty for the flavor, with the CapacitySynchronized
+// condition True, or False as when the capacity source is unavailable.
+func setCapacityProviderStatus(ctx context.Context, k8sClient client.Client, cp *kueuealpha.CapacityProvider, flavor *kueue.ResourceFlavor, cpuQty string, synchronized metav1.ConditionStatus) {
+	ginkgo.GinkgoHelper()
+	reason := kueuealpha.CapacityProviderReasonSynchronized
+	if synchronized != metav1.ConditionTrue {
+		reason = kueuealpha.CapacityProviderReasonSourceUnavailable
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		var latest kueuealpha.CapacityProvider
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latest)).To(gomega.Succeed())
+		latest.Status.Capacity = utiltestingalpha.MakeNormalizedCapacity().
+			Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(flavor.Name).Resource(corev1.ResourceCPU, cpuQty).Obj()).
+			Obj()
+		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+			Type:               kueuealpha.CapacityProviderCapacitySynchronized,
+			Status:             synchronized,
+			Reason:             reason,
+			ObservedGeneration: latest.Generation,
+		})
+		g.Expect(k8sClient.Status().Update(ctx, &latest)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+func setCapacityDistribution(ctx context.Context, k8sClient client.Client, orchestrator *kueuealpha.DynamicQuotaOrchestrator, capacityDistribution *kueuealpha.CapacityDistribution) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		var latest kueuealpha.DynamicQuotaOrchestrator
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orchestrator), &latest)).To(gomega.Succeed())
+		latest.Spec.CapacityDistribution = capacityDistribution.DeepCopy()
+		g.Expect(k8sClient.Update(ctx, &latest)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }

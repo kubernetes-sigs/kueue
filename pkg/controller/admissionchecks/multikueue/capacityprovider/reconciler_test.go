@@ -984,6 +984,67 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantStatusPatches: 1,
 		},
+		"worker status.effectiveQuotas with EffectiveQuotaActive=False is ignored": {
+			cp: utiltestingalpha.MakeCapacityProvider("cp1").
+				ControllerName(kueue.MultiKueueControllerName).
+				OrchestratedFlavors("default").
+				Parameters(kueuealpha.SchemeGroupVersion.Group, testProviderConfigKind, "cp-config1").
+				Generation(1).
+				Obj(),
+			providerConfigs: []*kueuealpha.MultiKueueCapacityProviderConfig{
+				utiltestingalpha.MakeMultiKueueCapacityProviderConfig("cp-config1").ManagerSubtreeRootRef(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq1").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "1").Obj()).
+					AdmissionChecks("ac1").
+					Obj(),
+			},
+			lqs: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
+			},
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			mkConfigs: []*kueue.MultiKueueConfig{
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj(),
+			},
+			workers: map[string]cpWorkerState{
+				"worker1": {
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
+					cqs: []*kueue.ClusterQueue{
+						utiltestingapi.MakeClusterQueue("w1-cq1").
+							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
+							EffectiveQuotas(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "7").Obj()).
+							Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+							Obj(),
+					},
+				},
+				"worker2": {
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
+					cqs: []*kueue.ClusterQueue{
+						utiltestingapi.MakeClusterQueue("w2-cq1").
+							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj()).
+							Obj(),
+					},
+				},
+			},
+			wantCP: utiltestingalpha.MakeCapacityProvider("cp1").
+				ControllerName(kueue.MultiKueueControllerName).
+				OrchestratedFlavors("default").
+				Parameters(kueuealpha.SchemeGroupVersion.Group, testProviderConfigKind, "cp-config1").
+				Generation(1).
+				Capacity(utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("default").Resource("cpu", "105").Obj()).
+					Obj(),
+				).
+				Condition(synchronizedCondition("Capacity synchronized from MultiKueue worker clusters", 1)).
+				Obj(),
+			wantStatusPatches: 1,
+		},
 		"worker status.effectiveQuotas with empty resourceGroups contributes zero": {
 			cp: utiltestingalpha.MakeCapacityProvider("cp1").
 				ControllerName(kueue.MultiKueueControllerName).

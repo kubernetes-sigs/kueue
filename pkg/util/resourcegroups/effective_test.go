@@ -18,9 +18,11 @@ package resourcegroups
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -73,6 +75,41 @@ func TestEffectiveResourceGroups(t *testing.T) {
 				return cq
 			}(),
 			wantRGs: []kueue.ResourceGroup{},
+		},
+		"DynamicQuotaOrchestration enabled returns spec when EffectiveQuotaActive is False": {
+			dynamicQuota: true,
+			cq: utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when EffectiveQuotaActive is True": {
+			dynamicQuota: true,
+			cq: utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when validUntil passed but the condition is not set": {
+			dynamicQuota: true,
+			cq: utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(specFlavor).
+				EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(utiltestingapi.ResourceGroup(effectiveFlavor)).
+					ValidUntil(time.Now().Add(-time.Hour)).
+					Obj()).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
 		},
 		"nil cluster queue returns nil": {
 			dynamicQuota: true,
@@ -138,6 +175,41 @@ func TestEffectiveCohortResourceGroups(t *testing.T) {
 				return c
 			}(),
 			wantRGs: []kueue.ResourceGroup{},
+		},
+		"DynamicQuotaOrchestration enabled returns spec when EffectiveQuotaActive is False": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when EffectiveQuotaActive is True": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when validUntil passed but the condition is not set": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(utiltestingapi.ResourceGroup(effectiveFlavor)).
+					ValidUntil(time.Now().Add(-time.Hour)).
+					Obj()).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
 		},
 		"nil cohort returns nil": {
 			dynamicQuota: true,

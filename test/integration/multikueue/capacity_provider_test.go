@@ -202,6 +202,23 @@ var _ = ginkgo.Describe("MultiKueue CapacityProvider", ginkgo.Label("area:multik
 					Obj())
 		})
 
+		ginkgo.By("letting status.effectiveQuotas on worker1 expire so the provider falls back to spec", func() {
+			behavioral.SetClusterQueueEffectiveQuotas(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, utiltestingapi.MakeEffectiveQuotaStatus().
+				ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "7").Obj(),
+				)).
+				ValidUntil(time.Now().Add(5*time.Second)).
+				Obj())
+			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "12").Obj()).
+					Obj())
+			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj())
+		})
+
 		ginkgo.By("clearing status.effectiveQuotas on worker1 so the provider falls back to spec", func() {
 			behavioral.SetClusterQueueEffectiveQuotas(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, nil)
 			behavioral.ExpectCapacityProviderCapacity(managerTestCluster.ctx, managerTestCluster.client, cpKey,

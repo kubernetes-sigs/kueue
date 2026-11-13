@@ -26,9 +26,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -394,6 +397,16 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 	rootToA := utiltestingapi.MakeCohort("root").Parent("cohort-a").Obj()
 	aToRoot := utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj()
 	aNoParent := utiltestingapi.MakeCohort("cohort-a").Obj()
+	rootValid := utiltestingapi.MakeCohort("root").
+		ResourceGroup(quota("5")).
+		EffectiveQuotas(quota("10")).
+		Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").
+		Obj()
+	rootExpired := utiltestingapi.MakeCohort("root").
+		ResourceGroup(quota("5")).
+		EffectiveQuotas(quota("10")).
+		Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+		Obj()
 
 	type cohortEvent struct {
 		create *kueue.Cohort
@@ -402,8 +415,9 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 		delete *kueue.Cohort
 	}
 	tests := []struct {
-		name   string
-		events []cohortEvent
+		name         string
+		dynamicQuota bool
+		events       []cohortEvent
 		// reconcile runs the leader's Reconcile for root after the events.
 		reconcile bool
 		// wantSubtreeQuota is the red cpu quota of root in the snapshot, nil
@@ -437,6 +451,20 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 			wantCQActive:     true,
 		},
 		{
+			name:             "the effective quota is used while it is active",
+			dynamicQuota:     true,
+			events:           []cohortEvent{{create: rootValid}},
+			wantSubtreeQuota: new(resources.NewAmount(10_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "the effective quota turning inactive switches to the spec quota",
+			dynamicQuota:     true,
+			events:           []cohortEvent{{create: rootValid}, {old: rootValid, update: rootExpired}},
+			wantSubtreeQuota: new(resources.NewAmount(5_000)),
+			wantCQActive:     true,
+		},
+		{
 			name:         "a cycle deactivates the ClusterQueue",
 			events:       []cohortEvent{{create: rootToA}, {create: aToRoot}},
 			wantCQActive: false,
@@ -455,6 +483,7 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, tc.dynamicQuota)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().Build()
 			cache := schdcache.New(cl)
@@ -619,6 +648,62 @@ func TestCohortReconcilerFilters(t *testing.T) {
 			).Obj(),
 			want: false,
 		},
+		"updating only status.effectiveQuotas.validUntil with DynamicQuotaOrchestration enabled returns true": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			old: utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(
+				utiltestingapi.MakeEffectiveQuotaStatus().ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+				)).Obj(),
+			).Obj(),
+			new: utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(
+				utiltestingapi.MakeEffectiveQuotaStatus().ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+				)).ValidUntil(time.Now().Add(10 * time.Minute)).Obj(),
+			).Obj(),
+			want: true,
+		},
+		"updating only status.effectiveQuotas.validUntil with DynamicQuotaOrchestration disabled returns false": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: false},
+			old: utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(
+				utiltestingapi.MakeEffectiveQuotaStatus().ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+				)).Obj(),
+			).Obj(),
+			new: utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(
+				utiltestingapi.MakeEffectiveQuotaStatus().ResourceGroups(utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+				)).ValidUntil(time.Now().Add(10 * time.Minute)).Obj(),
+			).Obj(),
+			want: false,
+		},
+		"effective quota turning inactive with DynamicQuotaOrchestration enabled returns true": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+			).Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+			).Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj(),
+			want: true,
+		},
+		"effective quota turning inactive when spec and effective quotas are equal returns true": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj(),
+			want: true,
+		},
 		"updating unrelated status returns false": {
 			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
 			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
@@ -645,6 +730,60 @@ func TestCohortReconcilerFilters(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tc.want, !tc.want)
 			}
 		})
+	}
+}
+
+// Renewing validUntil without changing the quota reconciles the Cohort, so it
+// requeues for the new time, but does not notify its ClusterQueues.
+func TestCohortReconcilerValidUntilOnlyUpdateSkipsClusterQueueNotification(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	// The fake client stores timestamps with second precision.
+	now := time.Now().Truncate(time.Second)
+	effectiveQuotas := utiltestingapi.MakeEffectiveQuotaStatus().
+		ResourceGroups(utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("red").Resource(corev1.ResourceCPU, "10").Obj(),
+		))
+	cohort := utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(effectiveQuotas.Clone().ValidUntil(now.Add(5 * time.Minute)).Obj()).Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(cohort).WithStatusSubresource(cohort).Build()
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cache)
+	reconciler := NewCohortReconciler(cl, cache, qManager)
+	reconciler.clock = testingclock.NewFakeClock(now)
+	recorder := &cohortUpdateRecorder{}
+	reconciler.AddUpdateWatcher(recorder)
+	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
+
+	if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
+		t.Fatal("cohort create event was filtered out")
+	}
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error reconciling cohort: %v", err)
+	}
+	if result.RequeueAfter != 5*time.Minute || len(recorder.updates) != 1 {
+		t.Fatalf("after create: RequeueAfter = %v, notifications = %d, want 5m0s, 1", result.RequeueAfter, len(recorder.updates))
+	}
+
+	var current kueue.Cohort
+	if err := cl.Get(ctx, req.NamespacedName, &current); err != nil {
+		t.Fatalf("unexpected error getting cohort: %v", err)
+	}
+	renewed := current.DeepCopy()
+	renewed.Status.EffectiveQuotas.ValidUntil = &metav1.Time{Time: now.Add(10 * time.Minute)}
+	if err := cl.Status().Update(ctx, renewed); err != nil {
+		t.Fatalf("unexpected error renewing validUntil: %v", err)
+	}
+	if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: &current, ObjectNew: renewed}) {
+		t.Fatal("validUntil-only update event was filtered out")
+	}
+	result, err = reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error reconciling cohort: %v", err)
+	}
+	if result.RequeueAfter != 10*time.Minute || len(recorder.updates) != 1 {
+		t.Errorf("after renewal: RequeueAfter = %v, notifications = %d, want 10m0s, 1", result.RequeueAfter, len(recorder.updates))
 	}
 }
 
@@ -749,7 +888,7 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 			qManager := qcache.NewManagerForUnitTests(cl, cache)
 			reconciler := NewCohortReconciler(cl, cache, qManager, CohortReconcilerWithFairSharing(tc.fairSharingEnabled))
 
-			if err := reconciler.updateCohortStatusIfChanged(ctx, cohort); err != nil {
+			if _, err := reconciler.updateCohortStatusIfChanged(ctx, cohort); err != nil {
 				t.Fatalf("Updating cohort status: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantCohortStatus, cohort.Status); diff != "" {
@@ -769,6 +908,106 @@ func TestUpdateCohortStatusIfChanged(t *testing.T) {
 				if diff := cmp.Diff(*tc.wantWeightedShareMetric, dps[0].Value, cmpopts.EquateNaNs()); diff != "" {
 					t.Errorf("unexpected CohortWeightedShare metric value (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+// The Cohort controller owns the EffectiveQuotaActive condition and requeues
+// the Cohort for validUntil while the effective quota is active.
+func TestCohortReconcileEffectiveQuotaActive(t *testing.T) {
+	// The fake client stores timestamps with second precision.
+	now := time.Now().Truncate(time.Second)
+
+	cohort := utiltestingapi.MakeCohort("cohort").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("red").Resource(corev1.ResourceCPU, "10").Obj())
+	effectiveQuotas := utiltestingapi.MakeEffectiveQuotaStatus().
+		ResourceGroups(utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("red").Resource(corev1.ResourceCPU, "20").Obj(),
+		))
+	expired := &metav1.Condition{
+		Type:    kueue.EffectiveQuotaActive,
+		Status:  metav1.ConditionFalse,
+		Reason:  kueue.EffectiveQuotaActiveReasonExpired,
+		Message: "status.effectiveQuotas.validUntil has passed",
+	}
+
+	cases := map[string]struct {
+		disableFeatureGate bool
+		cohort             *kueue.Cohort
+		wantCondition      *metav1.Condition
+		wantRequeueAfter   time.Duration
+	}{
+		"validUntil in the future: Ready and requeued for validUntil": {
+			cohort: cohort.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ValidUntil(now.Add(4 * time.Minute)).Obj()).Obj(),
+			wantCondition: &metav1.Condition{
+				Type:    kueue.EffectiveQuotaActive,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.EffectiveQuotaActiveReasonReady,
+				Message: "status.effectiveQuotas.validUntil has not passed",
+			},
+			wantRequeueAfter: 4 * time.Minute,
+		},
+		"validUntil passed: Expired": {
+			cohort:        cohort.Clone().EffectiveQuotaStatus(effectiveQuotas.Clone().ValidUntil(now.Add(-time.Second)).Obj()).Obj(),
+			wantCondition: expired,
+		},
+		"Cohort without spec.resourceGroups follows the same rules": {
+			cohort:        utiltestingapi.MakeCohort("cohort").EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().ValidUntil(now.Add(-time.Second)).Obj()).Obj(),
+			wantCondition: expired,
+		},
+		"Ready when validUntil is cleared": {
+			cohort: cohort.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+			wantCondition: &metav1.Condition{
+				Type:    kueue.EffectiveQuotaActive,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.EffectiveQuotaActiveReasonReady,
+				Message: "status.effectiveQuotas.validUntil is not set",
+			},
+		},
+		"condition removed when effectiveQuotas is cleared": {
+			cohort: cohort.Clone().
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+		"condition removed when the feature gate is disabled": {
+			disableFeatureGate: true,
+			cohort: cohort.Clone().
+				EffectiveQuotaStatus(effectiveQuotas.Clone().ValidUntil(now.Add(-time.Second)).Obj()).
+				Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, !tc.disableFeatureGate)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.cohort).WithStatusSubresource(&kueue.Cohort{}).Build()
+			cache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			reconciler := NewCohortReconciler(cl, cache, qManager)
+			reconciler.clock = testingclock.NewFakeClock(now)
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.cohort)})
+			if err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if result.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, tc.wantRequeueAfter)
+			}
+
+			got := &kueue.Cohort{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.cohort), got); err != nil {
+				t.Fatalf("Failed to get Cohort: %v", err)
+			}
+			gotCondition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.EffectiveQuotaActive)
+			if diff := cmp.Diff(tc.wantCondition, gotCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected EffectiveQuotaActive condition (-want,+got):\n%s", diff)
 			}
 		})
 	}

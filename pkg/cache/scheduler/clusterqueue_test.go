@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -745,6 +747,67 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	cqObj = cache.hm.ClusterQueue("cq-eff")
 	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// The cache ignores an effective quota marked EffectiveQuotaActive=False and uses
+// it again once the condition is True. It never compares validUntil with the clock.
+func TestClusterQueueEffectiveQuotasInvalid(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	metrics.ClearClusterQueueResourceMetrics("cq-stale")
+	t.Cleanup(func() { metrics.ClearClusterQueueResourceMetrics("cq-stale") })
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	base := utiltestingapi.MakeClusterQueue("cq-stale").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().
+			Name("dqo-stale").
+			ResourceGroups(utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+			)).
+			ValidUntil(time.Now().Add(-time.Hour)).
+			Obj())
+	valid := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionTrue, kueue.EffectiveQuotaActiveReasonReady, "").Obj()
+	expired := base.Clone().Condition(kueue.EffectiveQuotaActive, metav1.ConditionFalse, kueue.EffectiveQuotaActiveReasonExpired, "").Obj()
+
+	if err := cache.AddClusterQueue(ctx, valid); err != nil {
+		t.Fatalf("failed to add CQ to cache: %v", err)
+	}
+	steps := []struct {
+		name             string
+		cq               *kueue.ClusterQueue
+		wantNominal      int64
+		wantOrchestrator string
+	}{
+		{name: "valid", cq: valid, wantNominal: 10_000, wantOrchestrator: "dqo-stale"},
+		{name: "expired", cq: expired, wantNominal: 5_000, wantOrchestrator: ""},
+		{name: "valid again", cq: valid, wantNominal: 10_000, wantOrchestrator: "dqo-stale"},
+		{name: "validUntil passed without the condition", cq: base.Clone().Obj(), wantNominal: 10_000, wantOrchestrator: "dqo-stale"},
+	}
+	for _, step := range steps {
+		if err := cache.UpdateClusterQueue(log, step.cq.DeepCopy()); err != nil {
+			t.Fatalf("%s: failed to update CQ in cache: %v", step.name, err)
+		}
+		cqObj := cache.hm.ClusterQueue("cq-stale")
+		if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(step.wantNominal)) {
+			t.Errorf("%s: nominal quota = %v, want %d", step.name, q.Nominal, step.wantNominal)
+		}
+		if got := string(cqObj.DynamicQuotaOrchestrator); got != step.wantOrchestrator {
+			t.Errorf("%s: DynamicQuotaOrchestrator = %q, want %q", step.name, got, step.wantOrchestrator)
+		}
+		cache.RecordClusterQueueResourceMetrics(log, "cq-stale")
+		dps := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{
+			"cluster_queue": "cq-stale",
+			"flavor":        "default",
+			"resource":      string(corev1.ResourceCPU),
+		})
+		if len(dps) != 1 || dps[0].Value != float64(step.wantNominal)/1000 {
+			t.Errorf("%s: nominal quota metric = %v, want one point of %v", step.name, dps, float64(step.wantNominal)/1000)
+		}
 	}
 }
 
