@@ -65,6 +65,7 @@ This priority doesn't affect pod's priority.
 The `kueue.x-k8s.io/priority-class` label on the Job can be changed while the Job is suspended.
 When updated, Kueue reconciles the Workload's priority fields accordingly.
 On the Workload, `Priority` is always mutable.
+When the Workload references a `WorkloadPriorityClass`, Kueue sets `Priority` back to the value of that class.
 `priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
 and becomes immutable once the `QuotaReserved` condition is `True`.
 `priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is
