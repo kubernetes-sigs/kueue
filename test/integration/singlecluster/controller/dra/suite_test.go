@@ -48,6 +48,9 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	// managerClient reads the manager's cache, which is what effective-resource
+	// resolution reads.
+	managerClient client.Client
 )
 
 func TestAPIs(t *testing.T) {
@@ -82,10 +85,25 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+// expectLimitRangesInManagerCache waits until each LimitRange is visible to the
+// manager cache. Workload and LimitRange watches are not ordered, so a Workload
+// created immediately after a LimitRange can be scheduled from empty requests
+// and admitted before the defaults are applied.
+func expectLimitRangesInManagerCache(lrs ...*corev1.LimitRange) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		for _, lr := range lrs {
+			g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(lr), &corev1.LimitRange{})).To(gomega.Succeed())
+		}
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
+		managerClient = mgr.GetClient()
+
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
