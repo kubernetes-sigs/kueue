@@ -4,3 +4,5 @@ approvers:
 - test-approvers
 reviewers:
 - test-reviewers
+emeritus_approvers:
+- test-emeritus-approvers

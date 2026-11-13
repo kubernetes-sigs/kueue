@@ -6,7 +6,6 @@ aliases:
   kueue-reviewers:
     - mbobrovskyi
     - mimowo
-    - pbundyra
     - tenzen-y
     - kannon92
     - pajakd
@@ -20,6 +19,11 @@ aliases:
     - mbobrovskyi
   kueuectl-reviewers:
     - henry3260
+  kueueviz-reviewers:
+    - danylott
+    - mykysha
+  concurrent-admission-reviewers:
+    - ivnovakov
   deployment-integration-approvers:
     - mbobrovskyi
   deployment-integration-reviewers:
@@ -42,24 +46,28 @@ aliases:
     - vladikkuzn
   dependency-approvers:
     - mbobrovskyi
+    - kannon92
+  dependency-emeritus-approvers:
     - pbundyra
   test-approvers:
     - mbobrovskyi
     - olekzabl
-    - pbundyra
   test-reviewers:
     - ivnovakov
     - mykysha
     - reruno
     - vladikkuzn
+  test-emeritus-approvers:
+    - pbundyra
+    - trasc
   agent-approvers:
     - amy
     - kannon92
-    - pbundyra
   agent-reviewers:
     - vladikkuzn
     - amy
     - kannon92
+  agent-emeritus-approvers:
     - pbundyra
   hugo-approvers:
     - mbobrovskyi

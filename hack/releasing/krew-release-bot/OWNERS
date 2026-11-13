@@ -2,3 +2,5 @@
 
 approvers:
 - dependency-approvers
+emeritus_approvers:
+- dependency-emeritus-approvers
