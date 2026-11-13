@@ -27,7 +27,7 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.15.0
 	github.com/google/go-cmp v0.7.0
 	github.com/helm-unittest/helm-unittest v1.2.1
-	github.com/itchyny/gojq v0.12.19
+	github.com/itchyny/gojq v0.12.20
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
 	github.com/mikefarah/yq/v4 v4.54.3
 	github.com/norwoodj/helm-docs v1.14.2
@@ -300,8 +300,8 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20260724033716-83e58baca724 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/itchyny/go-yaml v0.0.0-20251001235044-fca9a0999f15 // indirect
-	github.com/itchyny/timefmt-go v0.1.8 // indirect
+	github.com/itchyny/go-yaml v0.0.0-20261030110000-18a91f8189a6 // indirect
+	github.com/itchyny/timefmt-go v0.1.9 // indirect
 	github.com/jdkato/prose v1.2.1 // indirect
 	github.com/jgautheron/goconst v1.11.0 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
@@ -342,7 +342,7 @@ require (
 	github.com/matoous/godox v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.31 // indirect
 	github.com/mgechev/revive v1.17.1 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
