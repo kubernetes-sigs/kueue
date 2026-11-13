@@ -224,6 +224,35 @@ func TestReconcile(t *testing.T) {
 				Conditions: []metav1.Condition{synced("h100: 2 nodes")},
 			},
 		},
+		"counts only nodes that have a flavor's empty-valued label set to empty": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "").Obj(),
+			},
+			nodes: []*corev1.Node{
+				gpuNode("empty-value", "").Ready().Obj(),
+				gpuNode("other-value", "h100").Ready().Obj(),
+				testingnode.MakeNode("missing-label").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("120")}).
+					Ready().
+					Obj(),
+			},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity: utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("h100").
+							Resource(corev1.ResourceCPU, "120").
+							Resource(corev1.ResourceMemory, "900Gi").
+							Resource(gpuResource, "8").
+							Obj(),
+					).
+					Obj(),
+				Conditions: []metav1.Condition{synced("h100: 1 node")},
+			},
+		},
 		"counts only nodes with every level of the flavor's Topology": {
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
 				ControllerName(ControllerName).

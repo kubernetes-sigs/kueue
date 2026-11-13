@@ -50,3 +50,99 @@ func TestNodeHostname(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeMatchesFlavor(t *testing.T) {
+	cases := map[string]struct {
+		nodeLabels     map[string]string
+		requiredLabels map[string]string
+		requiredLevels []string
+		want           bool
+	}{
+		"no required labels and levels": {
+			nodeLabels: map[string]string{"a": "1"},
+			want:       true,
+		},
+		"no required labels and levels, node without labels": {
+			want: true,
+		},
+		"label present and equal": {
+			nodeLabels:     map[string]string{"a": "1"},
+			requiredLabels: map[string]string{"a": "1"},
+			want:           true,
+		},
+		"label present and different": {
+			nodeLabels:     map[string]string{"a": "2"},
+			requiredLabels: map[string]string{"a": "1"},
+		},
+		"label missing": {
+			nodeLabels:     map[string]string{"b": "1"},
+			requiredLabels: map[string]string{"a": "1"},
+		},
+		"empty required value, node label empty": {
+			nodeLabels:     map[string]string{"a": ""},
+			requiredLabels: map[string]string{"a": ""},
+			want:           true,
+		},
+		"empty required value, node label missing": {
+			nodeLabels:     map[string]string{"b": "1"},
+			requiredLabels: map[string]string{"a": ""},
+		},
+		"empty required value, node without labels": {
+			requiredLabels: map[string]string{"a": ""},
+		},
+		"empty required value, node label non-empty": {
+			nodeLabels:     map[string]string{"a": "1"},
+			requiredLabels: map[string]string{"a": ""},
+		},
+		"non-empty required value, node label empty": {
+			nodeLabels:     map[string]string{"a": ""},
+			requiredLabels: map[string]string{"a": "1"},
+		},
+		"all required labels match": {
+			nodeLabels:     map[string]string{"a": "1", "b": "", "c": "3"},
+			requiredLabels: map[string]string{"a": "1", "b": ""},
+			want:           true,
+		},
+		"one of the required labels is missing": {
+			nodeLabels:     map[string]string{"a": "1"},
+			requiredLabels: map[string]string{"a": "1", "b": ""},
+		},
+		"required levels present": {
+			nodeLabels:     map[string]string{"block": "b1", "rack": "r1"},
+			requiredLevels: []string{"block", "rack"},
+			want:           true,
+		},
+		"required level with empty value present": {
+			nodeLabels:     map[string]string{"block": ""},
+			requiredLevels: []string{"block"},
+			want:           true,
+		},
+		"required level missing": {
+			nodeLabels:     map[string]string{"block": "b1"},
+			requiredLevels: []string{"block", "rack"},
+		},
+		"labels match and levels present": {
+			nodeLabels:     map[string]string{"a": "1", "block": "b1"},
+			requiredLabels: map[string]string{"a": "1"},
+			requiredLevels: []string{"block"},
+			want:           true,
+		},
+		"labels match and level missing": {
+			nodeLabels:     map[string]string{"a": "1"},
+			requiredLabels: map[string]string{"a": "1"},
+			requiredLevels: []string{"block"},
+		},
+		"empty required label missing and level present": {
+			nodeLabels:     map[string]string{"block": "b1"},
+			requiredLabels: map[string]string{"a": ""},
+			requiredLevels: []string{"block"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := NodeMatchesFlavor(tc.nodeLabels, tc.requiredLabels, tc.requiredLevels); got != tc.want {
+				t.Errorf("NodeMatchesFlavor() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
