@@ -70,6 +70,8 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/capacityprovider"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -919,6 +921,7 @@ var _ clusterProfileAccessProvider = (*NoOpClusterProfileAccessProvider)(nil)
 var _ manager.Runnable = (*clustersReconciler)(nil)
 var _ reconcile.Reconciler = (*clustersReconciler)(nil)
 var _ predicate.Predicate = (*clustersReconciler)(nil)
+var _ capacityprovider.WorkerClients = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
 	c.rootContext = ctx
@@ -1004,6 +1007,27 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 
 	rc, f := c.remoteClients[acName]
 	return rc, f
+}
+
+// ConnectedClient returns the client of a connected worker cluster. It is used by the
+// MultiKueue CapacityProvider controller.
+func (c *clustersReconciler) ConnectedClient(ctx context.Context, clusterName string) (client.Reader, bool) {
+	log := ctrl.LoggerFrom(ctx).WithValues("workerCluster", clusterName)
+	rc, found := c.controllerFor(clusterName)
+	if !found {
+		log.V(3).Info("Worker cluster client not found, skipping it in quota aggregation")
+		return nil, false
+	}
+	if !rc.connState.isConnected() {
+		log.V(3).Info("Worker cluster client not connected, skipping it in quota aggregation")
+		return nil, false
+	}
+	workerClient := rc.getClient()
+	if workerClient == nil {
+		log.V(3).Info("Worker cluster client is nil, skipping it in quota aggregation")
+		return nil, false
+	}
+	return workerClient, true
 }
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -1697,7 +1721,7 @@ func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q
 
 func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	users := &kueue.MultiKueueClusterList{}
-	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
+	if err := s.client.List(ctx, users, client.MatchingFields{mkindexer.UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
 		return err
 	}
 
@@ -1739,7 +1763,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 	}
 
 	mkcList := &kueue.MultiKueueClusterList{}
-	if err := cp.client.List(ctx, mkcList, client.MatchingFields{UsingClusterProfiles: strings.Join([]string{clusterprofile.Namespace, clusterprofile.Name}, "/")}); err != nil {
+	if err := cp.client.List(ctx, mkcList, client.MatchingFields{mkindexer.UsingClusterProfiles: strings.Join([]string{clusterprofile.Namespace, clusterprofile.Name}, "/")}); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Failure on event", "clusterprofile", klog.KObj(object))
 		return
 	}

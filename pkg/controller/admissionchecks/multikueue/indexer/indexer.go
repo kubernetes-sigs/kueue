@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueue
+// Package indexer holds the field indexes of the MultiKueue controllers, both in the
+// multikueue package and in its sub-packages, which cannot import multikueue.
+package indexer
 
 import (
 	"context"
@@ -41,9 +43,7 @@ const (
 	ProviderConfigManagerSubtreeRootKey = "spec.managerSubtreeRootRef.name"
 )
 
-var (
-	configGVK = kueue.SchemeGroupVersion.WithKind("MultiKueueConfig")
-)
+var capacityProviderConfigGK = kueuealpha.SchemeGroupVersion.WithKind("MultiKueueCapacityProviderConfig").GroupKind()
 
 func kubeConfigLocationIndexerFunc(configNamespace string) func(obj client.Object) []string {
 	return func(obj client.Object) []string {
@@ -96,9 +96,12 @@ func clusterQueueAdmissionChecksIndexerFunc(obj client.Object) []string {
 	return names
 }
 
+// capacityProviderParametersIndexerFunc indexes the MultiKueue CapacityProviders by the name of
+// the MultiKueueCapacityProviderConfig in spec.parameters.
 func capacityProviderParametersIndexerFunc(obj client.Object) []string {
 	cp, ok := obj.(*kueuealpha.CapacityProvider)
-	if !ok || !isMultiKueueCapacityProvider(cp) || !isCapacityProviderConfigRef(cp.Spec.Parameters) {
+	if !ok || cp.Spec.ControllerName != kueue.MultiKueueControllerName || cp.Spec.Parameters == nil ||
+		cp.Spec.Parameters.APIGroup != capacityProviderConfigGK.Group || cp.Spec.Parameters.Kind != capacityProviderConfigGK.Kind {
 		return nil
 	}
 	return []string{cp.Spec.Parameters.Name}
@@ -115,7 +118,10 @@ func providerConfigManagerSubtreeRootIndexerFunc(obj client.Object) []string {
 	return []string{cfg.Spec.ManagerSubtreeRootRef.Name}
 }
 
-func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
+// Setup sets up the field indexes of the MultiKueue controllers. The indexes used only by the
+// MultiKueue CapacityProvider controller are set up when the DQOMultiKueueCapacityProvider
+// feature gate is enabled.
+func Setup(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueCluster{}, UsingKubeConfigs, kubeConfigLocationIndexerFunc(configNamespace)); err != nil {
 		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
 	}
@@ -127,6 +133,7 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamesp
 	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingMultiKueueClusters, multiKueueClustersIndexerFunc); err != nil {
 		return fmt.Errorf("setting index on configs using clusters: %w", err)
 	}
+	configGVK := kueue.SchemeGroupVersion.WithKind("MultiKueueConfig")
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}

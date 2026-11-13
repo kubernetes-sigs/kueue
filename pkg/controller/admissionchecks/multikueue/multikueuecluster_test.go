@@ -34,10 +34,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -46,13 +49,16 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -67,6 +73,30 @@ var (
 	errInvalidConfig = errors.New("invalid kubeconfig")
 	errCannotWatch   = errors.New("client cannot watch")
 )
+
+const (
+	TestNamespace = "ns"
+)
+
+func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
+
+	utilruntime.Must(jobs.NewIntegrationManager().ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
+			return cb.AddToScheme(scheme)
+		}
+		return nil
+	}))
+
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(utiltesting.MakeNamespace(TestNamespace))
+	utilruntime.Must(indexer.Setup(ctx, utiltesting.AsIndexer(builder)))
+	utilruntime.Must(SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace))
+	return builder
+}
 
 func fakeClientBuilder(ctx context.Context) func(context.Context, *clientConfig, client.Options) (SelectivelyCachingClient, error) {
 	return func(builderCtx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
@@ -1032,6 +1062,56 @@ func TestConnectionStateTransitions(t *testing.T) {
 	}
 }
 
+func TestClustersReconcilerConnectedClient(t *testing.T) {
+	workerClient := NewNeverCachingClient(utiltesting.NewClientBuilder().Build())
+	cases := map[string]struct {
+		// setupRemoteClient configures the remote client of "worker1". When nil, there is no remote client.
+		setupRemoteClient func(rc *remoteClient)
+		wantClient        client.Reader
+		wantConnected     bool
+	}{
+		"no remote client": {},
+		"remote client not connected": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.client = workerClient
+			},
+		},
+		"remote client connected, but its client is nil": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.connState.markConnected()
+			},
+		},
+		"remote client connected": {
+			setupRemoteClient: func(rc *remoteClient) {
+				rc.client = workerClient
+				rc.connState.markConnected()
+			},
+			wantClient:    workerClient,
+			wantConnected: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerClient := getClientBuilder(ctx).Build()
+			cRec := newClustersReconciler(managerClient, TestNamespace, withEventRecorder(&utiltesting.EventRecorder{}))
+			if tc.setupRemoteClient != nil {
+				rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", nil)
+				tc.setupRemoteClient(rc)
+				cRec.remoteClients["worker1"] = rc
+			}
+
+			gotClient, gotConnected := cRec.ConnectedClient(ctx, "worker1")
+			if gotConnected != tc.wantConnected {
+				t.Errorf("Unexpected connected, want %v, got %v", tc.wantConnected, gotConnected)
+			}
+			if gotClient != tc.wantClient {
+				t.Errorf("Unexpected client, want %v, got %v", tc.wantClient, gotClient)
+			}
+		})
+	}
+}
+
 func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -1845,7 +1925,7 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 			return
 		}
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
-		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider.go-style read
+		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // capacityprovider-style read
 	})
 }
 

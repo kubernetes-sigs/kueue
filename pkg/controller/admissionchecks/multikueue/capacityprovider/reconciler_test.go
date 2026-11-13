@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package multikueue
+package capacityprovider
 
 import (
 	"context"
@@ -31,7 +31,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -39,7 +38,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobs"
+	mkindexer "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -48,6 +47,7 @@ import (
 )
 
 const (
+	testNamespace          = "ns"
 	testProviderConfigKind = "MultiKueueCapacityProviderConfig"
 	testOtherController    = "example.com/other"
 )
@@ -62,6 +62,14 @@ type cpWorkerState struct {
 	clusterDeleted bool
 }
 
+// fakeWorkerClients holds the clients of the connected worker clusters.
+type fakeWorkerClients map[string]client.Reader
+
+func (f fakeWorkerClients) ConnectedClient(_ context.Context, clusterName string) (client.Reader, bool) {
+	c, found := f[clusterName]
+	return c, found
+}
+
 func asObjs[T client.Object](objs []T) []client.Object {
 	res := make([]client.Object, len(objs))
 	for i, obj := range objs {
@@ -70,7 +78,7 @@ func asObjs[T client.Object](objs []T) []client.Object {
 	return res
 }
 
-func TestCPReconcile(t *testing.T) {
+func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, true)
 
 	misconfiguredCondition := func(message string, generation int64) metav1.Condition {
@@ -553,7 +561,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -566,7 +574,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10", "5", "2").Resource("memory", "20Gi").Obj()).
@@ -574,7 +582,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Resource("memory", "10Gi").Obj()).
@@ -612,8 +620,8 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-				utiltestingapi.MakeLocalQueue("lq-dangling", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq-dangling", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -628,8 +636,8 @@ func TestCPReconcile(t *testing.T) {
 			workers: map[string]cpWorkerState{
 				"worker1": {
 					lqs: []*kueue.LocalQueue{
-						utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj(),
-						utiltestingapi.MakeLocalQueue("lq-dangling", TestNamespace).ClusterQueue("w1-cq-missing").Obj(),
+						utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj(),
+						utiltestingapi.MakeLocalQueue("lq-dangling", testNamespace).ClusterQueue("w1-cq-missing").Obj(),
 					},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
@@ -641,7 +649,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						// Extra uncovered resource "tpu" on a disconnected worker does not trigger Misconfigured.
 						utiltestingapi.MakeClusterQueue("w2-cq1").
@@ -650,7 +658,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 					disconnected: true,
 				},
-				// "worker3" is omitted from workers (client not found).
+				// "worker3" is omitted from workers (MultiKueueCluster not found).
 			},
 			wantCP: utiltestingalpha.MakeCapacityProvider("cp1").
 				ControllerName(kueue.MultiKueueControllerName).
@@ -682,7 +690,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -695,7 +703,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
@@ -703,7 +711,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "500").Obj()).
@@ -742,8 +750,8 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-				utiltestingapi.MakeLocalQueue("lq2", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq2", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -757,8 +765,8 @@ func TestCPReconcile(t *testing.T) {
 			workers: map[string]cpWorkerState{
 				"worker1": {
 					lqs: []*kueue.LocalQueue{
-						utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj(),
-						utiltestingapi.MakeLocalQueue("lq2", TestNamespace).ClusterQueue("w1-cq1").Obj(),
+						utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj(),
+						utiltestingapi.MakeLocalQueue("lq2", testNamespace).ClusterQueue("w1-cq1").Obj(),
 					},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
@@ -768,8 +776,8 @@ func TestCPReconcile(t *testing.T) {
 				},
 				"worker2": {
 					lqs: []*kueue.LocalQueue{
-						utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj(),
-						utiltestingapi.MakeLocalQueue("lq2", TestNamespace).ClusterQueue("w2-cq2").Obj(),
+						utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj(),
+						utiltestingapi.MakeLocalQueue("lq2", testNamespace).ClusterQueue("w2-cq2").Obj(),
 					},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
@@ -811,7 +819,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -824,7 +832,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
@@ -833,7 +841,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(
@@ -874,7 +882,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -887,7 +895,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Resource("memory", "20Gi").Obj()).
@@ -895,7 +903,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj()).
@@ -933,7 +941,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -946,7 +954,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
@@ -955,7 +963,7 @@ func TestCPReconcile(t *testing.T) {
 					},
 				},
 				"worker2": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w2-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w2-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w2-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "5").Obj()).
@@ -993,7 +1001,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1006,7 +1014,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
@@ -1045,7 +1053,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1061,7 +1069,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
@@ -1104,7 +1112,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1119,7 +1127,7 @@ func TestCPReconcile(t *testing.T) {
 				"worker1": {
 					disconnected: true,
 				},
-				// "worker2" omitted (client not found).
+				// "worker2" omitted (MultiKueueCluster not found).
 			},
 			wantCP: utiltestingalpha.MakeCapacityProvider("cp1").
 				ControllerName(kueue.MultiKueueControllerName).
@@ -1156,7 +1164,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1169,7 +1177,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("memory", "10Gi").Resource("gpu", "2").Obj()).
@@ -1244,7 +1252,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1290,7 +1298,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1303,7 +1311,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
@@ -1345,7 +1353,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1358,7 +1366,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "10").Obj()).
@@ -1401,7 +1409,7 @@ func TestCPReconcile(t *testing.T) {
 					Obj(),
 			},
 			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj(),
 			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
@@ -1414,7 +1422,7 @@ func TestCPReconcile(t *testing.T) {
 			},
 			workers: map[string]cpWorkerState{
 				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("w1-cq1").Obj()},
 					cqs: []*kueue.ClusterQueue{
 						utiltestingapi.MakeClusterQueue("w1-cq1").
 							ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "25").Obj()).
@@ -1453,8 +1461,8 @@ func TestCPReconcile(t *testing.T) {
 					cqName := fmt.Sprintf("w1-cq%d", start/64)
 					lqName := fmt.Sprintf("lq%d", start/64)
 					worker.cqs = append(worker.cqs, utiltestingapi.MakeClusterQueue(cqName).ResourceGroup(*flavor.Obj()).Obj())
-					worker.lqs = append(worker.lqs, utiltestingapi.MakeLocalQueue(lqName, TestNamespace).ClusterQueue(cqName).Obj())
-					lqs = append(lqs, utiltestingapi.MakeLocalQueue(lqName, TestNamespace).ClusterQueue(tc.cqs[0].Name).Obj())
+					worker.lqs = append(worker.lqs, utiltestingapi.MakeLocalQueue(lqName, testNamespace).ClusterQueue(cqName).Obj())
+					lqs = append(lqs, utiltestingapi.MakeLocalQueue(lqName, testNamespace).ClusterQueue(tc.cqs[0].Name).Obj())
 				}
 				workers["worker1"] = worker
 			}
@@ -1490,18 +1498,16 @@ func TestCPReconcile(t *testing.T) {
 					builder = builder.WithObjects(utiltestingapi.MakeMultiKueueCluster(worker).Obj())
 				}
 			}
-			if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
+			if err := mkindexer.Setup(ctx, utiltesting.AsIndexer(builder), testNamespace); err != nil {
 				t.Fatalf("Failed to set up indexes: %v", err)
 			}
 			c := builder.Build()
 
-			adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			if err != nil {
-				t.Fatalf("Failed to get MultiKueue adapters: %v", err)
-			}
-			cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
-			cRec.rootContext = ctx
+			workerClients := fakeWorkerClients{}
 			for worker, wState := range workers {
+				if wState.disconnected {
+					continue
+				}
 				workerBuilder := utiltesting.NewClientBuilder().
 					WithObjects(asObjs(wState.cqs)...).
 					WithObjects(asObjs(wState.lqs)...)
@@ -1512,19 +1518,14 @@ func TestCPReconcile(t *testing.T) {
 						},
 					})
 				}
-				rc := newRemoteClient(c, nil, nil, nil, defaultOrigin, worker, adapters)
-				rc.client = NewNeverCachingClient(workerBuilder.Build())
-				if !wState.disconnected {
-					rc.connState.markConnected()
-				}
-				cRec.remoteClients[worker] = rc
+				workerClients[worker] = workerBuilder.Build()
 			}
 
 			helper, err := admissioncheck.NewMultiKueueStoreHelper(c)
 			if err != nil {
 				t.Fatalf("Failed to create the MultiKueue store helper: %v", err)
 			}
-			reconciler := newCPReconciler(c, helper, cRec, nil, 100*time.Millisecond)
+			reconciler := NewReconciler(c, helper, workerClients, nil, WithEventsBatchPeriod(100*time.Millisecond))
 
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: "cp1"})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
@@ -1565,7 +1566,7 @@ func TestCPReconcile(t *testing.T) {
 	}
 }
 
-func TestCPReconcilerEventHandlers(t *testing.T) {
+func TestReconcilerEventHandlers(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DQOMultiKueueCapacityProvider, true)
 
 	cp := utiltestingalpha.MakeCapacityProvider("cp1").
@@ -1590,16 +1591,16 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 		Obj()
 	mkConfig := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("cluster1").Obj()
 	cluster := utiltestingapi.MakeMultiKueueCluster("cluster1").Obj()
-	lq := utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj()
-	otherLQ := utiltestingapi.MakeLocalQueue("lq2", TestNamespace).ClusterQueue("cq2").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq1", testNamespace).ClusterQueue("cq1").Obj()
+	otherLQ := utiltestingapi.MakeLocalQueue("lq2", testNamespace).ClusterQueue("cq2").Obj()
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	builder := utiltesting.NewClientBuilder().
 		WithObjects(cp, otherCP, providerConfig, cq, otherCQ, ac, mkConfig, cluster, lq, otherLQ)
-	if err := SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace); err != nil {
+	if err := mkindexer.Setup(ctx, utiltesting.AsIndexer(builder), testNamespace); err != nil {
 		t.Fatalf("Failed to set up indexes: %v", err)
 	}
-	r := &cpReconciler{client: builder.Build()}
+	r := &Reconciler{client: builder.Build()}
 
 	type mockQueue = utiltesting.MockTypedRateLimitingInterface
 
@@ -1696,7 +1697,7 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 		},
 		"LocalQueue Update (irrelevant)": {
 			handler: func(mockQ *mockQueue) {
-				newLQ := utiltestingapi.MakeLocalQueue("lq1", TestNamespace).
+				newLQ := utiltestingapi.MakeLocalQueue("lq1", testNamespace).
 					ClusterQueue("cq1").
 					StopPolicy(kueue.Hold).
 					Generation(1).
@@ -1707,7 +1708,7 @@ func TestCPReconcilerEventHandlers(t *testing.T) {
 		},
 		"LocalQueue Create (no ClusterQueue)": {
 			handler: func(mockQ *mockQueue) {
-				r.localQueueHandler().Create(ctx, event.CreateEvent{Object: utiltestingapi.MakeLocalQueue("lq3", TestNamespace).Obj()}, mockQ)
+				r.localQueueHandler().Create(ctx, event.CreateEvent{Object: utiltestingapi.MakeLocalQueue("lq3", testNamespace).Obj()}, mockQ)
 			},
 			wantReconcile: false,
 		},
