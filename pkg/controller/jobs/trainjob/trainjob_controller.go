@@ -49,6 +49,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 var (
@@ -74,8 +75,6 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainingruntimes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=clustertrainingruntimes,verbs=get;list;watch
-
-const runtimePatchManagerName = "kueue.x-k8s.io/manager"
 
 var (
 	errJobsStillActive           = errors.New("jobs are still active")
@@ -314,7 +313,7 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 	// Update the runtimePatches while the job is suspended, since is a requirement from the trainjob admission webhook.
 	// Use merge patch to only update the kueue-managed fields.
 	err = clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		kueueRuntimePatch := getKueueRuntimePatch(t)
+		kueueRuntimePatch := utiltrainjob.KueueRuntimePatch((*kftrainer.TrainJob)(t))
 		if kueueRuntimePatch == nil {
 			return false, errors.New("kueue runtime patch not found")
 		}
@@ -336,7 +335,7 @@ func getChildJobSetWithoutKueuePatch(ctx context.Context, c client.Client, t *Tr
 	trainJob := (*kftrainer.TrainJob)(t).DeepCopy()
 	userPatches := make([]kftrainer.RuntimePatch, 0, len(trainJob.Spec.RuntimePatches))
 	for _, patch := range trainJob.Spec.RuntimePatches {
-		if patch.Manager != runtimePatchManagerName {
+		if patch.Manager != utiltrainjob.KueueRuntimePatchManager {
 			userPatches = append(userPatches, patch)
 		}
 	}
@@ -360,7 +359,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		return stoppedNow, errJobsStillActive
 	}
 
-	if getKueueRuntimePatch(t) == nil {
+	if utiltrainjob.KueueRuntimePatch((*kftrainer.TrainJob)(t)) == nil {
 		return stoppedNow, errKueueRuntimePatchNotFound
 	}
 	// RestorePodSetsInfo reports whether it changed anything, so clientutil.Patch
@@ -375,21 +374,12 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
-	kueueRuntimePatch := getKueueRuntimePatch(t)
+	kueueRuntimePatch := utiltrainjob.KueueRuntimePatch((*kftrainer.TrainJob)(t))
 	if kueueRuntimePatch == nil || kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs == nil {
 		return false
 	}
 	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = nil
 	return true
-}
-
-func getKueueRuntimePatch(t *TrainJob) *kftrainer.RuntimePatch {
-	for i := range t.Spec.RuntimePatches {
-		if t.Spec.RuntimePatches[i].Manager == runtimePatchManagerName {
-			return &t.Spec.RuntimePatches[i]
-		}
-	}
-	return nil
 }
 
 func (t *TrainJob) Finished(ctx context.Context) (message string, success, finished bool) {
