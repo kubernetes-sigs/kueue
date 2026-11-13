@@ -384,6 +384,15 @@ func main() {
 		}
 		cacheOptions = append(cacheOptions, schdcache.WithDeviceTaintRules(served))
 	}
+
+	serverVersionFetcher, err := setupServerVersionFetcher(mgr, kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to setup server version fetcher")
+		os.Exit(1)
+	}
+	cacheOptions = append(cacheOptions, schdcache.WithServerVersionFetcher(serverVersionFetcher))
+	queueOptions = append(queueOptions, qcache.WithServerVersionFetcher(serverVersionFetcher))
+
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
@@ -407,12 +416,6 @@ func main() {
 		os.Exit(1)
 	}
 	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
-
-	serverVersionFetcher, err := setupServerVersionFetcher(mgr, kubeConfig)
-	if err != nil {
-		setupLog.Error(err, "Unable to setup server version fetcher")
-		os.Exit(1)
-	}
 
 	if metricsCertWatcher != nil {
 		if err := mgr.Add(metricsCertWatcher); err != nil {
@@ -443,6 +446,7 @@ func main() {
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
 		ClusterProfileCRDPresent:  clusterProfileCRDPresent,
+		ServerVersionFetcher:      serverVersionFetcher,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")

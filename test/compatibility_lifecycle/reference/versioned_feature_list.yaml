@@ -485,6 +485,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.21"
+- name: PodLevelResourceFixDefaultingForNewServer
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: PrioritizePreemptorWorkloads
   versionedSpecs:
   - default: false

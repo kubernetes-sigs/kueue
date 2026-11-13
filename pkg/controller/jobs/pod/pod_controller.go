@@ -140,6 +140,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		WithManageJobsWithoutQueueName(r.manageJobsWithoutQueueName),
 		WithRoleTracker(r.RoleTracker()),
 		WithCustomLabels(r.CustomLabels()),
+		WithServerVersion(r.KubeServerVersion()),
 	))
 }
 
@@ -187,6 +188,7 @@ type Pod struct {
 	clock                      clock.Clock
 	roleTracker                *roletracker.RoleTracker
 	customLabels               *metrics.CustomLabels
+	serverVersion              workload.ServerVersionFetcher
 }
 
 var (
@@ -246,6 +248,14 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
 	return func(pod *Pod) {
 		pod.customLabels = cl
+	}
+}
+
+// WithServerVersion sets the fetcher of the API server version the effective
+// resource defaults follow.
+func WithServerVersion(f workload.ServerVersionFetcher) PodOption {
+	return func(pod *Pod) {
+		pod.serverVersion = f
 	}
 }
 
@@ -344,7 +354,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
 	} else {
 		var err error
-		keepGated, err = validatePodsBeforeUngating(ctx, c, p.list.Items, wl, recorder)
+		keepGated, err = validatePodsBeforeUngating(ctx, c, p.serverVersion, p.list.Items, wl, recorder)
 		if err != nil {
 			return err
 		}
@@ -1015,7 +1025,14 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // The reservation is taken from the effective PodSet spec (requests defaulted from
 // limits, LimitRange defaults and RuntimeClass overhead applied), the same view
 // quota is accounted against.
-func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
+func validatePodsBeforeUngating(
+	ctx context.Context,
+	c client.Client,
+	serverVersion workload.ServerVersionFetcher,
+	pods []corev1.Pod,
+	wl *kueue.Workload,
+	recorder events.EventRecorder,
+) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
 	}
@@ -1026,6 +1043,7 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	for _, err := range errs {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
 	}
+	in.LegacyPodLevelDefaulting = workload.LegacyPodLevelDefaulting(serverVersion)
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {

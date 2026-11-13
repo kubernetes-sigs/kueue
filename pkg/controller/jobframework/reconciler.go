@@ -114,11 +114,21 @@ type JobReconciler struct {
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
+	kubeServerVersion            *kubeversion.ServerVersionFetcher
 }
 
 // RoleTracker returns the role tracker for HA logging.
 func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 	return r.roleTracker
+}
+
+// KubeServerVersion returns the API server version fetcher, or nil when it was
+// not configured.
+func (r *JobReconciler) KubeServerVersion() workload.ServerVersionFetcher {
+	if r.kubeServerVersion == nil {
+		return nil
+	}
+	return r.kubeServerVersion
 }
 
 // CustomLabels returns the configured custom metric labels for integrations that report their own metric.
@@ -361,6 +371,7 @@ func NewReconciler(
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
+		kubeServerVersion:            options.KubeServerVersion,
 	}
 }
 
