@@ -150,7 +150,7 @@ func ParsePartialPreemptionMinCount(annotations map[string]string) (*int32, erro
 	if err != nil || minCount < 0 {
 		return nil, fmt.Errorf("must be a non-negative integer, got %q", value)
 	}
-	return ptr.To(int32(minCount)), nil
+	return new(int32(minCount)), nil
 }
 
 // PodsAboveTargets returns, for each PodSet with a target, the Pods to evict so that at most

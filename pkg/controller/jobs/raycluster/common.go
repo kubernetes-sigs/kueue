@@ -162,8 +162,10 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial {
 			workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
 		}
-		if minCount := partialPreemptionMinCount(wgs); minCount != nil {
-			workerPodSet.PartialPreemption = &kueue.PodSetPartialPreemption{MinCount: minCount}
+		if features.Enabled(features.PartialPreemption) {
+			if minCount := partialPreemptionMinCount(wgs); minCount != nil {
+				workerPodSet.PartialPreemption = &kueue.PodSetPartialPreemption{MinCount: minCount}
+			}
 		}
 		if collectorOptions != nil {
 			workerPodSet.Template.Spec.Containers = append(
@@ -182,7 +184,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 // (numOfHosts > 1) are not supported: KubeRay can only reach counts that are multiples of
 // numOfHosts.
 func partialPreemptionMinCount(wgs *rayv1.WorkerGroupSpec) *int32 {
-	if !features.Enabled(features.PartialPreemption) || wgs.NumOfHosts > 1 {
+	if wgs.NumOfHosts > 1 {
 		return nil
 	}
 	minCount, err := jobframework.ParsePartialPreemptionMinCount(wgs.Template.Annotations)
@@ -470,7 +472,7 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 var partialPreemptionAnnotationPath = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
 
 // validatePartialPreemption validates the partial-preemption opt-in annotation on the object
-// and the partial-preemption minimum annotation on each worker group's PodTemplate.
+// and the partial-preemption minimum annotation on the PodTemplates. The head is never shrunk.
 func validatePartialPreemption(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
 	if !features.Enabled(features.PartialPreemption) {
 		return nil
@@ -484,6 +486,11 @@ func validatePartialPreemption(object client.Object, rayClusterSpec *rayv1.RayCl
 			allErrors = append(allErrors, field.Invalid(partialPreemptionAnnotationPath, value,
 				fmt.Sprintf("partial preemption requires the %q: %q annotation", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
 		}
+	}
+	if _, found := rayClusterSpec.HeadGroupSpec.Template.Annotations[constants.PodSetPartialPreemptionMinCountAnnotation]; found {
+		allErrors = append(allErrors, field.Forbidden(
+			rayClusterSpecPath.Child("headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation),
+			"partial preemption is not supported for the head group"))
 	}
 	for i := range rayClusterSpec.WorkerGroupSpecs {
 		wgs := &rayClusterSpec.WorkerGroupSpecs[i]

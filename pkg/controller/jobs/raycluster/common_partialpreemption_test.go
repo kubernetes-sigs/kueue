@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -39,7 +38,7 @@ import (
 func workerGroup(name string, replicas, numOfHosts int32, annotations map[string]string) rayv1.WorkerGroupSpec {
 	return rayv1.WorkerGroupSpec{
 		GroupName:  name,
-		Replicas:   ptr.To(replicas),
+		Replicas:   new(replicas),
 		NumOfHosts: numOfHosts,
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
@@ -110,6 +109,7 @@ func TestValidatePartialPreemption(t *testing.T) {
 	}
 	testCases := map[string]struct {
 		object       client.Object
+		head         rayv1.HeadGroupSpec
 		workerGroups []rayv1.WorkerGroupSpec
 		wantErrors   field.ErrorList
 	}{
@@ -135,12 +135,22 @@ func TestValidatePartialPreemption(t *testing.T) {
 				field.Forbidden(minCountPath(1), "partial preemption is not supported for worker groups with numOfHosts > 1"),
 			},
 		},
+		"minimum on the head": {
+			object: elastic().SetAnnotation(constants.PartialPreemptionAnnotation, "true").Obj(),
+			head: rayv1.HeadGroupSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{constants.PodSetPartialPreemptionMinCountAnnotation: "1"},
+			}}},
+			wantErrors: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "headGroupSpec", "template", "metadata", "annotations").Key(constants.PodSetPartialPreemptionMinCountAnnotation),
+					"partial preemption is not supported for the head group"),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
-			spec := &rayv1.RayClusterSpec{WorkerGroupSpecs: tc.workerGroups}
+			spec := &rayv1.RayClusterSpec{HeadGroupSpec: tc.head, WorkerGroupSpecs: tc.workerGroups}
 			gotErrors := validatePartialPreemption(tc.object, spec, field.NewPath("spec"))
 			if diff := cmp.Diff(tc.wantErrors, gotErrors); diff != "" {
 				t.Errorf("Unexpected errors (-want +got):\n%s", diff)

@@ -192,5 +192,4 @@ var _ = ginkgo.Describe("RayCluster partial preemption", ginkgo.Label("job:ray",
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 		})
 	})
-
 })
