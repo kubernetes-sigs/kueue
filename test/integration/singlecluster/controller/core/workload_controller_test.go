@@ -1226,6 +1226,54 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 	})
 })
 
+var _ = ginkgo.Describe("Workload controller with WorkloadPriorityClassWatchesWorkloads disabled", ginkgo.Label("controller:workload", "area:core"), func() {
+	var (
+		ns                    *corev1.Namespace
+		workloadPriorityClass *kueue.WorkloadPriorityClass
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassWatchesWorkloads, false)
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("Should keep a priority changed on a workload until the class is reconciled again", func() {
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("workload-priority-class").
+			Priority(100).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		ginkgo.By("creating the class, whose reconcile gives the workload the class value")
+		workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+		behavioral.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(200))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("changing the priority of the workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.Priority = new(int32(100))
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking that the workload keeps the changed priority")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(100))))
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
 var _ = ginkgo.Describe("Workload controller interaction with scheduler", func() {
 	var (
 		ns           *corev1.Namespace
