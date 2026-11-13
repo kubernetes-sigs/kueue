@@ -347,6 +347,7 @@ func TestValidateUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS:             true,
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: true,
+			},
 		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
