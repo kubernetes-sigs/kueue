@@ -114,7 +114,7 @@ if name == "go":
     binary.chmod(0o755)
 elif name == "make":
     assert args[-1] == "test-kueueviz-backend"
-    assert os.environ["GOMAXPROCS"] == os.environ["VIZ_TEST_EXPECTED_GOMAXPROCS"]
+    assert os.environ.get("GOMAXPROCS", "unset") == os.environ["VIZ_TEST_EXPECTED_GOMAXPROCS"]
     pathlib.Path(os.environ["VIZ_TEST_WORKER_GROUP"]).write_text(str(os.getpgrp()))
     child = subprocess.Popen(["sleep", "60"])
     pathlib.Path(os.environ["VIZ_TEST_COMPILER_PID"]).write_text(str(child.pid))
@@ -223,7 +223,7 @@ signal.pause()
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
                    "KUEUEVIZ_RUN_BACKEND_TESTS": "false", "KUEUEVIZ_MAKE": "make",
-                   "VIZ_TEST_EXPECTED_GOMAXPROCS": "1",
+                   "VIZ_TEST_EXPECTED_GOMAXPROCS": "unset",
                    "VIZ_TEST_TESTS_STARTED": str(tests_started),
                    "VIZ_TEST_TESTS_RELEASE": str(tests_release),
                    "VIZ_TEST_TESTS_DONE": str(root / "tests.done"),
@@ -312,10 +312,17 @@ signal.pause()
                     self.assertFalse(any(c[:2] == ["go", "build"] for c in commands))
 
     def test_backend_worker_preserves_make_arguments(self):
-        for test_flags, gomaxprocs in (("", None), ("-race -count=1", None),
-                                      ("-race -p=3", "3"), ("-race", "")):
-            with self.subTest(test_flags=test_flags, gomaxprocs=gomaxprocs):
-                go_flags = '-p=2 "-ldflags=-s -w" -trimpath'
+        cases = (
+            ("", None, ""),
+            ("-race -count=1", None, ""),
+            ("-race -p=3", "3", ""),
+            ("-race", "", ""),
+            ('-race "-exec=env CUSTOM_TEST_RUNTIME=1"', None, ""),
+            ("-race", None, ' "-toolexec=env CUSTOM_COMPILER=1"'),
+        )
+        for test_flags, gomaxprocs, extra_go_flags in cases:
+            with self.subTest(test_flags=test_flags, gomaxprocs=gomaxprocs, extra_go_flags=extra_go_flags):
+                go_flags = '-p=2 "-ldflags=-s -w" -trimpath' + extra_go_flags
                 env = {
                     "KUEUEVIZ_RUN_BACKEND_TESTS": "true",
                     "KUEUEVIZ_TEST_GOFLAGS": go_flags,
@@ -328,7 +335,10 @@ signal.pause()
                 result, _, commands = self.run_suite(backend_env=env)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 invocation = next(c for c in commands if c[0] == "make")
-                self.assertIn(f"GOFLAGS=-p=4 {go_flags}", invocation)
+                expected_go_flags = f"-p=4 {go_flags}"
+                if gomaxprocs is None:
+                    expected_go_flags = f'"-toolexec=env GOMAXPROCS=1" {expected_go_flags}'
+                self.assertIn(f"GOFLAGS={expected_go_flags}", invocation)
                 self.assertIn(f"GO_TEST_FLAGS={test_flags}", invocation)
                 self.assertIn("GO_CMD=custom-go", invocation)
 

@@ -54,18 +54,25 @@ original_go_cmd=${KUEUEVIZ_TEST_GO_CMD:-go}
 original_test_flags="${KUEUEVIZ_TEST_FLAGS--race} -count=1"
 # The ordinary suite has warmed image layers and module downloads. Compiler
 # caches, clusters, frontend containers and npm installations are fresh per run.
-for run in 1:dev 2:production 3:production 4:dev; do
+for run in 1:dev-auto 2:dev-budget 3:production-budget 4:production-budget 5:dev-budget 6:dev-auto; do
   export ARTIFACTS="${artifact_root}/${run/:/-}"
   export CYPRESS_SCREENSHOTS_FOLDER="${ARTIFACTS}/cypress/screenshots"
   export CYPRESS_VIDEOS_FOLDER="${ARTIFACTS}/cypress/videos"
   export GOCACHE="${experiment_dir}/go-cache-${run/:/-}"
-  export KUEUEVIZ_TEST_GO_CMD="env GOMAXPROCS=1 ${original_go_cmd}"
-  export KUEUEVIZ_TEST_FLAGS="${original_test_flags} -p=4"
+  export KUEUEVIZ_TEST_GO_CMD=${original_go_cmd}
+  export KUEUEVIZ_TEST_FLAGS=${original_test_flags}
   export KUEUEVIZ_RUN_BACKEND_TESTS=true
+  # The empty override retains automatic compilation. Otherwise the worker
+  # limits compiler tools only; test binaries retain automatic concurrency.
+  if [[ ${run#*:} == dev-auto ]]; then
+    export GOMAXPROCS=""
+  else
+    unset GOMAXPROCS
+  fi
   for file in "${files[@]}"; do
     cat "${experiment_dir}/${file}" >"${PROJECT_DIR}/${file}"
   done
-  if [[ ${run#*:} == production ]]; then
+  if [[ ${run#*:} == production-budget ]]; then
     python3 - "${PROJECT_DIR}/hack/testing/e2e-kueueviz-frontend.sh" <<'PY'
 import pathlib
 import sys
