@@ -2199,3 +2199,136 @@ func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
 		t.Errorf("RunPlacementFeasiblePlugins status = %v, want %v", status.Code(), fwk.Unschedulable)
 	}
 }
+
+func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+	factory, err := NewWASSimulatorFactory(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+
+	podTracker := &podtracker.Tracker{}
+	node := testingnode.MakeNode("node1").Label(corev1.LabelHostname, "node1").Obj()
+
+	wl := utiltestingapi.MakeWorkload("wl1", "default").
+		UID("wl1-uid").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "c",
+					}},
+				},
+			},
+		}).
+		Admission(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(kueue.PodSetAssignment{
+					Name:  "main",
+					Count: new(int32(1)),
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
+						Obj(),
+				}).
+				Obj(),
+		).
+		Obj()
+	wl.Generation = 1
+	wl.ResourceVersion = "100"
+
+	// Stores virtual pods
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("First NewSimulator failed: %v", err)
+	}
+
+	factory.virtualPodsMu.RLock()
+	cached1, ok1 := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if !ok1 || len(cached1.pods) != 1 {
+		t.Fatalf("expected workload to be cached with 1 pod, got ok=%v, pods=%d", ok1, len(cached1.pods))
+	}
+	podPtr1 := cached1.pods[0]
+
+	// Reuses virtual pods
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("Second NewSimulator failed: %v", err)
+	}
+
+	factory.virtualPodsMu.RLock()
+	cached2 := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if len(cached2.pods) != 1 || cached2.pods[0] != podPtr1 {
+		t.Errorf("expected cached virtual pod pointer to be reused across cycles")
+	}
+
+	// Regenerates pods on update
+	wlUpdated := wl.DeepCopy()
+	wlUpdated.ResourceVersion = "101"
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlUpdated})); err != nil {
+		t.Fatalf("Third NewSimulator failed: %v", err)
+	}
+
+	factory.virtualPodsMu.RLock()
+	cached3 := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if len(cached3.pods) != 1 || cached3.pods[0] == podPtr1 {
+		t.Errorf("expected virtual pods to be regenerated after resourceVersion change")
+	}
+
+	// Regenerates pods when admission changes with new ResourceVersion
+	wlNode2 := wl.DeepCopy()
+	wlNode2.ResourceVersion = "102"
+	wlNode2.Status.Admission.PodSetAssignments[0].TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
+		Obj()
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wlNode2})); err != nil {
+		t.Fatalf("NewSimulator failed on admission change: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	cachedNode2 := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if len(cachedNode2.pods) != 1 || cachedNode2.pods[0].Spec.NodeName != "node2" {
+		t.Errorf("expected virtual pods to update node assignment on admission change")
+	}
+
+	// Does not cache nil pods for non-TAS workloads
+	wlNoTAS := utiltestingapi.MakeWorkload("wl-notas", "default").UID("wl-notas-uid").Obj()
+	wlNoTAS.Generation = 1
+	wlNoTAS.ResourceVersion = "200"
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
+		t.Fatalf("NewSimulator with non-TAS workload failed: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	_, okNil := factory.virtualPodsCache[wlNoTAS.UID]
+	factory.virtualPodsMu.RUnlock()
+	if okNil {
+		t.Fatalf("expected nil pods not to be cached")
+	}
+
+	// Invalidates cached virtual pods when workload rolls back to nil TopologyAssignment
+	wl.ResourceVersion = "3"
+	wl.Status.Admission.PodSetAssignments[0].TopologyAssignment = nil
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("NewSimulator after rollback failed: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	_, okRollback := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if okRollback {
+		t.Fatalf("expected cached virtual pods to be deleted when VirtualPodsForWorkload returns nil")
+	}
+
+	// Removes unassumed workloads
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker); err != nil {
+		t.Fatalf("Fourth NewSimulator failed: %v", err)
+	}
+
+	factory.virtualPodsMu.RLock()
+	cacheLen := len(factory.virtualPodsCache)
+	factory.virtualPodsMu.RUnlock()
+	if cacheLen != 0 {
+		t.Errorf("expected virtualPodsCache to be pruned to 0, got %d", cacheLen)
+	}
+}
