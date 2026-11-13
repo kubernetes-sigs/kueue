@@ -561,20 +561,25 @@ its whole size fits.
 
 ### Validation
 
-`status.admission` is otherwise immutable after admission. Partial preemption needs two narrow,
-gated exceptions: `partialPreemption.targetCount` is mutable, and on the release of a partial
-preemption Kueue may lower a PodSet assignment's `count` and `resourceUsage` together (a decrease
-only, for elastic Workloads, behind the `PartialPreemption` gate). Kueue's webhooks reject:
+status.admission is immutable after admission by default. When the PartialPreemption feature gate is
+enabled, Kueue may update partialPreemption.targetCount. It may reduce a PodSet assignment’s count and
+resourceUsage proportionally only if the assignment has a pending partialPreemption.targetCount; the
+reduction must not bring count below that target.
 
-- adding or changing partial-preemption fields, or lowering an assignment's `count`, while the
-  `PartialPreemption` gate is off; with the gate off, integrations neither set
-  `partialPreemption.minCount` nor copy the opt-in annotation;
+With the gate disabled, Kueue ignores partialPreemption fields. The partial-preemption exception does
+not allow reducing count or altering resourceUsage.
+
+Kueue webhooks reject the following changes:
+
 - any change to `partialPreemption.minCount`; a minimum at or above the PodSet's count means the
   PodSet is never shrunk;
-- `partialPreemption.targetCount` below the PodSet's `partialPreemption.minCount` or at or above the
-  assignment's `count`, on a PodSet without `partialPreemption.minCount`, or raised;
-- raising an assignment's `count`, changing its `flavors`, or any change to `resourceUsage` not in
-  proportion to a `count` decrease on a partial-preemption release;
+- When PartialPreemption is enabled: setting partialPreemption.targetCount below partialPreemption.minCount;
+  setting partialPreemption.targetCount to be at or above the assignment’s count for a PodSet with no
+  partialPreemption.minCount; or increasing partialPreemption.targetCount.
+- lowering an assignment's `count` without a pending `partialPreemption.targetCount`, lowering it
+  below that target, or changing its `resourceUsage` other than proportionally with that count
+  decrease;
+- raising an assignment's `count` or changing its `flavors`;
 - `kueue.x-k8s.io/partial-preemption` other than `"true"` or `"false"`, and changes to it while the
   Workload holds quota.
 
