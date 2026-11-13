@@ -362,4 +362,34 @@ var _ = ginkgo.Describe("SparkApplication with elastic jobs via workload-slices 
 		expectSuspended(otherApp, false)
 		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 4)
 	})
+
+	ginkgo.When("ElasticJobsViaWorkloadSlicesForSparkApplication is disabled", func() {
+		ginkgo.BeforeAll(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, false)
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
+		})
+
+		ginkgo.It("Should follow executor pods that the Spark Operator does not report", func() {
+			sparkApp, _ := createElasticSparkApp(3)
+
+			ginkgo.By("the Spark Operator reports 2 executors and the controller reconciles them")
+			setAppStatus(sparkApp, sparkv1beta2.ApplicationStateRunning,
+				sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateRunning)
+			expectAdmittedSlice(2)
+			executors := []*corev1.Pod{
+				{Namespace: ns.Name, Name: sparkApp.Name + "-exec-1"},
+				{Namespace: ns.Name, Name: sparkApp.Name + "-exec-2"},
+			}
+			// Both executors are ungated only once the controller has processed the status, so
+			// no reconcile is pending when the untracked executor appears below.
+			gomega.Eventually(countGatedExecutors, behavioral.Timeout, behavioral.Interval).WithArguments(executors).Should(gomega.Equal(0))
+
+			ginkgo.By("the driver adds an executor beyond the operator's tracking limit")
+			setExecutorPodPhase(ctx, k8sClient, sparkApp, "elastic-exec-1001", corev1.PodPending)
+
+			ginkgo.By("only the executor Pod watch can make the controller account for it")
+			expectAdmittedSlice(3)
+		})
+	})
 })
