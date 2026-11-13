@@ -793,6 +793,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: WorkloadPriorityClassWatchesWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false

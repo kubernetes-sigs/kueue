@@ -37,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -158,19 +159,22 @@ func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kue
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkloadPriorityClassReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
-	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+	b := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workloadpriorityclass_controller").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.WorkloadPriorityClass{},
 			&handler.TypedEnqueueRequestForObject[*kueue.WorkloadPriorityClass]{},
 			r,
-		)).
-		WatchesRawSource(source.TypedKind(
+		))
+	if features.Enabled(features.WorkloadPriorityClassWatchesWorkloads) {
+		b = b.WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Workload{},
 			&wpcWorkloadHandler{r: r},
-		)).
+		))
+	}
+	return b.
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("WorkloadPriorityClass").GroupKind().String()],
