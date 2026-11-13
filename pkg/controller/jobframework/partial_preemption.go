@@ -17,8 +17,11 @@ limitations under the License.
 package jobframework
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -33,8 +36,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // reconcilePartialPreemption evicts the Pods above the retained count of an admitted elastic job
@@ -130,4 +136,74 @@ func evictPodForReclaim(ctx context.Context, c client.Client, log logr.Logger, p
 	}
 	log.V(3).Info("evicted elastic pod above partial-preemption target", "pod", klog.KObj(pod))
 	return nil
+}
+
+// ParsePartialPreemptionMinCount returns the partial-preemption minimum set by the
+// kueue.x-k8s.io/podset-partial-preemption-min-count annotation, or nil if the annotation is
+// absent. It returns an error if the value is not a non-negative 32-bit integer.
+func ParsePartialPreemptionMinCount(annotations map[string]string) (*int32, error) {
+	value, found := annotations[constants.PodSetPartialPreemptionMinCountAnnotation]
+	if !found {
+		return nil, nil
+	}
+	minCount, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || minCount < 0 {
+		return nil, fmt.Errorf("must be a non-negative integer, got %q", value)
+	}
+	return ptr.To(int32(minCount)), nil
+}
+
+// PodsAboveTargets returns, for each PodSet with a target, the Pods to evict so that at most
+// target running Pods remain. Terminated, terminating and gated Pods are not counted and not
+// returned. Pods are evicted in this order: not yet scheduled, then the lowest
+// controller.kubernetes.io/pod-deletion-cost, then the newest.
+func PodsAboveTargets(ctx context.Context, c client.Client, wl *kueue.Workload, targets map[kueue.PodSetReference]int32) ([]*corev1.Pod, error) {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, c, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		return nil, err
+	}
+	running := make(map[kueue.PodSetReference][]*corev1.Pod)
+	for _, p := range pods {
+		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
+		if _, ok := targets[ps]; ok {
+			running[ps] = append(running[ps], p)
+		}
+	}
+	var toEvict []*corev1.Pod
+	for ps, target := range targets {
+		candidates := running[ps]
+		extra := len(candidates) - int(target)
+		if extra <= 0 {
+			continue
+		}
+		slices.SortFunc(candidates, compareForEviction)
+		toEvict = append(toEvict, candidates[:extra]...)
+	}
+	return toEvict, nil
+}
+
+// compareForEviction orders Pods so that the ones to evict first come first.
+func compareForEviction(a, b *corev1.Pod) int {
+	return cmp.Or(
+		// Pods that are not scheduled yet first.
+		cmputil.CompareBool(a.Spec.NodeName != "", b.Spec.NodeName != ""),
+		// Then the lowest deletion cost.
+		cmp.Compare(podDeletionCost(a), podDeletionCost(b)),
+		// Then the newest.
+		b.CreationTimestamp.Compare(a.CreationTimestamp.Time),
+		cmp.Compare(a.Name, b.Name),
+	)
+}
+
+// podDeletionCost returns the Pod's deletion cost, or 0 if it is unset or invalid, as the
+// ReplicaSet controller does.
+func podDeletionCost(p *corev1.Pod) int32 {
+	cost, err := strconv.ParseInt(p.Annotations[corev1.PodDeletionCost], 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int32(cost)
 }
