@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -34,9 +35,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // WorkloadPriorityClassReconciler reconciles a WorkloadPriorityClass object
@@ -65,7 +68,7 @@ func (r *WorkloadPriorityClassReconciler) logger() logr.Logger {
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update
 
 func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wpc kueue.WorkloadPriorityClass
@@ -163,10 +166,59 @@ func (r *WorkloadPriorityClassReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 			&handler.TypedEnqueueRequestForObject[*kueue.WorkloadPriorityClass]{},
 			r,
 		)).
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Workload{},
+			&wpcWorkloadHandler{r: r},
+		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("WorkloadPriorityClass").GroupKind().String()],
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workloadpriorityclass-reconciler"),
 		}).
 		Complete(WithLeadingManager(mgr, r, &kueue.WorkloadPriorityClass{}, cfg))
+}
+
+// wpcWorkloadHandler requeues the WorkloadPriorityClass of a Workload whose
+// priority differs from the class value. Class events alone miss a Workload that
+// the sweep skipped on a stale cache, or that got another value after the sweep.
+type wpcWorkloadHandler struct {
+	r *WorkloadPriorityClassReconciler
+}
+
+var _ handler.TypedEventHandler[*kueue.Workload, reconcile.Request] = (*wpcWorkloadHandler)(nil)
+
+func (h *wpcWorkloadHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueClassIfDiverged(ctx, e.Object, q)
+}
+
+func (h *wpcWorkloadHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.queueClassIfDiverged(ctx, e.ObjectNew, q)
+}
+
+func (h *wpcWorkloadHandler) Delete(context.Context, event.TypedDeleteEvent[*kueue.Workload], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *wpcWorkloadHandler) Generic(context.Context, event.TypedGenericEvent[*kueue.Workload], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *wpcWorkloadHandler) queueClassIfDiverged(ctx context.Context, wl *kueue.Workload, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !workload.IsWorkloadPriorityClass(wl) {
+		return
+	}
+	if _, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+		return
+	}
+	var wpc kueue.WorkloadPriorityClass
+	if err := h.r.client.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
+		if !apierrors.IsNotFound(err) {
+			h.r.logger().Error(err, "Failed to get the WorkloadPriorityClass of a workload",
+				"workload", klog.KObj(wl), "workloadPriorityClass", wl.Spec.PriorityClassRef.Name)
+		}
+		return
+	}
+	if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
+		return
+	}
+	q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKey{Name: wpc.Name}}, constants.UpdatesBatchPeriod)
 }

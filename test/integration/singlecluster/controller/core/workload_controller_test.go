@@ -821,6 +821,76 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		})
 	})
 
+	ginkgo.When("the priority of a workload differs from the value of its WorkloadPriorityClass", func() {
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			behavioral.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+		})
+
+		// changeClassValue moves the class to 300 and waits for wl to follow, so the class has no
+		// reconcile left that could repair what the test changes afterwards.
+		changeClassValue := func(wl *kueue.Workload) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workloadPriorityClass), workloadPriorityClass)).To(gomega.Succeed())
+				workloadPriorityClass.Value = 300
+				g.Expect(k8sClient.Update(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("Should set the class value back on a workload whose priority was changed", func() {
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			changeClassValue(wl)
+
+			ginkgo.By("changing the priority of the workload")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Spec.Priority = new(int32(100))
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking that the workload has the class value again")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should give the class value to a workload created with an earlier value", func() {
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			changeClassValue(wl)
+
+			ginkgo.By("creating a workload with the earlier value of the class")
+			lateWl := utiltestingapi.MakeWorkload("late-wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lateWl)
+
+			ginkgo.By("checking that the workload gets the class value")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lateWl), lateWl)).To(gomega.Succeed())
+				g.Expect(lateWl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("the workload has a maximum execution time set", func() {
 		ginkgo.It("should deactivate the workload when the time expires", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
