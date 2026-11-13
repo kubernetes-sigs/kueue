@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -197,4 +198,31 @@ func ExpectClusterQueueResourceUsageWithTimeout(ctx context.Context, k8sClient c
 		g.Expect(found).To(gomega.BeTrue())
 		g.Expect(got).To(gomega.Equal(want))
 	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue "+string(resourceName)+" usage did not settle", cq))
+}
+
+// EffectiveQuotaResources returns the names of the resources that the effective
+// quotas report for the flavor. Asserting on the set instead of searching for a
+// resource makes a failure show which resources are present.
+func EffectiveQuotaResources(eq *kueue.EffectiveQuotaStatus, flavor kueue.ResourceFlavorReference) sets.Set[corev1.ResourceName] {
+	return sets.KeySet(EffectiveNominalQuotas(eq, flavor))
+}
+
+// EffectiveNominalQuotas returns the nominal quota of each resource that the
+// effective quotas report for the flavor.
+func EffectiveNominalQuotas(eq *kueue.EffectiveQuotaStatus, flavor kueue.ResourceFlavorReference) map[corev1.ResourceName]string {
+	quotas := make(map[corev1.ResourceName]string)
+	if eq == nil {
+		return quotas
+	}
+	for _, rg := range eq.ResourceGroups {
+		for _, fq := range rg.Flavors {
+			if fq.Name != flavor {
+				continue
+			}
+			for _, rq := range fq.Resources {
+				quotas[rq.Name] = rq.NominalQuota.String()
+			}
+		}
+	}
+	return quotas
 }
