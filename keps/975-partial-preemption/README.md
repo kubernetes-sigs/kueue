@@ -419,9 +419,11 @@ fits. Partial preemption uses two passes:
 2. **Whole-eviction pass** — if the preemptor still does not fit after the shrink pass, evict
    candidates whole in the existing order until it fits.
 
-This Alpha algorithm description covers classical preemption. Fair Sharing support is deferred to
-Beta. It makes no priority-band guarantee: a higher-priority candidate can be partially shrunk before
-or after a lower-priority candidate according to the existing ordering and candidate groups.
+This Alpha algorithm description covers classical preemption. If the gate is turned off while a
+partial-preemption target is pending, Kueue ignores that target and handles the Workload through the
+regular full-eviction path. Fair Sharing support is deferred to Beta. The algorithm makes no
+priority-band guarantee: a higher-priority candidate can be partially shrunk before or after a
+lower-priority candidate according to the existing ordering and candidate groups.
 Flavor assignment runs the same selection through the preemption oracle (`SimulatePreemption`),
 which counts a partial target at its reduced usage.
 
@@ -586,10 +588,9 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
 - **Quota released:** `PartiallyPreempted` is `False` with reason `QuotaReleased`, and the PodSet's
   admitted count (`status.admission`) has been lowered to the target.
 - **No minimum configured, or a minimum at or above the PodSet's count:** the PodSet is never shrunk.
-- **Gate turned off while a target is set:** Kueue stops setting targets and evicting Pods. It keeps
-  honoring targets already set: the ungater still caps at them, the release still happens once the
-  Pods above them are gone, and the scale-up slice is still created after it. So turning the gate
-  off never over-uses quota.
+- **Gate turned off while a target is set:** Kueue stops setting partial-preemption targets and
+  evicting Pods to reach them. The next preemption cycle ignores any remaining target and uses the
+  regular full-eviction path for that Workload.
 - **Downgrade:** see [Risks and Mitigations](#risks-and-mitigations).
 
 ### Interactions
