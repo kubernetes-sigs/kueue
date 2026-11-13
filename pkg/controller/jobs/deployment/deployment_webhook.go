@@ -90,7 +90,8 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 			return err
 		}
 	}
-	// ValidateUpdate rejects adding the priority class label to a running Deployment.
+	// Do not apply the default WorkloadPriorityClass to a running Deployment without the label:
+	// an unrelated update must not change its priority. Adding the label explicitly is allowed.
 	if oldDeploymentObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
 		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, deployment.Object(), wh.managedJobsNamespaceSelector); err != nil {
 			return err
@@ -178,9 +179,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 	if newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
-	isSuspended := oldDeployment.Status.ReadyReplicas == 0
-	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
-		isSuspended,
+	// A Deployment has no Deployment-level Workload: every Pod gets its own Workload from the
+	// labels of the Pod template. Adding the priority class to a running Deployment therefore
+	// only affects the new Pods that the rolling update creates, so only its removal is rejected.
+	allErrs = append(allErrs, jobframework.ValidateWorkloadPriorityClassNameNotRemoved(
 		oldDeployment.Object(),
 		newDeployment.Object(),
 	)...)

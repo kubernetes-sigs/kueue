@@ -56,18 +56,24 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
+You can also set a [WorkloadPriorityClass](/docs/concepts/workload_priority_class) with the `kueue.x-k8s.io/priority-class` label.
+The label can be added to a Deployment that is already running, and it can be changed later, but it cannot be removed.
+Adding or changing it starts a rolling update, and only the new Pods are admitted with that priority.
+The Pods that are already running keep their priority.
+Kueue does not apply the default WorkloadPriorityClass when you update a running Deployment that does not have the label.
+
 {{% alert title="Note" color="primary" %}}
-Changing or adding the `kueue.x-k8s.io/queue-name` label on a running Deployment starts an update:
+Changing or adding the `kueue.x-k8s.io/queue-name` or `kueue.x-k8s.io/priority-class` label on a running Deployment starts an update:
 
 - **RollingUpdate** (default): with the default `maxUnavailable: 25%`, up to a quarter of the old Pods can be
-  removed before replacement Pods are admitted. The ClusterQueue behind the new LocalQueue needs enough capacity
-  to admit **all replacement Pods** to complete the rollout — not just the surge Pods. If quota runs short
+  removed before replacement Pods are admitted. The ClusterQueue that admits the replacement Pods needs enough capacity
+  to admit **all of them** to complete the rollout — not just the surge Pods. If quota runs short
   mid-rollout, the remaining replacements stay pending and the rollout stalls. To keep all existing Pods running
   until replacements are admitted, set `spec.strategy.rollingUpdate.maxUnavailable: 0` with a positive
   `spec.strategy.rollingUpdate.maxSurge` (Kubernetes rejects `maxUnavailable: 0` and `maxSurge: 0` together).
-- **Recreate**: all existing Pods are terminated before any replacement is created. Any admission delay in the new
-  LocalQueue causes a full outage. Ensure the ClusterQueue behind the new LocalQueue has enough quota before
-  changing the queue label on a Recreate Deployment.
+- **Recreate**: all existing Pods are terminated before any replacement is created. Any admission delay
+  causes a full outage. Ensure the ClusterQueue that admits the replacement Pods has enough quota before
+  changing the label on a Recreate Deployment.
 {{% /alert %}}
 
 ### b. Configure the resource needs
