@@ -271,10 +271,15 @@ func (s *wasSimulatorFactory) getVirtualPods(wl *kueue.Workload) []*corev1.Pod {
 
 	vPods := VirtualPodsForWorkload(wl)
 
+	// TODO: Explicit invalidation will be needed for node hotswap (UpdateWorkloadIfUnchanged)
 	s.virtualPodsMu.Lock()
-	s.virtualPodsCache[wl.UID] = cachedVirtualPods{
-		resourceVersion: wl.ResourceVersion,
-		pods:            vPods,
+	if vPods == nil {
+		delete(s.virtualPodsCache, wl.UID)
+	} else {
+		s.virtualPodsCache[wl.UID] = cachedVirtualPods{
+			resourceVersion: wl.ResourceVersion,
+			pods:            vPods,
+		}
 	}
 	s.virtualPodsMu.Unlock()
 

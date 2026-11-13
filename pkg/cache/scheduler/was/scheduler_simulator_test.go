@@ -2228,7 +2228,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 			utiltestingapi.MakeAdmission("cq").
 				PodSets(kueue.PodSetAssignment{
 					Name:  "main",
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
 						Obj(),
@@ -2294,7 +2294,7 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Errorf("expected virtual pods to update node assignment on admission change")
 	}
 
-	// Caches nil pods for non-TAS workloads
+	// Does not cache nil pods for non-TAS workloads
 	wlNoTAS := utiltestingapi.MakeWorkload("wl-notas", "default").UID("wl-notas-uid").Obj()
 	wlNoTAS.Generation = 1
 	wlNoTAS.ResourceVersion = "200"
@@ -2302,15 +2302,23 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 		t.Fatalf("NewSimulator with non-TAS workload failed: %v", err)
 	}
 	factory.virtualPodsMu.RLock()
-	cachedNil, okNil := factory.virtualPodsCache[wlNoTAS.UID]
+	_, okNil := factory.virtualPodsCache[wlNoTAS.UID]
 	factory.virtualPodsMu.RUnlock()
-	if !okNil || cachedNil.pods != nil {
-		t.Fatalf("expected nil pods to be cached, got ok=%v, pods=%v", okNil, cachedNil.pods)
+	if okNil {
+		t.Fatalf("expected nil pods not to be cached")
 	}
 
-	// Reuses cached nil pods
-	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl, wlNoTAS})); err != nil {
-		t.Fatalf("Second NewSimulator with non-TAS workload failed: %v", err)
+	// Invalidates cached virtual pods when workload rolls back to nil TopologyAssignment
+	wl.ResourceVersion = "3"
+	wl.Status.Admission.PodSetAssignments[0].TopologyAssignment = nil
+	if _, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker, simulator.WithAssumedWorkloads([]*kueue.Workload{wl})); err != nil {
+		t.Fatalf("NewSimulator after rollback failed: %v", err)
+	}
+	factory.virtualPodsMu.RLock()
+	_, okRollback := factory.virtualPodsCache[wl.UID]
+	factory.virtualPodsMu.RUnlock()
+	if okRollback {
+		t.Fatalf("expected cached virtual pods to be deleted when VirtualPodsForWorkload returns nil")
 	}
 
 	// Removes unassumed workloads
