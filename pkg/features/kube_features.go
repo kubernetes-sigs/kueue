@@ -1009,6 +1009,12 @@ const (
 	// sets back a priority changed directly on the Workload. Disable this gate to
 	// keep such a priority until the class is reconciled again.
 	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
+
+	// owner: @henry3260
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17899
+	//
+	// Rejects Workloads with more than one podSetUpdates entry for the same PodSet in one admission check.
+	WorkloadValidateUniquePodSetUpdates featuregate.Feature = "WorkloadValidateUniquePodSetUpdates"
 )
 
 func init() {
@@ -1564,6 +1570,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	WorkloadPriorityClassWatchesWorkloads: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadValidateUniquePodSetUpdates: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
