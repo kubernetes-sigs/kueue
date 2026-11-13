@@ -1000,6 +1000,15 @@ const (
 	// worker Pods stay gated. Disable this gate to accept that the leader Pods run
 	// without admission.
 	LeaderWorkerSetRejectGroupIdentityHash featuregate.Feature = "LeaderWorkerSetRejectGroupIdentityHash"
+
+	// owner: @thc1006
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/16459#discussion_r4564454144
+	//
+	// Makes the WorkloadPriorityClass controller watch Workloads and requeue the
+	// class of a Workload whose priority differs from the class value, which also
+	// sets back a priority changed directly on the Workload. Disable this gate to
+	// keep such a priority until the class is reconciled again.
+	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
 )
 
 func init() {
@@ -1551,6 +1560,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	LeaderWorkerSetRejectGroupIdentityHash: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadPriorityClassWatchesWorkloads: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
