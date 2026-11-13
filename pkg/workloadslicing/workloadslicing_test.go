@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -45,6 +46,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1779,13 +1781,15 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	type want struct {
 		survivor     string
 		keptAdmitted string
+		deleted      string
 		error        error
 	}
 
 	tests := map[string]struct {
-		partialScaleUp bool
-		workloads      []kueue.Workload
-		want           want
+		partialScaleUp    bool
+		partialPreemption bool
+		workloads         []kueue.Workload
+		want              want
 	}{
 		"two admitted, keep newest": {
 			workloads: []kueue.Workload{
@@ -1934,6 +1938,23 @@ func TestNormalizeActiveSlices(t *testing.T) {
 		// Neither holds a reservation, so the survivor is the latest one. The
 		// caller passes these already sorted with a UID tie-break, so the last
 		// is the latest even when both were created in the same second.
+		"admitted with pending reclaim target + pending replacement, cancel replacement and keep admitted": {
+			partialPreemption: true,
+			workloads: []kueue.Workload{
+				func() kueue.Workload {
+					wl := admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").
+						Creation(now.Add(-time.Minute)).
+						Annotation(constants.PartialPreemptionAnnotation, "true").
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj())).Obj()
+					wl.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{TargetCount: ptr.To[int32](1)}
+					return *wl
+				}(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-a", deleted: "wl-b"},
+		},
 		"two pending slices created in the same second": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now).
@@ -1948,6 +1969,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: tc.partialScaleUp,
+				features.PartialPreemption:                                     tc.partialPreemption,
 			})
 			ctx, _ := utiltesting.ContextWithLog(t)
 			testSchema := runtime.NewScheme()
@@ -1976,7 +1998,14 @@ func TestNormalizeActiveSlices(t *testing.T) {
 
 			for i := range tc.workloads {
 				wl := &kueue.Workload{}
-				if err := clnt.Get(ctx, client.ObjectKeyFromObject(&tc.workloads[i]), wl); err != nil {
+				err := clnt.Get(ctx, client.ObjectKeyFromObject(&tc.workloads[i]), wl)
+				if tc.workloads[i].Name == tc.want.deleted {
+					if !apierrors.IsNotFound(err) {
+						t.Errorf("cancelled workload %q should be deleted, get error = %v", tc.workloads[i].Name, err)
+					}
+					continue
+				}
+				if err != nil {
 					t.Fatalf("failed to get workload %s: %v", tc.workloads[i].Name, err)
 				}
 				kept := wl.Name == tc.want.survivor || wl.Name == tc.want.keptAdmitted
