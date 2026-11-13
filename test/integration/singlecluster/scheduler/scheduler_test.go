@@ -2174,11 +2174,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 
-			ginkgo.By("Creating two workloads")
+			ginkgo.By("Creating the first workload and waiting for its quota reservation")
 			behavioral.MustCreate(ctx, k8sClient, wl1)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl1)
+
+			ginkgo.By("Creating the second workload, which stays pending")
 			behavioral.MustCreate(ctx, k8sClient, wl2)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl1)
 			behavioral.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
 			behavioral.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
 			behavioral.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
