@@ -175,3 +175,61 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "(?s)mode.*string"
+
+  - it: should give YAML precedence with null mode
+    set:
+      managerConfig.mode: null
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 123"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst:|qps: 600"
+
+  - it: should select structured overrides with null mode and YAML
+    set:
+      managerConfig.mode: null
+      managerConfig.controllerManagerConfigYaml: null
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *structuredConfig
+
+  - it: should use defaults with all null inputs
+    set:
+      managerConfig.mode: null
+      managerConfig.controllerManagerConfigYaml: null
+      managerConfig.structuredOverrides: null
+    asserts: *chartDefaults
+
+  - it: should use defaults in YAML mode with null YAML despite overrides
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: null
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *chartDefaults
+
+  - it: should use defaults in structured mode with null overrides despite YAML
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: "clientConnection: {qps: 123}"
+      managerConfig.structuredOverrides: null
+    asserts: *chartDefaults
+
+  - it: should preserve empty YAML with null mode and overrides
+    set:
+      managerConfig.mode: null
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides: null
+    asserts:
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "apiVersion:|clientConnection:|integrations:"
+
+  - it: should reject an unknown manager input even when null
+    set:
+      managerConfig.typo: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
