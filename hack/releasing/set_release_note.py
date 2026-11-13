@@ -104,14 +104,16 @@ COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.
 # "<!-- This is an auto-generated comment: release notes by coderabbit.ai -->"
 # and "<!-- end of auto-generated comment: release notes by coderabbit.ai -->".
 # A marker only counts when it is on a line of its own, so that a marker quoted
-# in inline code or prose does not start or end a section.
+# in inline code or prose does not start or end a section. Like a fence, it may
+# be indented by at most three spaces: a line indented by four spaces or a tab
+# is an indented code block, such as a documented example of a marker.
 AUTO_GENERATED_START_RE = re.compile(
-    r"^[ \t]*<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)"
+    r"^ {0,3}<!--[ \t]*This is an auto-generated comment:[ \t]*(?P<label>[^\r\n]*?)"
     r"[ \t]*-->[ \t]*\r?$",
     re.IGNORECASE | re.MULTILINE,
 )
 AUTO_GENERATED_END_TEMPLATE = (
-    r"^[ \t]*<!--[ \t]*end of auto-generated comment:[ \t]*{label}[ \t]*-->[ \t]*\r?$"
+    r"^ {{0,3}}<!--[ \t]*end of auto-generated comment:[ \t]*{label}[ \t]*-->[ \t]*\r?$"
 )
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"

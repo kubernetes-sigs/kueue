@@ -313,6 +313,34 @@ class SetReleaseNoteTest(unittest.TestCase):
                 "new note",
                 f"{START_MARKER}\nSummary\n{END_MARKER}\n\n```release-note\nnew note\n```\n",
             ),
+            "ignore a space-indented start-marker example": (
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "ignore a tab-indented start-marker example": (
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nold note\n```\n\n" + CODERABBIT_SECTION,
+                "new note",
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nnew note\n```\n\n" + CODERABBIT_SECTION,
+            ),
+            "ignore an indented end-marker example in a generated section": (
+                f"```release-note\nold note\n```\n\n{START_MARKER}\nExample:\n\n"
+                f"    {END_MARKER}\n\n```release-note\nsuggested note\n```\n{END_MARKER}\n",
+                "new note",
+                f"```release-note\nnew note\n```\n\n{START_MARKER}\nExample:\n\n"
+                f"    {END_MARKER}\n\n```release-note\nsuggested note\n```\n{END_MARKER}\n",
+            ),
+            "accept a marker indented by three spaces": (
+                f"```release-note\nold note\n```\n\n   {START_MARKER}\n"
+                f"```release-note\nsuggested note\n```\n   {END_MARKER}\n",
+                "new note",
+                f"```release-note\nnew note\n```\n\n   {START_MARKER}\n"
+                f"```release-note\nsuggested note\n```\n   {END_MARKER}\n",
+            ),
         }
 
         for name, (pr_body, release_note, want) in test_cases.items():
@@ -345,6 +373,18 @@ class SetReleaseNoteTest(unittest.TestCase):
             ),
             "two author blocks next to a generated section": (
                 "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n"
+                + CODERABBIT_SECTION,
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "two author blocks after an indented start-marker example": (
+                f"Markers look like:\n\n    {START_MARKER}\n\n"
+                "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n\n"
+                + CODERABBIT_SECTION,
+                MULTIPLE_BLOCKS_ERROR,
+            ),
+            "two author blocks after a tab-indented start-marker example": (
+                f"Markers look like:\n\n\t{START_MARKER}\n\n"
+                "```release-note\nfirst note\n```\n```release-note\nsecond note\n```\n\n"
                 + CODERABBIT_SECTION,
                 MULTIPLE_BLOCKS_ERROR,
             ),
