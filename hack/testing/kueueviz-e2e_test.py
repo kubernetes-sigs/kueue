@@ -114,6 +114,7 @@ if name == "go":
     binary.chmod(0o755)
 elif name == "make":
     assert args[-1] == "test-kueueviz-backend"
+    assert os.environ["GOMAXPROCS"] == os.environ["VIZ_TEST_EXPECTED_GOMAXPROCS"]
     pathlib.Path(os.environ["VIZ_TEST_WORKER_GROUP"]).write_text(str(os.getpgrp()))
     child = subprocess.Popen(["sleep", "60"])
     pathlib.Path(os.environ["VIZ_TEST_COMPILER_PID"]).write_text(str(child.pid))
@@ -222,6 +223,7 @@ signal.pause()
                    "KIND_CLUSTER_FILE": "kind-cluster.yaml", "PROJECT_DIR": str(root),
                    "CYPRESS_IMAGE_NAME": "cypress-test", "VIZ_TEST_EVENTS": str(events),
                    "KUEUEVIZ_RUN_BACKEND_TESTS": "false", "KUEUEVIZ_MAKE": "make",
+                   "VIZ_TEST_EXPECTED_GOMAXPROCS": "1",
                    "VIZ_TEST_TESTS_STARTED": str(tests_started),
                    "VIZ_TEST_TESTS_RELEASE": str(tests_release),
                    "VIZ_TEST_TESTS_DONE": str(root / "tests.done"),
@@ -235,6 +237,7 @@ signal.pause()
                    "VIZ_TEST_BACKEND_READY": str(ready),
                    "VIZ_TEST_BACKEND_TEMPLATE": str(backend),
                    "VIZ_TEST_COMMANDS": str(commands), "VIZ_TEST_FAILURE": failure}
+            env.pop("GOMAXPROCS", None)
             env.update(backend_env or {})
             # Prow backgrounds its command with SIGINT ignored. Bash cannot trap
             # signals ignored on entry, so launch the fixture with the foreground
@@ -309,18 +312,23 @@ signal.pause()
                     self.assertFalse(any(c[:2] == ["go", "build"] for c in commands))
 
     def test_backend_worker_preserves_make_arguments(self):
-        for test_flags in ("", "-race -count=1"):
-            with self.subTest(test_flags=test_flags):
-                go_flags = '"-ldflags=-s -w" -trimpath'
-                result, _, commands = self.run_suite(backend_env={
+        for test_flags, gomaxprocs in (("", None), ("-race -count=1", None),
+                                      ("-race -p=3", "3"), ("-race", "")):
+            with self.subTest(test_flags=test_flags, gomaxprocs=gomaxprocs):
+                go_flags = '-p=2 "-ldflags=-s -w" -trimpath'
+                env = {
                     "KUEUEVIZ_RUN_BACKEND_TESTS": "true",
                     "KUEUEVIZ_TEST_GOFLAGS": go_flags,
                     "KUEUEVIZ_TEST_FLAGS": test_flags,
                     "KUEUEVIZ_TEST_GO_CMD": "custom-go",
-                })
+                }
+                if gomaxprocs is not None:
+                    env["GOMAXPROCS"] = gomaxprocs
+                    env["VIZ_TEST_EXPECTED_GOMAXPROCS"] = gomaxprocs
+                result, _, commands = self.run_suite(backend_env=env)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 invocation = next(c for c in commands if c[0] == "make")
-                self.assertIn(f"GOFLAGS={go_flags}", invocation)
+                self.assertIn(f"GOFLAGS=-p=4 {go_flags}", invocation)
                 self.assertIn(f"GO_TEST_FLAGS={test_flags}", invocation)
                 self.assertIn("GO_CMD=custom-go", invocation)
 
