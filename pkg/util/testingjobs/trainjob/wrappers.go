@@ -24,10 +24,8 @@ import (
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
-
-// KueueRuntimePatchManager is the manager name used for Kueue-owned TrainJob runtime patches.
-const KueueRuntimePatchManager = "kueue.x-k8s.io/manager"
 
 type TrainJobWrapper struct{ kftrainerapi.TrainJob }
 
@@ -107,7 +105,7 @@ func (t *TrainJobWrapper) Label(key, value string) *TrainJobWrapper {
 
 // JobSetLabel sets a label on the child JobSet via RuntimePatches
 func (t *TrainJobWrapper) JobSetLabel(key, value string) *TrainJobWrapper {
-	if kueueRuntimePatch := KueueRuntimePatch(t.Obj()); kueueRuntimePatch != nil {
+	if kueueRuntimePatch := utiltrainjob.KueueRuntimePatch(t.Obj()); kueueRuntimePatch != nil {
 		metadata := kueueRuntimePatch.TrainingRuntimeSpec.Template.Metadata
 		if metadata == nil {
 			metadata = &metav1.ObjectMeta{}
@@ -119,7 +117,7 @@ func (t *TrainJobWrapper) JobSetLabel(key, value string) *TrainJobWrapper {
 		kueueRuntimePatch.TrainingRuntimeSpec.Template.Metadata = metadata
 		return t
 	}
-	return t.RuntimePatches(append(t.Spec.RuntimePatches, MakeRuntimePatch(KueueRuntimePatchManager).
+	return t.RuntimePatches(append(t.Spec.RuntimePatches, MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 		Label(key, value).
 		Obj()))
 }
@@ -354,16 +352,6 @@ func (r *ReplicatedJobPatchWrapper) ensurePodSpec() *kftrainerapi.PodSpecPatch {
 		podTemplate.Spec = &kftrainerapi.PodSpecPatch{}
 	}
 	return podTemplate.Spec
-}
-
-// KueueRuntimePatch returns the Kueue-managed RuntimePatch, if present.
-func KueueRuntimePatch(trainJob *kftrainerapi.TrainJob) *kftrainerapi.RuntimePatch {
-	for i := range trainJob.Spec.RuntimePatches {
-		if trainJob.Spec.RuntimePatches[i].Manager == KueueRuntimePatchManager {
-			return &trainJob.Spec.RuntimePatches[i]
-		}
-	}
-	return nil
 }
 
 // MakeClusterTrainingRuntime creates a ClusterTrainingRuntime with the jobsetSpec provided

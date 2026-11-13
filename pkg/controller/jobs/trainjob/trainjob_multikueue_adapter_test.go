@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 const (
@@ -87,7 +88,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+						testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).Obj(),
 					}).
 					Obj(),
 			},
@@ -99,7 +100,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+						testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).Obj(),
 					}).
 					Obj(),
 			},
