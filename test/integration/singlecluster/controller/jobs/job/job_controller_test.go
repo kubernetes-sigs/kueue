@@ -7317,8 +7317,13 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices and Provision
 			ProvisioningClass(provisioningClass).
 			PodSet("ppt-"+slice.Name, 1).
 			Obj()
-		ginkgo.By("creating two requests controlled by the slice, Provisioned with live bookings", func() {
-			for _, request := range []*autoscaling.ProvisioningRequest{expiringRequest, vanishingRequest} {
+		revokedRequest := utiltestingapi.MakeProvisioningRequest(slice.Name+"-provisioning-check-3", ns.Name).
+			ControllerReference(workloadGVK, slice.Name, string(slice.UID)).
+			ProvisioningClass(provisioningClass).
+			PodSet("ppt-"+slice.Name, 1).
+			Obj()
+		ginkgo.By("creating three requests controlled by the slice, Provisioned with live bookings", func() {
+			for _, request := range []*autoscaling.ProvisioningRequest{expiringRequest, vanishingRequest, revokedRequest} {
 				behavioral.MustCreate(ctx, k8sClient, request)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(request), request)).Should(gomega.Succeed())
@@ -7344,8 +7349,15 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices and Provision
 			Annotation(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass).
 			Label(pkgconstants.PodSetLabel, string(slice.Spec.PodSets[0].Name)).
 			Obj()
+		podOnRevokedRequest := testingpod.MakePod("worker-2", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, slice.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).
+			Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, revokedRequest.Name).
+			Annotation(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass).
+			Label(pkgconstants.PodSetLabel, string(slice.Spec.PodSets[0].Name)).
+			Obj()
 		ginkgo.By("creating a released pod bound to each request, which the scheduler reports Unschedulable", func() {
-			for _, pod := range []*corev1.Pod{podOnExpiringRequest, podOnVanishingRequest} {
+			for _, pod := range []*corev1.Pod{podOnExpiringRequest, podOnVanishingRequest, podOnRevokedRequest} {
 				behavioral.MustCreate(ctx, k8sClient, pod)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
@@ -7359,26 +7371,31 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices and Provision
 			}
 		})
 
-		ginkgo.By("keeping both pods bound while the bookings are live", func() {
+		expectBound := func(g gomega.Gomega, pod *corev1.Pod, request *autoscaling.ProvisioningRequest) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
+			g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningRequestPodAnnotationKey, request.Name))
+			g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass))
+		}
+		ginkgo.By("keeping all pods bound while the bookings are live", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
-				for pod, request := range map[*corev1.Pod]*autoscaling.ProvisioningRequest{podOnExpiringRequest: expiringRequest, podOnVanishingRequest: vanishingRequest} {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
-					g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningRequestPodAnnotationKey, request.Name))
-					g.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(autoscaling.ProvisioningClassPodAnnotationKey, provisioningClass))
+				for pod, request := range map[*corev1.Pod]*autoscaling.ProvisioningRequest{podOnExpiringRequest: expiringRequest, podOnVanishingRequest: vanishingRequest, podOnRevokedRequest: revokedRequest} {
+					expectBound(g, pod, request)
 				}
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("marking one request BookingExpired and deleting the other", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(expiringRequest), expiringRequest)).Should(gomega.Succeed())
-				apimeta.SetStatusCondition(&expiringRequest.Status.Conditions, metav1.Condition{Type: autoscaling.BookingExpired, Status: metav1.ConditionTrue, Reason: autoscaling.BookingExpired})
-				g.Expect(k8sClient.Status().Update(ctx, expiringRequest)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		ginkgo.By("marking one request BookingExpired, another CapacityRevoked, and deleting the third", func() {
+			for request, conditionType := range map[*autoscaling.ProvisioningRequest]string{expiringRequest: autoscaling.BookingExpired, revokedRequest: autoscaling.CapacityRevoked} {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(request), request)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{Type: conditionType, Status: metav1.ConditionTrue, Reason: conditionType})
+					g.Expect(k8sClient.Status().Update(ctx, request)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, vanishingRequest, true)
 		})
 
-		ginkgo.By("the ungater removes the request annotations from both pods and records why", func() {
+		ginkgo.By("the ungater removes the request annotations from the pods on the expired and deleted requests and records why", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, pod := range []*corev1.Pod{podOnExpiringRequest, podOnVanishingRequest} {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).Should(gomega.Succeed())
@@ -7395,6 +7412,12 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices and Provision
 						"removed its annotations so the cluster autoscaler handles the pod directly", request.Name),
 				})
 			}
+		})
+
+		ginkgo.By("leaving the pod on the CapacityRevoked request bound: the provisioning controller deactivates the live slice for that", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				expectBound(g, podOnRevokedRequest, revokedRequest)
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

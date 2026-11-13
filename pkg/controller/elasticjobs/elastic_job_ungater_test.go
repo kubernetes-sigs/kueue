@@ -148,6 +148,29 @@ func makeReplacedChain(now time.Time) []kueue.Workload {
 	}
 }
 
+// makeLiveRootSlice is the root slice "wl" before any rollover: admitted and
+// active, so the provisioning controller still reconciles it and acts on its
+// request "wl-provisioning-1" turning terminal.
+func makeLiveRootSlice(now time.Time) *utiltestingapi.WorkloadWrapper {
+	return utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "flavor", "1").
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		AdmissionChecks(kueue.AdmissionCheckState{
+			Name:  "provisioning",
+			State: kueue.CheckStateReady,
+		})
+}
+
 // makeBoundPod is a pod released against the root slice and bound to its
 // ProvisioningRequest; the scheduler has already reported it Unschedulable.
 func makeBoundPod(name string) *testingpod.PodWrapper {
@@ -1034,7 +1057,9 @@ func TestReconcile(t *testing.T) {
 			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
 			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
 		},
-		"detach unschedulable pods bound to a capacity-revoked provisioning request": {
+		// The replaced slice is no longer reconciled by the provisioning
+		// controller, so nothing else reacts to its request losing capacity.
+		"detach unschedulable pods bound to a capacity-revoked request of a replaced slice": {
 			workloads: makeReplacedChain(now),
 			provisioningRequests: []autoscaling.ProvisioningRequest{
 				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.CapacityRevoked).Obj(),
@@ -1042,6 +1067,49 @@ func TestReconcile(t *testing.T) {
 			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
 			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
 			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// After admission the provisioning controller ignores an expired
+		// booking, so this is the ungater's to handle even on a live slice.
+		"detach unschedulable pods bound to a booking-expired request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// The provisioning controller rejects the admission check of a live
+		// slice whose request is CapacityRevoked, which deactivates the
+		// Workload and deletes its pods. Detaching them first would only have
+		// the autoscaler scale up for pods about to go.
+		"keep pods bound to a capacity-revoked request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.CapacityRevoked).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Likewise a Failed request of a live slice is retried, or rejected,
+		// by the provisioning controller.
+		"keep pods bound to a failed request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Failed).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Deactivation already under way (spec.active=false, not evicted yet):
+		// the pods are about to be deleted with the Workload's eviction.
+		"keep pods bound to a booking-expired request of a slice being deactivated": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Active(false).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
 		},
 		"detach unschedulable pods bound to a live request that is being deleted": {
 			workloads: makeReplacedChain(now),
@@ -1625,11 +1693,12 @@ func TestActiveSliceForRequest(t *testing.T) {
 	}
 }
 
-// TestRequestExhaustedPredicate checks that only the transition to a terminal
-// ProvisioningRequest passes the watch predicate.
+// TestRequestExhaustedPredicate checks that only the transitions to a terminal
+// or deleting ProvisioningRequest, and its deletion, pass the watch predicate.
 func TestRequestExhaustedPredicate(t *testing.T) {
 	live := makeRootSliceRequest().Condition(autoscaling.Provisioned).Obj()
 	expired := makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj()
+	deleting := makeRootSliceRequest().Condition(autoscaling.Provisioned).DeletionTimestamp(time.Now()).Finalizers("test/block").Obj()
 	p := requestBecameExhausted()
 	cases := map[string]struct {
 		got  bool
@@ -1640,6 +1709,8 @@ func TestRequestExhaustedPredicate(t *testing.T) {
 		"update that stays live is ignored":     {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: live})},
 		"update that turns terminal passes":     {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: expired}), want: true},
 		"update that stays terminal is ignored": {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: expired, ObjectNew: expired})},
+		"update that starts deletion passes":    {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: deleting}), want: true},
+		"update while deleting is ignored":      {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: deleting, ObjectNew: deleting})},
 		"delete passes":                         {got: p.Delete(event.TypedDeleteEvent[*autoscaling.ProvisioningRequest]{Object: live}), want: true},
 	}
 	for name, tc := range cases {

@@ -313,17 +313,11 @@ func (r *elasticJobUngater) chainPods(ctx context.Context, wl *kueue.Workload) (
 }
 
 // detachFromExhaustedRequests removes the ProvisioningRequest annotations from
-// released pods that the scheduler reports Unschedulable while their request
-// can no longer deliver capacity. The autoscaler skips pods bound to a request
-// in its regular scale-up, and Kueue never re-points a pod at another request
-// (podAdmissionCompatible), so such pods otherwise stay Pending for good. This
-// is the gap after admission: the provisioning controller only retries a
-// request while the admission check is still Pending.
-//
-// Detaching trades the request's provisioning class for the autoscaler's
-// regular scale-up. That is intended: the class' placement decision was
-// already made, and lost, for these pods, and evicting an elastic job to
-// re-request atomically would restart it as a whole.
+// released pods that are Unschedulable on a request that can no longer deliver
+// capacity (requestExhausted): the autoscaler skips bound pods in its regular
+// scale-up and Kueue never re-points them, so they would stay Pending for good.
+// Trading the provisioning class for regular scale-up is intended; evicting
+// to re-request atomically would restart the elastic job as a whole.
 func (r *elasticJobUngater) detachFromExhaustedRequests(ctx context.Context, pods []*corev1.Pod) error {
 	stuck, err := r.podsStuckOnExhaustedRequests(ctx, pods)
 	if err != nil {
@@ -396,28 +390,39 @@ func unschedulableOnRequest(p *corev1.Pod) bool {
 }
 
 // requestExhausted reports whether the named request can no longer deliver
-// capacity: it is gone, being deleted, terminal (Failed, BookingExpired,
-// CapacityRevoked), or about to be garbage collected because its controlling
-// Workload is gone. An in-flight request (Accepted, or Provisioned within its
-// booking) is not exhausted.
+// capacity and nothing else acts on it: gone, deleting, orphaned, or terminal
+// where the provisioning controller leaves it alone (a replaced slice's request,
+// or BookingExpired after admission). A terminal request it does act on, by
+// retrying or deactivating the Workload, deletes the pods anyway, so they stay
+// bound rather than trigger a scale-up for nothing.
 func (r *elasticJobUngater) requestExhausted(ctx context.Context, namespace, name string) (bool, error) {
 	pr := &autoscaling.ProvisioningRequest{}
 	if err := r.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, pr); err != nil {
 		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
 	}
-	if !pr.DeletionTimestamp.IsZero() || provisioning.IsTerminal(pr) {
+	if !pr.DeletionTimestamp.IsZero() {
 		return true, nil
+	}
+	owner := metav1.GetControllerOf(pr)
+	if owner == nil || owner.Kind != "Workload" {
+		return provisioning.IsTerminal(pr), nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: owner.Name}, wl); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
 	}
 	// A replaced slice's Delete event reaches us before garbage collection
 	// removes its requests, so the request itself can still look live here.
-	if owner := metav1.GetControllerOf(pr); owner != nil && owner.Kind == "Workload" {
-		wl := &kueue.Workload{}
-		if err := r.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: owner.Name}, wl); err != nil {
-			return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
-		}
-		return !wl.DeletionTimestamp.IsZero(), nil
+	if !wl.DeletionTimestamp.IsZero() {
+		return true, nil
 	}
-	return false, nil
+	if !provisioning.IsTerminal(pr) {
+		return false, nil
+	}
+	if workloadfinish.IsFinished(wl) {
+		return true, nil
+	}
+	return workload.IsActive(wl) && !provisioning.HandlesTerminalRequest(wl, pr), nil
 }
 
 // activeSlice maps any slice of a chain to the reconcile request for the
@@ -446,14 +451,15 @@ func (r *elasticJobUngater) activeSliceForRequest(ctx context.Context, pr *autos
 }
 
 // requestBecameExhausted passes a ProvisioningRequest through only when it is
-// deleted or has just turned terminal; the Accepted/Provisioned status churn
-// is dropped.
+// deleted, starts being deleted (a finalizer holding it), or has just turned
+// terminal; the Accepted/Provisioned status churn is dropped.
 func requestBecameExhausted() predicate.TypedPredicate[*autoscaling.ProvisioningRequest] {
 	return predicate.TypedFuncs[*autoscaling.ProvisioningRequest]{
 		CreateFunc:  func(event.TypedCreateEvent[*autoscaling.ProvisioningRequest]) bool { return false },
 		GenericFunc: func(event.TypedGenericEvent[*autoscaling.ProvisioningRequest]) bool { return false },
 		UpdateFunc: func(e event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]) bool {
-			return provisioning.IsTerminal(e.ObjectNew) && !provisioning.IsTerminal(e.ObjectOld)
+			return (provisioning.IsTerminal(e.ObjectNew) && !provisioning.IsTerminal(e.ObjectOld)) ||
+				(!e.ObjectNew.DeletionTimestamp.IsZero() && e.ObjectOld.DeletionTimestamp.IsZero())
 		},
 	}
 }
