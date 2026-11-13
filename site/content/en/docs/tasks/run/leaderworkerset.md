@@ -141,6 +141,11 @@ returns a warning when you update such a LeaderWorkerSet, for example with
 `kubectl apply`. `spec.groupIdentity` is immutable, so delete the
 LeaderWorkerSet and create it again with `spec.groupIdentity: Ordinal`.
 
+To turn off the rejection and the warning, disable the `LeaderWorkerSetRejectGroupIdentityHash`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then accepts a LeaderWorkerSet with `spec.groupIdentity: Hash`, and its leader Pods
+run without admission.
+
 ## Example
 Here is a sample LeaderWorkerSet:
 

@@ -82,13 +82,14 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 var _ admission.Defaulter[*leaderworkersetv1.LeaderWorkerSet] = &Webhook{}
 
 // canApplyDefaultLocalQueue reports whether Default can set the default LocalQueue
-// on an update of oldLWS. ValidateUpdate rejects groupIdentity Hash when an update
-// brings a LeaderWorkerSet under Kueue management, so the default LocalQueue is not
-// applied to a Hash LeaderWorkerSet without a queue name. A Hash LeaderWorkerSet
-// that already has a queue name is handled like any other, so a dropped "default"
-// label is restored.
+// on an update of oldLWS. With LeaderWorkerSetRejectGroupIdentityHash, ValidateUpdate
+// rejects groupIdentity Hash when an update brings a LeaderWorkerSet under Kueue
+// management, so the default LocalQueue is not applied to a Hash LeaderWorkerSet
+// without a queue name. A Hash LeaderWorkerSet that already has a queue name is
+// handled like any other, so a dropped "default" label is restored.
 func canApplyDefaultLocalQueue(oldLWS *leaderworkersetv1.LeaderWorkerSet) bool {
-	if oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
+	if features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) &&
+		oldLWS.Spec.GroupIdentity == leaderworkersetv1.GroupIdentityHash && jobframework.QueueNameForObject(oldLWS) == "" {
 		return false
 	}
 	return jobframework.CanApplyDefaultLocalQueue(oldLWS.Status.ReadyReplicas == 0, oldLWS)
@@ -346,7 +347,7 @@ const (
 // created under Kueue management. groupIdentity is checked first, so that other
 // LeaderWorkerSets need no lookup of their owner or Namespace.
 func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *LeaderWorkerSet) (field.ErrorList, error) {
-	if lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || lws.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
 		return nil, nil
 	}
 	managed, err := wh.integrationManager.WorkloadShouldBeSuspended(
@@ -370,7 +371,7 @@ func (wh *Webhook) validateGroupIdentityOnCreate(ctx context.Context, lws *Leade
 // Such a LeaderWorkerSet gets a warning instead, because its ordinal Workloads can
 // reserve quota that no Pod uses.
 func (wh *Webhook) validateGroupIdentityOnUpdate(ctx context.Context, oldLWS, newLWS *LeaderWorkerSet) (admission.Warnings, field.ErrorList, error) {
-	if newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
+	if !features.Enabled(features.LeaderWorkerSetRejectGroupIdentityHash) || newLWS.Spec.GroupIdentity != leaderworkersetv1.GroupIdentityHash {
 		return nil, nil, nil
 	}
 	wasManaged, err := wh.integrationManager.WorkloadShouldBeSuspended(
