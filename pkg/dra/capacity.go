@@ -106,12 +106,6 @@ func determineCapacityForPodSet(
 				continue
 			}
 
-			quotaResource, found := mapper.Lookup(deviceClass)
-			if !found {
-				log.V(2).Info("Capacity configs exist but no quota resource mapping found", "deviceClass", deviceClass)
-				continue
-			}
-
 			claimPath := field.NewPath("spec", "podSets").Index(psIdx).Child("template", "spec", "resourceClaims").Index(j)
 			reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
@@ -120,9 +114,9 @@ func determineCapacityForPodSet(
 				return nil, errs
 			}
 
-			log.V(4).Info("Processing capacity charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", quotaResource, "count", req.Exactly.Count)
+			log.V(4).Info("Processing capacity charge", "podSet", ps.Name, "deviceClass", deviceClass, "count", req.Exactly.Count)
 
-			charges, errs := processCapacityCharge(ctx, sliceCache, capacityConfigs, quotaResource, req.Exactly, classSelectors, requestSelectors, reqPath)
+			charges, errs := processCapacityCharge(ctx, sliceCache, capacityConfigs, req.Exactly, classSelectors, requestSelectors, reqPath)
 			if len(errs) > 0 {
 				return nil, errs
 			}
@@ -144,7 +138,6 @@ func processCapacityCharge(
 	ctx context.Context,
 	sliceCache *ResourceSliceCache,
 	capacityConfigs []deviceClassCapacityConfig,
-	quotaResource corev1.ResourceName,
 	exactly *resourcev1.ExactDeviceRequest,
 	classSelectors []dracel.CompilationResult,
 	requestSelectors []dracel.CompilationResult,
@@ -182,9 +175,9 @@ func processCapacityCharge(
 			return nil, errs
 		}
 		if charges != nil {
-			existing := result[quotaResource]
+			existing := result[capCfg.quotaResource]
 			existing.Add(*charges)
-			result[quotaResource] = existing
+			result[capCfg.quotaResource] = existing
 		}
 	}
 
@@ -245,6 +238,11 @@ func computeCapacityCharge(
 
 	chargeValue := safeChargeValue(log, maxRounded, capCfg.driver, string(capCfg.resourceName), count)
 	result := resource.NewQuantity(chargeValue, maxRounded.Format)
+	if explicitRequest != nil && maxRounded.Cmp(*explicitRequest) != 0 {
+		log.V(4).Info("Capacity request rounded up to the device RequestPolicy",
+			"quotaResource", capCfg.quotaResource, "dimension", capCfg.resourceName,
+			"requested", explicitRequest.String(), "chargedPerDevice", maxRounded.String())
+	}
 	return result, nil
 }
 
