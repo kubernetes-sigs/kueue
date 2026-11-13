@@ -355,3 +355,65 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkloadPriorityClassWorkloadHandler(t *testing.T) {
+	cases := map[string]struct {
+		oldWorkload *kueue.Workload
+		workload    *kueue.Workload
+		want        []reconcile.Request
+	}{
+		"created workload with the class value": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(1000).Obj(),
+		},
+		"created workload with another value requeues its class": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			want:     []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "high"}}},
+		},
+		"created workload without a priority requeues its class": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:     []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "high"}}},
+		},
+		"workload updated back to the class value": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			workload:    utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(1000).Obj(),
+		},
+		"workload updated to another value requeues its class": {
+			oldWorkload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(1000).Obj(),
+			workload:    utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			want:        []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "high"}}},
+		},
+		"workload referencing a class that does not exist": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("low").Priority(100).Obj(),
+		},
+		"workload referencing a Pod PriorityClass of the same name": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Priority(100).Obj(),
+		},
+		"MultiKueue remote workload": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				WorkloadPriorityClassRef("high").
+				Priority(100).
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj()).
+				Build()
+			h := &wpcWorkloadHandler{r: NewWorkloadPriorityClassReconciler(cl, nil)}
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			if tc.oldWorkload != nil {
+				h.Update(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: tc.oldWorkload, ObjectNew: tc.workload}, q)
+			} else {
+				h.Create(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: tc.workload}, q)
+			}
+
+			if diff := cmp.Diff(tc.want, q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
