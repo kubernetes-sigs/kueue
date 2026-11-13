@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func isProvisioned(pr *autoscaling.ProvisioningRequest) bool {
@@ -57,6 +58,19 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 // again, nor on pods bound to it.
 func IsTerminal(pr *autoscaling.ProvisioningRequest) bool {
 	return isFailed(pr) || isBookingExpired(pr) || isCapacityRevoked(pr)
+}
+
+// HandlesTerminalRequest reports whether syncCheckStates acts on the terminal
+// request pr of the live (active, unfinished) Workload wl: Failed and
+// CapacityRevoked always, BookingExpired only before admission.
+func HandlesTerminalRequest(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) bool {
+	switch {
+	case isFailed(pr), isCapacityRevoked(pr):
+		return true
+	case isBookingExpired(pr):
+		return !workload.IsAdmitted(wl)
+	}
+	return false
 }
 
 // hasLiveBooking reports whether the autoscaler still honours the request's
