@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package config
 
 import (
 	"testing"
@@ -29,13 +29,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func TestPreemptorFieldsOf(t *testing.T) {
+func TestNewEquivalenceHasher(t *testing.T) {
 	withinCQ := func() *kueuetestalpha1.CandidateSelectorWrapper {
 		return kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue)
 	}
 	cases := map[string]struct {
 		config *kueuealpha.PreemptionConfig
-		want   preemptorFields
+		want   EquivalenceHasher
 	}{
 		"no rules": {
 			config: kueuetestalpha1.MakePreemptionConfig("config").Obj(),
@@ -71,7 +71,7 @@ func TestPreemptorFieldsOf(t *testing.T) {
 					).PreemptorPriorityClassIn("high").Obj(),
 				).
 				Obj(),
-			want: preemptorFields{
+			want: EquivalenceHasher{
 				labelKeys:     []string{"class", "team", "tpus"},
 				priorityClass: true,
 				basePriority:  true,
@@ -81,31 +81,31 @@ func TestPreemptorFieldsOf(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := preemptorFieldsOf(tc.config)
-			if diff := cmp.Diff(tc.want, *got, cmp.AllowUnexported(preemptorFields{})); diff != "" {
-				t.Errorf("Unexpected preemptorFields (-want,+got):\n%s", diff)
+			got := NewEquivalenceHasher(tc.config)
+			if diff := cmp.Diff(tc.want, *got, cmp.AllowUnexported(EquivalenceHasher{})); diff != "" {
+				t.Errorf("Unexpected EquivalenceHasher (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestPreemptorFieldsExtend(t *testing.T) {
+func TestEquivalenceHasherHash(t *testing.T) {
 	info := func(wl *kueue.Workload) *workload.Info {
 		return &workload.Info{Obj: wl, SchedulingHash: "scheduling-hash"}
 	}
 	base := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq").Priority(10).
+		return utiltestingapi.MakeWorkload("wl", "default").Queue("lq").Priority(10).
 			Label("team", "a").Label("kueue.x-k8s.io/job-uid", "uid-1")
 	}
-	labels := &preemptorFields{labelKeys: []string{"team"}}
+	labels := &EquivalenceHasher{labelKeys: []string{"team"}}
 	cases := map[string]struct {
-		fields      *preemptorFields
-		otherFields *preemptorFields
+		fields      *EquivalenceHasher
+		otherFields *EquivalenceHasher
 		a, b        *kueue.Workload
 		wantSame    bool
 	}{
 		"rules reading nothing keep the scheduling hash": {
-			fields:   &preemptorFields{},
+			fields:   &EquivalenceHasher{},
 			a:        base().Obj(),
 			b:        base().Label("team", "b").Obj(),
 			wantSame: true,
@@ -123,27 +123,27 @@ func TestPreemptorFieldsExtend(t *testing.T) {
 		},
 		"workloads lacking the label read by a rule are equivalent": {
 			fields:   labels,
-			a:        utiltestingapi.MakeWorkload("a", defaultNamespace).Obj(),
-			b:        utiltestingapi.MakeWorkload("b", defaultNamespace).Label("other", "x").Obj(),
+			a:        utiltestingapi.MakeWorkload("a", "default").Obj(),
+			b:        utiltestingapi.MakeWorkload("b", "default").Label("other", "x").Obj(),
 			wantSame: true,
 		},
 		"a missing label differs from an empty one": {
 			fields: labels,
-			a:      utiltestingapi.MakeWorkload("a", defaultNamespace).Obj(),
-			b:      utiltestingapi.MakeWorkload("b", defaultNamespace).Label("team", "").Obj(),
+			a:      utiltestingapi.MakeWorkload("a", "default").Obj(),
+			b:      utiltestingapi.MakeWorkload("b", "default").Label("team", "").Obj(),
 		},
 		"the priority class tells workloads apart when a rule reads it": {
-			fields: &preemptorFields{priorityClass: true},
+			fields: &EquivalenceHasher{priorityClass: true},
 			a:      base().WorkloadPriorityClassRef("high").Obj(),
 			b:      base().Obj(),
 		},
 		"the base priority tells workloads apart when a rule reads it": {
-			fields: &preemptorFields{basePriority: true},
+			fields: &EquivalenceHasher{basePriority: true},
 			a:      base().Obj(),
 			b:      base().Priority(20).Obj(),
 		},
 		"the LocalQueue tells workloads apart when a rule reads it": {
-			fields: &preemptorFields{localQueue: true},
+			fields: &EquivalenceHasher{localQueue: true},
 			a:      base().Obj(),
 			b:      utiltestingapi.MakeWorkload("wl", "other").Queue("lq").Priority(10).Label("team", "a").Obj(),
 		},
@@ -155,7 +155,7 @@ func TestPreemptorFieldsExtend(t *testing.T) {
 		},
 		"a workload extended by other rules differs": {
 			fields:      labels,
-			otherFields: &preemptorFields{labelKeys: []string{"team"}, priorityClass: true},
+			otherFields: &EquivalenceHasher{labelKeys: []string{"team"}, priorityClass: true},
 			a:           base().Obj(),
 			b:           base().Obj(),
 		},
@@ -166,12 +166,12 @@ func TestPreemptorFieldsExtend(t *testing.T) {
 			if tc.otherFields != nil {
 				otherFields = tc.otherFields
 			}
-			a, b := tc.fields.extend(info(tc.a)), otherFields.extend(info(tc.b))
+			a, b := tc.fields.Hash(info(tc.a)), otherFields.Hash(info(tc.b))
 			if a == workload.SchedulingHashUnknown || b == workload.SchedulingHashUnknown {
-				t.Fatalf("extend() = (%q, %q), want known hashes", a, b)
+				t.Fatalf("Hash() = (%q, %q), want known hashes", a, b)
 			}
 			if gotSame := a == b; gotSame != tc.wantSame {
-				t.Errorf("extend() = (%q, %q), want equal: %v", a, b, tc.wantSame)
+				t.Errorf("Hash() = (%q, %q), want equal: %v", a, b, tc.wantSame)
 			}
 		})
 	}

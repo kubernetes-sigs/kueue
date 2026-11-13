@@ -1237,7 +1237,7 @@ func TestPendingInLocalQueue(t *testing.T) {
 				cq.PushOrUpdate(wl1)
 				cq.PushOrUpdate(wl2)
 				cq.PushOrUpdate(wl3)
-				cq.handleInadmissibleHash("hash-a", "dummy-reason")
+				cq.handleInadmissibleHash(wl1, "dummy-reason")
 			},
 			wantActive:       map[utilqueue.LocalQueueReference]int{lqA: 1},
 			wantInadmissible: map[utilqueue.LocalQueueReference]int{lqA: 1, lqB: 1},
@@ -2258,7 +2258,7 @@ func TestRecordInadmissibleHash(t *testing.T) {
 				i++
 			}
 
-			moved := cq.handleInadmissibleHash(tc.hashToRecord, "dummy-reason")
+			_, moved := cq.handleInadmissibleHash(&workload.Info{SchedulingHash: tc.hashToRecord}, "dummy-reason")
 			if moved != tc.wantMoved {
 				t.Errorf("handleInadmissibleHash moved %d, want %d", moved, tc.wantMoved)
 			}
@@ -2334,7 +2334,7 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	info := workload.NewInfo(log, wl)
 	info.SchedulingHash = "test-hash"
 	cq.PushOrUpdate(info)
-	cq.handleInadmissibleHash("test-hash", "dummy-reason")
+	cq.handleInadmissibleHash(info, "dummy-reason")
 
 	if _, has := cq.hashToBulkMoveReason["test-hash"]; !has {
 		t.Fatal("hash should be recorded before clearing")

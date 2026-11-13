@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package config
 
 import (
 	"slices"
@@ -28,11 +28,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// preemptorFields lists the properties of a preemptor that the rules of a
-// PreemptionConfig read, beyond the ones the scheduling hash covers. Two
-// workloads with the same scheduling hash may differ in them, so one may be
-// allowed to preempt where the other is not.
-type preemptorFields struct {
+// EquivalenceHasher extends the scheduling hash of a workload with the
+// properties of a preemptor that the rules of a PreemptionConfig read, beyond
+// the ones the scheduling hash covers. Two workloads with the same scheduling
+// hash may differ in them, so one may be allowed to preempt where the other is
+// not.
+type EquivalenceHasher struct {
 	// labelKeys are the keys read by preemptorSelectors, and by numericLabels
 	// comparing the candidate to the preemptor. Sorted.
 	labelKeys []string
@@ -45,9 +46,9 @@ type preemptorFields struct {
 	localQueue bool
 }
 
-// preemptorFieldsOf returns the preemptorFields read by the rules of config.
-func preemptorFieldsOf(config *kueuealpha.PreemptionConfig) *preemptorFields {
-	f := &preemptorFields{}
+// NewEquivalenceHasher returns the EquivalenceHasher for the rules of config.
+func NewEquivalenceHasher(config *kueuealpha.PreemptionConfig) *EquivalenceHasher {
+	f := &EquivalenceHasher{}
 	for _, rule := range config.Spec.Rules {
 		if s := rule.PreemptorSelector; s != nil {
 			for key := range s.MatchLabels {
@@ -73,18 +74,19 @@ func preemptorFieldsOf(config *kueuealpha.PreemptionConfig) *preemptorFields {
 	return f
 }
 
-// extend returns the scheduling hash of wInfo extended with the preemptorFields
-// of wInfo. It returns the scheduling hash unchanged if no rule reads any of them.
-// Every field a rule reads is written, even when the workload lacks it, and each
-// value is quoted, so the result also tells apart the preemptorFields it was
-// extended with. It is plain text rather than a digest, as it is computed for
-// every queued workload sharing the scheduling hash of a bulk-moved one.
-func (f *preemptorFields) extend(wInfo *workload.Info) workload.EquivalenceHash {
-	return wInfo.SchedulingHash + workload.EquivalenceHash(f.of(wInfo.Obj))
+// Hash returns the scheduling hash of wInfo extended with the properties the
+// rules read. It returns the scheduling hash unchanged if no rule reads any.
+// Every property a rule reads is written, even when the workload lacks it, and
+// each value is quoted, so the result also tells apart the EquivalenceHashers
+// it was extended by. It is plain text rather than a digest, as it is computed
+// for every queued workload sharing the scheduling hash of a bulk-moved one.
+func (f *EquivalenceHasher) Hash(wInfo *workload.Info) workload.EquivalenceHash {
+	return wInfo.SchedulingHash + workload.EquivalenceHash(f.Key(wInfo.Obj))
 }
 
-// of returns the preemptorFields of wl, or an empty string if no rule reads any.
-func (f *preemptorFields) of(wl *kueue.Workload) string {
+// Key returns the properties of wl the rules read, or an empty string if they
+// read none.
+func (f *EquivalenceHasher) Key(wl *kueue.Workload) string {
 	var b strings.Builder
 	for _, key := range f.labelKeys {
 		b.WriteString("/label:")

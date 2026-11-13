@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -212,6 +214,8 @@ func TestRequeueWorkloadReadsPreemptionConfig(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").Obj())
 			}
 			head := newInfo("head", "b")
+			// Set by Heads when the scheduler pops the workload.
+			head.ClusterQueue = "cq"
 			objs := []client.Object{utiltesting.MakeNamespace(defaultNamespace)}
 			if tc.config != nil {
 				objs = append(objs, tc.config)
@@ -249,5 +253,52 @@ func TestRequeueWorkloadReadsPreemptionConfig(t *testing.T) {
 				t.Errorf("GetNoFitReason() = %q, want %q", reason, tc.wantNoFitReason)
 			}
 		})
+	}
+}
+
+// The first read of a PreemptionConfig starts its informer and waits for it to
+// sync, so a requeue reads it without holding the Manager lock.
+func TestRequeueWorkloadReadsPreemptionConfigWithoutLock(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	head := workload.NewInfo(log, utiltestingapi.MakeWorkload("head", defaultNamespace).Queue("lq").
+		Request(corev1.ResourceCPU, "1").Obj())
+	// Set by Heads when the scheduler pops the workload.
+	head.ClusterQueue = "cq"
+	var manager *Manager
+	var read, readLocked bool
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(utiltesting.MakeNamespace(defaultNamespace), head.Obj, kueuetestalpha1.MakePreemptionConfig("config").Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueuealpha.PreemptionConfig); ok {
+					read = true
+					if manager.TryLock() {
+						manager.Unlock()
+					} else {
+						readLocked = true
+					}
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	manager = NewManagerForUnitTests(cl, nil)
+	if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()); err != nil {
+		t.Fatalf("Failed adding ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+
+	manager.RequeueWorkload(ctx, head, RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+
+	if !read {
+		t.Fatal("RequeueWorkload did not read the PreemptionConfig")
+	}
+	if readLocked {
+		t.Error("RequeueWorkload read the PreemptionConfig with the Manager lock held")
 	}
 }
