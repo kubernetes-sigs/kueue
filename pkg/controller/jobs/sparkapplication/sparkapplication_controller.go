@@ -26,6 +26,7 @@ import (
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -240,21 +241,25 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 			return fmt.Errorf("unknown Spark role: %s", role)
 		}
 
-		sparkPodSetInfo := &podset.PodSetInfo{
-			Annotations:     sparkPodSpec.Annotations,
-			Labels:          sparkPodSpec.Labels,
+		// podset.Merge replaces stale Kueue-managed annotations (workload, workload-slice-name)
+		// left by a previous admission of an elastic job, instead of reporting a conflict.
+		meta := metav1.ObjectMeta{
+			Annotations: sparkPodSpec.Annotations,
+			Labels:      sparkPodSpec.Labels,
+		}
+		spec := corev1.PodSpec{
 			NodeSelector:    nodeSelector,
 			Tolerations:     sparkPodSpec.Tolerations,
 			SchedulingGates: sparkPodSpec.Template.Spec.SchedulingGates,
 		}
-		if err := sparkPodSetInfo.Merge(podSetInfo); err != nil {
+		if err := podset.Merge(ctrl.LoggerFrom(ctx), &meta, &spec, podSetInfo); err != nil {
 			return err
 		}
-		sparkPodSpec.Annotations = sparkPodSetInfo.Annotations
-		sparkPodSpec.Labels = sparkPodSetInfo.Labels
-		sparkPodSpec.NodeSelector = sparkPodSetInfo.NodeSelector
-		sparkPodSpec.Tolerations = sparkPodSetInfo.Tolerations
-		sparkPodSpec.Template.Spec.SchedulingGates = sparkPodSetInfo.SchedulingGates
+		sparkPodSpec.Annotations = meta.Annotations
+		sparkPodSpec.Labels = meta.Labels
+		sparkPodSpec.NodeSelector = spec.NodeSelector
+		sparkPodSpec.Tolerations = spec.Tolerations
+		sparkPodSpec.Template.Spec.SchedulingGates = spec.SchedulingGates
 		return nil
 	}
 

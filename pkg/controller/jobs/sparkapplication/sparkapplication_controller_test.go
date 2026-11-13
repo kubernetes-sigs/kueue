@@ -723,7 +723,42 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns")
 
+	elasticPodSetsInfo := func(workloadName, sliceName string) []podset.PodSetInfo {
+		annotations := func() map[string]string {
+			annotations := map[string]string{kueue.WorkloadAnnotation: workloadName}
+			if sliceName != "" {
+				annotations[kueue.WorkloadSliceNameAnnotation] = sliceName
+			}
+			return annotations
+		}
+		return []podset.PodSetInfo{
+			{Name: driverPodSetName, Annotations: annotations()},
+			{Name: executorPodSetName, Annotations: annotations()},
+		}
+	}
+	// previouslyAdmitted is the spec after the restore on preemption: it still carries the
+	// annotations of the Workload that admitted it before.
+	previouslyAdmitted := testSparkApp.Clone().
+		DriverAnnotation(kueue.WorkloadAnnotation, "wl-1").
+		DriverAnnotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+		DriverAnnotation("user-annotation", "kept").
+		ExecutorAnnotation(kueue.WorkloadAnnotation, "wl-1").
+		ExecutorAnnotation(kueue.WorkloadSliceNameAnnotation, "wl-1")
+	admittedAgain := func(workloadName, sliceName string) *sparkappv1beta2.SparkApplication {
+		return testSparkApp.Clone().
+			Suspend(false).
+			DriverAnnotation(kueue.WorkloadAnnotation, workloadName).
+			DriverAnnotation(kueue.WorkloadSliceNameAnnotation, sliceName).
+			DriverAnnotation("user-annotation", "kept").
+			DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
+			ExecutorAnnotation(kueue.WorkloadAnnotation, workloadName).
+			ExecutorAnnotation(kueue.WorkloadSliceNameAnnotation, sliceName).
+			ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
+			Obj()
+	}
+
 	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
 		sparkApp     *sparkappv1beta2.SparkApplication
 		podsetsInfo  []podset.PodSetInfo
 		wantSparkApp *sparkappv1beta2.SparkApplication
@@ -844,6 +879,27 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Obj(),
 			wantErr: false,
 		},
+		"should replace stale workload annotations of an elastic job admitted again under a replacement slice": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			sparkApp:     previouslyAdmitted.Clone().Obj(),
+			podsetsInfo:  elasticPodSetsInfo("wl-3", "wl-1"),
+			wantSparkApp: admittedAgain("wl-3", "wl-1"),
+		},
+		"should replace stale workload annotations of an elastic job admitted again under a new slice chain": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			sparkApp:     previouslyAdmitted.Clone().Obj(),
+			podsetsInfo:  elasticPodSetsInfo("wl-4", "wl-4"),
+			wantSparkApp: admittedAgain("wl-4", "wl-4"),
+		},
+		"should raise error on a stale workload annotation for a non-elastic admission": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			sparkApp: testSparkApp.Clone().
+				DriverAnnotation(kueue.WorkloadAnnotation, "wl-1").
+				ExecutorAnnotation(kueue.WorkloadAnnotation, "wl-1").
+				Obj(),
+			podsetsInfo: elasticPodSetsInfo("wl-2", ""),
+			wantErr:     true,
+		},
 		"should raise error if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -860,6 +916,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
