@@ -236,11 +236,18 @@ signal.pause()
                    "VIZ_TEST_BACKEND_TEMPLATE": str(backend),
                    "VIZ_TEST_COMMANDS": str(commands), "VIZ_TEST_FAILURE": failure}
             env.update(backend_env or {})
-            process = subprocess.Popen(
-                ["bash", str(scripts / f"e2e-kueueviz-{script}.sh"), *args],
-                cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, start_new_session=True,
-            )
+            # Prow backgrounds its command with SIGINT ignored. Bash cannot trap
+            # signals ignored on entry, so launch the fixture with the foreground
+            # disposition that the explicit INT cancellation case exercises.
+            previous_sigint = signal.signal(signal.SIGINT, signal.SIG_DFL)
+            try:
+                process = subprocess.Popen(
+                    ["bash", str(scripts / f"e2e-kueueviz-{script}.sh"), *args],
+                    cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, start_new_session=True,
+                )
+            finally:
+                signal.signal(signal.SIGINT, previous_sigint)
             try:
                 stdout, stderr = process.communicate(timeout=15)
                 result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
