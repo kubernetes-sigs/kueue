@@ -85,13 +85,21 @@ Kueue calculates the total resources usage for a Workload as the sum of the reso
 
 When the [`PodLevelResources`](https://kubernetes.io/docs/tasks/configure-pod-container/assign-pod-level-resources/) feature is enabled in the cluster (Kubernetes 1.32+), a pod may declare CPU and memory requests and limits at the pod level via `pod.spec.resources` instead of, or in addition to, the per-container requests. Kueue accounts for these pod-level requests when computing a Workload's quota usage, and the requests-value adjustment and validation described below apply to `pod.spec.resources` as well as to container resources.
 
+Kueue mirrors the pod-level request defaulting of the API server version it runs
+against: servers 1.37 and newer default the pod-level requests after admission, so
+the container defaults coming from LimitRanges are part of the aggregate they use,
+while older servers default them before admission. A 1.37+ API server that runs
+with `PodLevelResourcesFixDefaulting` disabled keeps the older order, and does not
+report that state, so disable the Kueue `PodLevelResourceFixDefaultingForNewServer`
+feature gate to have Kueue mirror it.
+
 #### Requests values adjustment
 
 Depending on the cluster setup, Kueue will adjust the resource usage of a Workload based on:
 
 - The cluster defines default values in [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/), the default values will be used if not provided in the `spec`.
 - The created pods are subject of a [Runtime Class Overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/).
-- The spec defines only resource limits, case in which the limit values will be treated as requests. This also applies to limits set at the pod level via `pod.spec.resources`.
+- The spec defines only resource limits, case in which the limit values will be treated as requests. This also applies to limits set at the pod level via `pod.spec.resources`, except for resources that the containers already request: starting with Kubernetes 1.37 those container requests, including the LimitRange defaults, determine the pod-level request.
 
 #### Requests values validation
 
