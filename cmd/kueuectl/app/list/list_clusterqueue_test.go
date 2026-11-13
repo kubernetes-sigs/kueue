@@ -30,8 +30,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -212,7 +212,7 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 		wantErr   string
 	}{
 		"should use the default limit": {
-			wantLimit: kueuectlutil.DefaultListRequestLimit,
+			wantLimit: listlimit.DefaultListRequestLimit,
 		},
 		"should use the limit from the env var": {
 			envValue:  "5",
@@ -234,7 +234,7 @@ func TestClusterQueueOptionsComplete(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			if tc.envValue != "" {
-				t.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, tc.envValue)
+				t.Setenv(listlimit.KueuectlListRequestLimitEnvName, tc.envValue)
 			}
 
 			streams, _, _, _ := genericiooptions.NewTestIOStreams()

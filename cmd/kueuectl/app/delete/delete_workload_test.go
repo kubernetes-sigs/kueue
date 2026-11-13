@@ -36,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -351,7 +352,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			streams, in, out, outErr := genericiooptions.NewTestIOStreams()
 			clientset := fake.NewSimpleClientset(tc.workloads...)
 			if len(tc.listPages) > 0 {
-				prependPagedListReactor(clientset, tc.listPages)
+				prependPagedListReactor(clientset, tc.listPages, listlimit.DefaultListRequestLimit)
 			}
 			clientset.PrependReactor("delete", "workloads", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				if slices.Contains(action.(kubetesting.DeleteAction).GetDeleteOptions().DryRun, metav1.DryRunAll) {
@@ -471,9 +472,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 
 // prependPagedListReactor makes List calls for workloads return the given pages
 // in order. The first request must not send a continue token; later requests must
-// pass the previous page's Continue. Once the pages are consumed, later lists use
-// the client tracker.
-func prependPagedListReactor(clientset *fake.Clientset, pages []runtime.Object) {
+// pass the previous page's Continue. Every request must also send wantLimit.
+// Once the pages are consumed, later lists use the client tracker.
+func prependPagedListReactor(clientset *fake.Clientset, pages []runtime.Object, wantLimit int64) {
 	var page int
 	var wantContinue string
 	clientset.PrependReactor("list", "workloads", func(action kubetesting.Action) (bool, runtime.Object, error) {
@@ -487,6 +488,10 @@ func prependPagedListReactor(clientset *fake.Clientset, pages []runtime.Object) 
 		gotContinue := listAction.GetListOptions().Continue
 		if gotContinue != wantContinue {
 			return true, nil, fmt.Errorf("list continue = %q, want %q", gotContinue, wantContinue)
+		}
+		gotLimit := listAction.GetListOptions().Limit
+		if gotLimit != wantLimit {
+			return true, nil, fmt.Errorf("list limit = %d, want %d", gotLimit, wantLimit)
 		}
 		obj := pages[page]
 		page++

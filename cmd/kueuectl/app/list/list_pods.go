@@ -41,7 +41,7 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -138,7 +138,7 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
-	o.Limit, err = kueuectlutil.ListRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}
