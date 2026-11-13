@@ -30,6 +30,7 @@ import (
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -84,7 +85,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, &createdTrainJob)).Should(gomega.Succeed())
 					g.Expect(ptr.Deref(createdTrainJob.Spec.Suspend, false)).Should(gomega.BeTrue())
-					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(&createdTrainJob)
+					kueueRuntimePatch := utiltrainjob.KueueRuntimePatch(&createdTrainJob)
 					g.Expect(kueueRuntimePatch).ShouldNot(gomega.BeNil())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -99,7 +100,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 				Obj()
 			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
 			userRuntimePatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").Obj()
-			kueueRuntimePatch := testingtrainjob.MakeRuntimePatch(testingtrainjob.KueueRuntimePatchManager).
+			kueueRuntimePatch := testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 				Annotation("example.com/key", "value").
 				Obj()
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{

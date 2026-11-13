@@ -31,6 +31,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
 
@@ -98,9 +99,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if suspend {
 		trainJob.Suspend()
 	}
-	if getKueueRuntimePatch(trainJob) == nil {
+	if utiltrainjob.KueueRuntimePatch((*kftrainerapi.TrainJob)(trainJob)) == nil {
 		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
-			Manager: runtimePatchManagerName,
+			Manager: utiltrainjob.KueueRuntimePatchManager,
 			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
 				Template: &kftrainerapi.JobSetTemplatePatch{
 					Spec: &kftrainerapi.JobSetSpecPatch{},

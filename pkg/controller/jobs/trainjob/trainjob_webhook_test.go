@@ -38,6 +38,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 var (
@@ -83,7 +84,7 @@ func TestValidateCreate(t *testing.T) {
 		"valid topology request in RuntimePatch": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+				testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 					ReplicatedJobs(
 						testingtrainjob.MakeReplicatedJobPatch("node").
 							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
@@ -108,7 +109,7 @@ func TestValidateCreate(t *testing.T) {
 		"invalid topology request in TrainJob": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+				testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 					ReplicatedJobs(
 						testingtrainjob.MakeReplicatedJobPatch("node").
 							PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
@@ -145,7 +146,7 @@ func TestValidateCreate(t *testing.T) {
 		"invalid slice topology request - slice size larger than number of podsets": {
 			clusterTrainingRuntime: testCtr,
 			trainJob: testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+				testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 					ReplicatedJobs(
 						testingtrainjob.MakeReplicatedJobPatch("node").
 							PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
@@ -194,13 +195,13 @@ func TestDefault(t *testing.T) {
 	testLocalQueue := utiltestingapi.MakeLocalQueue("local-queue", testNamespace.Name).ClusterQueue(testClusterQueue.Name)
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
 	testExpectedTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).Obj(),
 	})
 	userRuntimePatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").Obj()
 	testTrainJobWithUserRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{userRuntimePatch})
 	testTrainJobWithRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
 		userRuntimePatch,
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			Annotation("example.com/key", "value").
 			Obj(),
 	})
@@ -228,7 +229,7 @@ func TestDefault(t *testing.T) {
 			trainJob: testTrainJobWithUserRuntimePatch.DeepCopy(),
 			wantTrainJob: testTrainJobWithUserRuntimePatch.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
 				userRuntimePatch,
-				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+				testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).Obj(),
 			}).Obj(),
 		},
 		"should preserve an existing Kueue runtime patch without adding a duplicate": {

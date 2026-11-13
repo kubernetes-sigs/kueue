@@ -41,6 +41,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 var (
@@ -124,10 +125,10 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		}
 	}
 	multiTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).EmptyMetadata().Obj(),
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).EmptyMetadata().Obj(),
 	}).Obj()
 	multiWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("worker", *toleration2.DeepCopy(), workerAdmissionToleration),
@@ -152,7 +153,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		Effect:   corev1.TaintEffectNoSchedule,
 	}
 	staleTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("node", staleKueueToleration),
@@ -160,7 +161,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			Obj(),
 	}).Obj()
 	staleWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("node", staleBaseToleration, *toleration2.DeepCopy()),
@@ -168,7 +169,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			Obj(),
 	}).Suspend(false).Obj()
 	staleClearedWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(withTolerations("node")).
 			Obj(),
@@ -201,7 +202,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -222,7 +223,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -252,7 +253,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -282,7 +283,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -384,7 +385,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -420,7 +421,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							kftrainerapi.ReplicatedJobPatch{
@@ -449,7 +450,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should set the Pod index offset to 0 on replicated jobs in a PodSet group": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -471,7 +472,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("launcher").
@@ -501,7 +502,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -521,7 +522,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -538,7 +539,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should keep the Pod index offset set on the runtime": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -557,7 +558,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("launcher").
@@ -639,7 +640,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 							testingtrainjob.MakeReplicatedJobPatch("user-provided-2").Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("kueue-provided-1").Obj(),
@@ -656,7 +657,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 							testingtrainjob.MakeReplicatedJobPatch("user-provided-2").Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
@@ -666,14 +667,14 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		"should report no change when the kueue RuntimePatch is already cleared": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
@@ -719,10 +720,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 func TestStop(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
-	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 		EmptyMetadata().
 		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj())
-	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 		EmptyMetadata()
 	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
 		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj())
