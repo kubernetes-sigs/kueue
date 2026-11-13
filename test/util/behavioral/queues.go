@@ -167,16 +167,18 @@ func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.
 }
 
 // ClusterQueueResourceUsage returns the total resource usage across all flavors for the given resource.
-func ClusterQueueResourceUsage(cq *kueue.ClusterQueue, resourceName corev1.ResourceName) int64 {
+func ClusterQueueResourceUsage(cq *kueue.ClusterQueue, resourceName corev1.ResourceName) (int64, bool) {
+	found := false
 	total := resource.Quantity{}
 	for _, fu := range cq.Status.FlavorsUsage {
 		for _, r := range fu.Resources {
 			if r.Name == resourceName {
+				found = true
 				total.Add(r.Total)
 			}
 		}
 	}
-	return total.Value()
+	return total.Value(), found
 }
 
 // ExpectClusterQueueResourceUsage waits until the ClusterQueue reports the given resource usage.
@@ -191,6 +193,8 @@ func ExpectClusterQueueResourceUsageWithTimeout(ctx context.Context, k8sClient c
 	cq := &kueue.ClusterQueue{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, cqKey, cq)).To(gomega.Succeed())
-		g.Expect(ClusterQueueResourceUsage(cq, resourceName)).To(gomega.Equal(want))
+		got, found := ClusterQueueResourceUsage(cq, resourceName)
+		g.Expect(found).To(gomega.BeTrue())
+		g.Expect(got).To(gomega.Equal(want))
 	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueue "+string(resourceName)+" usage did not settle", cq))
 }
