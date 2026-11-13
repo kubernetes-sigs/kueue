@@ -2887,6 +2887,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
 			ginkgo.Entry(
+				"limits over pod limits",
+				testParams{reqCPU: "1", limitCPU: "3", maxCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
 				"request under pod limits",
 				testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
