@@ -4,6 +4,8 @@ filters:
   ".*":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
 
   "Dockerfile$":
     approvers:
