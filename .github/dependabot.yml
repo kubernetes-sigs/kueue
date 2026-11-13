@@ -22,7 +22,6 @@ updates:
       - "/hack/tools"
       - "/site"
       - "/cmd/kueueviz/backend"
-      - "/cmd/experimental/kueue-populator"
     schedule:
       interval: "weekly"
       day: "tuesday"
