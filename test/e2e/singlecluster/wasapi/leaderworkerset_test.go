@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -115,6 +117,19 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling LeaderWorkerSet", ginkgo.Label(
 			expectGroupsRunningInGangPodGroups(lws, wlKeys, size)
 		})
 
+		var group1Admitted metav1.Time
+		group1PodUIDs := sets.New[types.UID]()
+		ginkgo.By("recording the admission and pods of group 1", func() {
+			wl := &kueue.Workload{}
+			gomega.Expect(k8sClient.Get(ctx, wlKeys[1], wl)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+			gomega.Expect(cond).NotTo(gomega.BeNil())
+			group1Admitted = cond.LastTransitionTime
+			for _, pod := range groupPods(gomega.Default, lws, "1") {
+				group1PodUIDs.Insert(pod.UID)
+			}
+		})
+
 		createdWorkload := &kueue.Workload{}
 		ginkgo.By("deactivating the Workload of group 0 to evict it", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -144,8 +159,16 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling LeaderWorkerSet", ginkgo.Label(
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("verifying group 1 stays admitted", func() {
-			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKeys[1])
+		ginkgo.By("verifying group 1 was neither evicted nor recreated", func() {
+			wl := &kueue.Workload{}
+			gomega.Expect(k8sClient.Get(ctx, wlKeys[1], wl)).To(gomega.Succeed())
+			gomega.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime).To(gomega.Equal(group1Admitted))
+			podUIDs := sets.New[types.UID]()
+			for _, pod := range groupPods(gomega.Default, lws, "1") {
+				podUIDs.Insert(pod.UID)
+			}
+			gomega.Expect(podUIDs.UnsortedList()).To(gomega.ConsistOf(group1PodUIDs.UnsortedList()))
 		})
 
 		ginkgo.By("reactivating the Workload of group 0", func() {
