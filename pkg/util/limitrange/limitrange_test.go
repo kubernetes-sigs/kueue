@@ -291,6 +291,69 @@ func TestValidatePodSpec(t *testing.T) {
 				),
 			},
 		},
+		"pod limits over": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1500m").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1500m").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
+			},
+		},
+		"pod limits over with sidecar": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						AsSidecar().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1").
+						Obj(),
+				},
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1500m").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
+			},
+		},
+		"pod limits within max": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "3").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1500m").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1500m").
+						Obj(),
+				},
+			},
+		},
 		"pod under with explicit zero": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypePod).
