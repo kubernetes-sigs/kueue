@@ -20,14 +20,15 @@ set -euo pipefail
 
 experiment_dir=$(mktemp -d)
 artifact_root=${ARTIFACTS}/backend-overlap-experiment
-lockfiles=(cmd/kueueviz/frontend/package-lock.json test/e2e/kueueviz/package-lock.json)
-for file in "${lockfiles[@]}"; do
+files=(cmd/kueueviz/frontend/package-lock.json test/e2e/kueueviz/package-lock.json
+       hack/testing/e2e-kueueviz-frontend.sh)
+for file in "${files[@]}"; do
   mkdir -p "${experiment_dir}/$(dirname "${file}")"
   cp "${PROJECT_DIR}/${file}" "${experiment_dir}/${file}"
 done
 cleanup() {
   local status=$?
-  for file in "${lockfiles[@]}"; do
+  for file in "${files[@]}"; do
     cat "${experiment_dir}/${file}" >"${PROJECT_DIR}/${file}"
   done
   rm -r "${experiment_dir}"
@@ -39,7 +40,7 @@ original_go_cmd=${KUEUEVIZ_TEST_GO_CMD:-go}
 original_test_flags="${KUEUEVIZ_TEST_FLAGS--race} -count=1"
 # The ordinary suite has warmed image layers and module downloads. Compiler
 # caches, clusters, frontend containers and npm installations are fresh per run.
-for run in 1:serial 2:parallel 3:parallel-budget 4:parallel-budget 5:parallel 6:serial; do
+for run in 1:parallel 2:parallel-budget 3:frontend-1 4:frontend-2 5:frontend-2 6:frontend-1 7:parallel-budget 8:parallel; do
   export ARTIFACTS="${artifact_root}/${run/:/-}"
   export CYPRESS_SCREENSHOTS_FOLDER="${ARTIFACTS}/cypress/screenshots"
   export CYPRESS_VIDEOS_FOLDER="${ARTIFACTS}/cypress/videos"
@@ -47,13 +48,24 @@ for run in 1:serial 2:parallel 3:parallel-budget 4:parallel-budget 5:parallel 6:
   export KUEUEVIZ_TEST_GO_CMD=${original_go_cmd}
   export KUEUEVIZ_TEST_FLAGS=${original_test_flags}
   export KUEUEVIZ_RUN_BACKEND_TESTS=true
-  if [[ ${run#*:} == parallel-budget ]]; then
+  if [[ ${run#*:} != parallel ]]; then
     export KUEUEVIZ_TEST_GO_CMD="env GOMAXPROCS=1 ${original_go_cmd}"
     export KUEUEVIZ_TEST_FLAGS="${original_test_flags} -p=4"
   fi
-  for file in "${lockfiles[@]}"; do
+  for file in "${files[@]}"; do
     cat "${experiment_dir}/${file}" >"${PROJECT_DIR}/${file}"
   done
+  if [[ ${run#*:} == frontend-* ]]; then
+    python3 - "${PROJECT_DIR}/hack/testing/e2e-kueueviz-frontend.sh" "${run##*-}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+assert text.count('\nnpm test\n') == 1
+path.write_text(text.replace('\nnpm test\n', f'\nnpm test -- --maxWorkers={sys.argv[2]}\n'))
+PY
+  fi
   for directory in cmd/kueueviz/frontend/node_modules test/e2e/kueueviz/node_modules; do
     if [[ -d "${PROJECT_DIR}/${directory}" ]]; then
       rm -r "${PROJECT_DIR:?}/${directory}"
@@ -62,12 +74,6 @@ for run in 1:serial 2:parallel 3:parallel-budget 4:parallel-budget 5:parallel 6:
   mkdir -p "${ARTIFACTS}" "${GOCACHE}"
   started=$SECONDS
   echo "backend-overlap-experiment: start run=${run}"
-  if [[ ${run#*:} == serial ]]; then
-    export KUEUEVIZ_RUN_BACKEND_TESTS=false
-    "${KUEUEVIZ_MAKE:-make}" -C "${PROJECT_DIR}" \
-      "GOFLAGS=${KUEUEVIZ_TEST_GOFLAGS-${GOFLAGS:-}}" "GO_TEST_FLAGS=${KUEUEVIZ_TEST_FLAGS}" \
-      "GO_CMD=${KUEUEVIZ_TEST_GO_CMD}" test-kueueviz-backend
-  fi
   bash "${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh"
   echo "backend-overlap-experiment: complete run=${run} duration=$((SECONDS - started))s"
   rm -r "${GOCACHE}"

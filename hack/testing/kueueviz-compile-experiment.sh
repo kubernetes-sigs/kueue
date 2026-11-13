@@ -34,8 +34,9 @@ docker buildx inspect default
 
 # Keep the ordinary Docker driver and its Prow cgroup throughout the sweep.
 # The normal suite warmed image layers; every sample disables layer reuse and
-# gets a fresh compiler-cache mount. Repeat promising budgets separately.
-for run in 1:auto 2:2-2 3:3-3 4:1-4 5:2-4 6:4-4 7:auto; do
+# gets a fresh compiler-cache mount. Compare the two fastest screening budgets
+# in symmetric order before adopting either one.
+for run in 1:auto 2:1-4 3:2-4 4:2-4 5:1-4 6:auto; do
   config=${run#*:}
   sample=${run/:/-}
   dockerfile="${experiment_dir}/Dockerfile-${sample}"
