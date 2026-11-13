@@ -24,6 +24,7 @@ const (
 	yamlQPS123       = `managerConfig: {controllerManagerConfigYaml: "clientConnection: {qps: 123}"}`
 	qpsNull          = `managerConfig: {structuredOverrides: {clientConnection: {qps: null}}}`
 	structuredQPS600 = `managerConfig: {mode: structured, structuredOverrides: {clientConnection: {qps: 600}}}`
+	nullYAMLQPS600   = `managerConfig: {controllerManagerConfigYaml: null, structuredOverrides: {clientConnection: {qps: 600}}}`
 )
 
 func TestUpgradeFlags(t *testing.T) {
@@ -114,6 +115,21 @@ func TestMigrationFromYAML(t *testing.T) {
 		},
 		"--reset-then-reuse-values drops the old chart's YAML default": {
 			steps:  []step{install(legacyYAMLChart, ""), resetThenReuseValues(kueueChart, qps600)},
+			config: map[string]string{"clientConnection.qps": "600", "clientConnection.burst": "500"},
+		},
+		"null YAML drops the old chart's YAML default with --reuse-values": {
+			steps:  []step{install(legacyYAMLChart, ""), reuseValues(kueueChart, nullYAMLQPS600)},
+			config: map[string]string{"clientConnection.qps": "600", "clientConnection.burst": "500"},
+			saved:  map[string]string{"managerConfig.controllerManagerConfigYaml": null},
+		},
+		"a saved null YAML keeps structured overrides on later upgrades": {
+			steps: []step{
+				install(legacyYAMLChart, ""),
+				reuseValues(kueueChart, nullYAMLQPS600),
+				reuseValues(kueueChart, ""),
+				resetThenReuseValues(kueueChart, ""),
+				upgrade(kueueChart, ""),
+			},
 			config: map[string]string{"clientConnection.qps": "600", "clientConnection.burst": "500"},
 		},
 	})
