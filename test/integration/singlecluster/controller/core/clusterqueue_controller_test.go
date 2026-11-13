@@ -1696,12 +1696,18 @@ var _ = ginkgo.Describe("ClusterQueue lendable resource metric", ginkgo.Label("c
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(corev1.ResourceCPU, "lendable-flavor", "2").Obj()).Obj()
 			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			behavioral.ExpectCQResourceLendable(deletedCQ, "lendable-flavor", string(corev1.ResourceCPU), 2)
 			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 8)
 		})
 
 		ginkgo.By("Deleting the clusterqueue while the workload holds its finalizer", func() {
 			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, deletedCQ)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deletedCQ), &cq)).To(gomega.Succeed())
+				g.Expect(cq.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			behavioral.ExpectCQResourceLendable(deletedCQ, "lendable-flavor", string(corev1.ResourceCPU), 0)
 			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 6)
 		})
@@ -1709,5 +1715,57 @@ var _ = ginkgo.Describe("ClusterQueue lendable resource metric", ginkgo.Label("c
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deletedLQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deletedCQ, false)
+	})
+
+	ginkgo.It("refreshes lendable resources in every ancestor cohort while a clusterqueue in a nested cohort is terminating", framework.SlowSpec, func() {
+		childCohort := utiltestingapi.MakeCohort("lendable-child").
+			Parent("lendable-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("lendable-flavor").Resource(corev1.ResourceCPU, "3").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, childCohort)
+
+		nestedCQ := utiltestingapi.MakeClusterQueue("lendable-cq-nested").
+			Cohort(kueue.CohortReference(childCohort.Name)).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("lendable-flavor").Resource(corev1.ResourceCPU, "4").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, nestedCQ)
+
+		nestedLQ := utiltestingapi.MakeLocalQueue("lendable-lq-nested", ns.Name).ClusterQueue(nestedCQ.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, nestedLQ)
+
+		wl := utiltestingapi.MakeWorkload("lendable-wl-nested", ns.Name).
+			Queue(kueue.LocalQueueName(nestedLQ.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		ginkgo.By("Admitting a workload within the nominal quota of the clusterqueue", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(nestedCQ.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "lendable-flavor", "2").Obj()).Obj()
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+			// A workload that only reserves quota loses it once its ClusterQueue is terminating.
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectCQResourceLendable(nestedCQ, "lendable-flavor", string(corev1.ResourceCPU), 2)
+			behavioral.ExpectCohortLendableResource("lendable-child", "lendable-flavor", string(corev1.ResourceCPU), 5)
+			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 11)
+		})
+
+		ginkgo.By("Deleting the clusterqueue while the workload holds its finalizer", func() {
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, nestedCQ)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nestedCQ), &cq)).To(gomega.Succeed())
+				g.Expect(cq.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectCQResourceLendable(nestedCQ, "lendable-flavor", string(corev1.ResourceCPU), 0)
+			behavioral.ExpectCohortLendableResource("lendable-child", "lendable-flavor", string(corev1.ResourceCPU), 3)
+			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 9)
+		})
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nestedLQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nestedCQ, false)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
 	})
 })
