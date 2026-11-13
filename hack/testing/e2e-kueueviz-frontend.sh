@@ -28,26 +28,48 @@ RETRY="${PROJECT_DIR}/hack/testing/retry.sh"
 
 # Install missing dependencies
 "${RETRY}" --attempts 5 --delay 5 --stream -- apt-get update
-"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get install -y curl make xdg-utils
+# Headless tests do not need xdg-utils' recommended desktop packages.
+"${RETRY}" --attempts 5 --delay 5 --stream -- apt-get install -y --no-install-recommends curl make xdg-utils
 
-# Function to clean up background processes
+stop_frontend() {
+  if [[ -n "${FRONTEND_PID:-}" ]]; then
+    local status=0
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+    wait "${FRONTEND_PID}" || status=$?
+    FRONTEND_PID=""
+    [[ ${status} -eq 143 ]] || return "${status}"
+  fi
+}
+
 cleanup() {
   echo "Cleaning up kueueviz processes"
-  kill "${FRONTEND_PID}"
+  stop_frontend || true
 }
+trap cleanup EXIT
 
 # Run frontend unit tests before starting the app
 cd "${PROJECT_DIR}/cmd/kueueviz/frontend"
 "${RETRY}" --attempts 5 --delay 5 --stream -- npm install
 npm test
 
-# Start kueueviz frontend
-npm start & FRONTEND_PID=$!
+# Exercise the built assets and SPA server used by the frontend image.
+npm run build
+npm run serve -- --listen tcp://localhost:3000 --no-clipboard --no-port-switching & FRONTEND_PID=$!
 
 # Run Cypress tests for kueueviz frontend
 cd "${PROJECT_DIR}/test/e2e/kueueviz"
 "${RETRY}" --attempts 5 --delay 5 --stream -- npm install
 "${RETRY}" --attempts 5 --delay 5 --stream -- npx cypress install
+# The parent owns the cluster preparation deadline and cancels this container on
+# failure. A new container has no stale marker from an earlier run.
+if [[ -n "${KUEUEVIZ_BACKEND_START_FILE:-}" ]]; then
+  while [[ ! -f "${KUEUEVIZ_BACKEND_START_FILE}" ]]; do
+    sleep 1
+  done
+fi
+"${RETRY}" --attempts 120 --delay 1 --no-exponential -- \
+  curl --fail --silent --show-error --max-time 2 "${KUEUEVIZ_HEALTH_URL:-http://localhost:8080/healthz}"
 npm run cypress:run --headless --config-file cypress.config.js
 
-# The trap will handle cleanup 
+# Surface server failures as well as Cypress failures.
+stop_frontend
