@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -112,7 +112,7 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
-	o.Limit, err = kueuectlutil.ListRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
 
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -37,8 +37,8 @@ var (
 		"%s sets how many objects kueuectl fetches from the Kubernetes API per request. "+
 			"It does not limit the output: all matching objects are listed. "+
 			"The default is %d; 0 fetches all objects in a single request.",
-		kueuectlutil.KueuectlListRequestLimitEnvName,
-		kueuectlutil.DefaultListRequestLimit,
+		listlimit.KueuectlListRequestLimitEnvName,
+		listlimit.DefaultListRequestLimit,
 	)
 
 	errMultipleActiveFlags = errors.New("only one active flag can be provided")

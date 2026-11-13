@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -174,7 +174,7 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 		return err
 	}
 
-	o.Limit, err = kueuectlutil.ListRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}
