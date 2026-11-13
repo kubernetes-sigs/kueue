@@ -18,7 +18,7 @@
   - [Two-phase model: request != release](#two-phase-model-request--release)
   - [Workload API](#workload-api)
   - [Opt-in annotation](#opt-in-annotation)
-  - [PreemptionMinCount](#preemptionmincount)
+  - [Partial-preemption minimum](#partial-preemption-minimum)
   - [Scheduler / Preemption](#scheduler--preemption)
     - [Eligibility](#eligibility)
     - [Candidate ordering](#candidate-ordering)
@@ -64,8 +64,9 @@ PodSet to a target count, instead of evicting the whole Workload.
 Kueue evicts the Pods above the target without changing the job's spec, and keeps the Pods that the
 job recreates gated until quota is available again.
 For each eligible candidate, Alpha first requests a shrink to its configured minimum. If that does
-not let the preemptor fit, Kueue proceeds to whole eviction. The victim keeps running at a smaller
-size when shrinking is sufficient.
+not let the preemptor fit, Kueue proceeds to whole eviction. Fill-back then gives back what the
+preemptor doesn't need, so a victim can end above its minimum. The victim keeps running at a
+smaller size when shrinking is sufficient.
 
 ## Motivation
 
@@ -120,10 +121,10 @@ releases their quota for the preemptor. The job grows back through the existing 
 when quota is available again.
 
 In Alpha, the classical preemption decision uses two passes over eligible candidates. In the first
-pass, each eligible candidate is reduced directly to its configured `partialPreemption.minCount`;
-if the preemptor still does not fit after all such shrink targets are considered, the second pass
-whole-evicts candidates. There is no priority-band rule in Alpha. Fair Sharing support is deferred
-to Beta.
+pass, eligible candidates are reduced to their configured `partialPreemption.minCount` in order
+until the preemptor fits. If it still does not fit, the second pass whole-evicts candidates. Fill-back
+then raises shrunk victims back as far as the preemptor allows. There is no priority-band rule in
+Alpha. Fair Sharing support is deferred to Beta.
 
 ### User Stories
 
@@ -159,7 +160,7 @@ Partial preemption must never disrupt the head: it runs the notebook server, whi
 
 The head requests 8 CPUs and 32 GiB of memory and runs the notebook server.
 The GPU worker group uses the Ray autoscaler, and each GPU worker uses a whole 8-GPU node.
-The RayCluster opts in to partial preemption, and the GPU worker PodSet has `minCount` set to 0.
+The RayCluster opts in to partial preemption, and the GPU worker PodSet has `partialPreemption.minCount` set to 0.
 It runs at a lower priority than production jobs in the same ClusterQueue, `research`; CPU and memory quota are not a constraint in this example:
 
 | `research`              |                                            |
@@ -171,9 +172,9 @@ It runs at a lower priority than production jobs in the same ClusterQueue, `rese
 1. The RayCluster runs at priority `interactive` with its head and 4 GPU workers (32 GPUs).
    A production fine-tuning job uses the other 32 GPUs.
 2. A second production job needs 16 GPUs.
-   Kueue first requests a shrink of the GPU worker group to its configured minimum of 0; if that
-   does not make the job fit, the remaining eligible candidates are whole-evicted. The head is not
-   selected for partial shrinking because it has no partial-preemption minimum configured.
+   Kueue first shrinks the GPU worker group to its minimum of 0, which frees 32 GPUs, and fill-back
+   then raises it back to 2 workers, so the RayCluster gives up only the 16 GPUs the job needs.
+   The head is not shrunk because it has no partial-preemption minimum.
 3. The selected GPU worker Pods terminate, and KubeRay recreates them; Kueue keeps replacement Pods
    waiting until quota is available. The notebook kernel and its collected results are kept if the
    head remains running; Ray recomputes task results stored only on removed workers.
@@ -194,7 +195,7 @@ When part of that quota is reclaimed, the Ray cluster and the pipeline should ke
 The pipeline reads from an unbounded source, so it never completes and never releases its quota on its own.
 The Ray cluster has a CPU-only head, requesting 16 CPUs and 64 GiB of memory, and one worker group of GPU Pods.
 Each GPU worker uses a whole 8-GPU node, and the GPU worker group sets `minReplicas: 1`.
-The RayJob opts in to partial preemption, and the GPU worker PodSet has `minCount` set to 1.
+The RayJob opts in to partial preemption, and the GPU worker PodSet has `partialPreemption.minCount` set to 1.
 Its ClusterQueue, `data`, has no GPU nominal quota; every GPU the RayJob uses is borrowed.
 It shares a Cohort with `training`, which owns 16 GPU nodes; CPU and memory quota are not a constraint in this example:
 
@@ -205,10 +206,10 @@ It shares a Cohort with `training`, which owns 16 GPU nodes; CPU and memory quot
 
 1. While `training` is idle, the RayJob runs with its head and 16 GPU workers (128 GPUs).
 2. A 12-node training job in `training` needs 96 GPUs.
-   Kueue requests a shrink of the GPU worker group to its configured minimum of 1 worker.
+   Kueue shrinks the GPU worker group to its minimum of 1, and fill-back raises it back to 4
+   workers, so the RayJob gives up exactly 96 GPUs.
 3. A 4-node evaluation job in `training` needs the remaining 32 GPUs.
-   If the remaining worker is eligible for partial preemption, Kueue first requests a shrink to its
-   configured minimum; otherwise it evicts the RayJob whole, as it does today.
+   Shrinking 4 workers to 1 frees only 24, so Kueue evicts the RayJob whole, as it does today.
 
 Some pipelines keep state on the head that is expensive to rebuild, such as the driver's progress through the source.
 For those pipelines, the GPU worker group can set its partial-preemption minimum to 0.
@@ -259,11 +260,13 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
   replicas while other eligible victims remain untouched. A future strategy that spreads the
   reduction across candidates is described in [Future Work Ideas](FUTURE_WORK.md#spreading-reductions-across-victims).
 - **Regrow can reclaim quota from lower-priority Workloads.** After partial preemption, an elastic
-  Workload may grow back when quota becomes available. In Alpha, its scale-up does not have a
-  priority-aware guarantee that prevents it from reclaiming quota later used by a lower-priority
-  Workload, which can cause repeated scale-down and regrow (quota oscillation). Alpha does not
-  resolve this interaction; Beta will define priority-aware coordination between preemption and
-  regrowth.
+  Workload grows back through its scale-up slice, which can preempt lower-priority Workloads,
+  including the ones the shrink spared. The next cycle can then evict a lower-priority Workload
+  anyway, and repeated scale-down and regrow can cause quota oscillation. Alpha does not resolve
+  this interaction; Beta will define priority-aware coordination between preemption and regrowth.
+- **Freed quota is not a freed node.** Kueue picks the Pods to evict without looking at nodes, so it
+  can free a little on several nodes. Quota then fits the preemptor, but kube-scheduler may not be
+  able to place it. Node-aware Pod selection is future work.
 - **Downgrade.** Older versions ungate up to the admitted count, so a shrunk Workload can over-use
   quota. Before downgrading, turn the gate off and wait until no Workload has
   `partialPreemption.targetCount`, or evict those Workloads.
@@ -317,8 +320,8 @@ sequenceDiagram
     S-->>P: keep Pending
     I->>Pods: evict the Pods above the target (Eviction API)
     J->>Pods: recreate the evicted Pods, held gated by the ungater
-    I->>W: watch live Pods, lower the admitted count to follow them
-    Note over W: usage tracks the real Pods continuously
+    I->>Pods: wait until no Pod above the target is left, including terminating ones
+    Note over W: quota stays charged at the old admitted count until then
     I->>W: when no Pod is above target, lower admitted count to target, clear target, QuotaReleased
     S->>P: admit preemptor after the quota is released
     Note over W: later spec count > admitted count, so it grows back via the elastic scale-up path
@@ -391,7 +394,7 @@ or `"false"`; only `"true"` opts the Job in. Kueue copies the annotation to the 
 for the Job, and it cannot be changed while the Workload holds quota. The annotation is alpha-level
 and ignored when the `PartialPreemption` feature gate is disabled.
 
-### PreemptionMinCount
+### Partial-preemption minimum
 
 `PodSet.partialPreemption.minCount` sets the lowest number of Pods to which partial preemption may
 shrink the PodSet. This minimum is independent of `PodSet.minCount`, which controls partial admission,
@@ -400,23 +403,27 @@ and of the framework's autoscaler minimum. It can differ from both.
 An integration reads the non-negative integer value of
 `kueue.x-k8s.io/podset-partial-preemption-min-count` from the job's PodTemplate and copies it to
 `PodSet.partialPreemption.minCount`. All framework integrations use this same annotation name. If the
-annotation is absent or invalid, the integration does not configure partial preemption for the
-PodSet. Kueue copies the value when it creates a Workload or scale-up slice; a later annotation
-change applies only to subsequently created Workloads/slices.
+annotation is absent, the integration does not configure partial preemption for the PodSet. The job
+webhook rejects a value that is not a non-negative integer. Kueue copies the value when it creates
+a Workload or scale-up slice; a later annotation change applies only to subsequently created
+Workloads/slices.
 
 ### Scheduler / Preemption
 
 Whole eviction picks candidates in one pass: order them, then evict in order until the preemptor
 fits. Partial preemption uses two passes:
 
-1. **Shrink pass** — visit eligible partial-preemption candidates in the existing candidate order and
-   request each selected PodSet to shrink directly to its configured `partialPreemption.minCount`.
-2. **Whole-eviction pass** — if the preemptor still does not fit after considering all shrink
-   targets, evict candidates whole in the existing order.
+1. **Shrink pass** — visit eligible partial-preemption candidates in the existing candidate order,
+   set each one's target to its configured `partialPreemption.minCount`, and stop as soon as the
+   preemptor fits.
+2. **Whole-eviction pass** — if the preemptor still does not fit after the shrink pass, evict
+   candidates whole in the existing order until it fits.
 
 This Alpha algorithm description covers classical preemption. Fair Sharing support is deferred to
 Beta. It makes no priority-band guarantee: a higher-priority candidate can be partially shrunk before
 or after a lower-priority candidate according to the existing ordering and candidate groups.
+Flavor assignment runs the same selection through the preemption oracle (`SimulatePreemption`),
+which counts a partial target at its reduced usage.
 
 With the `PartialPreemption` gate off, the shrink pass is skipped and today's whole-eviction pass is
 used, so there is no behavioral change.
@@ -460,9 +467,9 @@ Pod above the new target remains, including terminating Pods.
 #### Target selection
 
 For a selected candidate, the initial target is its configured `partialPreemption.minCount`.
-Fill-back may then raise the tentative target above the minimum to avoid reclaiming more quota than
-needed. If shrinking every eligible candidate to its minimum is insufficient, whole eviction is used
-for additional quota.
+Fill-back may then raise the target of a victim that was shrunk but not evicted, using a binary search 
+for the largest count that still lets the preemptor fit, so it takes about log2(count - minCount) fit checks per victim. If shrinking every eligible candidate to its minimum
+is insufficient, whole eviction is used for additional quota.
 
 #### Issuing preemptions
 
@@ -481,13 +488,14 @@ Partial targets are issued only when the resulting target set makes the preempto
 scheduler reuses the existing over-preemption trimming: once it has a target set that frees enough
 quota, `fillBackWorkloads` walks the targets in reverse (highest priority first). For each one it
 tries reverting it entirely; if the preemptor still fits without it, the victim was not needed and
-is dropped. Otherwise Kueue tries restoring as many replicas as possible while the preemptor still
-fits, without exceeding an existing in-flight victim's target. A non-partial victim stays wholly
-evicted.
+is dropped. Otherwise, if the victim was shrunk but not evicted, Kueue raises its target to the
+largest count that still lets the preemptor fit, without exceeding an existing in-flight victim's
+target. A victim evicted whole stays evicted.
 
-If even evicting every candidate whole does not free enough quota, the tentative partial and
-whole-eviction targets are discarded, no preemption is issued, and the preemptor remains `Pending`
-for a later scheduling cycle.
+If the two passes find no target set that fits, the tentative partial and whole-eviction targets
+are discarded and the Kueue scheduler runs today's whole-eviction planner, so partial preemption
+never leaves a preemptor `Pending` that whole eviction would admit. The preemptor remains `Pending`
+for a later scheduling cycle only if that also fails.
 
 #### Example
 
@@ -559,7 +567,8 @@ only, for elastic Workloads, behind the `PartialPreemption` gate). Kueue's webho
 - adding or changing partial-preemption fields, or lowering an assignment's `count`, while the
   `PartialPreemption` gate is off; with the gate off, integrations neither set
   `partialPreemption.minCount` nor copy the opt-in annotation;
-- `partialPreemption.minCount` above the PodSet's count, or any change to it;
+- any change to `partialPreemption.minCount`; a minimum at or above the PodSet's count means the
+  PodSet is never shrunk;
 - `partialPreemption.targetCount` below the PodSet's `partialPreemption.minCount` or at or above the
   assignment's `count`, on a PodSet without `partialPreemption.minCount`, or raised;
 - raising an assignment's `count`, changing its `flavors`, or any change to `resourceUsage` not in
@@ -576,7 +585,7 @@ The `PartialPreemption` gate depends on `ElasticJobsViaWorkloadSlices`.
   the same labels as `kueue_preempted_workloads_total`.
 - **Quota released:** `PartiallyPreempted` is `False` with reason `QuotaReleased`, and the PodSet's
   admitted count (`status.admission`) has been lowered to the target.
-- **No minimum configured or minimum equal to the PodSet's count:** the PodSet is never shrunk.
+- **No minimum configured, or a minimum at or above the PodSet's count:** the PodSet is never shrunk.
 - **Gate turned off while a target is set:** Kueue stops setting targets and evicting Pods. It keeps
   honoring targets already set: the ungater still caps at them, the release still happens once the
   Pods above them are gone, and the scale-up slice is still created after it. So turning the gate
@@ -612,11 +621,12 @@ creates Pods. All framework integrations use the same minimum annotation describ
 `kueue.x-k8s.io/podset-partial-preemption-min-count`.
 
 batch/Job is covered in Alpha through reactive downscaling. A Pod that Kueue evicts would count
-toward `backoffLimit`, and a Pod that exits 0 on SIGTERM would count as a completion, so an opt-in
-Job must use `completionMode: Indexed`, `restartPolicy: Never`, and a `podFailurePolicy` rule that
-`Ignore`s the `DisruptionTarget` condition; the Job webhook rejects opt-in Jobs that do not. With
-that rule, a reclaimed (evicted) Pod is retried as a gated replacement, counted as neither a failure
-nor a completion. Covering JobSet and the other elastic integrations is a Beta criterion.
+toward `backoffLimit`, so an opt-in Job must use `completionMode: Indexed`, `restartPolicy: Never`,
+and a `podFailurePolicy` rule that `Ignore`s the `DisruptionTarget` condition; the Job webhook
+rejects opt-in Jobs that do not. With that rule, a reclaimed Pod that fails is retried as a gated
+replacement and counted as neither a failure nor a completion. A reclaimed Pod whose SIGTERM handler
+exits 0 still completes its index, so opt-in Jobs must not exit 0 on SIGTERM. Covering JobSet and
+the other elastic integrations is a Beta criterion.
 
 #### Ray
 
@@ -654,8 +664,8 @@ nor a completion. Covering JobSet and the other elastic integrations is a Beta c
   abort the stage after `spark.stage.maxConsecutiveAttempts` (default 4).
 - Spark rejects barrier stages with dynamic allocation, so an elastic SparkApplication is not a gang
   workload.
-- PodsReady expects the driver and as many running executors as the configured minimum, so a shrink
-  to that minimum keeps the Workload ready.
+- PodsReady expects the driver and the executor count from the WaitForPodsReady rule in
+  [Interactions](#interactions), so a shrink keeps the Workload ready.
 
 ### Test Plan
 
@@ -666,7 +676,8 @@ make this code solid enough prior to committing the changes necessary to impleme
 
 - Two-pass candidate selection: eligible victims are first targeted at their configured minimum;
   remaining victims are whole-evicted only if the preemptor still does not fit.
-- Fill-back: remove unnecessary targets and whole evictions without raising an in-flight target.
+- Fill-back: remove unnecessary targets and whole evictions, and raise a shrunk victim to the
+  largest count that still fits, without raising an in-flight target.
 - Fair Sharing partial-preemption behavior is deferred to Beta.
 - Eligibility, including the PodsReady rule with and without `waitForPodsReady`.
 - Which Pods are evicted: deletion cost, unscheduled, newest; gated and terminating Pods are
@@ -683,8 +694,10 @@ make this code solid enough prior to committing the changes necessary to impleme
 - A scale-up slice that is pending when the shrink starts.
 - The spec count drops after the release, and the Workload is evicted whole after it; the admitted
   count follows both.
-- A victim is shrunk directly to its configured minimum, and is evicted whole if the shrink pass is
-  not enough to admit the preemptor.
+- A victim is shrunk to its configured minimum and fill-back raises it as far as the preemptor
+  allows, and it is evicted whole if the shrink pass is not enough to admit the preemptor.
+- Known Alpha limitation: a shrunk higher-priority Workload's scale-up slice preempts a
+  lower-priority Workload that the shrink spared.
 - The gate is turned off with a target set.
 - WaitForPodsReady does not evict a shrunk Workload.
 
@@ -701,8 +714,9 @@ make this code solid enough prior to committing the changes necessary to impleme
 
 - The `PartialPreemption` feature gate, disabled by default.
 - Reactive downscaling for batch/Job, RayCluster, RayJob, RayService and SparkApplication.
-- Eligible victims are first shrunk directly to their configured minimum; whole eviction is used
-  for additional quota if shrinking alone does not let the preemptor fit.
+- Eligible victims are first shrunk to their configured minimum, and whole eviction is used if that
+  is not enough. Fill-back raises shrunk victims to the largest count that still lets the
+  preemptor fit.
 - The tests in the Test Plan.
 - Docs on opting in, setting the partial-preemption minimum, and the recommended Ray and Spark settings.
 
@@ -740,8 +754,8 @@ make this code solid enough prior to committing the changes necessary to impleme
 
 ## Drawbacks
 
-- Adds a new admission-status field and a new decision branch to both preemption algorithms,
-  increasing the surface area of the preemption code.
+- Adds a new admission-status field and a shrink pass to the preemption consumer, increasing the
+  surface area of the preemption code.
 - Kueue evicts Pods that it does not own. The job's controller sees them disappear and recreates
   them, which costs Pod churn.
 
@@ -782,8 +796,8 @@ A plain delete skips PodDisruptionBudgets and sets no `DisruptionTarget` conditi
 
 Kueue could reduce each victim straight to its floor and stop there. That may reclaim more Pods than
 the preemptor needs, and one victim can bear most of the reduction while other candidates remain
-untouched. Alpha uses this simpler behavior; a strategy that spreads reductions or selects an
-intermediate target can be considered in future work.
+untouched. Alpha starts at the floor and then lets fill-back raise each shrunk victim to 
+the largest count that still fits. Spreading the reduction across victims is future work.
 
 ## Future Work Ideas
 
