@@ -1624,6 +1624,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				WithValue("Default", implicitResource, "2").
 				WithValue("DefaultRequest", implicitResource, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
+			expectLimitRangesInManagerCache(limitRange)
 
 			wl := utiltestingapi.MakeWorkload("dc-defaulted-wl", ns.Name).
 				Queue("dc-tracking-lq").Obj()
@@ -1755,6 +1756,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 					WithValue("Default", resourceName, "2").
 					WithValue("DefaultRequest", resourceName, "2").Obj()
 				gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
+				expectLimitRangesInManagerCache(limitRange)
 			} else {
 				wl2Builder.Request(resourceName, "2")
 			}
