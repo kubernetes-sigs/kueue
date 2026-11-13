@@ -1038,11 +1038,9 @@ setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),he
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && started=$$SECONDS && \
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && \
 	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
-	echo "compile-experiment: complete phase=initial-backend-download duration=$$((SECONDS - started))s" && \
-	started=$$SECONDS && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./... && \
-	echo "compile-experiment: complete phase=initial-backend-tests duration=$$((SECONDS - started))s"
+	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
 # Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
@@ -1051,21 +1049,12 @@ test-e2e-kueueviz: export KUEUEVIZ_MAKE = $(MAKE)
 test-e2e-kueueviz: export KUEUEVIZ_TEST_GOFLAGS = $(GOFLAGS)
 test-e2e-kueueviz: export KUEUEVIZ_TEST_FLAGS = $(GO_TEST_FLAGS)
 test-e2e-kueueviz: export KUEUEVIZ_TEST_GO_CMD = $(GO_CMD)
-# Temporary opt-in for this PR's remote experiment; local runs stay single-pass.
-ifeq ($(JOB_NAME),pull-kueue-test-e2e-kueueviz-main)
-test-e2e-kueueviz: export KUEUEVIZ_COMPILE_EXPERIMENT = 1
-endif
 test-e2e-kueueviz: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) KUEUEVIZ_RUN_BACKEND_TESTS=true \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
-	@if [ "$${KUEUEVIZ_COMPILE_EXPERIMENT:-0}" = 1 ] && [ -f "${PROJECT_DIR}/hack/testing/kueueviz-serving-experiment.sh" ]; then \
-		ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-		bash "${PROJECT_DIR}/hack/testing/kueueviz-serving-experiment.sh"; \
-	fi
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.

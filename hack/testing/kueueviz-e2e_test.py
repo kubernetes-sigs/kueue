@@ -445,7 +445,7 @@ pathlib.Path(os.environ["PROJECT_DIR"], "build-flags").write_text(
                     self.assertTrue(exported["KUEUEVIZ_MAKE"])
 
     def test_frontend_waits_for_backend_and_preserves_failures(self):
-        for failure in ("", "unit", "health", "cypress", "slow_setup", "transient_health"):
+        for failure in ("", "unit", "build", "serve_start", "serve_exit", "health", "cypress", "slow_setup", "transient_health"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 for directory in ("hack/testing", "cmd/kueueviz/frontend", "test/e2e/kueueviz", "bin"):
@@ -476,11 +476,25 @@ if name == "sleep":
 if name == "curl":
     assert ready.exists(), "Health deadline started before cluster preparation completed"
     assert args[-1] == os.environ["KUEUEVIZ_HEALTH_URL"]
+    server_ready = pathlib.Path(os.environ["VIZ_TEST_FRONTEND_READY"])
+    acknowledged = server_ready.with_suffix(".ack")
+    if not acknowledged.exists():
+        with server_ready.open() as pipe:
+            assert pipe.read() == "ready\\n"
+        acknowledged.touch()
     if failure == "transient_health" and count(".requests") < 3:
         sys.exit(7)
-if name == "npm" and args == ["run", "dev"]:
+if name == "npm" and args[:2] == ["run", "serve"]:
+    status = 7 if failure in ("serve_start", "serve_exit") else 0
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(status))
+    pathlib.Path(os.environ["VIZ_TEST_FRONTEND_PID"]).write_text(str(os.getpid()))
+    with open(os.environ["VIZ_TEST_FRONTEND_READY"], "w") as pipe:
+        pipe.write("ready\\n")
+    if failure == "serve_start":
+        sys.exit(status)
     signal.pause()
 if (name == "npm" and args == ["test"] and failure == "unit" or
+    name == "npm" and args == ["run", "build"] and failure == "build" or
     name == "curl" and failure == "health" or
     name == "npm" and args[:2] == ["run", "cypress:run"] and failure == "cypress"):
     sys.exit(7)
@@ -490,10 +504,15 @@ if (name == "npm" and args == ["test"] and failure == "unit" or
                     (root / "bin" / name).symlink_to(stub)
                 commands_file = root / "commands"
                 ready_file = root / "backend-started"
+                frontend_ready = root / "frontend.ready"
+                os.mkfifo(frontend_ready)
+                frontend_pid = root / "frontend.pid"
                 if failure != "slow_setup":
                     ready_file.touch()
                 env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
                        "PROJECT_DIR": str(root), "VIZ_TEST_COMMANDS": str(commands_file),
+                       "VIZ_TEST_FRONTEND_READY": str(frontend_ready),
+                       "VIZ_TEST_FRONTEND_PID": str(frontend_pid),
                        "KUEUEVIZ_BACKEND_START_FILE": str(ready_file),
                        "KUEUEVIZ_HEALTH_URL": "http://127.0.0.1:8181/healthz",
                        "VIZ_TEST_FAILURE": failure}
@@ -502,26 +521,42 @@ if (name == "npm" and args == ["test"] and failure == "unit" or
                                            text=True, start_new_session=True)
                 try:
                     stdout, stderr = process.communicate(timeout=30)
+                    if frontend_pid.exists():
+                        with self.assertRaises(ProcessLookupError, msg="Frontend survived script cleanup"):
+                            os.kill(int(frontend_pid.read_text()), 0)
                 finally:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
                     process.wait()
-                expected_status = {"unit": 7, "health": 1, "cypress": 7}.get(failure, 0)
+                expected_status = {"unit": 7, "build": 7, "serve_start": 7, "serve_exit": 7,
+                                   "health": 1, "cypress": 7}.get(failure, 0)
                 self.assertEqual(process.returncode, expected_status, stdout + stderr)
                 commands = [json.loads(line) for line in commands_file.read_text().splitlines()]
                 unit = commands.index(["npm", "test"])
+                build = [i for i, c in enumerate(commands) if c == ["npm", "run", "build"]]
+                serve = [i for i, c in enumerate(commands) if c[:3] == ["npm", "run", "serve"]]
                 health = [i for i, c in enumerate(commands) if c[0] == "curl"]
                 cypress = [i for i, c in enumerate(commands) if c[:3] == ["npm", "run", "cypress:run"]]
                 if failure == "unit":
+                    self.assertEqual(build, [])
+                else:
+                    self.assertEqual(len(build), 1)
+                    self.assertGreater(build[0], unit)
+                if failure in ("unit", "build"):
+                    self.assertEqual(serve, [])
                     self.assertEqual(health, [])
                 else:
+                    self.assertEqual(len(serve), 1)
+                    self.assertGreater(serve[0], build[0])
+                    self.assertIn("--no-port-switching", commands[serve[0]])
+                    self.assertIn("tcp://localhost:3000", commands[serve[0]])
                     self.assertEqual(len(health), {"health": 120, "transient_health": 3}.get(failure, 1))
                     self.assertGreater(health[0], unit)
                     if failure == "slow_setup":
                         self.assertEqual(sum(c[0] == "sleep" for c in commands[:health[0]]), 130)
-                if failure in ("unit", "health"):
+                if failure in ("unit", "build", "health"):
                     self.assertEqual(cypress, [])
                 else:
                     self.assertEqual(len(cypress), 1)
