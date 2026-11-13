@@ -75,7 +75,7 @@ text = path.read_text()
 command = 'npm run dev & FRONTEND_PID=$!'
 assert text.count(command) == 1
 path.write_text(text.replace(command, 'npm run build\n'
-    'npm run serve -- --listen tcp://127.0.0.1:3000 --no-clipboard & FRONTEND_PID=$!'))
+    'npm run serve -- --listen tcp://localhost:3000 --no-clipboard & FRONTEND_PID=$!'))
 PY
   fi
   for directory in cmd/kueueviz/frontend/node_modules test/e2e/kueueviz/node_modules cmd/kueueviz/frontend/build; do
