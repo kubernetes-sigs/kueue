@@ -9598,3 +9598,44 @@ func TestAssignment_DemoteTo(t *testing.T) {
 		})
 	}
 }
+
+func TestAssignFlavorsWithTASModes_PrefixedReason(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
+	log := testr.New(t)
+	ctx := context.Background()
+
+	cqSnapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{WhenCanPreempt: kueue.TryNextFlavor})
+	wlInfo := bookmarkTestWorkload(log, "1")
+
+	resourceFlavors := make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor)
+	for _, rf := range bookmarkTestFlavors() {
+		resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
+	}
+
+	assigner := New(
+		wlInfo, cqSnapshot, resourceFlavors, false,
+		&testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+	)
+
+	groupKey := tas.GroupKeyForPodSet(&wlInfo.Obj.Spec.PodSets[0])
+	tasModes := TASFlavorModes{
+		TASFlavorKey{GroupKey: groupKey, Flavor: "flavor-1"}: TASMode{
+			PreemptionMode: preempt,
+			Reasons:        []string{"no topology domains at level: kubernetes.io/hostname"},
+		},
+	}
+
+	assignment := assigner.AssignFlavorsWithTASModes(ctx, log, nil, tasModes)
+	var foundReason bool
+	wantReason := "in flavor flavor-1: no topology domains at level: kubernetes.io/hostname"
+	for _, attempt := range assignment.PodSets[0].FlavorAssignmentAttempts {
+		if attempt.Flavor == "flavor-1" && slices.Contains(attempt.Reasons, wantReason) {
+			foundReason = true
+			break
+		}
+	}
+	if !foundReason {
+		t.Errorf("expected FlavorAssignmentAttempts for flavor-1 to contain reason %q", wantReason)
+	}
+}
