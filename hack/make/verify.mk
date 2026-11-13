@@ -358,7 +358,7 @@ verify-merge-unit-coverage: ## Test the unit-shard coverage merge script offline
 	bash $(PROJECT_DIR)/hack/testing/merge-unit-coverage_test.sh
 
 .PHONY: verify-fetch-prow-merged-coverage
-verify-fetch-prow-merged-coverage: ## Validate the Prow merged-coverage fetch script with stubbed GitHub, GCS, and Codecov data.
+verify-fetch-prow-merged-coverage: ## Validate the Prow merged-coverage fetch script with stubbed GitHub and GCS data.
 	bash $(PROJECT_DIR)/hack/testing/fetch-prow-merged-coverage_test.sh
 
 .PHONY: verify-generation-order
