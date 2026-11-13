@@ -1227,10 +1227,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 })
 
 var _ = ginkgo.Describe("Workload controller with WorkloadPriorityClassWatchesWorkloads disabled", ginkgo.Label("controller:workload", "area:core"), func() {
-	var (
-		ns                    *corev1.Namespace
-		workloadPriorityClass *kueue.WorkloadPriorityClass
-	)
+	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassWatchesWorkloads, false)
@@ -1240,20 +1237,27 @@ var _ = ginkgo.Describe("Workload controller with WorkloadPriorityClassWatchesWo
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.It("Should keep a priority changed on a workload until the class is reconciled again", func() {
+	ginkgo.It("Should keep a priority changed on a workload until the class value changes", func() {
 		wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 			WorkloadPriorityClassRef("workload-priority-class").
 			Priority(100).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, wl)
+		// The class reconcile lists Workloads from the manager cache, and with
+		// the gate disabled nothing requeues the class if wl is not there yet.
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(wl), &kueue.Workload{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("creating the class, whose reconcile gives the workload the class value")
-		workloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
-		behavioral.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		wpc := utiltestingapi.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wpc)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
+		})
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(200))))
@@ -1271,6 +1275,19 @@ var _ = ginkgo.Describe("Workload controller with WorkloadPriorityClassWatchesWo
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(100))))
 		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("changing the class value")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wpc), wpc)).To(gomega.Succeed())
+			wpc.Value = 300
+			g.Expect(k8sClient.Update(ctx, wpc)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking that the workload gets the new class value")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(300))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
 
