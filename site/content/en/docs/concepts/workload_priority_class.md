@@ -131,6 +131,7 @@ Custom queue-name handlers must opt into preparing this combined update;
 serving Pod groups continue to keep their existing queue.
 
 On the Workload, `Priority` is always mutable.
+When the Workload references a `WorkloadPriorityClass`, Kueue sets `Priority` back to the value of that class.
 `priorityClassRef` (and its `group`/`kind`) is mutable while the Workload is pending,
 and becomes immutable once the `QuotaReserved` condition is `True`.
 `priorityClassRef.name` follows the same rule, except when `priorityClassRef.kind` is
