@@ -75,11 +75,15 @@ if [[ "${KUEUEVIZ_RUN_BACKEND_TESTS:-false}" == true ]]; then
     # Defer the worker's exit until its foreground Make process has reaped the
     # compilers receiving the same group signal.
     trap 'exit 143' TERM
-    # Leave CPU for the cluster and frontend. Explicit GOMAXPROCS and later
-    # user-supplied Go flags override these defaults, including an empty
-    # GOMAXPROCS to retain Go's automatic setting.
-    GOMAXPROCS="${GOMAXPROCS-1}" e2e_timed "kueueviz/backend_tests" "${KUEUEVIZ_MAKE:-make}" -C "${ROOT_DIR}" \
-      "GOFLAGS=-p=4 ${KUEUEVIZ_TEST_GOFLAGS-${GOFLAGS:-}}" \
+    # Leave CPU for preparation without reducing the race tests' runtime
+    # concurrency. Only compiler tools get the default GOMAXPROCS budget;
+    # explicit environment settings and later user Go flags take precedence.
+    test_go_flags="-p=4 ${KUEUEVIZ_TEST_GOFLAGS-${GOFLAGS:-}}"
+    if [[ -z ${GOMAXPROCS+x} ]]; then
+      test_go_flags="\"-toolexec=env GOMAXPROCS=1\" ${test_go_flags}"
+    fi
+    e2e_timed "kueueviz/backend_tests" "${KUEUEVIZ_MAKE:-make}" -C "${ROOT_DIR}" \
+      "GOFLAGS=${test_go_flags}" \
       "GO_TEST_FLAGS=${KUEUEVIZ_TEST_FLAGS--race}" \
       "GO_CMD=${KUEUEVIZ_TEST_GO_CMD:-go}" test-kueueviz-backend
   ) & BACKEND_TEST_PID=$!
