@@ -17,8 +17,10 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -30,7 +32,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
-	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -42,6 +43,42 @@ import (
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
+
+// mintPod simulates a completion index; draining removes the highest indexes first.
+func mintPod(ctx context.Context, namespace, podNamePrefix, workloadName string, podSet kueue.PodSetReference, index int32) {
+	ginkgo.GinkgoHelper()
+	pod := testingpod.MakePod(fmt.Sprintf("%s-%d", podNamePrefix, index), namespace).
+		Annotation(kueue.WorkloadAnnotation, workloadName).
+		Annotation(kueue.WorkloadSliceNameAnnotation, workloadName).
+		Annotation(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(index))).
+		Label(pkgconstants.PodSetLabel, string(podSet)).
+		Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(index))).
+		Gate(kueue.ElasticJobSchedulingGate).
+		Obj()
+	behavioral.MustCreate(ctx, k8sClient, pod)
+}
+
+func expectPodCounts(ctx context.Context, namespace, podNamePrefix string, podSet kueue.PodSetReference, wantUngated, wantGated int) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(namespace),
+			client.MatchingLabels{pkgconstants.PodSetLabel: string(podSet)})).Should(gomega.Succeed())
+		ungated, gated := 0, 0
+		for i := range pods.Items {
+			if !strings.HasPrefix(pods.Items[i].Name, podNamePrefix+"-") {
+				continue
+			}
+			if utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
+				gated++
+			} else {
+				ungated++
+			}
+		}
+		g.Expect(ungated).Should(gomega.Equal(wantUngated))
+		g.Expect(gated).Should(gomega.Equal(wantGated))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
 
 // This exercises the full reactive partial-preemption loop for batch/Job, end to end:
 //
@@ -104,7 +141,7 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			Queue(kueue.LocalQueueName(lq.Name)).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(pkgconstants.PartialPreemptionAnnotation, "true").
-			SetAnnotation(workloadjob.PartialPreemptionMinCountAnnotation, "1").
+			SetAnnotation(pkgconstants.PodSetPartialPreemptionMinCountAnnotation, "1").
 			Indexed(true).
 			Request(corev1.ResourceCPU, "1").
 			Parallelism(parallelism).
@@ -139,45 +176,11 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		// mintPod creates one gated Pod that stands in for the Job's completion index i. The
-		// completion-index annotation makes the drain deterministic: PodsToReclaim keeps the lowest
-		// indexes and evicts the highest, so index 2 and 3 are the ones removed down to target 2.
-		mintPod := func(i int32) {
-			pod := testingpod.MakePod(fmt.Sprintf("victim-%d", i), ns.Name).
-				Annotation(kueue.WorkloadAnnotation, victimWlKey.Name).
-				Annotation(kueue.WorkloadSliceNameAnnotation, victimWlKey.Name).
-				Annotation(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(i))).
-				Label(pkgconstants.PodSetLabel, string(podSet)).
-				Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(i))).
-				Gate(kueue.ElasticJobSchedulingGate).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, pod)
-		}
-
-		expectPodCounts := func(wantUngated, wantGated int) {
-			ginkgo.GinkgoHelper()
-			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-					client.MatchingLabels{pkgconstants.PodSetLabel: string(podSet)})).Should(gomega.Succeed())
-				ungated, gated := 0, 0
-				for i := range pods.Items {
-					if utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
-						gated++
-					} else {
-						ungated++
-					}
-				}
-				g.Expect(ungated).Should(gomega.Equal(wantUngated))
-				g.Expect(gated).Should(gomega.Equal(wantGated))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		}
-
 		ginkgo.By("simulating the Job's running Pods and letting the ungater ungate them", func() {
 			for i := range parallelism {
-				mintPod(i)
+				mintPod(ctx, ns.Name, "victim", victimWlKey.Name, podSet, i)
 			}
-			expectPodCounts(int(parallelism), 0)
+			expectPodCounts(ctx, ns.Name, "victim", podSet, int(parallelism), 0)
 		})
 
 		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
@@ -234,10 +237,10 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			// admitted count still at the target, the ungater caps ungating at the granted count, so
 			// the re-created Pods stay gated until the slice actually re-grows.
 			for i := target; i < parallelism; i++ {
-				mintPod(i)
+				mintPod(ctx, ns.Name, "victim", victimWlKey.Name, podSet, i)
 			}
 			// The low indexes keep running; the re-created high indexes stay gated.
-			expectPodCounts(int(target), int(parallelism-target))
+			expectPodCounts(ctx, ns.Name, "victim", podSet, int(target), int(parallelism-target))
 		})
 
 		ginkgo.By("re-growing the victim back to its original parallelism once the preemptor leaves", func() {
@@ -264,7 +267,7 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 				g.Expect(workload.ExtractGrantedPodSetCounts(admitted)[podSet]).Should(gomega.Equal(parallelism))
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
-			expectPodCounts(int(parallelism), 0)
+			expectPodCounts(ctx, ns.Name, "victim", podSet, int(parallelism), 0)
 		})
 	})
 
@@ -290,7 +293,7 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 				Queue(kueue.LocalQueueName(lq.Name)).
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				SetAnnotation(pkgconstants.PartialPreemptionAnnotation, "true").
-				SetAnnotation(workloadjob.PartialPreemptionMinCountAnnotation, strconv.Itoa(int(minCount))).
+				SetAnnotation(pkgconstants.PodSetPartialPreemptionMinCountAnnotation, strconv.Itoa(int(minCount))).
 				Indexed(true).
 				Request(corev1.ResourceCPU, "1").
 				Parallelism(parallelism).
@@ -340,36 +343,6 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			return key, podSet
 		}
 
-		// mintPod stands in for the Job's completion index i: a gated Pod the ungater ungates once
-		// quota is granted. The completion index makes draining deterministic (highest index first).
-		mintPod := func(jobName string, wlName string, podSet kueue.PodSetReference, i int32) {
-			pod := testingpod.MakePod(fmt.Sprintf("%s-%d", jobName, i), ns.Name).
-				Annotation(kueue.WorkloadAnnotation, wlName).
-				Annotation(kueue.WorkloadSliceNameAnnotation, wlName).
-				Annotation(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(i))).
-				Label(pkgconstants.PodSetLabel, string(podSet)).
-				Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(i))).
-				Gate(kueue.ElasticJobSchedulingGate).
-				Obj()
-			behavioral.MustCreate(ctx, k8sClient, pod)
-		}
-
-		expectUngatedCount := func(podSet kueue.PodSetReference, want int) {
-			ginkgo.GinkgoHelper()
-			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
-					client.MatchingLabels{pkgconstants.PodSetLabel: string(podSet)})).Should(gomega.Succeed())
-				ungated := 0
-				for i := range pods.Items {
-					if !utilpod.HasGate(&pods.Items[i], kueue.ElasticJobSchedulingGate) {
-						ungated++
-					}
-				}
-				g.Expect(ungated).Should(gomega.Equal(want))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		}
-
 		var (
 			low01Key, low02Key       client.ObjectKey
 			low01PodSet, low02PodSet kueue.PodSetReference
@@ -379,18 +352,18 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			behavioral.MustCreate(ctx, k8sClient, makeLowJob("low-01"))
 			low01Key, low01PodSet = admittedSliceKey("low-01")
 			for i := range parallelism {
-				mintPod("low-01", low01Key.Name, low01PodSet, i)
+				mintPod(ctx, ns.Name, "low-01", low01Key.Name, low01PodSet, i)
 			}
-			expectUngatedCount(low01PodSet, int(parallelism))
+			expectPodCounts(ctx, ns.Name, "low-01", low01PodSet, int(parallelism), 0)
 		})
 
 		ginkgo.By("admitting low-02 (newer) at full parallelism, filling the ClusterQueue", func() {
 			behavioral.MustCreate(ctx, k8sClient, makeLowJob("low-02"))
 			low02Key, low02PodSet = admittedSliceKey("low-02")
 			for i := range parallelism {
-				mintPod("low-02", low02Key.Name, low02PodSet, i)
+				mintPod(ctx, ns.Name, "low-02", low02Key.Name, low02PodSet, i)
 			}
-			expectUngatedCount(low02PodSet, int(parallelism))
+			expectPodCounts(ctx, ns.Name, "low-02", low02PodSet, int(parallelism), 0)
 		})
 
 		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
@@ -399,7 +372,7 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 			PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "1").Obj()).
 			Obj()
 
-		ginkgo.By("requesting a band-wise reclaim when the preemptor arrives", func() {
+		ginkgo.By("requesting reclaim when the preemptor arrives", func() {
 			behavioral.MustCreate(ctx, k8sClient, preemptor)
 			// Wait for the preemptor to be admitted; band-wise correctness is checked below.
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
@@ -423,7 +396,6 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "low-02"}, job)).Should(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).Should(gomega.HaveValue(gomega.BeTrue()))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			_ = low02Key
 		})
 	})
 })

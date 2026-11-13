@@ -17,24 +17,15 @@ limitations under the License.
 package classical
 
 import (
-	"maps"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -53,24 +44,6 @@ func evictedInfo(t *testing.T, name string, evicted bool) *workload.Info {
 		})
 	}
 	return workload.NewInfo(log, wl.Obj())
-}
-
-// candidate builds a flavor-stamped candidate at the given priority, optionally
-// flagged as a partial-preemption job, as carrying a pending preemption target,
-// and/or as evicted.
-func candidate(t *testing.T, name string, prio int32, partial, pending, evicted bool) *workload.Info {
-	t.Helper()
-	info := candidateInfo(t, name, preemptorCQName, prio)
-	info.IsPartialPreemptionJob = partial
-	info.HasPendingPreemptionTarget = pending
-	if evicted {
-		apimeta.SetStatusCondition(&info.Obj.Status.Conditions, metav1.Condition{
-			Type:   kueue.WorkloadEvicted,
-			Status: metav1.ConditionTrue,
-			Reason: "test",
-		})
-	}
-	return info
 }
 
 func byName(a, b *workload.Info) int {
@@ -134,7 +107,7 @@ func TestCacheIterator(t *testing.T) {
 
 	cases := map[string]struct {
 		ctx      *HierarchicalPreemptionCtx
-		segments [numSegments][]candidateBucket
+		segments [numSegments][]*bucket
 		// first pass
 		borrow bool
 		want   []string // nil means expect no results
@@ -145,9 +118,9 @@ func TestCacheIterator(t *testing.T) {
 	}{
 		"merges buckets from the same segment in comparator order": {
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
-				s[0] = []candidateBucket{
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{
 					segmentBucket([]*workload.Info{a, c}, false),
 					segmentBucket([]*workload.Info{b, d}, false),
 				}
@@ -159,10 +132,10 @@ func TestCacheIterator(t *testing.T) {
 		"earlier segment always precedes a later segment regardless of element order": {
 			// "z" sits in segment 2, "a" in segment 3: segment index must win over cmp.
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
-				s[2] = []candidateBucket{segmentBucket([]*workload.Info{z}, false)}
-				s[3] = []candidateBucket{segmentBucket([]*workload.Info{a}, false)}
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[2] = []*bucket{segmentBucket([]*workload.Info{z}, false)}
+				s[3] = []*bucket{segmentBucket([]*workload.Info{a}, false)}
 				return s
 			}(),
 			borrow: false,
@@ -171,9 +144,9 @@ func TestCacheIterator(t *testing.T) {
 		"Never candidates are silently skipped": {
 			// fake uses no contested flavor -> classifies as Never; real1/real2 pass.
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
-				s[0] = []candidateBucket{segmentBucket([]*workload.Info{real1, fake, real2}, false)}
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{segmentBucket([]*workload.Info{real1, fake, real2}, false)}
 				return s
 			}(),
 			borrow: false,
@@ -181,11 +154,11 @@ func TestCacheIterator(t *testing.T) {
 		},
 		"workloads removed from the Snapshot are silently skipped": {
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
 				bkt := segmentBucket([]*workload.Info{a, b, c}, false)
 				delete(bkt.cq.Workloads, workload.Key(b.Obj))
-				s[0] = []candidateBucket{bkt}
+				s[0] = []*bucket{bkt}
 				return s
 			}(),
 			borrow: false,
@@ -193,11 +166,11 @@ func TestCacheIterator(t *testing.T) {
 		},
 		"first workload removed from the Snapshot is skipped": {
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
 				bkt := segmentBucket([]*workload.Info{a, b, c}, false)
 				delete(bkt.cq.Workloads, workload.Key(a.Obj))
-				s[0] = []candidateBucket{bkt}
+				s[0] = []*bucket{bkt}
 				return s
 			}(),
 			borrow: false,
@@ -205,11 +178,11 @@ func TestCacheIterator(t *testing.T) {
 		},
 		"bucket with all workloads removed from the Snapshot is exhausted": {
 			ctx: ctxWithin,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
 				bkt := segmentBucket([]*workload.Info{a, b, c}, false)
 				clear(bkt.cq.Workloads)
-				s[0] = []candidateBucket{bkt}
+				s[0] = []*bucket{bkt}
 				return s
 			}(),
 			borrow: false,
@@ -217,9 +190,9 @@ func TestCacheIterator(t *testing.T) {
 		},
 		"borrow run skips ReclaimWithoutBorrowing; non-borrow run after Reset sees them": {
 			ctx: ctxReclaim,
-			segments: func() [numSegments][]candidateBucket {
-				var s [numSegments][]candidateBucket
-				s[0] = []candidateBucket{segmentBucket([]*workload.Info{c1, c2}, false)}
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{segmentBucket([]*workload.Info{c1, c2}, false)}
 				return s
 			}(),
 			borrow:         true,
@@ -281,7 +254,7 @@ func TestResetSkipsWorkloadsRemovedFromSnapshot(t *testing.T) {
 			}
 			bkt := segmentBucket(workloads, false)
 			it := &cacheCandidateIterator{
-				segments:               [numSegments][]candidateBucket{{bkt}},
+				segments:               [numSegments][]*bucket{{bkt}},
 				cmp:                    byName,
 				hierarchicalReclaimCtx: preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil),
 			}
@@ -401,14 +374,14 @@ func TestBuildBuckets(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			evicted, nonEvicted := buildBuckets(logr.Discard(), tc.classes)
+			evicted, nonEvicted := buildBuckets(tc.classes)
 
 			if len(evicted) != tc.wantEvicted {
 				t.Fatalf("evicted buckets = %d, want %d", len(evicted), tc.wantEvicted)
 			}
 			if tc.wantEvicted > 0 {
-				if evicted[0].cqSnapshot().Name != kueue.ClusterQueueReference(tc.wantEvictedCQ) || evicted[0].top().Obj.Name != tc.wantEvictedTop {
-					t.Errorf("evicted bucket = (%q, %q), want (%q, %q)", evicted[0].cqSnapshot().Name, evicted[0].top().Obj.Name, tc.wantEvictedCQ, tc.wantEvictedTop)
+				if evicted[0].cq.Name != kueue.ClusterQueueReference(tc.wantEvictedCQ) || evicted[0].top().Obj.Name != tc.wantEvictedTop {
+					t.Errorf("evicted bucket = (%q, %q), want (%q, %q)", evicted[0].cq.Name, evicted[0].top().Obj.Name, tc.wantEvictedCQ, tc.wantEvictedTop)
 				}
 			}
 
@@ -417,310 +390,10 @@ func TestBuildBuckets(t *testing.T) {
 			}
 			gotCQs := make([]string, len(nonEvicted))
 			for i, b := range nonEvicted {
-				gotCQs[i] = string(b.cqSnapshot().Name)
+				gotCQs[i] = string(b.cq.Name)
 			}
 			if !slices.Equal(gotCQs, tc.wantNonEvictedCQs) {
 				t.Errorf("non-evicted bucket CQs = %v, want %v", gotCQs, tc.wantNonEvictedCQs)
-			}
-		})
-	}
-}
-
-func consume(it CandidateIterator, cq *schdcache.ClusterQueueSnapshot, steps map[string]int) []string {
-	var got []string
-	for {
-		wl, _ := it.Next(false)
-		if wl == nil {
-			break
-		}
-		got = append(got, wl.Obj.Name)
-		steps[wl.Obj.Name]--
-		if steps[wl.Obj.Name] <= 0 {
-			delete(cq.Workloads, workload.Key(wl.Obj))
-		}
-	}
-	return got
-}
-
-// buildIterator lays a variable-length per-slot candidate layout into either
-// iterator, selected by cache, so both implementations can be asserted to yield
-// the same order.
-func buildIterator(cq *schdcache.ClusterQueueSnapshot, segments [][]*workload.Info, cache, partial bool, ctx *HierarchicalPreemptionCtx) CandidateIterator {
-	frs := sets.New(resources.FlavorResource{Flavor: testFlavor, Resource: corev1.ResourceCPU})
-	if !cache {
-		singleRoundGroups := numEvictedGroups
-		if !partial {
-			singleRoundGroups = len(segments)
-		}
-		var segArr [numSegments][]*candidateElem
-		for i, slot := range segments {
-			if i >= numSegments {
-				break
-			}
-			elems := make([]*candidateElem, len(slot))
-			for j, info := range slot {
-				elems[j] = &candidateElem{wl: info}
-			}
-			segArr[i] = elems
-		}
-		return &candidateIterator{
-			segments:          segArr,
-			singleRoundGroups: singleRoundGroups,
-			bandStart:         -1,
-			snapshot: &schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{preemptorCQName: cq},
-				),
-			},
-			hierarchicalReclaimCtx: ctx,
-			frsNeedPreemption:      frs,
-		}
-	}
-
-	cmp := func(a, b *workload.Info) int {
-		if d := int(priority.Priority(a.Obj)) - int(priority.Priority(b.Obj)); d != 0 {
-			return d
-		}
-		return strings.Compare(a.Obj.Name, b.Obj.Name)
-	}
-	var segs [numSegments][]candidateBucket
-	for i, slot := range segments {
-		if i >= numSegments || len(slot) == 0 {
-			continue
-		}
-		var b candidateBucket
-		if partial && i >= numEvictedGroups {
-			b = &partialBucket{cq: cq, isSameQueue: true, sortedWorkloads: slot, bandStart: -1, log: ctx.Log}
-		} else {
-			b = &bucket{cq: cq, isSameQueue: true, sortedWorkloads: slot}
-		}
-		segs[i] = []candidateBucket{b}
-	}
-	return &cacheCandidateIterator{
-		segments:               segs,
-		cmp:                    cmp,
-		hierarchicalReclaimCtx: ctx,
-		frsNeedPreemption:      frs,
-	}
-}
-
-// TestCandidateIteratorOrder exercises the multi-round and strict-priority band
-// logic of the non-cache iterator (and the cache iterator for parity) over the full
-// 6-slot layout. Both implementations must yield the identical order.
-func TestCandidateIteratorOrder(t *testing.T) {
-	cases := map[string]struct {
-		partial  bool
-		segments [][]*workload.Info
-		steps    map[string]int
-		want     []string
-	}{
-		"strict priority preempts low band before high band": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "v1", 0, true, false, false),
-				candidate(t, "v2", 0, true, false, false),
-				candidate(t, "v3", 1000, true, false, false),
-				candidate(t, "v4", 1000, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 2, "v2": 2, "v3": 2, "v4": 2},
-			want:  []string{"v1", "v2", "v1", "v2", "v3", "v4", "v3", "v4"},
-		},
-		"strict priority round robins within one band": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "v1", 0, true, false, false),
-				candidate(t, "v2", 0, true, false, false),
-				candidate(t, "v3", 0, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 2, "v2": 2, "v3": 2},
-			want:  []string{"v1", "v2", "v3", "v1", "v2", "v3"},
-		},
-		"pending reclaim target is reused in the evicted pass then keeps shedding": {
-			partial: true,
-			// A pending candidate (v2) sits in both an evicted and a non-evicted slot.
-			segments: [][]*workload.Info{nil, nil, {
-				candidate(t, "v2", 0, true, true, false),
-			}, nil, nil, {
-				candidate(t, "v2", 0, true, true, false),
-				candidate(t, "v1", 0, true, false, false),
-			}},
-			steps: map[string]int{"v1": 1, "v2": 2},
-			want:  []string{"v2", "v2", "v1"},
-		},
-		"within a band a whole-eviction peer is taken in order, a partial peer keeps shedding": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "v1", 0, false, false, false),
-				candidate(t, "v2", 0, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 1, "v2": 2},
-			// Same band: v1 (whole-eviction) is yielded once at its position, v2
-			// (partial) keeps the round alive and is shed across rounds.
-			want: []string{"v1", "v2", "v2"},
-		},
-		"a partial peer rolls the band over past a whole-eviction peer": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "v1", 0, true, false, false),
-				candidate(t, "v2", 0, false, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 2, "v2": 1},
-			// Same band: v2 (whole-eviction) is taken once, v1 (partial) is shed
-			// again in the next round because it kept the band alive.
-			want: []string{"v1", "v2", "v1"},
-		},
-		"lower band is fully shed (shrink then evict) before the higher band is touched": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "low", 0, true, false, false),
-				candidate(t, "high", 1000, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"low": 2, "high": 1},
-			// Strict priority: the low band shrinks and whole-evicts to exhaustion
-			// before the high band is reached, even though both are shrinkable.
-			want: []string{"low", "low", "high"},
-		},
-		"an all-whole-eviction low band advances to the high band instead of stalling": {
-			partial: true,
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "low", 0, false, false, false),
-				candidate(t, "high", 1000, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"low": 1, "high": 1},
-			// Regression test: the low band has no partial-preemption candidate to
-			// trigger a replay round, so roundHasRemainingCandidate never becomes
-			// true. The iterator must still advance into the high band instead of
-			// treating the band boundary as the end of the whole slot.
-			want: []string{"low", "high"},
-		},
-		"partial gate off walks one forward pass": {
-			segments: [][]*workload.Info{nil, nil, nil, {
-				candidate(t, "v1", 0, false, false, false),
-				candidate(t, "v2", 1000, false, false, false),
-				candidate(t, "v3", 0, false, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 1, "v2": 1, "v3": 1},
-			want:  []string{"v1", "v2", "v3"},
-		},
-		"evicted slots are walked before non-evicted": {
-			partial: true,
-			segments: [][]*workload.Info{nil, {
-				candidate(t, "v1", 0, true, false, false),
-			}, nil, {
-				candidate(t, "v2", 0, true, false, false),
-			}, nil, nil},
-			steps: map[string]int{"v1": 1, "v2": 2},
-			want:  []string{"v1", "v2", "v2"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.partial)
-
-			for _, cache := range []bool{false, true} {
-				sub := "nocache"
-				if cache {
-					sub = "cache"
-				}
-				t.Run(sub, func(t *testing.T) {
-					var infos []*workload.Info
-					for _, slot := range tc.segments {
-						infos = append(infos, slot...)
-					}
-					cq := makeWorkloadCQ(infos)
-					cq.Name = preemptorCQName
-					ctx := preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil)
-
-					it := buildIterator(cq, tc.segments, cache, tc.partial, ctx)
-					// consume mutates steps and cq, so give each subtest its own copy.
-					if got := consume(it, cq, maps.Clone(tc.steps)); !slices.Equal(got, tc.want) {
-						t.Errorf("order = %v, want %v", got, tc.want)
-					}
-				})
-			}
-		})
-	}
-}
-
-// TestSplitEvicted checks that splitEvicted puts the evicted prefix plus every
-// pending-target candidate in the evicted group, keeps the whole non-evicted part
-// (pending candidates included) in the non-evicted group, and shares a candidate
-// that lands in both groups by pointer rather than copying it.
-func TestSplitEvicted(t *testing.T) {
-	cases := map[string]struct {
-		candidates     []*candidateElem
-		wantEvicted    []string
-		wantNonEvicted []string
-	}{
-		"evicted prefix and pending sub-prefix": {
-			candidates: []*candidateElem{
-				{wl: candidate(t, "v1", 0, false, false, true)},
-				{wl: candidate(t, "v2", 0, false, true, false)},
-				{wl: candidate(t, "v3", 0, false, false, false)},
-			},
-			wantEvicted:    []string{"v1", "v2"},
-			wantNonEvicted: []string{"v2", "v3"},
-		},
-		"all evicted": {
-			candidates: []*candidateElem{
-				{wl: candidate(t, "v1", 0, false, false, true)},
-				{wl: candidate(t, "v2", 0, false, false, true)},
-			},
-			wantEvicted:    []string{"v1", "v2"},
-			wantNonEvicted: nil,
-		},
-		"no evicted and no pending": {
-			candidates: []*candidateElem{
-				{wl: candidate(t, "v1", 0, false, false, false)},
-				{wl: candidate(t, "v2", 0, false, false, false)},
-			},
-			wantEvicted:    nil,
-			wantNonEvicted: []string{"v1", "v2"},
-		},
-		"nil input": {
-			candidates:     nil,
-			wantEvicted:    nil,
-			wantNonEvicted: nil,
-		},
-		"empty input": {
-			candidates:     []*candidateElem{},
-			wantEvicted:    nil,
-			wantNonEvicted: nil,
-		},
-	}
-
-	names := func(cs []*candidateElem) []string {
-		if len(cs) == 0 {
-			return nil
-		}
-		out := make([]string, len(cs))
-		for i, c := range cs {
-			out[i] = c.wl.Obj.Name
-		}
-		return out
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			evicted, nonEvicted := splitEvicted(tc.candidates)
-
-			if got := names(evicted); !slices.Equal(got, tc.wantEvicted) {
-				t.Errorf("evicted = %v, want %v", got, tc.wantEvicted)
-			}
-			if got := names(nonEvicted); !slices.Equal(got, tc.wantNonEvicted) {
-				t.Errorf("nonEvicted = %v, want %v", got, tc.wantNonEvicted)
-			}
-			// A candidate in both groups must be shared by pointer, not copied.
-			nonEvictedByName := map[string]*candidateElem{}
-			for _, e := range nonEvicted {
-				nonEvictedByName[e.wl.Obj.Name] = e
-			}
-			for _, e := range evicted {
-				if other, ok := nonEvictedByName[e.wl.Obj.Name]; ok && other != e {
-					t.Errorf("candidate %q appears in both groups but is not the same pointer", e.wl.Obj.Name)
-				}
 			}
 		})
 	}

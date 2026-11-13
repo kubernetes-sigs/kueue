@@ -111,12 +111,34 @@ func iterateOverCandidates(
 	yield func(*Target) bool,
 ) (cont bool) {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-	iterator.Reset()
-	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
-		target := planPreemption(candidateWl, reason)
-		target.WorkloadCq = preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)
-		if !yield(target) {
-			return
+	rounds := []bool{false}
+	if features.Enabled(features.PartialPreemption) {
+		rounds = []bool{true, false}
+	}
+	for _, shrinkOnly := range rounds {
+		iterator.Reset()
+		for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
+			cq := preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)
+			if cq == nil {
+				continue
+			}
+			current := cq.Workloads[workload.Key(candidateWl.Obj)]
+			if current == nil {
+				continue
+			}
+			var target *Target
+			if shrinkOnly {
+				target = planPreemption(candidateWl, reason)
+				if target.PartialPreemption == nil {
+					continue
+				}
+			} else {
+				target = &Target{WorkloadInfo: candidateWl, Reason: reason}
+			}
+			target.WorkloadCq = cq
+			if !yield(target) {
+				return
+			}
 		}
 	}
 	return true

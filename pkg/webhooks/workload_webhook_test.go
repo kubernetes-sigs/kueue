@@ -1902,33 +1902,111 @@ func admittedWLMinCount(specCount, admittedCount, minCount, target int32, now ti
 			Obj(), now).
 		Obj()
 	if target > 0 {
-		workload.Status.Admission.PodSetAssignments[0].PreemptionTargetCount = &target
+		workload.Status.Admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{TargetCount: &target}
 	}
 	return workload
 }
 
 func TestValidateWorkloadUpdatePartialPreemptionTargetCount(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	cases := map[string]struct {
-		gate    bool
-		target  int32
-		wantErr bool
+	cases := []struct {
+		name      string
+		gate      bool
+		oldCount  int32
+		oldTarget int32
+		newCount  int32
+		newTarget int32
+		wantErr   bool
 	}{
-		"gate on: setting targetCount is allowed":               {gate: true, wantErr: false},
-		"gate on: targetCount above admitted count is rejected": {gate: true, target: 6, wantErr: true},
-		"gate off: setting targetCount is rejected (immutable)": {gate: false, wantErr: true},
+		{
+			name:      "setting target count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "target above new count",
+			gate:      true,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 6,
+			wantErr:   true,
+		},
+		{
+			name:      "count decrease with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+		},
+		{
+			name:     "count decrease without old target",
+			gate:     true,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "count decrease with old target equal to old count",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 5,
+			newCount:  3,
+			wantErr:   true,
+		},
+		{
+			name:      "count increase with pending old target",
+			gate:      true,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  6,
+			newTarget: 3,
+			wantErr:   true,
+		},
+		{
+			name:      "gate off ignores target update",
+			gate:      false,
+			oldCount:  5,
+			newCount:  5,
+			newTarget: 3,
+		},
+		{
+			name:      "gate off ignores clearing a stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  5,
+		},
+		{
+			name:     "gate off rejects count decrease without target",
+			gate:     false,
+			oldCount: 5,
+			newCount: 3,
+			wantErr:  true,
+		},
+		{
+			name:      "gate off rejects count decrease with stale target",
+			gate:      false,
+			oldCount:  5,
+			oldTarget: 3,
+			newCount:  3,
+			newTarget: 3,
+			wantErr:   true,
+		},
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
 
-			before := admittedWLMinCount(5, 5, 1, 0, now)
-			target := tc.target
-			if target == 0 {
-				target = 1
+			before := admittedWLMinCount(10, tc.oldCount, 1, tc.oldTarget, now)
+			after := admittedWLMinCount(10, tc.newCount, 1, tc.newTarget, now)
+			before.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.oldCount)*200, resource.DecimalSI)
+			if tc.newCount > 0 {
+				after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = *resource.NewMilliQuantity(int64(tc.newCount)*200, resource.DecimalSI)
 			}
-			after := admittedWLMinCount(5, 5, 1, target, now)
 
 			errList := ValidateWorkloadUpdate(after, before)
 			if gotErr := len(errList) > 0; gotErr != tc.wantErr {

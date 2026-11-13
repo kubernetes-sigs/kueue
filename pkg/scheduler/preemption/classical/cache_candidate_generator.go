@@ -25,39 +25,11 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// classifyFn reports whether a live workload is an eligible candidate in the
-// current run and returns its preemption variant when so.
-type classifyFn func(wl *workload.Info) (preemptionVariant, bool)
-
-// candidateBucket is the common interface for a per-ClusterQueue cursor within
-// one segment. Two implementations exist: bucket (plain pass) and partialBucket
-// (multi-round, used when the PartialPreemption feature gate is enabled).
-type candidateBucket interface {
-	empty() bool
-	top() *workload.Info
-	advance()
-	// nextEligible positions the cursor on the next candidate that classify
-	// accepts and returns its variant, or ok=false when the bucket is exhausted.
-	nextEligible(classify classifyFn) (preemptionVariant, bool)
-	// noteConsumed is called by nextFromSegment after a candidate has been
-	// confirmed as valid (non-Never, passes borrow filter) and is about to be
-	// returned to the caller. partialBucket uses this to set
-	// roundHasRemainingCandidate only for entries that actually contribute to
-	// preemption progress; bucket ignores it.
-	noteConsumed(wl *workload.Info)
-	drain()
-	reset()
-	getSameQueue() bool
-	hierarchicalAdvantage() bool
-	cqSnapshot() *schdcache.ClusterQueueSnapshot
-	lcaSnapshot() *schdcache.CohortSnapshot
-}
+const numSegments = 6
 
 // cacheCandidateIterator is the cache-backed implementation of CandidateIterator.
 // It consumes a per-CQ sorted order from CandidateOrderCache through a
@@ -67,7 +39,7 @@ type cacheCandidateIterator struct {
 	// of per-ClusterQueue buckets that contribute candidates to that stage.
 	// Within a segment every bucket belongs to the same category, so the
 	// segment's output is the ordered merge of its buckets.
-	segments     [numSegments][]candidateBucket
+	segments     [numSegments][]*bucket
 	segmentIndex int
 	cmp          schdcache.CandidateOrderComparator
 
@@ -126,227 +98,25 @@ func (b *bucket) reset() {
 	b.idx = 0
 }
 
-// nextEligible walks forward, skipping entries removed from the snapshot and those
-// classify rejects, and stops on the first eligible candidate.
-func (b *bucket) nextEligible(classify classifyFn) (preemptionVariant, bool) {
-	for b.idx < len(b.sortedWorkloads) {
-		cached := b.sortedWorkloads[b.idx]
-		if b.cq != nil {
-			if _, ok := b.cq.Workloads[workload.Key(cached.Obj)]; !ok {
-				b.idx++
-				continue
-			}
-		}
-		if variant, ok := classify(cached); ok {
-			return variant, true
-		}
-		b.idx++
-	}
-	return Never, false
-}
-
-func (b *bucket) noteConsumed(_ *workload.Info)               {}
-func (b *bucket) getSameQueue() bool                          { return b.isSameQueue }
-func (b *bucket) hierarchicalAdvantage() bool                 { return b.hasHierarchicalAdvantage }
-func (b *bucket) cqSnapshot() *schdcache.ClusterQueueSnapshot { return b.cq }
-func (b *bucket) lcaSnapshot() *schdcache.CohortSnapshot      { return b.lca }
-
-// partialBucket does a multi-round scan for partial-preemption workloads: each
-// round walks the slice from the top, and if the round returned a partial
-// candidate another round runs from the top to shed it further. Candidates are
-// never skipped by their pending state — a victim that still carries a reclaim
-// target keeps taking part in the shedding loop; eligibility is decided solely by
-// the classify callback against the live snapshot state. As a lower band's
-// candidates are fully preempted they vanish from the snapshot and the scan moves
-// on to what remains.
-//
-// partialBucket is used only for non-evicted buckets when the PartialPreemption
-// feature gate is enabled.
-type partialBucket struct {
-	cq                       *schdcache.ClusterQueueSnapshot
-	lca                      *schdcache.CohortSnapshot
-	isSameQueue              bool
-	hasHierarchicalAdvantage bool
-
-	sortedWorkloads []*workload.Info
-	idx             int
-	// bandStart is the index of the first candidate returned in the current round,
-	// or -1 before one is returned. It anchors the priority band for inCurrentBand.
-	bandStart int
-	// roundHasRemainingCandidate records that the current round returned a partial
-	// candidate, so another round runs from the top to shed it further.
-	roundHasRemainingCandidate bool
-	log                        logr.Logger
-}
-
-// empty reports true only when the cursor has reached the end and no partial
-// candidate has been flagged for another round.
-func (b *partialBucket) empty() bool {
-	return b.idx >= len(b.sortedWorkloads) && !b.roundHasRemainingCandidate
-}
-
-// top returns the live-snapshot state of the current candidate, or nil if the
-// workload has been removed from the snapshot (e.g. already fully preempted).
-// The caller must check !empty() first. top is read-only.
-func (b *partialBucket) top() *workload.Info {
-	cached := b.sortedWorkloads[b.idx]
-	if b.cq != nil {
-		// nil when the workload was removed from the snapshot (already fully
-		// preempted), which signals skip this entry.
-		return b.cq.Workloads[workload.Key(cached.Obj)]
-	}
-	return cached
-}
-
-// advance moves the cursor one entry forward. It never skips or rolls over; that
-// is nextEligible's job.
-func (b *partialBucket) advance() {
-	b.idx++
-}
-
-// inCurrentBand reports whether sortedWorkloads[i] has the same effective priority
-// (base priority plus any PriorityBoost) as the first candidate returned in the
-// current round. It returns true before that first candidate is returned
-// (bandStart < 0). Banding on EffectivePriority keeps bands aligned with
-// CandidatesOrdering, which sorts candidates by EffectivePriority too.
-func (b *partialBucket) inCurrentBand(i int) bool {
-	if b.bandStart < 0 {
-		return true
-	}
-	return priority.EffectivePriority(b.log, b.sortedWorkloads[i].Obj) == priority.EffectivePriority(b.log, b.sortedWorkloads[b.bandStart].Obj)
-}
-
-// nextEligible positions the cursor on the next in-band candidate that classify
-// accepts, returning its variant. It skips entries removed from the snapshot or
-// that classify rejects. A round walks the current priority band from the top; when
-// the band is exhausted it rolls over to a fresh round from the top if the round
-// returned a partial candidate, otherwise the bucket is done. Grouping each round by
-// priority band means a lower-priority band is fully preempted (every victim shrunk to
-// its floor and then evicted whole) before any higher-priority band is touched.
-func (b *partialBucket) nextEligible(classify classifyFn) (preemptionVariant, bool) {
-	for {
-		for b.idx < len(b.sortedWorkloads) && b.inCurrentBand(b.idx) {
-			live := b.top()
-			if live == nil {
-				b.idx++
-				continue
-			}
-			variant, ok := classify(live)
-			if !ok {
-				b.idx++
-				continue
-			}
-			if b.bandStart < 0 {
-				b.bandStart = b.idx
-			}
-			return variant, true
-		}
-		switch {
-		case b.roundHasRemainingCandidate:
-			b.idx = 0
-			b.bandStart = -1
-			b.roundHasRemainingCandidate = false
-		case b.idx >= len(b.sortedWorkloads):
-			return Never, false
-		default:
-			b.bandStart = -1
-		}
-	}
-}
-
-// noteConsumed flags another round when the returned candidate is a
-// partial-preemption job. The rollover itself happens in the next nextEligible.
-func (b *partialBucket) noteConsumed(wl *workload.Info) {
-	if wl != nil && wl.IsPartialPreemptionJob {
-		b.roundHasRemainingCandidate = true
-	}
-}
-
-// drain permanently exhausts the bucket (whole-bucket pruning).
-func (b *partialBucket) drain() {
-	b.idx = len(b.sortedWorkloads)
-	b.roundHasRemainingCandidate = false
-}
-
-// reset rewinds to the starting position for the next round or borrow run. The
-// segment's shrink/evict phase is tracked by the iterator, so reset does not touch it.
-func (b *partialBucket) reset() {
-	b.idx = 0
-	b.bandStart = -1
-	b.roundHasRemainingCandidate = false
-}
-
-func (b *partialBucket) getSameQueue() bool                          { return b.isSameQueue }
-func (b *partialBucket) hierarchicalAdvantage() bool                 { return b.hasHierarchicalAdvantage }
-func (b *partialBucket) cqSnapshot() *schdcache.ClusterQueueSnapshot { return b.cq }
-func (b *partialBucket) lcaSnapshot() *schdcache.CohortSnapshot      { return b.lca }
-
-// buildBuckets turns classified ClusterQueues into their evicted and non-evicted
-// buckets, one of each per CQ. Each CQ's candidates are already sorted by
-// CandidatesOrdering, which puts the evicted ones first (evictedCount of them); a
-// pending preemption target is NOT a sort key, so such candidates sit at their
-// natural priority position among the non-evicted ones:
-//
-//	[ evicted | normal, by priority (pending-reclaim interleaved) ]
-//
-// The evicted bucket is always a single-pass bucket (walked once, ahead of the
-// non-evicted ones). The non-evicted bucket is a multi-round partialBucket when the
-// PartialPreemption gate is on, otherwise a single-pass bucket.
-//
-// When the gate is on, the two buckets deliberately OVERLAP on the pending-reclaim
-// candidates: the evicted bucket covers the evicted prefix PLUS every pending-reclaim
-// candidate (picked out of the tail by a linear scan), while the non-evicted bucket
-// starts at evictedCount and keeps those pending candidates at their natural position.
-// A pending-reclaim victim is thus the one candidate that lives in both buckets - it is
-// visited first in the single-pass evicted bucket (so a victim that already has a
-// reclaim target is picked up and its existing target reused, not a fresh victim), and
-// then it keeps taking part in the ordinary multi-round shedding loop in the
-// non-evicted bucket for whatever is still owed below that pending target - at its
-// natural priority position, not ahead of lower-priority victims. The shared
-// workload.Info is read-only, so no copy is needed; the evicted bucket's slice is
-// freshly allocated because the pending candidates are no longer contiguous with the
-// evicted prefix.
-func buildBuckets(log logr.Logger, classes []classifiedClusterQueue) (evicted, nonEvicted []candidateBucket) {
-	partial := features.Enabled(features.PartialPreemption)
+// buildBuckets turns a list of classified ClusterQueues into their evicted and
+// non-evicted buckets, one bucket each per CQ.
+func buildBuckets(classes []classifiedClusterQueue) (evicted, nonEvicted []*bucket) {
 	for _, cc := range classes {
 		if len(cc.sortedWorkloads) == 0 {
 			continue
 		}
-		noEvictedSorted := cc.sortedWorkloads[cc.evictedCount:]
-		// Cap the capacity so append allocates a fresh backing array instead of
-		// overwriting the non-evicted entries that follow the evicted prefix.
-		evictedSorted := cc.sortedWorkloads[:cc.evictedCount:cc.evictedCount]
-		if partial {
-			for _, wl := range noEvictedSorted {
-				if wl.HasPendingPreemptionTarget {
-					evictedSorted = append(evictedSorted, wl)
-				}
-			}
+		ev, nonEv := cc.sortedWorkloads[:cc.evictedCount], cc.sortedWorkloads[cc.evictedCount:]
+		if len(ev) > 0 {
+			evicted = append(evicted, newBucket(cc, ev))
 		}
-		if len(evictedSorted) > 0 {
-			evicted = append(evicted, newBucket(log, cc, evictedSorted, false))
-		}
-		if len(noEvictedSorted) > 0 {
-			nonEvicted = append(nonEvicted, newBucket(log, cc, noEvictedSorted, partial))
+		if len(nonEv) > 0 {
+			nonEvicted = append(nonEvicted, newBucket(cc, nonEv))
 		}
 	}
 	return evicted, nonEvicted
 }
 
-// newBucket builds one bucket for the given sorted slice: a multi-round
-// partialBucket when partial is set, otherwise a plain single-round bucket.
-func newBucket(log logr.Logger, cc classifiedClusterQueue, sortedWorkloads []*workload.Info, partial bool) candidateBucket {
-	if partial {
-		return &partialBucket{
-			cq:                       cc.cq,
-			lca:                      cc.lca,
-			isSameQueue:              cc.isSameQueue,
-			hasHierarchicalAdvantage: cc.hasHierarchicalAdvantage,
-			sortedWorkloads:          sortedWorkloads,
-			bandStart:                -1,
-			log:                      log,
-		}
-	}
+func newBucket(cc classifiedClusterQueue, sortedWorkloads []*workload.Info) *bucket {
 	return &bucket{
 		cq:                       cc.cq,
 		lca:                      cc.lca,
@@ -392,14 +162,14 @@ func newCacheCandidateIterator(
 	hierarchyClasses, priorityClasses := collectHierarchicalReclaimCQs(hierarchicalReclaimCtx)
 	attachSortedWorkloads(cache, cmp, sameQueueClasses, hierarchyClasses, priorityClasses)
 
-	evictedHierarchy, nonEvictedHierarchy := buildBuckets(hierarchicalReclaimCtx.Log, hierarchyClasses)
-	evictedPriority, nonEvictedPriority := buildBuckets(hierarchicalReclaimCtx.Log, priorityClasses)
-	evictedSameQueue, nonEvictedSameQueue := buildBuckets(hierarchicalReclaimCtx.Log, sameQueueClasses)
+	evictedHierarchy, nonEvictedHierarchy := buildBuckets(hierarchyClasses)
+	evictedPriority, nonEvictedPriority := buildBuckets(priorityClasses)
+	evictedSameQueue, nonEvictedSameQueue := buildBuckets(sameQueueClasses)
 
 	noHierarchyCandidate := noRealCandidate(hierarchicalReclaimCtx, hierarchyClasses)
 
 	return &cacheCandidateIterator{
-		segments: [numSegments][]candidateBucket{
+		segments: [numSegments][]*bucket{
 			evictedHierarchy, evictedPriority, evictedSameQueue,
 			nonEvictedHierarchy, nonEvictedPriority, nonEvictedSameQueue,
 		},
@@ -429,63 +199,62 @@ func (c *cacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
 // merging a segment is O(K×L) over its L candidates. Candidates are usually few, so
 // this simple scan is enough; if needed we may later heap or merge-sort the bucket
 // tops to lower the per-pop cost.
-func (c *cacheCandidateIterator) nextFromSegment(seg []candidateBucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
-	var best candidateBucket
+func (c *cacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
+	var bestBucket *bucket
 	var bestVariant preemptionVariant
-	for _, b := range seg {
+	for _, b := range buckets {
 		variant, ok := c.advanceToEligible(b, borrow)
 		if !ok {
 			continue
 		}
-		if best == nil || c.cmp(b.top(), best.top()) < 0 {
-			best = b
+		if bestBucket == nil || c.cmp(b.top(), bestBucket.top()) < 0 {
+			bestBucket = b
 			bestVariant = variant
 		}
 	}
-	if best == nil {
+	if bestBucket == nil {
 		return nil, Never, false
 	}
-	wl := best.top()
-	best.advance()
-	// advanceToEligible guarantees that the selected workload is valid, so note consumed.
-	best.noteConsumed(wl)
+	wl := bestBucket.top()
+	bestBucket.advance()
 	return wl, bestVariant, true
 }
 
 // advanceToEligible skips candidates that cannot be returned in the current run
 // and leaves the first eligible candidate at the bucket head.
-func (c *cacheCandidateIterator) advanceToEligible(b candidateBucket, borrow bool) (preemptionVariant, bool) {
+func (c *cacheCandidateIterator) advanceToEligible(b *bucket, borrow bool) (preemptionVariant, bool) {
 	if b.empty() {
 		return Never, false
 	}
 	// Whole-bucket pruning: once a target CQ (or a node on its path up
 	// to the lca) is back within nominal, none of its remaining
 	// candidates can be preempted, so drop the entire bucket.
-	if !b.getSameQueue() && c.cqIsPruned(b) {
+	if !b.isSameQueue && c.cqIsPruned(b) {
 		b.drain()
 		return Never, false
 	}
 
-	return b.nextEligible(func(wl *workload.Info) (preemptionVariant, bool) {
-		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, wl, b.hierarchicalAdvantage())
-		if variant == Never {
-			return Never, false
+	for !b.empty() {
+		cachedWorkload := b.top()
+		if _, ok := b.cq.Workloads[workload.Key(cachedWorkload.Obj)]; !ok {
+			b.advance()
+			continue
 		}
-		if borrow && variant == ReclaimWithoutBorrowing {
-			return Never, false
+		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, cachedWorkload, b.hasHierarchicalAdvantage)
+		if variant != Never && (!borrow || variant != ReclaimWithoutBorrowing) {
+			return variant, true
 		}
-		return variant, true
-	})
+		b.advance()
+	}
+	return Never, false
 }
 
-func (c *cacheCandidateIterator) cqIsPruned(b candidateBucket) bool {
-	cq := b.cqSnapshot()
-	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
+func (c *cacheCandidateIterator) cqIsPruned(b *bucket) bool {
+	if schdcache.IsWithinNominalInResources(b.cq, c.frsNeedPreemption) {
 		return true
 	}
-	lca := b.lcaSnapshot()
-	for node := range cq.PathParentToRoot() {
-		if node == lca {
+	for node := range b.cq.PathParentToRoot() {
+		if node == b.lca {
 			break
 		}
 		if schdcache.IsWithinNominalInResources(node, c.frsNeedPreemption) {

@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -62,11 +63,6 @@ const (
 	JobMinParallelismAnnotation              = "kueue.x-k8s.io/job-min-parallelism"
 	JobCompletionsEqualParallelismAnnotation = "kueue.x-k8s.io/job-completions-equal-parallelism"
 	StoppingAnnotation                       = "kueue.x-k8s.io/stopping"
-
-	// PartialPreemptionMinCountAnnotation is the scale-down floor for partial preemption: the lowest
-	// replica count a PodSet may be shrunk to. The job integration copies it to the PodSet's
-	// preemptionMinCount. It is independent of job-min-parallelism (partial admission).
-	PartialPreemptionMinCountAnnotation = "kueue.x-k8s.io/partial-preemption-min-count"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -365,11 +361,13 @@ func cleanLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
 
 func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	podSet := kueue.PodSet{
-		Name:               kueue.DefaultPodSetName,
-		Template:           *cleanLabels(j.Spec.Template.DeepCopy()),
-		Count:              j.podsCount(),
-		MinCount:           j.podSetMinCount(),
-		PreemptionMinCount: j.podSetPreemptionMinCount(),
+		Name:     kueue.DefaultPodSetName,
+		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
+		Count:    j.podsCount(),
+		MinCount: j.podSetMinCount(),
+	}
+	if minCount := j.podSetPreemptionMinCount(); minCount != nil {
+		podSet.PartialPreemption = &kueue.PodSetPartialPreemption{MinCount: minCount}
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
@@ -448,6 +446,11 @@ func (j *Job) PodsReady(_ context.Context, _ client.Client, options ...jobframew
 		if granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]; ok && granted < target {
 			target = granted
 		}
+		if features.Enabled(features.PartialPreemption) {
+			if preemptionTarget, ok := workload.PreemptionTargetCount(wl, kueue.DefaultPodSetName); ok {
+				target = min(target, preemptionTarget)
+			}
+		}
 	}
 	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= target
 }
@@ -495,13 +498,13 @@ func (j *Job) podSetMinCount() *int32 {
 }
 
 // podSetPreemptionMinCount returns the partial-preemption scale-down floor read from the
-// kueue.x-k8s.io/partial-preemption-min-count annotation, or nil when the feature gate is off
+// kueue.x-k8s.io/podset-partial-preemption-min-count annotation, or nil when the feature gate is off
 // or the annotation is absent or malformed.
 func (j *Job) podSetPreemptionMinCount() *int32 {
 	if !features.Enabled(features.PartialPreemption) {
 		return nil
 	}
-	strVal, found := j.GetAnnotations()[PartialPreemptionMinCountAnnotation]
+	strVal, found := j.GetAnnotations()[constants.PodSetPartialPreemptionMinCountAnnotation]
 	if !found {
 		return nil
 	}

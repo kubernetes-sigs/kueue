@@ -93,7 +93,11 @@ func expectPreemptionTargetCount(wl *kueue.Workload, want *int32) {
 		g.Expect(workload.IsAdmitted(got)).Should(gomega.BeTrue())
 		g.Expect(got.Status.Admission).ShouldNot(gomega.BeNil())
 		g.Expect(got.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
-		g.Expect(got.Status.Admission.PodSetAssignments[0].PreemptionTargetCount).Should(gomega.Equal(want))
+		var targetCount *int32
+		if partialPreemption := got.Status.Admission.PodSetAssignments[0].PartialPreemption; partialPreemption != nil {
+			targetCount = partialPreemption.TargetCount
+		}
+		g.Expect(targetCount).Should(gomega.Equal(want))
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
