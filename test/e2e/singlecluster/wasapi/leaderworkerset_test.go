@@ -25,11 +25,13 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -132,11 +134,13 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling LeaderWorkerSet", ginkgo.Label(
 			gomega.Eventually(func(g gomega.Gomega) {
 				pods := groupPods(g, lws, "0")
 				g.Expect(pods).To(gomega.HaveLen(int(size)))
+				gated := make([]corev1.Pod, 0, len(pods))
 				for _, pod := range pods {
-					g.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{
-						Name: podconstants.SchedulingGateName,
-					}))
+					if utilpod.HasGate(&pod, podconstants.SchedulingGateName) {
+						gated = append(gated, pod)
+					}
 				}
+				g.Expect(gated).To(gomega.Equal(pods), "all pods of group 0 should be gated")
 			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -169,37 +173,65 @@ func expectGroupsRunningInGangPodGroups(lws *leaderworkersetv1.LeaderWorkerSet, 
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
 		g.Expect(createdLWS.Status.ReadyReplicas).To(gomega.Equal(int32(len(wlKeys))))
 		g.Expect(createdLWS.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-
-		podGroupNames := make(map[string]struct{}, len(wlKeys))
-		for i, wlKey := range wlKeys {
-			wl := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			var wlPodCount int32
-			for _, ps := range wl.Spec.PodSets {
-				wlPodCount += ps.Count
-			}
-			g.Expect(wlPodCount).To(gomega.Equal(size))
-
-			pods := groupPods(g, lws, strconv.Itoa(i))
-			g.Expect(pods).To(gomega.HaveLen(int(size)))
-			g.Expect(pods[0].Spec.SchedulingGroup).NotTo(gomega.BeNil(), "pod %s has no PodGroup", pods[0].Name)
-			podGroupName := pods[0].Spec.SchedulingGroup.PodGroupName
-			g.Expect(podGroupName).NotTo(gomega.BeNil(), "pod %s has no PodGroup", pods[0].Name)
-			for _, pod := range pods {
-				g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-				g.Expect(pod.Spec.SchedulingGroup).NotTo(gomega.BeNil())
-				g.Expect(pod.Spec.SchedulingGroup.PodGroupName).To(gomega.Equal(podGroupName), "pods of group %d should share one PodGroup", i)
-			}
-			podGroupNames[*podGroupName] = struct{}{}
-
-			pg := &schedulingv1beta1.PodGroup{}
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: lws.Namespace, Name: *podGroupName}, pg)).To(gomega.Succeed())
-			g.Expect(pg.Spec.SchedulingPolicy.Gang).NotTo(gomega.BeNil())
-			g.Expect(pg.Spec.SchedulingPolicy.Gang.MinCount).To(gomega.Equal(wlPodCount),
-				"PodGroup gang minCount should match the Kueue Workload pod count")
-		}
-		g.Expect(podGroupNames).To(gomega.HaveLen(len(wlKeys)), "each group should have its own PodGroup")
 	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+	podGroupNames := sets.New[string]()
+	for i, wlKey := range wlKeys {
+		wlPodCount := workloadPodCount(wlKey)
+		gomega.Expect(wlPodCount).To(gomega.Equal(size))
+		podGroupName := groupPodGroupName(lws, strconv.Itoa(i), size)
+		expectGangMinCount(lws.Namespace, podGroupName, wlPodCount)
+		podGroupNames.Insert(podGroupName)
+	}
+	gomega.Expect(podGroupNames.UnsortedList()).To(gomega.HaveLen(len(wlKeys)), "each group should have its own PodGroup")
+}
+
+// workloadPodCount returns the total pod count of a Workload's PodSets.
+func workloadPodCount(wlKey client.ObjectKey) int32 {
+	ginkgo.GinkgoHelper()
+	var count int32
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		count = 0
+		for _, ps := range wl.Spec.PodSets {
+			count += ps.Count
+		}
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	return count
+}
+
+// groupPodGroupName waits until all pods of a group are running in one
+// PodGroup and returns its name.
+func groupPodGroupName(lws *leaderworkersetv1.LeaderWorkerSet, groupIndex string, size int32) string {
+	ginkgo.GinkgoHelper()
+	var name string
+	gomega.Eventually(func(g gomega.Gomega) {
+		pods := groupPods(g, lws, groupIndex)
+		g.Expect(pods).To(gomega.HaveLen(int(size)))
+		names := sets.New[string]()
+		for _, pod := range pods {
+			g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning), "pod %s", pod.Name)
+			g.Expect(pod.Spec.SchedulingGroup).NotTo(gomega.BeNil(), "pod %s has no PodGroup", pod.Name)
+			g.Expect(pod.Spec.SchedulingGroup.PodGroupName).NotTo(gomega.BeNil(), "pod %s has no PodGroup", pod.Name)
+			names.Insert(*pod.Spec.SchedulingGroup.PodGroupName)
+		}
+		g.Expect(names.UnsortedList()).To(gomega.HaveLen(1), "pods of group %s should share one PodGroup", groupIndex)
+		name = names.UnsortedList()[0]
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	return name
+}
+
+// expectGangMinCount waits until the PodGroup has a gang policy with the given minCount.
+func expectGangMinCount(namespace, podGroupName string, minCount int32) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		pg := &schedulingv1beta1.PodGroup{}
+		g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podGroupName}, pg)).To(gomega.Succeed())
+		g.Expect(pg.Spec.SchedulingPolicy.Gang).NotTo(gomega.BeNil())
+		g.Expect(pg.Spec.SchedulingPolicy.Gang.MinCount).To(gomega.Equal(minCount),
+			"PodGroup gang minCount should match the Kueue Workload pod count")
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 // groupPods returns the pods of one LeaderWorkerSet group that are not being deleted.
