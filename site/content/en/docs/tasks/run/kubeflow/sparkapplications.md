@@ -145,6 +145,13 @@ Dynamic allocation with Kueue has the following limitations:
 - Kueue reads the dynamic allocation settings from `spec.dynamicAllocation` only, not from `spec.sparkConf`.
   Kueue rejects an elastic SparkApplication that sets `spark.dynamicAllocation.enabled` in `spec.sparkConf`
   without setting `spec.dynamicAllocation.enabled: true`.
+- To use dynamic allocation, managed SparkApplications must configure dynamic allocation through structured `spec.dynamicAllocation`
+  and opt in to elastic execution with the feature gates and annotation described above.
+  Kueue rejects creating a non-elastic managed SparkApplication, or updating one to enable dynamic allocation,
+  through `spec.sparkConf["spark.dynamicAllocation.enabled"]`. This also applies when adding a queue to an
+  unmanaged SparkApplication that already has that setting enabled.
+  Existing managed applications may retain an already-enabled SparkConf setting on update so Kueue can
+  still suspend them. Applications that remain unmanaged are unaffected by this restriction.
 
 ## Sample SparkApplication
 

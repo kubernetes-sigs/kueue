@@ -127,7 +127,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateJob(ctx, obj, nil, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,14 @@ func isAnElasticJob(sparkApp metav1.Object) bool {
 	return workloadslicing.Enabled(sparkApp)
 }
 
-func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+// sparkConfDynamicAllocationEnabledFor reports whether SparkConf enables dynamic allocation.
+func sparkConfDynamicAllocationEnabledFor(job *sparkv1beta2.SparkApplication) bool {
+	return strings.EqualFold(strings.TrimSpace(job.Spec.SparkConf[sparkConfDynamicAllocationEnabled]), "true")
+}
+
+// validateJob checks SparkApplication configuration on create and update, preserving
+// existing SparkConf dynamic allocation only for applications already managed by Kueue.
+func (w *SparkApplicationWebhook) validateJob(ctx context.Context, job, oldJob *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*SparkApplication)(job)
 
@@ -181,6 +188,14 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 
 		if isAnElasticJob(job) {
 			allErrors = append(allErrors, validateElasticJob(job)...)
+		}
+
+		oldJobManaged := oldJob != nil && (w.manageJobsWithoutQueueName || jobframework.QueueName((*SparkApplication)(oldJob)) != "")
+		if !isAnElasticJob(job) && sparkConfDynamicAllocationEnabledFor(job) &&
+			(!oldJobManaged || !sparkConfDynamicAllocationEnabledFor(oldJob)) {
+			allErrors = append(allErrors, field.Invalid(sparkConfDynamicAllocationPath,
+				spec.SparkConf[sparkConfDynamicAllocationEnabled],
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf"))
 		}
 
 		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
@@ -273,7 +288,7 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newSparkApp, nil)
+	validationErrs, err := w.validateJob(ctx, newSparkApp, oldSparkApp, nil)
 	if err != nil {
 		return nil, err
 	}

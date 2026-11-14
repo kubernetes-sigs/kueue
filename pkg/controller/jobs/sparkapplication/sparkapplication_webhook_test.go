@@ -53,6 +53,34 @@ func TestValidateCreate(t *testing.T) {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 			wantErr:  nil,
 		},
+		"sparkConf dynamic allocation with absent structured configuration is rejected": {
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf",
+			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation with disabled structured configuration is rejected": {
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
+				SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf",
+			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation ignores case and whitespace": {
+			sparkApp: testSparkApp.Clone().Queue("local-queue").
+				SparkConf("spark.dynamicAllocation.enabled", " TrUe ").Obj(),
+			wantErr: field.ErrorList{field.Invalid(sparkConfDynamicAllocationPath, " TrUe ",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf")}.ToAggregate(),
+		},
+		"unmanaged sparkConf dynamic allocation is allowed": {
+			sparkApp: testSparkApp.Clone().SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+		},
 		"dynamicAllocation without elastic job feature": {
 			sparkApp: testSparkApp.Clone().Queue("local-queue").DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
 				Enabled:          true,
@@ -213,12 +241,13 @@ func TestValidateUpdate(t *testing.T) {
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate})
 	testcases := map[string]struct {
-		oldSparkApp          *sparkappv1beta2.SparkApplication
-		newSparkApp          *sparkappv1beta2.SparkApplication
-		defaultLqExist       bool
-		featureGates         map[featuregate.Feature]bool
-		wantErr              error
-		maxTimeoutOnWorkload *metav1.Duration
+		oldSparkApp                *sparkappv1beta2.SparkApplication
+		newSparkApp                *sparkappv1beta2.SparkApplication
+		defaultLqExist             bool
+		manageJobsWithoutQueueName bool
+		featureGates               map[featuregate.Feature]bool
+		wantErr                    error
+		maxTimeoutOnWorkload       *metav1.Duration
 	}{
 		"elastic job must not drop the ElasticJobSchedulingGate": {
 			oldSparkApp:  elasticSparkApp.Clone().Obj(),
@@ -258,6 +287,58 @@ func TestValidateUpdate(t *testing.T) {
 				[]corev1.PodSchedulingGate(nil),
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation with absent structured configuration is rejected": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf",
+			)}.ToAggregate(),
+		},
+		"sparkConf dynamic allocation with disabled structured configuration is rejected": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
+				SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				specPath.Child("sparkConf").Key("spark.dynamicAllocation.enabled"),
+				"true",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf",
+			)}.ToAggregate(),
+		},
+		"unmanaged sparkConf dynamic allocation is rejected when adding a queue": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			wantErr: field.ErrorList{field.Invalid(sparkConfDynamicAllocationPath, "true",
+				"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf")}.ToAggregate(),
+		},
+		"existing sparkConf dynamic allocation without a queue remains updatable when all jobs are managed": {
+			oldSparkApp:                testSparkApp.Clone().SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp:                testSparkApp.Clone().SparkConf("spark.dynamicAllocation.enabled", "true").Suspend(true).Obj(),
+			manageJobsWithoutQueueName: true,
+		},
+		"existing sparkConf dynamic allocation remains updatable": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+		},
+		"existing sparkConf dynamic allocation can be suspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Suspend(true).Obj(),
+		},
+		"existing sparkConf dynamic allocation ignores case and whitespace": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", " TrUe ").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "TRUE").Obj(),
+		},
+		"sparkConf dynamic allocation can be disabled": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "false").Obj(),
+		},
+		"sparkConf dynamic allocation can be removed": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").SparkConf("spark.dynamicAllocation.enabled", "true").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 		},
 		"existing elastic job with required topology can be updated with ElasticJobsViaWorkloadSlicesWithTAS": {
 			oldSparkApp: elasticSparkApp.Clone().ExecutorAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
@@ -354,9 +435,10 @@ func TestValidateUpdate(t *testing.T) {
 				}
 			}
 			webhook := &SparkApplicationWebhook{
-				queues:               queueManager,
-				cache:                cqCache,
-				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
+				queues:                     queueManager,
+				cache:                      cqCache,
+				maxTimeoutOnWorkload:       tc.maxTimeoutOnWorkload,
+				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 			}
 			warnings, gotErr := webhook.ValidateUpdate(ctx, tc.oldSparkApp, tc.newSparkApp)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {

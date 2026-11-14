@@ -67,6 +67,66 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		})
 
+		ginkgo.When("the SparkApplication elastic feature gate is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, false)
+			})
+
+			ginkgo.It("should reject creating a non-elastic SparkApplication with SparkConf-only dynamic allocation", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").
+					SparkConf("spark.dynamicAllocation.enabled", "true").Obj()
+				err := k8sClient.Create(ctx, app)
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+				gomega.Expect(err.Error()).Should(gomega.ContainSubstring(`spec.sparkConf[spark.dynamicAllocation.enabled]`))
+			})
+
+			ginkgo.It("should reject creating a non-elastic SparkApplication with SparkConf dynamic allocation and disabled structured configuration", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").
+					DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).
+					SparkConf("spark.dynamicAllocation.enabled", "true").Obj()
+				err := k8sClient.Create(ctx, app)
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+				gomega.Expect(err.Error()).Should(gomega.ContainSubstring(`spec.sparkConf[spark.dynamicAllocation.enabled]`))
+			})
+
+			ginkgo.It("should reject enabling SparkConf-only dynamic allocation on a non-elastic SparkApplication", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
+				behavioral.MustCreate(ctx, k8sClient, app)
+				app.Spec.SparkConf = map[string]string{"spark.dynamicAllocation.enabled": "true"}
+				err := k8sClient.Update(ctx, app)
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+				gomega.Expect(err.Error()).Should(gomega.ContainSubstring(`spec.sparkConf[spark.dynamicAllocation.enabled]`))
+			})
+
+			ginkgo.It("should reject enabling SparkConf dynamic allocation with disabled structured configuration on a non-elastic SparkApplication", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").
+					DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: false}).Obj()
+				behavioral.MustCreate(ctx, k8sClient, app)
+				app.Spec.SparkConf = map[string]string{"spark.dynamicAllocation.enabled": "true"}
+				err := k8sClient.Update(ctx, app)
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+				gomega.Expect(err.Error()).Should(gomega.ContainSubstring(`spec.sparkConf[spark.dynamicAllocation.enabled]`))
+			})
+
+			ginkgo.It("should reject adding a queue to an unmanaged SparkApplication with dynamic allocation already enabled", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Suspend(true).
+					SparkConf("spark.dynamicAllocation.enabled", "true").Obj()
+				behavioral.MustCreate(ctx, k8sClient, app)
+				app.Labels = map[string]string{controllerconstants.QueueLabel: "queue-name"}
+				err := k8sClient.Update(ctx, app)
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+				gomega.Expect(err.Error()).Should(gomega.ContainSubstring(`spec.sparkConf[spark.dynamicAllocation.enabled]`))
+			})
+
+			ginkgo.It("should allow unmanaged SparkApplications to enable and retain SparkConf dynamic allocation", func() {
+				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).
+					SparkConf("spark.dynamicAllocation.enabled", "true").Obj()
+				behavioral.MustCreate(ctx, k8sClient, app)
+				app.Spec.Suspend = new(true)
+				gomega.Expect(k8sClient.Update(ctx, app)).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.When("ElasticJobsViaWorkloadSlicesForSparkApplication is enabled", func() {
 			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
