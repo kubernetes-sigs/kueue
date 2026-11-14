@@ -356,6 +356,38 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"unadmitted variant with quota reservation does not update its spec from unreserved parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					Obj(),
+			},
+		},
 		"parent workload whose name has no separator creates variants": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl", "default").
 				Queue("lq").
