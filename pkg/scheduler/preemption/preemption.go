@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +51,7 @@ import (
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -75,6 +77,8 @@ type Preemptor struct {
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
 	preemptionExpectations *expectations.Store
+	// retryAt holds the earliest retry time from failed attempts until TakeRetryAt clears it.
+	retryAt *time.Time
 }
 
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
@@ -266,10 +270,20 @@ func (p *Preemptor) GetPreemptionStrategyIterator(
 }
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
+	var strategies iter.Seq[PreemptionStrategy]
 	if p.enableFairSharing {
-		return fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
+		strategies = fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
+	} else {
+		strategies = classicalPreemptionStrategy(ctx, p, preemptionCtx)
 	}
-	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
+	return func(yield func(PreemptionStrategy) bool) {
+		for strategy := range strategies {
+			if !yield(strategy) {
+				return
+			}
+		}
+		p.retryAt = cmputil.EarliestTime(p.retryAt, preemptionCtx.configurableEvaluator.RetryAt())
+	}
 }
 
 // GetTargetsWithStrategy returns the workloads to evict using the provided preemption strategies.
@@ -308,6 +322,14 @@ func (p *Preemptor) buildContext(
 		},
 		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
+}
+
+// TakeRetryAt returns and clears the earliest retry timestamp from failed
+// preemption attempts since the last call, or nil if none.
+func (p *Preemptor) TakeRetryAt() *time.Time {
+	retryAt := p.retryAt
+	p.retryAt = nil
+	return retryAt
 }
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
