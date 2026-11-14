@@ -534,8 +534,12 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
 		}
 	}
-	if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
-		// Don't preempt other workloads if looking for a failed node replacement
+	if assignment.RepresentativeMode() == Preempt && workload.HasTopologyAssignmentWithUnhealthyNode(a.wl.Obj) {
+		// A failed-node replacement must not preempt other workloads, whether its
+		// quota or its placement does not fit, so leave it pending.
+		assignment.SetRepresentativeMode(NoFit)
+	}
+	if assignment.RepresentativeMode() == Preempt {
 		result := assignment.FindTopologyAssignments(
 			ctx,
 			a.cq,
