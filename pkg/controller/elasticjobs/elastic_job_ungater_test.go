@@ -18,6 +18,7 @@ package elasticjobs
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -33,6 +35,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -56,7 +59,10 @@ var podCmpOpts = []gocmp.Option{
 		"ObjectMeta.DeletionTimestamp"),
 }
 
-var rayClusterGVK = schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+var (
+	rayClusterGVK = schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+	workloadGVK   = kueue.SchemeGroupVersion.WithKind("Workload")
+)
 var batchJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")
 
 const (
@@ -97,19 +103,130 @@ func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testing
 		Label(constants.PodSetLabel, string(podSet))
 }
 
+// makeReplacedChain models a scale rollover where the root slice "wl" (count 1)
+// was replaced by "wl-slice-1" (count 2). The replacement needs no
+// ProvisioningRequest of its own for the podset (zero delta on the managed
+// resource), so its check is Ready without PodSetUpdates, and the root slice's
+// request is no longer referenced by any live slice.
+func makeReplacedChain(now time.Time) []kueue.Workload {
+	return []kueue.Workload{
+		*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+			ControllerReference(rayClusterGVK, "ray", "ray-uid").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor", "2").
+						Count(2).
+						Obj()).
+					Obj(), now,
+			).
+			AdmittedAt(true, now).
+			AdmissionChecks(kueue.AdmissionCheckState{
+				Name:  "provisioning",
+				State: kueue.CheckStateReady,
+			}).
+			Obj(),
+		*utiltestingapi.MakeWorkload("wl", "ns").
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ControllerReference(rayClusterGVK, "ray", "ray-uid").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor", "1").
+						Obj()).
+					Obj(), now,
+			).
+			AdmittedAt(true, now).
+			FinishedAt(now).
+			Obj(),
+	}
+}
+
+// makeLiveRootSlice is the root slice "wl" before any rollover: admitted and
+// active, so the provisioning controller still reconciles it and acts on its
+// request "wl-provisioning-1" turning terminal.
+func makeLiveRootSlice(now time.Time) *utiltestingapi.WorkloadWrapper {
+	return utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "flavor", "1").
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		AdmissionChecks(kueue.AdmissionCheckState{
+			Name:  "provisioning",
+			State: kueue.CheckStateReady,
+		})
+}
+
+// makeBoundPod is a pod released against the root slice and bound to its
+// ProvisioningRequest; the scheduler has already reported it Unschedulable.
+func makeBoundPod(name string) *testingpod.PodWrapper {
+	return makeDetachedPod(name).
+		Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+		Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic")
+}
+
+// makeDetachedPod is makeBoundPod after the ungater removed the request binding.
+func makeDetachedPod(name string) *testingpod.PodWrapper {
+	return testingpod.MakePod(name, "ns").
+		Annotation(kueue.WorkloadAnnotation, "wl").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+		StatusConditions(corev1.PodCondition{
+			Type:   corev1.PodScheduled,
+			Status: corev1.ConditionFalse,
+			Reason: corev1.PodReasonUnschedulable,
+		})
+}
+
+// makeRootSliceRequest builds the root slice's ProvisioningRequest the way the
+// provisioning controller creates it: controlled by the Workload "wl".
+func makeRootSliceRequest() *utiltestingapi.ProvisioningRequestWrapper {
+	return utiltestingapi.MakeProvisioningRequest("wl-provisioning-1", "ns").
+		ControllerReference(workloadGVK, "wl", "wl-uid")
+}
+
+func detachedEvent(pod, reqName string) utiltesting.EventRecord {
+	return utiltesting.EventRecord{
+		Key:       types.NamespacedName{Namespace: "ns", Name: pod},
+		EventType: corev1.EventTypeNormal,
+		Reason:    ProvisioningRequestDetachedReason,
+		Message:   fmt.Sprintf("ProvisioningRequest %q can no longer deliver capacity for this unschedulable pod; removed its annotations so the cluster autoscaler handles the pod directly", reqName),
+	}
+}
+
+// TestReconcile drives the ungater over a chain of slices and pods and checks
+// which pods are ungated, which are detached from exhausted
+// ProvisioningRequests, and the events recorded for them.
 func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
-		workloads []kueue.Workload
-		pods      []corev1.Pod
+		workloads            []kueue.Workload
+		pods                 []corev1.Pod
+		provisioningRequests []autoscaling.ProvisioningRequest
+		// noProvisioningRequestAPI models the feature gate being off or the ProvisioningRequest CRD not being installed.
+		noProvisioningRequestAPI bool
 		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
 		skipDefaultPodSetLabels bool
 		expectUIDs              []types.UID
 		reconcileKey            client.ObjectKey
 		wantPods                []corev1.Pod
+		wantEvents              []utiltesting.EventRecord
 		wantErr                 error
 	}{
 		"ungate single pod": {
@@ -901,6 +1018,192 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Scale rollover: the root slice's request was cleaned up with the slice,
+		// but the pods it released are still Pending and bound to it. The
+		// autoscaler ignores pods bound to a missing request, so detach them.
+		"detach unschedulable pods bound to a deleted provisioning request": {
+			workloads: makeReplacedChain(now),
+			pods: []corev1.Pod{
+				*makeBoundPod("gpu-0").Obj(),
+				*makeBoundPod("gpu-1").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeDetachedPod("gpu-0").Obj(),
+				*makeDetachedPod("gpu-1").Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				detachedEvent("gpu-0", "wl-provisioning-1"),
+				detachedEvent("gpu-1", "wl-provisioning-1"),
+			},
+		},
+		// Partial fulfilment: the request was Provisioned but its booking has
+		// expired while some pods never found a node (e.g. a stockout after the
+		// resize was issued). The request will never deliver more capacity.
+		"detach unschedulable pods bound to a booking-expired provisioning request": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		"detach unschedulable pods bound to a failed provisioning request": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Failed).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// The replaced slice is no longer reconciled by the provisioning
+		// controller, so nothing else reacts to its request losing capacity.
+		"detach unschedulable pods bound to a capacity-revoked request of a replaced slice": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.CapacityRevoked).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// After admission the provisioning controller ignores an expired
+		// booking, so this is the ungater's to handle even on a live slice.
+		"detach unschedulable pods bound to a booking-expired request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// The provisioning controller rejects the admission check of a live
+		// slice whose request is CapacityRevoked, which deactivates the
+		// Workload and deletes its pods. Detaching them first would only have
+		// the autoscaler scale up for pods about to go.
+		"keep pods bound to a capacity-revoked request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.CapacityRevoked).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Likewise a Failed request of a live slice is retried, or rejected,
+		// by the provisioning controller.
+		"keep pods bound to a failed request of a live slice": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Failed).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Deactivation already under way (spec.active=false, not evicted yet):
+		// the pods are about to be deleted with the Workload's eviction.
+		"keep pods bound to a booking-expired request of a slice being deactivated": {
+			workloads: []kueue.Workload{*makeLiveRootSlice(now).Active(false).Obj()},
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		"detach unschedulable pods bound to a live request that is being deleted": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).DeletionTimestamp(now).Finalizers("test/block").Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// The replaced slice was deleted but garbage collection has not removed
+		// its request yet; the request alone still reads as a live booking.
+		"detach unschedulable pods bound to a live request whose workload is gone": {
+			workloads: makeReplacedChain(now)[:1],
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Provisioned).Obj(),
+			},
+			pods:       []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:   []corev1.Pod{*makeDetachedPod("gpu-0").Obj()},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
+		// The request is Provisioned and still within its booking: the nodes it
+		// triggered may simply not be Ready yet. Leave the binding in place.
+		"keep pods bound to a provisioned request within its booking": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Accepted).Condition(autoscaling.Provisioned).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		"keep pods bound to an in-flight (accepted, not yet provisioned) request": {
+			workloads: makeReplacedChain(now),
+			provisioningRequests: []autoscaling.ProvisioningRequest{
+				*makeRootSliceRequest().Condition(autoscaling.Accepted).Obj(),
+			},
+			pods:     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods: []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Only pods the scheduler has given up on are detached: a pod that has
+		// not been reported Unschedulable may still be about to land on a node
+		// the request provisioned before it went away.
+		"keep pods bound to a deleted request until they are reported unschedulable": {
+			workloads: makeReplacedChain(now),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("gpu-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("gpu-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					Obj(),
+			},
+		},
+		"keep scheduled pods bound to a deleted request": {
+			workloads: makeReplacedChain(now),
+			pods:      []corev1.Pod{*makeBoundPod("gpu-0").NodeName("node-a").Obj()},
+			wantPods:  []corev1.Pod{*makeBoundPod("gpu-0").NodeName("node-a").Obj()},
+		},
+		"keep pods bound to a deleted request when provisioning request support is off": {
+			noProvisioningRequestAPI: true,
+			workloads:                makeReplacedChain(now),
+			pods:                     []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+			wantPods:                 []corev1.Pod{*makeBoundPod("gpu-0").Obj()},
+		},
+		// Detaching is independent of ungating: a chain with stuck released pods
+		// and a fresh gated pod gets both unstuck and ungated in one pass, and
+		// the gated pod is stamped from the active slice (which has no request).
+		"detach stuck pods and ungate a new pod in the same reconcile": {
+			workloads: makeReplacedChain(now),
+			pods: []corev1.Pod{
+				*makeBoundPod("gpu-0").Obj(),
+				*testingpod.MakePod("gpu-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeDetachedPod("gpu-0").Obj(),
+				*testingpod.MakePod("gpu-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{detachedEvent("gpu-0", "wl-provisioning-1")},
+		},
 		"preserve topology gate when ungating elastic gate": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
@@ -1249,7 +1552,7 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
-			clientBuilder := utiltesting.NewClientBuilder().
+			clientBuilder := utiltesting.NewClientBuilder(autoscaling.AddToScheme).
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(batchJobGVK), coreindexer.WorkloadOwnerIndexFunc(batchJobGVK)).
@@ -1265,6 +1568,9 @@ func TestReconcile(t *testing.T) {
 			for i := range tc.pods {
 				clientBuilder = clientBuilder.WithObjects(&tc.pods[i])
 			}
+			for i := range tc.provisioningRequests {
+				clientBuilder = clientBuilder.WithObjects(&tc.provisioningRequests[i])
+			}
 			for i := range tc.workloads {
 				clientBuilder = clientBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
@@ -1276,10 +1582,13 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
+			recorder := &utiltesting.EventRecorder{}
 			ungater := &elasticJobUngater{
-				client:            kClient,
-				clock:             testingclock.NewFakeClock(now),
-				expectationsStore: expectations.NewStore(ControllerName),
+				client:               kClient,
+				clock:                testingclock.NewFakeClock(now),
+				expectationsStore:    expectations.NewStore(ControllerName),
+				record:               recorder,
+				provisioningRequests: !tc.noProvisioningRequestAPI,
 			}
 
 			if len(tc.workloads) == 0 {
@@ -1325,6 +1634,123 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty(), cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
+				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestActiveSliceForRequest checks that a ProvisioningRequest maps to the active
+// slice of its controlling Workload's chain, and to nothing for requests owned
+// by non-elastic or unknown Workloads.
+func TestActiveSliceForRequest(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	chain := makeReplacedChain(now)
+	nonElastic := utiltestingapi.MakeWorkload("plain", "ns").Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder(autoscaling.AddToScheme).
+		WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+		WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
+		WithObjects(nonElastic)
+	for i := range chain {
+		clientBuilder = clientBuilder.WithObjects(&chain[i])
+	}
+	r := &elasticJobUngater{client: clientBuilder.Build()}
+
+	cases := map[string]struct {
+		pr   *autoscaling.ProvisioningRequest
+		want []reconcile.Request
+	}{
+		"request owned by a replaced slice maps to the chain's active slice": {
+			pr:   makeRootSliceRequest().Obj(),
+			want: []reconcile.Request{{Namespace: "ns", Name: "wl-slice-1"}},
+		},
+		// Covered by the Workload delete predicate instead; see TestWorkloadDeletePredicate.
+		"request whose owner workload is gone is ignored": {
+			pr: utiltestingapi.MakeProvisioningRequest("gone-provisioning-1", "ns").ControllerReference(workloadGVK, "wl-deleted", "").Obj(),
+		},
+		"request owned by a non-elastic workload is ignored": {
+			pr: utiltestingapi.MakeProvisioningRequest("plain-provisioning-1", "ns").ControllerReference(workloadGVK, "plain", "").Obj(),
+		},
+		"request owned by something else is ignored": {
+			pr: utiltestingapi.MakeProvisioningRequest("other-provisioning-1", "ns").ControllerReference(batchJobGVK, "job", "").Obj(),
+		},
+		"request without a controller is ignored": {
+			pr: utiltestingapi.MakeProvisioningRequest("orphan-provisioning-1", "ns").OwnerReference(workloadGVK, "wl", "").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if diff := gocmp.Diff(tc.want, r.activeSliceForRequest(ctx, tc.pr), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("requests (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestRequestExhaustedPredicate checks that only the transitions to a terminal
+// or deleting ProvisioningRequest, and its deletion, pass the watch predicate.
+func TestRequestExhaustedPredicate(t *testing.T) {
+	live := makeRootSliceRequest().Condition(autoscaling.Provisioned).Obj()
+	expired := makeRootSliceRequest().Condition(autoscaling.Provisioned).Condition(autoscaling.BookingExpired).Obj()
+	deleting := makeRootSliceRequest().Condition(autoscaling.Provisioned).DeletionTimestamp(time.Now()).Finalizers("test/block").Obj()
+	p := requestBecameExhausted()
+	cases := map[string]struct {
+		got  bool
+		want bool
+	}{
+		"create is ignored":                     {got: p.Create(event.TypedCreateEvent[*autoscaling.ProvisioningRequest]{Object: expired})},
+		"generic is ignored":                    {got: p.Generic(event.TypedGenericEvent[*autoscaling.ProvisioningRequest]{Object: expired})},
+		"update that stays live is ignored":     {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: live})},
+		"update that turns terminal passes":     {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: expired}), want: true},
+		"update that stays terminal is ignored": {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: expired, ObjectNew: expired})},
+		"update that starts deletion passes":    {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: live, ObjectNew: deleting}), want: true},
+		"update while deleting is ignored":      {got: p.Update(event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]{ObjectOld: deleting, ObjectNew: deleting})},
+		"delete passes":                         {got: p.Delete(event.TypedDeleteEvent[*autoscaling.ProvisioningRequest]{Object: live}), want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("got %t, want %t", tc.got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWorkloadDeletePredicate checks that a replaced slice's deletion is passed
+// through only when ProvisioningRequest support is on.
+func TestWorkloadDeletePredicate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	chain := makeReplacedChain(time.Now())
+	replaced := utiltestingapi.MakeWorkload("wl", "ns").Condition(metav1.Condition{
+		Type:   kueue.WorkloadFinished,
+		Status: metav1.ConditionTrue,
+		Reason: kueue.WorkloadSliceReplaced,
+	}).Obj()
+
+	testCases := map[string]struct {
+		workload                 *kueue.Workload
+		noProvisioningRequestAPI bool
+		want                     bool
+	}{
+		"replaced slice passes":                  {workload: replaced, want: true},
+		"active slice is ignored":                {workload: &chain[0]},
+		"finished for another reason is ignored": {workload: &chain[1]},
+		"replaced slice is ignored when provisioning request support is off": {
+			workload:                 replaced,
+			noProvisioningRequestAPI: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			r := &elasticJobUngater{provisioningRequests: !tc.noProvisioningRequestAPI}
+			if got := r.Delete(event.TypedDeleteEvent[*kueue.Workload]{Object: tc.workload}); got != tc.want {
+				t.Errorf("Delete() = %v, want %v", got, tc.want)
 			}
 		})
 	}

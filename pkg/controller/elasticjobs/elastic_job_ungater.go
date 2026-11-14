@@ -26,8 +26,11 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -44,7 +47,9 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -60,7 +65,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-const ControllerName = "ElasticJobUngater"
+const (
+	ControllerName = "ElasticJobUngater"
+
+	// ProvisioningRequestDetachedReason is the Pod event reason emitted when the
+	// ungater removes the ProvisioningRequest annotations from an unschedulable
+	// pod whose request can no longer deliver capacity.
+	ProvisioningRequestDetachedReason = "ProvisioningRequestDetached"
+)
 
 var errPendingUngateOps = errors.New("pending elastic ungate operations")
 
@@ -70,14 +82,25 @@ type elasticJobUngater struct {
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
 	customLabels      *metrics.CustomLabels
+	record            events.EventRecorder
+	// provisioningRequests is set when ElasticJobsViaWorkloadSlicesForProvisioningRequests
+	// is enabled and the ProvisioningRequest API is served; pods are then
+	// detached from exhausted requests, see detachFromExhaustedRequests.
+	provisioningRequests bool
 }
 
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups=autoscaling.x-k8s.io,resources=provisioningrequests,verbs=get;list;watch
 
+// SetupWithManager registers the ungater for elastic Workloads and their pods.
+// When ElasticJobsViaWorkloadSlicesForProvisioningRequests is enabled and the
+// ProvisioningRequest API is served, it also watches requests so pods stuck on
+// an exhausted request can be detached.
 func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
 	r := &elasticJobUngater{
 		client:            mgr.GetClient(),
@@ -85,32 +108,35 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
 		customLabels:      customLabels,
+		record:            mgr.GetEventRecorder(ControllerName),
+		provisioningRequests: features.Enabled(features.ElasticJobsViaWorkloadSlicesForProvisioningRequests) &&
+			provisioning.ServerSupportsProvisioningRequest(mgr) == nil,
 	}
 	podHandler := elasticPodHandler{
 		client:            r.client,
 		expectationsStore: r.expectationsStore,
 	}
-	// Enqueue the active slice; Reconcile resolves it again in case of a rollover.
-	sliceKeyHandler := handler.TypedEnqueueRequestsFromMapFunc(
-		func(ctx context.Context, wl *kueue.Workload) []reconcile.Request {
-			active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, false)
-			if err != nil || active == nil {
-				return nil
-			}
-			return []reconcile.Request{{
-				Namespace: active.Namespace,
-				Name:      active.Name}}
-		},
-	)
-	return ControllerName, builder.TypedControllerManagedBy[reconcile.Request](mgr).
+	b := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("elastic_job_ungater").
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Workload{},
-			sliceKeyHandler,
+			// Enqueue the active slice; Reconcile resolves it again in case of a rollover.
+			handler.TypedEnqueueRequestsFromMapFunc(r.activeSlice),
 			r,
 		)).
-		Watches(&corev1.Pod{}, &podHandler).
+		Watches(&corev1.Pod{}, &podHandler)
+	if r.provisioningRequests {
+		// A request going terminal or disappearing changes nothing on the
+		// admitted Workload or its pods, so it needs its own watch.
+		b = b.WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&autoscaling.ProvisioningRequest{},
+			handler.TypedEnqueueRequestsFromMapFunc(r.activeSliceForRequest),
+			requestBecameExhausted(),
+		))
+	}
+	return ControllerName, b.
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
@@ -119,6 +145,10 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
+// Reconcile resolves the chain's active slice, detaches its released pods from
+// exhausted ProvisioningRequests when that support is on, and then removes the
+// elastic scheduling gate from as many gated pods as the slice's admission
+// grants, stamping each with the slice's admission identity.
 func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ElasticJobUngater")
@@ -139,7 +169,16 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, errPendingUngateOps
 	}
 
-	pods, err := r.podsToUngate(ctx, active)
+	chainPods, err := r.chainPods(ctx, active)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if r.provisioningRequests {
+		if err := r.detachFromExhaustedRequests(ctx, chainPods); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+	pods, err := podsToUngate(ctx, active, chainPods)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -262,27 +301,180 @@ func refreshPodAdmission(pod *corev1.Pod, update podAdmissionUpdate) (bool, erro
 	return changed, nil
 }
 
-func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
-	// All pods in the slice chain share the same WorkloadSliceNameAnnotation,
-	// so the index lookup returns every pod created on behalf of this job.
-	// Although those pods may still carry an older slice's name in their
-	// WorkloadAnnotation (the template is stamped at the slice's admission),
-	// wl is the chain's active slice (resolved in Reconcile), so its granted
-	// PodSet counts are the right cap for ungating any of them.
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName)
+// chainPods returns the non-terminated pods created on behalf of wl's job. All
+// pods in the slice chain share the same WorkloadSliceNameAnnotation, so the
+// index lookup returns pods minted by any slice, gated or already released.
+func (r *elasticJobUngater) chainPods(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 	if err != nil {
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
+	return slices.DeleteFunc(pods, utilpod.IsTerminated), nil
+}
 
+// detachFromExhaustedRequests removes the ProvisioningRequest annotations from
+// released pods that are Unschedulable on a request that can no longer deliver
+// capacity (requestExhausted): the autoscaler skips bound pods in its regular
+// scale-up and Kueue never re-points them, so they would stay Pending for good.
+// Trading the provisioning class for regular scale-up is intended; evicting
+// to re-request atomically would restart the elastic job as a whole.
+func (r *elasticJobUngater) detachFromExhaustedRequests(ctx context.Context, pods []*corev1.Pod) error {
+	stuck, err := r.podsStuckOnExhaustedRequests(ctx, pods)
+	if err != nil {
+		return err
+	}
+	return parallelize.Until(ctx, len(stuck), func(i int) error {
+		return r.detachFromRequest(ctx, stuck[i])
+	})
+}
+
+// podsStuckOnExhaustedRequests selects the pods that are Unschedulable on an
+// exhausted ProvisioningRequest, looking each request up once. Pods not yet
+// reported Unschedulable are left alone: they may still land on nodes the
+// request provisioned before it was exhausted.
+func (r *elasticJobUngater) podsStuckOnExhaustedRequests(ctx context.Context, pods []*corev1.Pod) ([]*corev1.Pod, error) {
+	exhausted := make(map[string]bool)
+	var stuck []*corev1.Pod
+	for _, p := range pods {
+		if !unschedulableOnRequest(p) {
+			continue
+		}
+		name := p.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]
+		if _, seen := exhausted[name]; !seen {
+			e, err := r.requestExhausted(ctx, p.Namespace, name)
+			if err != nil {
+				return nil, err
+			}
+			exhausted[name] = e
+		}
+		if exhausted[name] {
+			stuck = append(stuck, p)
+		}
+	}
+	return stuck, nil
+}
+
+// detachFromRequest removes the ProvisioningRequest and provisioning-class
+// annotations from pod and records why, so the cluster autoscaler considers
+// the pod in its regular scale-up.
+func (r *elasticJobUngater) detachFromRequest(ctx context.Context, pod *corev1.Pod) error {
+	name := pod.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]
+	if err := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
+		delete(pod.Annotations, autoscaling.ProvisioningRequestPodAnnotationKey)
+		delete(pod.Annotations, autoscaling.ProvisioningClassPodAnnotationKey)
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("detaching pod %s from provisioning request %s: %w", klog.KObj(pod), name, err)
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Detached elastic pod from exhausted provisioning request", "pod", klog.KObj(pod), "provisioningRequest", name)
+	r.record.Eventf(pod, nil, corev1.EventTypeNormal, ProvisioningRequestDetachedReason, "Detached",
+		"ProvisioningRequest %q can no longer deliver capacity for this unschedulable pod; removed its annotations so the cluster autoscaler handles the pod directly", name)
+	return nil
+}
+
+// unschedulableOnRequest reports whether p is released from the elastic gate,
+// bound to a ProvisioningRequest, and reported Unschedulable by the scheduler.
+func unschedulableOnRequest(p *corev1.Pod) bool {
+	if p.Spec.NodeName != "" || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+		return false
+	}
+	if _, bound := p.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; !bound {
+		return false
+	}
+	for i := range p.Status.Conditions {
+		if c := &p.Status.Conditions[i]; c.Type == corev1.PodScheduled {
+			return c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable
+		}
+	}
+	return false
+}
+
+// requestExhausted reports whether the named request can no longer deliver
+// capacity and nothing else acts on it: gone, deleting, orphaned, or terminal
+// where the provisioning controller leaves it alone (a replaced slice's request,
+// or BookingExpired after admission). A terminal request it does act on, by
+// retrying or deactivating the Workload, deletes the pods anyway, so they stay
+// bound rather than trigger a scale-up for nothing.
+func (r *elasticJobUngater) requestExhausted(ctx context.Context, namespace, name string) (bool, error) {
+	pr := &autoscaling.ProvisioningRequest{}
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, pr); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	if !pr.DeletionTimestamp.IsZero() {
+		return true, nil
+	}
+	owner := metav1.GetControllerOf(pr)
+	if owner == nil || owner.Kind != "Workload" {
+		return provisioning.IsTerminal(pr), nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: owner.Name}, wl); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	// A replaced slice's Delete event reaches us before garbage collection
+	// removes its requests, so the request itself can still look live here.
+	if !wl.DeletionTimestamp.IsZero() {
+		return true, nil
+	}
+	if !provisioning.IsTerminal(pr) {
+		return false, nil
+	}
+	if workloadfinish.IsFinished(wl) {
+		return true, nil
+	}
+	return workload.IsActive(wl) && !provisioning.HandlesTerminalRequest(wl, pr), nil
+}
+
+// activeSlice maps any slice of a chain to the reconcile request for the
+// chain's active slice, or nothing if the chain has no admitted slice.
+func (r *elasticJobUngater) activeSlice(ctx context.Context, wl *kueue.Workload) []reconcile.Request {
+	active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, false)
+	if err != nil || active == nil {
+		return nil
+	}
+	return []reconcile.Request{{Namespace: active.Namespace, Name: active.Name}}
+}
+
+// activeSliceForRequest maps a ProvisioningRequest to the active slice of the
+// chain its controlling Workload belongs to. A request whose Workload is
+// already gone is covered by the Workload Delete predicate instead.
+func (r *elasticJobUngater) activeSliceForRequest(ctx context.Context, pr *autoscaling.ProvisioningRequest) []reconcile.Request {
+	owner := metav1.GetControllerOf(pr)
+	if owner == nil || owner.Kind != "Workload" || owner.APIVersion != kueue.SchemeGroupVersion.String() {
+		return nil
+	}
+	wl := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: pr.Namespace, Name: owner.Name}, wl); err != nil || !workloadslicing.IsElasticWorkload(wl) {
+		return nil
+	}
+	return r.activeSlice(ctx, wl)
+}
+
+// requestBecameExhausted passes a ProvisioningRequest through only when it is
+// deleted, starts being deleted (a finalizer holding it), or has just turned
+// terminal; the Accepted/Provisioned status churn is dropped.
+func requestBecameExhausted() predicate.TypedPredicate[*autoscaling.ProvisioningRequest] {
+	return predicate.TypedFuncs[*autoscaling.ProvisioningRequest]{
+		CreateFunc:  func(event.TypedCreateEvent[*autoscaling.ProvisioningRequest]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*autoscaling.ProvisioningRequest]) bool { return false },
+		UpdateFunc: func(e event.TypedUpdateEvent[*autoscaling.ProvisioningRequest]) bool {
+			return (provisioning.IsTerminal(e.ObjectNew) && !provisioning.IsTerminal(e.ObjectOld)) ||
+				(!e.ObjectNew.DeletionTimestamp.IsZero() && e.ObjectOld.DeletionTimestamp.IsZero())
+		},
+	}
+}
+
+// podsToUngate selects, from the chain's pods, the gated ones to release.
+// Although those pods may carry an older slice's name in their
+// WorkloadAnnotation (the template is stamped at the slice's admission), wl is
+// the chain's active slice (resolved in Reconcile), so its granted PodSet
+// counts are the right cap for ungating any of them.
+func podsToUngate(ctx context.Context, wl *kueue.Workload, pods []*corev1.Pod) ([]*corev1.Pod, error) {
 	granted := workload.ExtractGrantedPodSetCounts(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
 	for _, p := range pods {
-		if utilpod.IsTerminated(p) {
-			continue
-		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
 		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
 			update, found := admissionUpdates[ps]
@@ -407,8 +599,12 @@ func shouldUngate(wl *kueue.Workload) bool {
 		workload.IsAdmitted(wl)
 }
 
-func (r *elasticJobUngater) Delete(event.TypedDeleteEvent[*kueue.Workload]) bool {
-	return false
+// Delete passes replaced slices when ProvisioningRequests are handled:
+// deleting one garbage-collects its requests, whose owner lookup in
+// activeSliceForRequest then fails, so the chain's active slice is enqueued
+// from here instead.
+func (r *elasticJobUngater) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
+	return r.provisioningRequests && workloadslicing.IsReplaced(e.Object.Status)
 }
 
 func (r *elasticJobUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bool {

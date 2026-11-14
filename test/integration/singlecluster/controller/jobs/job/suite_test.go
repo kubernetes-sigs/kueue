@@ -62,7 +62,11 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{}
+	fwk = &framework.Framework{
+		// Lets the ElasticJobUngater watch ProvisioningRequests when
+		// ElasticJobsViaWorkloadSlicesForProvisioningRequests is enabled.
+		DepCRDPaths: []string{behavioral.AutoscalerCrds},
+	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
 })
