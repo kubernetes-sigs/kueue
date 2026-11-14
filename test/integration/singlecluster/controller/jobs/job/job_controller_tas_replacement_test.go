@@ -141,6 +141,68 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		})
 	})
 
+	ginkgo.It("preserves indexed Job ranks when replacing the middle node", framework.SlowSpec, func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes[2:3])
+		before := cq.DeepCopy()
+		cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("3")
+		gomega.Expect(k8sClient.Patch(ctx, cq, client.MergeFrom(before))).To(gomega.Succeed())
+		job := testingjob.MakeJob("indexed-job", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Parallelism(3).Completions(3).CompletionMode(batchv1.IndexedCompletion).
+			Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		wl := &kueue.Workload{}
+		key := client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID)}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest.PodIndexLabel).
+				To(gomega.Equal(new(batchv1.JobCompletionIndexAnnotation)))
+			g.Expect(slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))).
+				To(gomega.Equal([]string{"node1", "node2", "node3"}))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		originalUID := wl.UID
+
+		ginkgo.By("failing rank one's node before replacement capacity is available", func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node2")
+		})
+		ginkgo.By("replacing only rank one's domain, without moving rank two", func() {
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes[3:])
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalUID))
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
+				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				assignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+				g.Expect(slices.Collect(tas.LowestLevelValues(assignment))).
+					To(gomega.Equal([]string{"node1", "node4", "node3"}))
+				g.Expect(slices.Collect(tas.PodCounts(assignment))).To(gomega.Equal([]int32{1, 1, 1}))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+		ginkgo.By("keeping the repaired admission and rank order stable", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalUID))
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
+				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				assignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+				g.Expect(slices.Collect(tas.LowestLevelValues(assignment))).
+					To(gomega.Equal([]string{"node1", "node4", "node3"}))
+				g.Expect(slices.Collect(tas.PodCounts(assignment))).To(gomega.Equal([]int32{1, 1, 1}))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("evicts on a failed replacement when both features are enabled", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)

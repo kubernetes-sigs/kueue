@@ -1152,9 +1152,10 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 	return leader, workers
 }
 
-// findReplacementAssignment finds the topology assignment for the replacement node
-// it return new corrected topologyAssignment, a replacement topologyAssignment used to patched the old, faulty one, and
-// reason if finding fails.
+// findReplacementAssignment repairs the first unhealthy node while retaining
+// healthy indexed ranks and rejecting repairs that split required slices.
+// It returns the repaired assignment, the replacement-only assignment used for
+// resource accounting, and a failure reason when no valid repair is found.
 // It is only reachable for workloads with hostname-level assignments, as
 // UnhealthyNodes is populated behind an IsLowestLevelHostname gate; the
 // assignment values here and in its helpers are therefore node-scoped even
@@ -1170,6 +1171,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
+	originalAssignment := *existingAssignment
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
 	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
@@ -1213,11 +1215,20 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
 		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
 	}
-	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
-	// Merging orders the domains by their level values, which may leave the
-	// partial slice somewhere other than last.
-	s.normalizeTailLast(newAssignment, tr.PodSet.TopologyRequest, sliceSize)
-	if !s.assignmentSliceAligned(newAssignment, tr.PodSet.TopologyRequest, sliceSize) {
+	var newAssignment *utiltas.TopologyAssignment
+	if tr.PodSet.TopologyRequest != nil && tr.PodSet.TopologyRequest.PodIndexLabel != nil {
+		var err error
+		newAssignment, err = replaceDomainInOrder(&originalAssignment, replacementAssignment[tr.PodSet.Name], headNodeName)
+		if err != nil {
+			return nil, nil, err.Error()
+		}
+	} else {
+		newAssignment = s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
+		// Sorting may leave the partial slice somewhere other than last.
+		// Indexed repairs must instead retain the original rank positions.
+		s.normalizeTailLast(newAssignment, tr.PodSet.TopologyRequest, sliceSize)
+	}
+	if !s.assignmentSliceAligned(newAssignment, tr.PodSet.TopologyRequest, sliceSize, ignoreNodes) {
 		// The repair could not keep the slices whole, which the rank-based
 		// ungating relies on. Reject it and let the workload be rescheduled
 		// from scratch instead of publishing a misaligned assignment.
@@ -1442,13 +1453,13 @@ func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoringNodes(ta *utiltas.T
 	return false, ""
 }
 
-// deleteDomain deletes the domain the has faulty node and returns number of affected pods by the node
+// deleteDomain deletes domains on the faulty node and returns the number of affected pods.
 func deleteDomain(currentTopologyAssignment *utiltas.TopologyAssignment, unhealthyNode string) int32 {
 	var noAffectedPods int32 = 0
 	updatedAssignment := make([]utiltas.TopologyDomainAssignment, 0, len(currentTopologyAssignment.Domains))
 	for _, domain := range currentTopologyAssignment.Domains {
 		if domain.Values[len(domain.Values)-1] == unhealthyNode {
-			noAffectedPods = domain.Count
+			noAffectedPods += domain.Count
 		} else {
 			updatedAssignment = append(updatedAssignment, domain)
 		}
@@ -1466,9 +1477,9 @@ type sliceLevelUsage struct {
 
 // sliceLevelUsages groups the assignment by domain at the slice level,
 // preserving the order in which the domains appear in the assignment. That
-// order is the lexicographic order of the level values, established by
-// buildAssignment and preserved by mergeTopologyAssignments, and it is the
-// order the ungater ranks pods in.
+// order is initially established by buildAssignment. Indexed node replacements
+// preserve rank positions rather than sorting the domains again. The ungater
+// ranks pods in assignment order.
 func (s *TASFlavorSnapshot) sliceLevelUsages(ta *utiltas.TopologyAssignment, sliceLevelIdx int) []sliceLevelUsage {
 	var usages []sliceLevelUsage
 	indexByDomain := make(map[utiltas.TopologyDomainID]int)
@@ -1807,7 +1818,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		// The partial slice may have landed in any of the domains, while the
 		// ungater expects it last in the published order.
 		s.normalizeTailLast(workerAssignment, topologyRequest, state.sliceSize)
-		if utiltas.CountPodsInAssignment(workerAssignment) != state.count || !s.assignmentSliceAligned(workerAssignment, topologyRequest, state.sliceSize) {
+		if utiltas.CountPodsInAssignment(workerAssignment) != state.count || !s.assignmentSliceAligned(workerAssignment, topologyRequest, state.sliceSize, nil) {
 			// Defensive: the domains were selected knowing where the partial
 			// slice would go, so this means the descent disagreed with that
 			// choice. Reject the placement rather than publish an assignment
@@ -3174,6 +3185,60 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 		Levels:  a.Levels,
 		Domains: mergedDomains,
 	}
+}
+
+// replaceDomainInOrder fills the unhealthy node's runs without moving any other
+// rank. A replacement domain can span several runs separated by healthy nodes.
+// Only adjacent runs of the same domain are coalesced.
+func replaceDomainInOrder(original, replacement *utiltas.TopologyAssignment, unhealthyNode string) (*utiltas.TopologyAssignment, error) {
+	var countToReplace int32
+	for _, domain := range original.Domains {
+		if domain.Values[len(domain.Values)-1] == unhealthyNode {
+			countToReplace += domain.Count
+		}
+	}
+	var replacementCount int32
+	for _, domain := range replacement.Domains {
+		if domain.Count <= 0 {
+			return nil, fmt.Errorf("replacement domain %v has invalid count %d", domain.Values, domain.Count)
+		}
+		replacementCount += domain.Count
+	}
+	if replacementCount != countToReplace {
+		return nil, fmt.Errorf("replacement assignment count %d does not match unhealthy domain count %d", replacementCount, countToReplace)
+	}
+
+	domains := make([]utiltas.TopologyDomainAssignment, 0, len(original.Domains)+len(replacement.Domains))
+	replacementIndex := 0
+	var replacementRemaining int32
+	for _, domain := range original.Domains {
+		if domain.Values[len(domain.Values)-1] != unhealthyNode {
+			domains = append(domains, domain)
+			continue
+		}
+		for remaining := domain.Count; remaining > 0; {
+			if replacementRemaining == 0 {
+				replacementRemaining = replacement.Domains[replacementIndex].Count
+			}
+			replacementDomain := replacement.Domains[replacementIndex]
+			replacementDomain.Count = min(remaining, replacementRemaining)
+			domains = append(domains, replacementDomain)
+			remaining -= replacementDomain.Count
+			replacementRemaining -= replacementDomain.Count
+			if replacementRemaining == 0 {
+				replacementIndex++
+			}
+		}
+	}
+	mergedDomains := domains[:0]
+	for _, domain := range domains {
+		if canMergeDomains(mergedDomains, domain) {
+			mergedDomains[len(mergedDomains)-1].Count += domain.Count
+		} else {
+			mergedDomains = append(mergedDomains, domain)
+		}
+	}
+	return &utiltas.TopologyAssignment{Levels: original.Levels, Domains: mergedDomains}, nil
 }
 
 func canMergeDomains(mergedDomains []utiltas.TopologyDomainAssignment, domain utiltas.TopologyDomainAssignment) bool {

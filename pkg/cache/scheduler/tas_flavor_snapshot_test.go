@@ -33,6 +33,7 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -3716,6 +3717,60 @@ func TestAssignmentSliceAligned(t *testing.T) {
 			sliceSize: 2,
 			want:      false,
 		},
+		"indexed repeated rack runs retain whole slices and a trailing partial slice": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"indexed rack totals cannot hide split slices in rank order": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
+		"indexed consecutive nodes share a rack slice": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"indexed missing node is not ignored outside replacement": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"missing"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				SliceRequiredTopologyRequest(corev1.LabelHostname).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
 		"a slice of a single pod is always aligned": {
 			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
@@ -3802,7 +3857,7 @@ func TestAssignmentSliceAligned(t *testing.T) {
 			tree := newTopologyTree(levels, nodes, 0)
 			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
-			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize); got != tc.want {
+			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize, nil); got != tc.want {
 				t.Errorf("assignmentSliceAligned() = %v, want %v", got, tc.want)
 			}
 		})

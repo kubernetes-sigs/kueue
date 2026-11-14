@@ -499,10 +499,51 @@ func (s *TASFlavorSnapshot) normalizeTailLast(ta *utiltas.TopologyAssignment, tr
 }
 
 // assignmentSliceAligned reports whether the assignment groups pods into whole
-// slices: every domain at the slice level holds a multiple of sliceSize pods,
-// except the last, which may hold the trailing pods of a partial slice.
-func (s *TASFlavorSnapshot) assignmentSliceAligned(ta *utiltas.TopologyAssignment, tr *kueue.PodSetTopologyRequest, sliceSize int32) bool {
+// slices. For indexed PodSets, domain boundaries at every requested layer must
+// coincide with that layer's slice boundaries in rank order, including when a
+// domain appears more than once. A trailing partial slice can end within a domain.
+// Missing nodes in ignoreNodes retain their own boundaries: without ancestry,
+// they cannot share a slice with another node, even at a rack or zone layer.
+func (s *TASFlavorSnapshot) assignmentSliceAligned(
+	ta *utiltas.TopologyAssignment,
+	tr *kueue.PodSetTopologyRequest,
+	sliceSize int32,
+	ignoreNodes sets.Set[string],
+) bool {
 	if !features.Enabled(features.TASPartialSlices) || !slicesRequested(tr) || sliceSize <= 1 {
+		return true
+	}
+	if tr.PodIndexLabel != nil {
+		type sliceDomain struct {
+			resolved    *domain
+			missingNode string
+		}
+		for _, constraint := range utiltas.PodSetSliceRequiredTopologyConstraints(tr) {
+			if constraint.Size <= 1 {
+				continue
+			}
+			sliceLevelIdx, found := s.resolveLevelIdx(constraint.Topology)
+			if !found {
+				return false
+			}
+			var previous sliceDomain
+			var count int32
+			for _, assignment := range ta.Domains {
+				current := sliceDomain{resolved: s.sliceLevelDomain(ta.Levels, assignment.Values, sliceLevelIdx)}
+				if current.resolved == nil {
+					nodeName, found := utiltas.NodeNameFromDomainID(ta.Levels, utiltas.DomainID(assignment.Values))
+					if !found || !ignoreNodes.Has(nodeName) {
+						return false
+					}
+					current.missingNode = nodeName
+				}
+				if current != previous && count%constraint.Size != 0 {
+					return false
+				}
+				count += assignment.Count
+				previous = current
+			}
+		}
 		return true
 	}
 	sliceLevelIdx, found := s.resolveLevelIdx(s.sliceLevelKeyWithDefault(tr, s.explicitLowestLevel()))
