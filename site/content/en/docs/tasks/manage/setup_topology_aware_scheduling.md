@@ -250,6 +250,7 @@ kind delete cluster
 
 ## What's next
 
+- Enable TAS on a cluster that already runs workloads: [Migrate an Existing Cluster to Topology-Aware Scheduling](/docs/tasks/manage/migrate_to_topology_aware_scheduling/).
 - Learn about all [PodSet annotations](/docs/tasks/run/topology_aware_scheduling/) available to batch users.
 - Explore advanced features like Node Hotswap and failure recovery in [Topology-Aware Scheduling Concepts](/docs/concepts/topology_aware_scheduling).
 - Combine TAS with [MultiKueue](/docs/tasks/manage/setup_multikueue/#create-a-sample-setup-with-tas).
