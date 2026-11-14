@@ -606,6 +606,16 @@ const (
 	// Requires KubeRay v1.3.0 or later.
 	RayClusterHeadPodReady featuregate.Feature = "RayClusterHeadPodReady"
 
+	// owner: @saylee21
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18469
+	//
+	// Uses the HeadPodReady condition and the worker replica counts to determine
+	// RayJob readiness instead of the deprecated RayCluster state, which KubeRay
+	// never clears after a worker is lost. Unlike a RayCluster devbox, RayJob
+	// workers are needed to make progress.
+	// Requires KubeRay v1.3.0 or later.
+	RayJobPodsReadyFromConditions featuregate.Feature = "RayJobPodsReadyFromConditions"
+
 	// owner: @kevin85421
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/16094
 	//
@@ -1363,6 +1373,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	RayClusterHeadPodReady: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RayJobPodsReadyFromConditions: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 

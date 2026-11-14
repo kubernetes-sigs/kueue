@@ -23,7 +23,9 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -235,7 +237,32 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 }
 
 func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
-	return j.Status.RayClusterStatus.State == rayv1.Ready
+	status := j.Status.RayClusterStatus
+	if !features.Enabled(features.RayJobPodsReadyFromConditions) {
+		return status.State == rayv1.Ready
+	}
+	// KubeRay never clears the deprecated state field after a worker is lost,
+	// so derive readiness from the condition and the replica counts instead.
+	headReady := apimeta.FindStatusCondition(status.Conditions, string(rayv1.HeadPodReady))
+	if headReady == nil {
+		// KubeRay before v1.3.0 does not publish HeadPodReady. Keep the legacy
+		// signal for those versions, otherwise every healthy RayJob on an older
+		// operator would look unready and become a candidate for eviction.
+		return status.State == rayv1.Ready
+	}
+	if headReady.Status != metav1.ConditionTrue {
+		return false
+	}
+	// A RayJob cannot make progress without its workers, so the head being
+	// ready is not enough.
+	if rayutils.IsAutoscalingEnabled(j.Spec.RayClusterSpec) {
+		// While scaling up, the autoscaler raises DesiredWorkerReplicas above
+		// the count that is already running. Compare against the floor the
+		// cluster must keep so a healthy scale-up is not treated as a lost
+		// worker.
+		return status.ReadyWorkerReplicas >= status.MinWorkerReplicas
+	}
+	return status.ReadyWorkerReplicas >= status.DesiredWorkerReplicas
 }
 
 func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {

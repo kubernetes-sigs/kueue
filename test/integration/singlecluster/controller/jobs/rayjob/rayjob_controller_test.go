@@ -490,11 +490,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
-		ginkgo.Entry("Running RayJob", podsReadyTestSpec{
+		ginkgo.Entry("Feature disabled; worker lost but cluster state stays ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayJobPodsReadyFromConditions: false},
 			jobStatus: rayv1.RayJobStatus{
 				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
 				RayClusterStatus: rayv1.RayClusterStatus{
-					State: rayv1.Ready,
+					State:                 rayv1.Ready,
+					ReadyWorkerReplicas:   0,
+					DesiredWorkerReplicas: 1,
 				},
 			},
 			wantCondition: &metav1.Condition{
@@ -502,6 +505,64 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadStarted,
 				Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Running RayJob", podsReadyTestSpec{
+			jobStatus: rayv1.RayJobStatus{
+				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+				RayClusterStatus: rayv1.RayClusterStatus{
+					State: rayv1.Ready,
+					Conditions: []metav1.Condition{{
+						Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+						Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+					}},
+					ReadyWorkerReplicas:   1,
+					DesiredWorkerReplicas: 1,
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Worker lost while cluster state stays ready", podsReadyTestSpec{
+			beforeJobStatus: &rayv1.RayJobStatus{
+				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+				RayClusterStatus: rayv1.RayClusterStatus{
+					State: rayv1.Ready,
+					Conditions: []metav1.Condition{{
+						Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+						Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+					}},
+					ReadyWorkerReplicas:   1,
+					DesiredWorkerReplicas: 1,
+				},
+			},
+			beforeCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			},
+			jobStatus: rayv1.RayJobStatus{
+				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+				RayClusterStatus: rayv1.RayClusterStatus{
+					State: rayv1.Ready,
+					Conditions: []metav1.Condition{{
+						Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+						Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+					}},
+					ReadyWorkerReplicas:   0,
+					DesiredWorkerReplicas: 1,
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForRecovery,
+				Message: "At least one pod has failed, waiting for recovery",
 			},
 		}),
 		ginkgo.Entry("Running RayJob; PodsReady=False before", podsReadyTestSpec{
@@ -515,6 +576,12 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
 				RayClusterStatus: rayv1.RayClusterStatus{
 					State: rayv1.Ready,
+					Conditions: []metav1.Condition{{
+						Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+						Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+					}},
+					ReadyWorkerReplicas:   1,
+					DesiredWorkerReplicas: 1,
 				},
 			},
 			wantCondition: &metav1.Condition{
@@ -529,6 +596,12 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
 				RayClusterStatus: rayv1.RayClusterStatus{
 					State: rayv1.Ready,
+					Conditions: []metav1.Condition{{
+						Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+						Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+					}},
+					ReadyWorkerReplicas:   1,
+					DesiredWorkerReplicas: 1,
 				},
 			},
 			beforeCondition: &metav1.Condition{
