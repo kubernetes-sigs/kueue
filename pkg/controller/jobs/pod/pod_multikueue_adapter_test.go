@@ -127,6 +127,30 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"sync creates missing remote pod without the manager pod's ephemeral containers": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					EphemeralContainer("debugger", "busybox").
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					EphemeralContainer("debugger", "busybox").
+					Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 		"sync status from remote pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
