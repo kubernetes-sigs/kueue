@@ -482,3 +482,112 @@ func TestUnadmittedWorkloadMetricsAfterClusterQueueRecreateWithStatusChangedWhil
 		t.Errorf("Unexpected unadmitted workloads series after ClusterQueue recreation (-want,+got):\n%s", diff)
 	}
 }
+
+func TestLocalQueueUnadmittedWorkloadsMetric(t *testing.T) {
+	inactive := utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Active(false)
+	cases := map[string]struct {
+		queuedWorkloads []client.Object
+		// popHead takes the head Workload out of the queue, as the scheduler does.
+		popHead           bool
+		inactiveWorkloads []*kueue.Workload
+		// deleteLocalQueue deletes lq before remove and update run.
+		deleteLocalQueue bool
+		remove           workload.Reference
+		update           *kueue.Workload
+		wantLQWorkloads  map[kueue.LocalQueueName]float64
+		// wantCQWorkloads shows that the changes reached the tracker.
+		wantCQWorkloads float64
+	}{
+		"inactive Workload removed after its LocalQueue is deleted": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj(), inactive.Clone().Name("wl2").Obj()},
+			deleteLocalQueue:  true,
+			remove:            "ns/wl1",
+			wantCQWorkloads:   1,
+		},
+		"inactive Workload moved to another LocalQueue after its LocalQueue is deleted": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj(), inactive.Clone().Name("wl2").Obj()},
+			deleteLocalQueue:  true,
+			update:            inactive.Clone().Queue("lq2").Obj(),
+			wantLQWorkloads:   map[kueue.LocalQueueName]float64{"lq2": 1},
+			wantCQWorkloads:   2,
+		},
+		"queued Workload removed by the LocalQueue deletion while a popped one has the same status": {
+			queuedWorkloads: []client.Object{
+				utiltestingapi.MakeWorkload("wl1", "ns").Queue("lq").Obj(),
+				utiltestingapi.MakeWorkload("wl2", "ns").Queue("lq").Obj(),
+			},
+			popHead:          true,
+			deleteLocalQueue: true,
+			wantCQWorkloads:  1,
+		},
+		"inactive Workload moved to a LocalQueue that does not exist": {
+			inactiveWorkloads: []*kueue.Workload{inactive.Clone().Obj()},
+			update:            inactive.Clone().Queue("missing").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			metrics.InitMetricVectors(nil)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(tc.queuedWorkloads...), nil)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("failed to add ClusterQueue: %v", err)
+			}
+			for _, q := range []*kueue.LocalQueue{lq, utiltestingapi.MakeLocalQueue("lq2", "ns").ClusterQueue("cq").Obj()} {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("failed to add LocalQueue: %v", err)
+				}
+			}
+			for _, wl := range tc.inactiveWorkloads {
+				manager.UpdateUnadmittedWorkload(log, wl)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": "lq", "namespace": "ns"}); len(got) == 0 {
+				t.Fatal("expected the LocalQueue unadmitted workloads metric before the change")
+			}
+
+			if tc.popHead {
+				if heads := manager.Heads(ctx); len(heads) != 1 {
+					t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+				}
+			}
+			if tc.deleteLocalQueue {
+				manager.DeleteLocalQueue(log, lq)
+			}
+			if tc.remove != "" {
+				manager.RemoveUnadmittedWorkload(log, tc.remove)
+			}
+			if tc.update != nil {
+				manager.UpdateUnadmittedWorkload(log, tc.update)
+			}
+
+			for _, lqName := range []kueue.LocalQueueName{"lq", "lq2", "missing"} {
+				series := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{"name": string(lqName), "namespace": "ns"})
+				want, ok := tc.wantLQWorkloads[lqName]
+				if !ok {
+					if len(series) != 0 {
+						t.Errorf("LocalQueue %q unadmitted workloads series = %v, want none", lqName, series)
+					}
+					continue
+				}
+				var got float64
+				for _, dp := range series {
+					got += dp.Value
+				}
+				if got != want {
+					t.Errorf("LocalQueue %q unadmitted workloads = %v, want %v", lqName, got, want)
+				}
+			}
+			var gotCQWorkloads float64
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, map[string]string{"cluster_queue": "cq"}) {
+				gotCQWorkloads += dp.Value
+			}
+			if gotCQWorkloads != tc.wantCQWorkloads {
+				t.Errorf("ClusterQueue unadmitted workloads = %v, want %v", gotCQWorkloads, tc.wantCQWorkloads)
+			}
+		})
+	}
+}
