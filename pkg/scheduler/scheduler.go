@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -1208,11 +1209,14 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 		return
 	}
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) && replacedNodeName != "" {
-		// Remove only the node replaced by this admission. The remaining unhealthy nodes are left for later passes.
+		// A PodSet group is re-placed as a whole, so one admission can move away
+		// from several unhealthy nodes at once. Drop every node the new
+		// assignment no longer uses; a node that is still assigned is kept for a
+		// later pass.
 		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
-			return n.Name == replacedNodeName
+			return n.Name == replacedNodeName || !utiltas.HasTASAssignmentOnNode(wl.Status.Admission, n.Name)
 		})
-		log.V(5).Info("Dropping the replaced head node from the workload recovery field, keeping the remaining unhealthy nodes",
+		log.V(5).Info("Dropping the unhealthy nodes the new topology assignment no longer uses",
 			"replacedNode", replacedNodeName,
 			"remainingUnhealthyNodes", len(wl.Status.UnhealthyNodes))
 		return
