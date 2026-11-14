@@ -564,7 +564,12 @@ committing the changes necessary to implement this enhancement.
 - Add `kueue_local_queue_workload_creation_latency_seconds`, keyed by LocalQueue,
   and move the LocalQueue custom labels of `kueue_workload_creation_latency_seconds` to it.
   Like the other `local_queue_` histograms, it is recorded only for known LocalQueues.
-- Re-evaluate implementing the [Tracking custom workload label value combinations](#tracking-custom-workload-label-value-combinations).
+- For Beta, evaluated [tracking custom workload label value combinations](#tracking-custom-workload-label-value-combinations)
+  to remove zero-valued series. Pending workload metrics with Workload custom
+  labels already delete a series when its count reaches zero. Admitted active
+  workload metrics retain zero-valued series, but the required `trackedValues`
+  prevent arbitrary Workload label values from creating separate series: values
+  outside the list share one `kueue.x-k8s.io/_UNTRACKED_VALUE_` series.
 
 **GA**
 
