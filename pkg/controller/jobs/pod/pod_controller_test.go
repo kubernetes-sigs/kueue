@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
@@ -414,6 +415,14 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
+type fakeServerVersionFetcher struct {
+	version versionutil.Version
+}
+
+func (f fakeServerVersionFetcher) GetServerVersion() versionutil.Version {
+	return f.version
+}
+
 func TestRun(t *testing.T) {
 	roleA := "role-a"
 	gpu := corev1.ResourceName("nvidia.com/gpu")
@@ -531,21 +540,28 @@ func TestRun(t *testing.T) {
 	defaultRequestLimitRange := utiltesting.MakeLimitRange("defaults", metav1.NamespaceDefault).
 		WithValue("DefaultRequest", corev1.ResourceCPU, "1").
 		Obj()
+	wlWithRoleAPodLevelLimit := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+			Containers(corev1.Container{Name: "c"}).
+			PodLevelLimit(corev1.ResourceCPU, "4").
+			Obj()).
+		Obj()
 	kataRuntimeClass := utiltesting.MakeRuntimeClass("kata", "kata").
 		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
 		Obj()
 	verifyRoleRequests := map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: true}
 
 	testCases := map[string]struct {
-		initObjects  []client.Object
-		wl           *kueue.Workload
-		pods         []corev1.Pod
-		runInfo      []podset.PodSetInfo
-		isGroup      bool
-		featureGates map[featuregate.Feature]bool
-		wantErr      error
-		wantPods     []corev1.Pod
-		wantEvents   []utiltesting.EventRecord
+		initObjects   []client.Object
+		wl            *kueue.Workload
+		pods          []corev1.Pod
+		runInfo       []podset.PodSetInfo
+		serverVersion workload.ServerVersionFetcher
+		isGroup       bool
+		featureGates  map[featuregate.Feature]bool
+		wantErr       error
+		wantPods      []corev1.Pod
+		wantEvents    []utiltesting.EventRecord
 	}{
 		"pod set info > 1 for the single pod": {
 			wl:       utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).Obj(),
@@ -725,6 +741,35 @@ func TestRun(t *testing.T) {
 				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
 			}},
 		},
+		"pod-level limit without container requests reserves the pod-level limit on a 1.36 server": {
+			featureGates:  verifyRoleRequests,
+			initObjects:   []client.Object{defaultRequestLimitRange},
+			serverVersion: fakeServerVersionFetcher{version: *versionutil.MustParseSemantic("1.36.4")},
+			wl:            wlWithRoleAPodLevelLimit,
+			pods:          []corev1.Pod{gatedGroupPod("p1", "3")},
+			runInfo:       runInfoRoleA,
+			isGroup:       true,
+			wantPods:      []corev1.Pod{ungatedGroupPod("p1", "3")},
+			wantEvents: []utiltesting.EventRecord{
+				{Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted},
+			},
+		},
+		"pod-level limit without container requests reserves the LimitRange default on a 1.37 server": {
+			featureGates:  verifyRoleRequests,
+			initObjects:   []client.Object{defaultRequestLimitRange},
+			serverVersion: fakeServerVersionFetcher{version: *versionutil.MustParseSemantic("1.37.0")},
+			wl:            wlWithRoleAPodLevelLimit,
+			pods:          []corev1.Pod{gatedGroupPod("p1", "3")},
+			runInfo:       runInfoRoleA,
+			isGroup:       true,
+			wantPods:      []corev1.Pod{gatedGroupPod("p1", "3")},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
 		"pod with RuntimeClass overhead fitting its role is ungated": {
 			featureGates: verifyRoleRequests,
 			initObjects:  []client.Object{kataRuntimeClass},
@@ -802,6 +847,7 @@ func TestRun(t *testing.T) {
 			}
 
 			pod := FromObject(&tc.pods[0])
+			pod.serverVersion = tc.serverVersion
 			if tc.isGroup {
 				pod.isGroup = true
 				pod.list.Items = tc.pods
