@@ -1324,6 +1324,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 	// Increments a re-queueing count and update a time to be re-queued.
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	if underlyingCause == kueue.WorkloadWaitForScheduling {
+		message += r.unschedulablePodsMessage(ctx, wl)
+	}
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	err = workloadevict.Evict(
 		ctx,
@@ -1343,6 +1346,41 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	)
 
 	return 0, err
+}
+
+// maxUnschedulableReasonLength bounds the kube-scheduler text appended to the
+// eviction message, as the scheduler can report one clause per node.
+const maxUnschedulableReasonLength = 512
+
+// unschedulablePodsMessage returns a suffix for the eviction message with the
+// reason kube-scheduler reported for the workload's unschedulable Pods
+// (for example "Insufficient cpu"), or an empty string when none is available.
+// Failing to list the Pods must not block the eviction, so errors are only logged.
+func (r *WorkloadReconciler) unschedulablePodsMessage(ctx context.Context, wl *kueue.Workload) string {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("Unable to list Pods to describe why they are unschedulable", "error", err)
+		return ""
+	}
+	reasons := sets.New[string]()
+	for _, pod := range pods {
+		if pod.Status.Phase != corev1.PodPending || !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		for _, c := range pod.Status.Conditions {
+			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable && c.Message != "" {
+				reasons.Insert(c.Message)
+			}
+		}
+	}
+	if reasons.Len() == 0 {
+		return ""
+	}
+	reason := strings.Join(sets.List(reasons), "; ")
+	if len(reason) > maxUnschedulableReasonLength {
+		reason = reason[:maxUnschedulableReasonLength] + "..."
+	}
+	return ". Unschedulable Pods: " + reason
 }
 
 // triggerDeactivation trigger deactivation of workload

@@ -123,6 +123,33 @@ scheduling report `PodsReady=False` with reason `WaitForScheduling`.
 Remove `unscheduledTimeout` from the configuration before disabling the feature
 gate. This feature cannot be used together with `DisableWaitForPodsReady`.
 
+#### Diagnosing Workloads that are evicted because Pods cannot be scheduled
+
+When a Workload is evicted because its Pods stayed unscheduled, Kueue appends the
+text kube-scheduler reported for the pending Pods to the `Evicted` condition message
+and to the eviction event, for example:
+
+```
+Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.
+```
+
+The text is read from the `PodScheduled=False` condition of the Pods when the
+Workload is evicted. It is omitted if the Pods report no such condition, and it is
+truncated if it is long. The Workload's `PodsScheduled` condition does not carry it.
+
+A repeated `Insufficient cpu` (or `Insufficient memory`, and similar) while the
+ClusterQueue still has quota usually means that the free capacity is spread over
+several nodes and no single node fits a Pod. Quota tracks aggregate resources, so Kueue
+admits the Workload again after each requeue while the node layout is unchanged. To
+reduce such retries:
+
+- Enable [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/), so
+  admission takes node capacity into account. See
+  [All-or-nothing scheduling](/docs/concepts/all_or_nothing/).
+- Set `backoffLimitCount` and keep the default exponential backoff, so a Workload that
+  cannot be placed is deactivated instead of being requeued indefinitely. See
+  [Requeuing Strategy](#requeuing-strategy).
+
 ### Per-workload timeouts
 
 {{< feature-state state="alpha" for_version="v0.20" >}}
@@ -204,6 +231,12 @@ backoff time by setting the `backoffMaxSeconds` (defaulting to 3600). Using the 
 evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
 Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
 until the number of re-queue reaches the `backoffLimitCount`.
+
+{{% alert title="Note" color="primary" %}}
+A very small `backoffBaseSeconds` and `backoffMaxSeconds` (for example 5 seconds), together
+with no `backoffLimitCount`, makes a Workload that cannot be placed on any node
+repeatedly admitted and evicted for as long as the cluster layout stays unchanged.
+{{% /alert %}}
 
 ## Example
 

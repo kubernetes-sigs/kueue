@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -34,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -216,6 +218,139 @@ func TestReconcileRequeue(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
 					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"evict with the WaitForScheduling cause reports why the Pods are unschedulable": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     30 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			additionalObjects: []client.Object{
+				// Reported by kube-scheduler, so it is included in the message.
+				utiltestingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:    corev1.PodScheduled,
+						Status:  corev1.ConditionFalse,
+						Reason:  corev1.PodReasonUnschedulable,
+						Message: "0/3 nodes are available: 3 Insufficient cpu.",
+					}).
+					Obj(),
+				// Duplicate text is reported once.
+				utiltestingpod.MakePod("pod-2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:    corev1.PodScheduled,
+						Status:  corev1.ConditionFalse,
+						Reason:  corev1.PodReasonUnschedulable,
+						Message: "0/3 nodes are available: 3 Insufficient cpu.",
+					}).
+					Obj(),
+				// Pods of other workloads and already scheduled Pods are ignored.
+				utiltestingpod.MakePod("other", "ns").
+					Annotation(kueue.WorkloadAnnotation, "other-wl").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:    corev1.PodScheduled,
+						Status:  corev1.ConditionFalse,
+						Reason:  corev1.PodReasonUnschedulable,
+						Message: "0/3 nodes are available: 3 Insufficient memory.",
+					}).
+					Obj(),
+				utiltestingpod.MakePod("running", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForScheduling,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
+					Message:   "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.",
 				},
 			},
 		},
