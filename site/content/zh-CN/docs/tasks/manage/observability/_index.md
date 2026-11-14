@@ -1,7 +1,7 @@
 ---
 title: "可观测性"
 linkTitle: "可观测性"
-weight: 5
+weight: 80
 date: 2026-02-04
 description: >
   使用 Prometheus 指标监控 Kueue
