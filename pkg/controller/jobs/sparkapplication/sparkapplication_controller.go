@@ -335,7 +335,10 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		// An elastic job's executor count follows the running executors, not
 		// spec.executor.instances, and Kueue never changes instances when it
 		// starts the job, so there is nothing to restore.
-		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) {
+		// The count may come from spec.sparkConf (see executorInstances); it is
+		// restored to spec.executor.instances only if that changes it, so that an
+		// unchanged count set in spec.sparkConf stays there.
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) && j.numInitialExecutors() != podSetInfo.Count {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -381,13 +384,14 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...
 	// AppState.State alone goes to Running as soon as the driver starts even if
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
-	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	expected := int(j.numInitialExecutors())
 	// When dynamic allocation is enabled, the actual number of executors can
 	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
-	// expected count since it's the guaranteed minimum. If neither the CRD
-	// field nor sparkConf is set, use Spec.Executor.Instances as default.
-	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
-		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	// expected count since it's the guaranteed minimum. If it is set neither in
+	// spec.dynamicAllocation nor in spec.sparkConf, use the executor instances
+	// as default.
+	if da := j.dynamicAllocation(); da.enabled {
+		expected = int(ptr.Deref(da.minExecutors, int32(expected)))
 	}
 	if expected == 0 {
 		return true
@@ -407,13 +411,12 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client, _ ...
 // running), so terminating executors hold quota until they stop. Without a
 // client (the webhook), the count follows the spec only.
 func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (int32, error) {
-	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+	da := j.dynamicAllocation()
+	if !isAnElasticJob(j) || !da.enabled {
 		return j.numInitialExecutors(), nil
 	}
 	// The driver starts with the largest of instances, minExecutors and initialExecutors.
-	initialExecutors := max(j.numInitialExecutors(),
-		ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0),
-		ptr.Deref(j.Spec.DynamicAllocation.InitialExecutors, 0))
+	initialExecutors := max(j.numInitialExecutors(), ptr.Deref(da.minExecutors, 0), ptr.Deref(da.initialExecutors, 0))
 	if c == nil || !j.driverStarted() {
 		return initialExecutors, nil
 	}
@@ -430,15 +433,15 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	// of stopped executors can be deleted, so the highest ID also comes from
 	// maxExecutorIDAnnotation.
 	created := max(j.recordedMaxExecutorID(), maxID)
-	createdAll := created >= int(min(initialExecutors, ptr.Deref(j.Spec.DynamicAllocation.MaxExecutors, initialExecutors)))
+	createdAll := created >= int(min(initialExecutors, ptr.Deref(da.maxExecutors, initialExecutors)))
 	if !createdAll && created <= int(count) {
 		return initialExecutors, nil
 	}
 	// Clamp the count to [minExecutors, maxExecutors].
-	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+	if minExecutors := da.minExecutors; minExecutors != nil {
 		count = max(count, *minExecutors)
 	}
-	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
+	if maxExecutors := da.maxExecutors; maxExecutors != nil {
 		count = min(count, *maxExecutors)
 	}
 	return count, nil

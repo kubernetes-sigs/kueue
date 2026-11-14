@@ -52,7 +52,7 @@ var (
 )
 
 func (j *SparkApplication) numInitialExecutors() int32 {
-	return ptr.Deref(j.Spec.Executor.Instances, 0)
+	return ptr.Deref(j.executorInstances(), 0)
 }
 
 func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
