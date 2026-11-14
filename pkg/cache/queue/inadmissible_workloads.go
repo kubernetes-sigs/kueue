@@ -94,25 +94,39 @@ func requeueWorkloadsCQ(ctx context.Context, m *Manager, clusterQueueName kueue.
 // requeueWorkloadsCQWithRetry returns whether any Namespace read failed
 // transiently (or a new Namespace appeared after the initial snapshot).
 func requeueWorkloadsCQWithRetry(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference) (int, bool) {
-	// Snapshot the needed Namespaces under a read lock, then perform client
-	// lookups outside m.Lock. Holding the write lock over API/cache reads
-	// stalls unrelated queue operations for the duration of the batch.
+	namespaces := snapshotClusterQueueInadmissibleNamespaces(m, clusterQueueName)
+	if namespaces == nil {
+		return 0, false
+	}
+
+	// Namespace reads must not hold the manager lock; queue membership and
+	// eligibility are revalidated under the write lock afterwards.
+	resolved := readNamespaces(ctx, m.client, namespaces)
+	return moveClusterQueueInadmissibleAfterRead(ctx, m, clusterQueueName, resolved)
+}
+
+// snapshotClusterQueueInadmissibleNamespaces collects names under the manager
+// read lock. The caller must perform Namespace lookups after it returns.
+func snapshotClusterQueueInadmissibleNamespaces(m *Manager, clusterQueueName kueue.ClusterQueueReference) sets.Set[string] {
 	m.RLock()
+	defer m.RUnlock()
+
 	cq := m.hm.ClusterQueue(clusterQueueName)
 	if cq == nil {
-		m.RUnlock()
-		return 0, false
+		return nil
 	}
 	namespaces := sets.New[string]()
 	collectInadmissibleNamespaces(cq, namespaces)
-	m.RUnlock()
+	return namespaces
+}
 
-	resolved := readNamespaces(ctx, m.client, namespaces)
-
+// moveClusterQueueInadmissibleAfterRead rechecks the live ClusterQueue after
+// Namespace lookups; the ClusterQueue may have been deleted or recreated.
+func moveClusterQueueInadmissibleAfterRead(ctx context.Context, m *Manager, clusterQueueName kueue.ClusterQueueReference, resolved map[string]namespaceRead) (int, bool) {
 	m.Lock()
 	defer m.Unlock()
-	// A ClusterQueue may have been deleted/recreated during the reads.
-	cq = m.hm.ClusterQueue(clusterQueueName)
+
+	cq := m.hm.ClusterQueue(clusterQueueName)
 	if cq == nil {
 		return 0, false
 	}
@@ -133,28 +147,44 @@ func requeueWorkloadsCohort(ctx context.Context, m *Manager, rootCohortName kueu
 }
 
 func requeueWorkloadsCohortWithRetry(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference) (int, bool) {
-	m.RLock()
-	cohort := m.hm.Cohort(rootCohortName)
-	if cohort == nil {
-		m.RUnlock()
-		return 0, false
-	}
-	if hierarchy.HasCycle(cohort) {
-		m.RUnlock()
+	namespaces, hasCycle := snapshotCohortInadmissibleNamespaces(m, rootCohortName)
+	if hasCycle {
 		ctrl.LoggerFrom(ctx).V(2).Info("Attempted to move workloads from Cohort which has cycle", "cohort", rootCohortName)
 		return 0, false
 	}
-	namespaces := sets.New[string]()
-	collectCohortNamespaces(cohort, namespaces)
-	m.RUnlock()
+	if namespaces == nil {
+		return 0, false
+	}
 
 	resolved := readNamespaces(ctx, m.client, namespaces)
+	return moveCohortInadmissibleAfterRead(ctx, m, rootCohortName, resolved)
+}
 
+// snapshotCohortInadmissibleNamespaces collects all distinct Namespace names
+// in the tree under the manager read lock. The second result indicates a cycle.
+func snapshotCohortInadmissibleNamespaces(m *Manager, rootCohortName kueue.CohortReference) (sets.Set[string], bool) {
+	m.RLock()
+	defer m.RUnlock()
+
+	cohort := m.hm.Cohort(rootCohortName)
+	if cohort == nil {
+		return nil, false
+	}
+	if hierarchy.HasCycle(cohort) {
+		return nil, true
+	}
+	namespaces := sets.New[string]()
+	collectCohortNamespaces(cohort, namespaces)
+	return namespaces, false
+}
+
+// moveCohortInadmissibleAfterRead revalidates the Cohort topology under the
+// manager write lock, including any changes during Namespace lookups.
+func moveCohortInadmissibleAfterRead(ctx context.Context, m *Manager, rootCohortName kueue.CohortReference, resolved map[string]namespaceRead) (int, bool) {
 	m.Lock()
 	defer m.Unlock()
-	// Recheck the live topology: the Cohort or its children can change
-	// while Namespace lookups are in flight.
-	cohort = m.hm.Cohort(rootCohortName)
+
+	cohort := m.hm.Cohort(rootCohortName)
 	if cohort == nil || hierarchy.HasCycle(cohort) {
 		return 0, false
 	}
