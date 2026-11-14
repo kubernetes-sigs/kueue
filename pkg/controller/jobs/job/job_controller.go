@@ -504,7 +504,7 @@ func (j *Job) podSetPreemptionMinCount() *int32 {
 	if !features.Enabled(features.PartialPreemption) {
 		return nil
 	}
-	strVal, found := j.GetAnnotations()[constants.PodSetPartialPreemptionMinCountAnnotation]
+	strVal, found := j.Spec.Template.Annotations[constants.PodSetPartialPreemptionMinCountAnnotation]
 	if !found {
 		return nil
 	}
