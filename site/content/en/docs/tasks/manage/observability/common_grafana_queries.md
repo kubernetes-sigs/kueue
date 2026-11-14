@@ -234,7 +234,7 @@ the Incremental dispatcher had to nominate further worker clusters:
 
 ```promql
 1 - (
-  sum by (cluster_queue, dispatcher) (rate(multikueue_workload_nomination_rounds_bucket{le="1"}[1h]))
+  sum by (cluster_queue, dispatcher) (rate(multikueue_workload_nomination_rounds_bucket{le=~"1(.0)?"}[1h]))
   /
   sum by (cluster_queue, dispatcher) (rate(multikueue_workload_nomination_rounds_count[1h]))
 )
