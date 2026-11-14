@@ -272,3 +272,126 @@ func TestMultiKueueAdapter(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncTerminalJobStatus(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.WorkloadIdentifierAnnotations: false,
+	})
+	const (
+		oldSlice = "old-slice"
+		newSlice = "replacement-slice"
+		origin   = "origin1"
+	)
+	tests := map[string]struct {
+		deploymentStatus rayv1.JobDeploymentStatus
+		jobStatus        rayv1.JobStatus
+		prebuilt         string
+		remoteOrigin     string
+		noRemote         bool
+		wantSynced       bool
+		wantError        bool
+	}{
+		"successful completion": {
+			deploymentStatus: rayv1.JobDeploymentStatusComplete,
+			jobStatus:        rayv1.JobStatusSucceeded,
+			prebuilt:         oldSlice,
+			remoteOrigin:     origin,
+			wantSynced:       true,
+		},
+		"failed job with complete deployment": {
+			deploymentStatus: rayv1.JobDeploymentStatusComplete,
+			jobStatus:        rayv1.JobStatusFailed,
+			prebuilt:         oldSlice,
+			remoteOrigin:     origin,
+			wantSynced:       true,
+		},
+		"failed deployment": {
+			deploymentStatus: rayv1.JobDeploymentStatusFailed,
+			jobStatus:        rayv1.JobStatusFailed,
+			prebuilt:         oldSlice,
+			remoteOrigin:     origin,
+			wantSynced:       true,
+		},
+		"running status is ignored": {
+			deploymentStatus: rayv1.JobDeploymentStatusRunning,
+			prebuilt:         oldSlice,
+			remoteOrigin:     origin,
+		},
+		"already repointed worker is ignored": {
+			deploymentStatus: rayv1.JobDeploymentStatusComplete,
+			jobStatus:        rayv1.JobStatusSucceeded,
+			prebuilt:         newSlice,
+			remoteOrigin:     origin,
+		},
+		"foreign worker is rejected": {
+			deploymentStatus: rayv1.JobDeploymentStatusComplete,
+			jobStatus:        rayv1.JobStatusSucceeded,
+			prebuilt:         oldSlice,
+			remoteOrigin:     "another-origin",
+			wantError:        true,
+		},
+		"missing remote is ignored": {
+			noRemote: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			local := utiltestingrayjob.MakeJob("rayjob1", TestNamespace).Suspend(false).Obj()
+			managerClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+				WithObjects(local).
+				WithStatusSubresource(local).
+				Build()
+			workerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
+			var remote *rayv1.RayJob
+			if !tc.noRemote {
+				remote = utiltestingrayjob.MakeJob("rayjob1", TestNamespace).
+					Suspend(false).
+					PrebuiltWorkloadLabel(tc.prebuilt).
+					Label(kueue.MultiKueueOriginLabel, tc.remoteOrigin).
+					JobStatus(tc.jobStatus).
+					JobDeploymentStatus(tc.deploymentStatus).
+					Obj()
+				workerBuilder = workerBuilder.WithObjects(remote)
+			}
+			workerClient := workerBuilder.Build()
+			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+				ray.WithTerminalStatusSync(func(job *rayv1.RayJob) bool {
+					return job.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete ||
+						job.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed
+				}))
+			syncer := adapter.(jobframework.MultiKueueTerminalJobStatusSyncer)
+			key := types.NamespacedName{Name: local.Name, Namespace: local.Namespace}
+			gotSynced, err := syncer.SyncTerminalJobStatus(ctx, managerClient, workerClient, key, oldSlice, origin)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("SyncTerminalJobStatus error = %v, wantError = %v", err, tc.wantError)
+			}
+			if gotSynced != tc.wantSynced {
+				t.Errorf("SyncTerminalJobStatus synced = %v, want %v", gotSynced, tc.wantSynced)
+			}
+			managerAfter := &rayv1.RayJob{}
+			if err := managerClient.Get(ctx, key, managerAfter); err != nil {
+				t.Fatal(err)
+			}
+			wantStatus := local.Status
+			if tc.wantSynced {
+				wantStatus = remote.Status
+			}
+			if diff := cmp.Diff(wantStatus, managerAfter.Status); diff != "" {
+				t.Errorf("unexpected manager RayJob status (-want/+got): %s", diff)
+			}
+			if !tc.noRemote {
+				workerAfter := &rayv1.RayJob{}
+				if err := workerClient.Get(ctx, key, workerAfter); err != nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(remote.Spec, workerAfter.Spec); diff != "" {
+					t.Errorf("remote RayJob spec changed (-want/+got): %s", diff)
+				}
+				if got := jobframework.PrebuiltWorkloadNameFor(workerAfter); got != tc.prebuilt {
+					t.Errorf("remote prebuilt workload changed to %q; want %q", got, tc.prebuilt)
+				}
+			}
+		})
+	}
+}
