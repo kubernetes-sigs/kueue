@@ -1,0 +1,50 @@
+# This workflow enforces a maximum cap on open assigned issues per user.
+name: Issue Assignee Cap
+
+on:
+  issues:
+    types: [assigned]
+  pull_request:
+    paths:
+      - '.github/workflows/issue-assignee-cap.yml'
+      - 'hack/issue-assignee-cap.js'
+      - 'hack/issue-assignee-cap.test.js'
+
+concurrency:
+  group: issue-assignee-cap-${{ github.event.assignee.login || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  test-script:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run unit tests
+        run: node --test hack/issue-assignee-cap.test.js
+
+  enforce-cap:
+    if: github.event_name == 'issues' && github.repository == 'kubernetes-sigs/kueue' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Enforce issue cap
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const enforceCap = require('./hack/issue-assignee-cap.js');
+            await enforceCap({ github, context, core });
