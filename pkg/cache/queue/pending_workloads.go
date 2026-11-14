@@ -463,6 +463,25 @@ func (p *PendingWorkloads) DumpAll() []*workload.Info {
 	return elements
 }
 
+// updateSchedulingHashes applies update, which may change the scheduling hash,
+// to the workloads in the active workloads heap and the inadmissible workloads
+// list, keeping their scheduling hash counts. The heap does not order by the
+// scheduling hash.
+func (p *PendingWorkloads) updateSchedulingHashes(update func(*workload.Info)) {
+	p.Lock()
+	defer p.Unlock()
+	for wInfo := range p.activeIterator() {
+		p.schedulingHashes.removeActive(wInfo)
+		update(wInfo)
+		p.schedulingHashes.addActive(wInfo)
+	}
+	for _, wInfo := range p.inadmissible {
+		p.schedulingHashes.removeInadmissible(wInfo)
+		update(wInfo)
+		p.schedulingHashes.addInadmissible(wInfo)
+	}
+}
+
 func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
 	if wInfo, ok := p.inflight[ref]; ok {
 		delete(p.inflight, ref)

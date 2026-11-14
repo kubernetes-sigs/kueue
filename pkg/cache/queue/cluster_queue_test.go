@@ -35,8 +35,10 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -2362,9 +2364,13 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 }
 
 func TestRequeueHashTriggerByReason(t *testing.T) {
+	withConfig := map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"}
 	tests := map[string]struct {
-		reason   RequeueReason
-		wantHash bool
+		configurablePreemptions bool
+		annotations             map[string]string
+		queueingStrategy        kueue.QueueingStrategy
+		reason                  RequeueReason
+		wantHash                bool
 	}{
 		"nofit triggers hash": {
 			reason:   RequeueReasonNoFit,
@@ -2386,18 +2392,50 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			reason:   RequeueReasonGeneric,
 			wantHash: false,
 		},
+		"StrictFIFO does not trigger hash": {
+			queueingStrategy: kueue.StrictFIFO,
+			reason:           RequeueReasonNoFit,
+			wantHash:         false,
+		},
+		// A PreemptionConfig selects candidates by properties of the preemptor
+		// that the scheduling hash leaves out. Until the Manager reads which ones,
+		// a head that cannot be admitted must not take the rest of its scheduling
+		// hash to inadmissible.
+		"nofit with a PreemptionConfig not read yet does not trigger hash": {
+			configurablePreemptions: true,
+			annotations:             withConfig,
+			reason:                  RequeueReasonNoFit,
+			wantHash:                false,
+		},
+		"preempt no candidates with a PreemptionConfig not read yet does not trigger hash": {
+			configurablePreemptions: true,
+			annotations:             withConfig,
+			reason:                  RequeueReasonPreemptionNoCandidates,
+			wantHash:                false,
+		},
+		"PreemptionConfig is ignored with ConfigurablePreemptions disabled": {
+			annotations: withConfig,
+			reason:      RequeueReasonPreemptionNoCandidates,
+			wantHash:    true,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, tc.configurablePreemptions)
 			ctx, log := utiltesting.ContextWithLog(t)
-			cq, _ := newClusterQueue(ctx,
-				&kueue.ClusterQueue{
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: kueue.BestEffortFIFO,
-					},
-				}, nil,
+			queueingStrategy := kueue.BestEffortFIFO
+			if tc.queueingStrategy != "" {
+				queueingStrategy = tc.queueingStrategy
+			}
+			apiCQ := &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					QueueingStrategy: queueingStrategy,
+				},
+			}
+			apiCQ.Annotations = tc.annotations
+			cq, _ := newClusterQueue(ctx, apiCQ, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 				nil, nil)
 
@@ -2410,6 +2448,163 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			_, gotHash := cq.hashToBulkMoveReason["test-hash-abc"]
 			if gotHash != tc.wantHash {
 				t.Errorf("hashToBulkMoveReason.Has(hash) = %v, want %v", gotHash, tc.wantHash)
+			}
+		})
+	}
+}
+
+// Referencing a PreemptionConfig stops bulk moves by hash until its rules are
+// read, but the workloads already bulk-moved keep their reason until they are
+// requeued.
+func TestUpdateWithPreemptionConfigStopsBulkMoves(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+	cq, err := newClusterQueue(ctx, apiCQ, nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ClusterQueue: %v", err)
+	}
+	newInfo := func(name string) *workload.Info {
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Request(corev1.ResourceCPU, "1").Obj()
+		info := workload.NewInfo(log, wl)
+		info.SchedulingHash = "shared-hash"
+		return info
+	}
+	cq.PushOrUpdate(newInfo("queued"))
+	cq.RequeueIfNotPresent(ctx, newInfo("head"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	if active, inadmissible := cq.Pending(); active != 0 || inadmissible != 2 {
+		t.Fatalf("Pending() = (active %d, inadmissible %d), want (active 0, inadmissible 2) before the PreemptionConfig is referenced", active, inadmissible)
+	}
+
+	withConfig := apiCQ.DeepCopy()
+	withConfig.Annotations = map[string]string{kueuealpha.PreemptionConfigNameAnnotation: "config"}
+	if err := cq.Update(withConfig); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+	if reason, ok := cq.GetNoFitReason("default/queued"); !ok || reason != string(kueue.WorkloadQuotaReservedReasonWaitingForQuota) {
+		t.Errorf("GetNoFitReason() = (%q, %v), want (%q, true) for a workload bulk-moved before the update", reason, ok, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	}
+	cq.PushOrUpdate(newInfo("added-later"))
+	cq.RequeueIfNotPresent(ctx, newInfo("head-2"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	if active, _ := cq.Pending(); active != 1 {
+		t.Errorf("Active workloads = %d, want 1 before the rules of the PreemptionConfig are read", active)
+	}
+
+	if err := cq.Update(apiCQ); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+	cq.RequeueIfNotPresent(ctx, newInfo("head-3"), RequeueReasonPreemptionNoCandidates, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	if active, _ := cq.Pending(); active != 0 {
+		t.Errorf("Active workloads = %d, want 0 after the bulk move resumes", active)
+	}
+}
+
+// The scheduling hashes of the queued workloads include the PreemptorHashFields
+// of the PreemptionConfig the ClusterQueue uses, once they are read, and no
+// longer once it stops using it.
+func TestSetPreemptorHashFieldsRehashesQueuedWorkloads(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()
+	cq, err := newClusterQueue(ctx, apiCQ, nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ClusterQueue: %v", err)
+	}
+	newInfo := func(name, team string) *workload.Info {
+		return workload.NewInfo(log, utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Label("team", team).Request(corev1.ResourceCPU, "1").Obj())
+	}
+	// The scheduling hash of a queued workload, active or inadmissible.
+	hashOf := func(key workload.Reference) workload.EquivalenceHash {
+		return cq.workloads.Get(key).SchedulingHash
+	}
+	cq.PushOrUpdate(newInfo("team-a", "a"))
+	cq.RequeueIfNotPresent(ctx, newInfo("team-b", "b"), RequeueReasonGeneric, "")
+	wantHashes := func(wantActive, wantInadmissible int) {
+		t.Helper()
+		if active, inadmissible := cq.PendingSchedulingHashes(); active != wantActive || inadmissible != wantInadmissible {
+			t.Errorf("PendingSchedulingHashes() = (%d, %d), want (%d, %d)", active, inadmissible, wantActive, wantInadmissible)
+		}
+	}
+	wantHashes(1, 1)
+	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a != b {
+		t.Fatalf("SchedulingHash = (%q, %q) before the PreemptionConfig is read, want equal", a, b)
+	}
+
+	cq.setPreemptorHashFields("other", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a != b {
+		t.Errorf("SchedulingHash = (%q, %q) after reading a PreemptionConfig the ClusterQueue does not use, want equal", a, b)
+	}
+
+	cq.setPreemptorHashFields("config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a == b {
+		t.Errorf("SchedulingHash = (%q, %q) after reading the PreemptionConfig, want them told apart by the team label", a, b)
+	}
+	wantHashes(1, 1)
+	cq.PushOrUpdate(newInfo("team-b-later", "b"))
+	if got, want := hashOf("default/team-b-later"), hashOf("default/team-b"); got != want {
+		t.Errorf("SchedulingHash = %q for a workload pushed later, want %q", got, want)
+	}
+	wantHashes(2, 1)
+
+	if err := cq.Update(utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+	if a, b := hashOf("default/team-a"), hashOf("default/team-b"); a != b {
+		t.Errorf("SchedulingHash = (%q, %q) after the ClusterQueue stops using the PreemptionConfig, want equal", a, b)
+	}
+	wantHashes(1, 1)
+}
+
+// In a ClusterQueue using a PreemptionConfig, an inadmissible workload whose
+// field read by the rules changes leaves inadmissible, while other changes of
+// its scheduling hash keep it there, as in a ClusterQueue using none.
+func TestPushOrUpdateInadmissibleWithPreemptorHashFields(t *testing.T) {
+	cases := map[string]struct {
+		update           func(*utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper
+		wantActive       int
+		wantInadmissible int
+	}{
+		"a label read by the rules changes": {
+			update:     func(w *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper { return w.Label("team", "b") },
+			wantActive: 1,
+		},
+		"an annotation in the scheduling shape changes": {
+			update: func(w *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper {
+				return w.Annotation(constants.WorkloadSliceReplacementForAnnotation, "default/other")
+			},
+			wantInadmissible: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			apiCQ := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()
+			cq, err := newClusterQueue(ctx, apiCQ, nil, defaultOrdering, nil, nil)
+			if err != nil {
+				t.Fatalf("Failed to create ClusterQueue: %v", err)
+			}
+			cq.setPreemptorHashFields("config", &workload.PreemptorHashFields{LabelKeys: []string{"team"}})
+			wl := func() *utiltestingapi.WorkloadWrapper {
+				return utiltestingapi.MakeWorkload("wl", defaultNamespace).Label("team", "a").Request(corev1.ResourceCPU, "1")
+			}
+			before := workload.NewInfo(log, wl().Obj())
+			cq.RequeueIfNotPresent(ctx, before, RequeueReasonGeneric, "")
+			after := workload.NewInfo(log, tc.update(wl()).Obj())
+			if before.SchedulingHash == workload.NewInfo(log, tc.update(wl()).Obj(), workload.WithPreemptorHashFields(cq.PreemptorHashFields())).SchedulingHash {
+				t.Fatal("The update does not change the scheduling hash")
+			}
+			cq.PushOrUpdate(after)
+			if active, inadmissible := cq.Pending(); active != tc.wantActive || inadmissible != tc.wantInadmissible {
+				t.Errorf("Pending() = (%d, %d), want (%d, %d)", active, inadmissible, tc.wantActive, tc.wantInadmissible)
 			}
 		})
 	}

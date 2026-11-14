@@ -361,6 +361,9 @@ func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
 	return true
 }
 
+// matchesPreemptor reports whether the preemptor selectors of rule match the
+// preemptor. The fields of the preemptor they read are listed in
+// PreemptorHashFields, which a new preemptor selector has to be added to.
 func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {
 	matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
 	if err != nil || !matches {
