@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -87,6 +88,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = webhook.SetupNoopWebhook(mgr, &batchv1.Job{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = webhook.SetupNoopWebhook(mgr, &corev1.Pod{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	controllersCfg := &config.Configuration{}
