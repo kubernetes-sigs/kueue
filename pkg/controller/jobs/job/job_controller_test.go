@@ -884,6 +884,69 @@ func TestReconciler(t *testing.T) {
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
+		"Workload priority class pod label is set when the gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: true,
+				features.TopologyAwareScheduling:                 false,
+			},
+			job: baseJobWrapper.Clone().
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				WorkloadPriorityClass("high-priority").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
+				PodLabel(constants.WorkloadPriorityClassPodLabel, "high-priority").
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				AdmittedAt(true, now).
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				AdmittedAt(true, now).
+				Obj()},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+				EventType: "Normal",
+				Reason:    "Started",
+				Message:   "Admitted by clusterQueue cq",
+			}},
+		},
+		"Workload priority class pod label is absent when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.AssignWorkloadPriorityClassLabelForPods: false,
+				features.TopologyAwareScheduling:                 false,
+			},
+			job: baseJobWrapper.Clone().
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				WorkloadPriorityClass("high-priority").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
+				Obj(),
+			workloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				AdmittedAt(true, now).
+				Obj()},
+			wantWorkloads: []kueue.Workload{*baseWorkloadWrapper.Clone().
+				WorkloadPriorityClassRef("high-priority").
+				AdmittedAt(true, now).
+				Obj()},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+				EventType: "Normal",
+				Reason:    "Started",
+				Message:   "Admitted by clusterQueue cq",
+			}},
+		},
 		"job is not found with FinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_job"},

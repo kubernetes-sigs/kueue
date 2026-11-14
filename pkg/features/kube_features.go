@@ -377,6 +377,10 @@ const (
 	// Enables pod labeling with corresponding cluster and local queue names
 	AssignQueueLabelsForPods featuregate.Feature = "AssignQueueLabelsForPods"
 
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18586
+	// Enables pod labeling with the corresponding Workload's priority class name.
+	AssignWorkloadPriorityClassLabelForPods featuregate.Feature = "AssignWorkloadPriorityClassLabelForPods"
+
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable multi-layer topology constraints for TAS, allowing up to 3 slice
@@ -1247,6 +1251,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AssignQueueLabelsForPods: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.23
+	},
+	AssignWorkloadPriorityClassLabelForPods: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

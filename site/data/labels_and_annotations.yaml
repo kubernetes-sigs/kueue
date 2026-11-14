@@ -563,6 +563,25 @@
 
     This annotation is alpha-level for the `ConcurrentAdmission` feature gate.
 
+- key: kueue.x-k8s.io/workload-priority-class
+  type: Label
+  example: '`kueue.x-k8s.io/workload-priority-class: "high-priority"`'
+  used_on: |
+    Pods.
+  description: |
+    When Kueue starts a Job for an admitted Workload, this label records the name
+    from the Workload's `spec.priorityClassRef` on its pod templates or managed Pods.
+    The reference can identify a WorkloadPriorityClass or a Kubernetes PriorityClass.
+    It can be used, for example, to aggregate resource usage by priority class.
+
+    This label is beta-level since v0.21 and enabled by default. It can be disabled
+    with the `AssignWorkloadPriorityClassLabelForPods` feature gate.
+  warning: |
+    This label is added only if the priority class reference has a non-empty name
+    that is a valid label value. Names longer than 63 characters are skipped;
+    dots are allowed. For limitations see Kubernetes
+    [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set).
+
 - key: kueue.x-k8s.io/workload-slice-name
   type: Annotation
   example: '`kueue.x-k8s.io/workload-slice-name: "my-workload-original"`'

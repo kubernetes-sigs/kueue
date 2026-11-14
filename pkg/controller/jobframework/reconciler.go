@@ -2374,6 +2374,9 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		}
 
 		assignQueueLabels(ctx, info.Labels, w)
+		if features.Enabled(features.AssignWorkloadPriorityClassLabelForPods) {
+			assignWorkloadPriorityClassLabel(ctx, info.Labels, w)
+		}
 
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
@@ -2417,6 +2420,21 @@ func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.
 		log := ctrl.LoggerFrom(ctx)
 		log.V(4).Info("Skipped the ClusterQueue label for pods because the name is not a valid label value",
 			"clusterQueue", klog.KRef("", clusterQueueName), "validationErrors", labelValidationErrors)
+	}
+}
+
+func assignWorkloadPriorityClassLabel(ctx context.Context, labels map[string]string, wl *kueue.Workload) {
+	if wl.Spec.PriorityClassRef == nil || wl.Spec.PriorityClassRef.Name == "" {
+		return
+	}
+	priorityClassName := wl.Spec.PriorityClassRef.Name
+	labelValidationErrors := validation.IsValidLabelValue(priorityClassName)
+	if len(labelValidationErrors) == 0 {
+		labels[constants.WorkloadPriorityClassPodLabel] = priorityClassName
+	} else {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(4).Info("Skipped the Workload priority class label for pods because the name is not a valid label value",
+			"priorityClass", klog.KRef("", priorityClassName), "validationErrors", labelValidationErrors)
 	}
 }
 

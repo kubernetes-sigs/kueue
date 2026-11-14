@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,54 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+func TestAssignWorkloadPriorityClassLabel(t *testing.T) {
+	cases := map[string]struct {
+		workload   *kueue.Workload
+		wantLabels map[string]string
+	}{
+		"nil priority class reference": {
+			workload:   utiltestingapi.MakeWorkload("workload", "default").Obj(),
+			wantLabels: map[string]string{},
+		},
+		"empty priority class name": {
+			workload:   utiltestingapi.MakeWorkload("workload", "default").WorkloadPriorityClassRef("").Obj(),
+			wantLabels: map[string]string{},
+		},
+		"valid workload priority class name": {
+			workload: utiltestingapi.MakeWorkload("workload", "default").WorkloadPriorityClassRef("high-priority").Obj(),
+			wantLabels: map[string]string{
+				constants.WorkloadPriorityClassPodLabel: "high-priority",
+			},
+		},
+		"priority class name with dots": {
+			workload: utiltestingapi.MakeWorkload("workload", "default").WorkloadPriorityClassRef("high.priority").Obj(),
+			wantLabels: map[string]string{
+				constants.WorkloadPriorityClassPodLabel: "high.priority",
+			},
+		},
+		"64 character priority class name": {
+			workload:   utiltestingapi.MakeWorkload("workload", "default").WorkloadPriorityClassRef(strings.Repeat("a", 64)).Obj(),
+			wantLabels: map[string]string{},
+		},
+		"pod priority class kind": {
+			workload: utiltestingapi.MakeWorkload("workload", "default").PodPriorityClassRef("high-priority").Obj(),
+			wantLabels: map[string]string{
+				constants.WorkloadPriorityClassPodLabel: "high-priority",
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			labels := map[string]string{}
+			assignWorkloadPriorityClassLabel(ctx, labels, tc.workload)
+			if diff := cmp.Diff(tc.wantLabels, labels); diff != "" {
+				t.Errorf("pod labels mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestDeferAdmissionCheckNodeSelectorsToPods(t *testing.T) {
 	const (

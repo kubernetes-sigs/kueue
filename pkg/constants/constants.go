@@ -72,6 +72,15 @@ const (
 	// coming from workloads admitted to a given LocalQueue.
 	LocalQueueLabel = "kueue.x-k8s.io/local-queue-name"
 
+	// WorkloadPriorityClassPodLabel is a pod label indicating the name of the
+	// corresponding Workload's priority class.
+	//
+	// This label is beta-level since v0.21 and enabled by default.
+	// It can be disabled with the AssignWorkloadPriorityClassLabelForPods feature gate.
+	// It is added only if the priority class name is a non-empty, valid label value.
+	// For limitations see Kubernetes [documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set).
+	WorkloadPriorityClassPodLabel = "kueue.x-k8s.io/workload-priority-class"
+
 	// AdmissionGatedByAnnotation is the annotation key for gating admission.
 	// When present on a Job, Kueue will not admit the corresponding Workload
 	// until the annotation is removed. The value is a comma-separated list of
