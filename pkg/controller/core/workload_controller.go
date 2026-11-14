@@ -1400,7 +1400,6 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 }
 
 func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload]) bool {
-	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workload.Status(e.Object)
@@ -1412,13 +1411,18 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 
 	ctx = ctrl.LoggerInto(ctx, log)
 	wlKey := workload.Key(e.Object)
+	deleted := e.Object
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.ForgetWorkload(log, e.Object); err != nil {
+		cached, err := r.cache.ForgetWorkload(log, e.Object)
+		if err != nil {
 			log.Error(err, "Failed to delete workload from cache")
+		} else if cached != nil {
+			// Only the cached copy of an assumed workload names the ClusterQueue whose quota it held.
+			deleted = cached
 		}
 	})
 
@@ -1431,6 +1435,7 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
+	r.notifyWatchers(deleted, nil)
 	return true
 }
 

@@ -1302,6 +1302,45 @@ func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
 	}
 }
 
+// Deleting an assumed Workload after its LocalQueue must still request its
+// ClusterQueue, or the finalizer stays until an unrelated event.
+func TestDeleteAssumedWorkloadRequestsClusterQueue(t *testing.T) {
+	cases := map[string]struct {
+		localQueueDeleted bool
+	}{
+		"LocalQueue present": {},
+		"LocalQueue deleted": {localQueueDeleted: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache)
+			setupClusterQueue(ctx, t, cl, queues, cache, utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(), false)
+			if !tc.localQueueDeleted {
+				setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+			}
+			cqReconciler := NewClusterQueueReconciler(cl, queues, cache)
+			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{},
+				WithPreemptionExpectations(preemptexpectations.New()), WithWorkloadUpdateWatchers(cqReconciler))
+			pending := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Request(corev1.ResourceCPU, "1")
+			if !cache.AddOrUpdateWorkload(ctx, log, pending.Clone().SimpleReserveQuota("cq", "rf", time.Now()).Obj()) {
+				t.Fatal("adding scheduler assumption")
+			}
+
+			r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Workload]{Object: pending.Obj()})
+
+			if !cache.ClusterQueueEmpty("cq") {
+				t.Fatal("deleted workload is still in the cache")
+			}
+			if got := slices.Collect((<-cqReconciler.nonCQObjectUpdateCh).Object); !slices.Contains(got, "cq") {
+				t.Errorf("requested ClusterQueues = %v, want cq", got)
+			}
+		})
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
