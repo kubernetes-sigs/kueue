@@ -415,6 +415,10 @@ func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
 
 // getPodsInfos gets the pods raw infos directly from the API server
 func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*resource.Info, error) {
+	if o.PodAnnotationSelector != nil {
+		o.printAnnotationScanWarning()
+	}
+
 	namespace := o.Namespace
 	if o.AllNamespaces {
 		namespace = ""
@@ -520,5 +524,21 @@ func (o *PodOptions) printNoResourcesFound() {
 		fmt.Fprintf(o.ErrOut, "No resources found in %s namespace.\n", o.Namespace)
 	} else {
 		fmt.Fprintln(o.ErrOut, "No resources found.")
+	}
+}
+
+func (o *PodOptions) printAnnotationScanWarning() {
+	if o.AllNamespaces {
+		if o.LabelSelector != "" {
+			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces; use --namespace to narrow the search.")
+		} else {
+			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; use --namespace or --selector to narrow the search.")
+		}
+	} else {
+		if o.LabelSelector != "" {
+			fmt.Fprintf(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods in the %s namespace.\n", o.Namespace)
+		} else {
+			fmt.Fprintf(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods in the %s namespace; use --selector to narrow the search.\n", o.Namespace)
+		}
 	}
 }

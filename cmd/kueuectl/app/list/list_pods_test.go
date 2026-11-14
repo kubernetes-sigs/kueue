@@ -225,6 +225,8 @@ group-pod-2   1/1     Running   0          <unknown>
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
 `,
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods in the default namespace; use --selector to narrow the search.
+`,
 		}, {
 			name: "list pods of a pod group identified by annotation with json output",
 			job: &corev1.Pod{
@@ -245,6 +247,8 @@ group-pod-2   1/1     Running   0          <unknown>
 			},
 			wantPodListNames: []string{"group-pod-1"},
 			podListFormat:    "json",
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods in the default namespace; use --selector to narrow the search.
+`,
 		}, {
 			name: "no pods of a pod group identified by annotation",
 			job: &corev1.Pod{
@@ -263,7 +267,77 @@ group-pod-2   1/1     Running   0          <unknown>
 				"fieldSelector": "",
 			},
 			wantOut: "",
-			wantOutErr: `No resources found in default namespace.
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods in the default namespace; use --selector to narrow the search.
+No resources found in default namespace.
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation across all namespaces",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").Namespace("dev-team-a").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("group-pod-2").Namespace("dev-team-b").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("other-group-pod").Namespace("dev-team-a").GroupNameAnnotation("other-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-A"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantOut: `NAMESPACE    NAME          READY   STATUS    RESTARTS   AGE
+dev-team-a   group-pod-1   1/1     Running   0          <unknown>
+dev-team-b   group-pod-2   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; use --namespace or --selector to narrow the search.
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation with selector",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").Label("app", "test").GroupNameAnnotation("test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-l", "app=test"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=test",
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods in the default namespace.
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation across all namespaces with selector",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").Namespace("dev-team-a").Label("app", "test").GroupNameAnnotation("test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-A", "-l", "app=test"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=test",
+				"fieldSelector": "",
+			},
+			wantOut: `NAMESPACE    NAME          READY   STATUS    RESTARTS   AGE
+dev-team-a   group-pod-1   1/1     Running   0          <unknown>
+`,
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces; use --namespace to narrow the search.
 `,
 		}, {
 			name: "list a standalone pod by name",
