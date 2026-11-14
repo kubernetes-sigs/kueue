@@ -20,12 +20,16 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // Regression coverage for the KEP-12100 partial scale-up Workload shapes.
@@ -156,5 +160,44 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 		gomega.Expect(err).Should(gomega.HaveOccurred())
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 		gomega.Expect(err.Error()).To(gomega.ContainSubstring("partial admission and elastic job cannot be used together"))
+	})
+
+	ginkgo.It("allows elastic minimums to be capped during scale-down", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialAdmission, false)
+
+		wl := utiltestingapi.MakeWorkload("elastic-partial-stored-minimums", ns.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(
+				*utiltestingapi.MakePodSet("workers-group-0", 4).SetMinimumCount(4).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-1", 3).SetMinimumCount(2).Obj(),
+			).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+			utiltestingapi.MakeAdmission("cluster-queue").PodSets(
+				kueue.PodSetAssignment{Name: "workers-group-0", Count: new(int32(4))},
+				kueue.PodSetAssignment{Name: "workers-group-1", Count: new(int32(3))},
+			).Obj())
+		uid := wl.UID
+
+		ginkgo.By("scaling down through the validating webhook with the partial scale-up gate enabled")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+			wl.Spec.PodSets[0].Count = 1
+			wl.Spec.PodSets[0].MinCount = new(int32(1))
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Expect(wl.UID).To(gomega.Equal(uid))
+		gomega.Expect(wl.Spec.PodSets[0].MinCount).To(gomega.Equal(new(int32(1))))
+		gomega.Expect(wl.Spec.PodSets[1].MinCount).To(gomega.Equal(new(int32(2))))
+
+		ginkgo.By("retaining both stored minimums during a metadata-only update")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Annotations["example.com/updated"] = "true"
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
