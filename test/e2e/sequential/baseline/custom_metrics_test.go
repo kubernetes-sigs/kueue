@@ -28,7 +28,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -64,9 +63,6 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 		ginkgo.BeforeAll(func() {
 			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
-				cfg.FeatureGates = map[string]bool{
-					string(features.CustomMetricLabels): true,
-				}
 				cfg.Integrations.LabelKeysToCopy = []string{"toCopyKeyIntegration"}
 				cfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 					utiltestingapi.MakeCustomLabel("custom_label_key").SourceLabelKey("toCopyKeyCustom").SourceKind(config.SourceKindWorkload).TrackedValues("custom_value").Obj(),

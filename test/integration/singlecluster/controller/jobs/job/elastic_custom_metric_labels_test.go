@@ -49,7 +49,6 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{}
 		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
 			{Name: "team", SourceLabelKey: "team", SourceKind: new(configapi.SourceKindClusterQueue)},

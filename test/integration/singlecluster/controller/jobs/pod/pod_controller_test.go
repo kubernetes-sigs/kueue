@@ -5492,7 +5492,6 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			false,

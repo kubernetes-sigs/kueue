@@ -1317,7 +1317,6 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 }
 
 func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	unbounded := []config.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
@@ -1508,7 +1507,6 @@ func TestLocalQueueDeleteWithConcurrentFinish(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 	// Delete drops the custom label values before it takes the queue manager
 	// lock, which gives the test a point to wait for.
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	testCases := map[string]struct {
 		stopPolicy kueue.StopPolicy

@@ -407,7 +407,6 @@ func TestReconciler(t *testing.T) {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
-				features.CustomMetricLabels:      true,
 			},
 			labelKeysToCopy:   sets.New("toCopyKey"),
 			annotationsToCopy: sets.New("toCopyAnnotation"),

@@ -930,7 +930,6 @@ func TestClearCohortCounterMetricsOnlyClearsCohortCounters(t *testing.T) {
 }
 
 func TestClearCohortCounterMetricsMatchesCustomLabels(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
 		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindCohort).Obj(),
 	})
@@ -972,7 +971,6 @@ func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
 }
 
 func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	wlType := new(configapi.SourceKindWorkload)
 	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
