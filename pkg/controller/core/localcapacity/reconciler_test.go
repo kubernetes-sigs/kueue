@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,8 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -599,6 +602,282 @@ func TestIsLocalCapacityProvider(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := isLocalCapacityProvider(tc.obj); got != tc.want {
 				t.Errorf("isLocalCapacityProvider() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNodeEventHandler(t *testing.T) {
+	h100Flavor := utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "h100").Obj()
+	a100Flavor := utiltestingapi.MakeResourceFlavor("a100").NodeLabel("example.com/gpu-type", "a100").Obj()
+	// The default flavor has no nodeLabels, so it matches every node and overlaps with the others.
+	defaultFlavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+	tasFlavor := utiltestingapi.MakeResourceFlavor("tas").
+		NodeLabel("example.com/gpu-type", "l4").
+		TopologyName("block").
+		Obj()
+	// Shares the "block" Topology with tasFlavor, so the Topology is read once for both.
+	tasFlavor2 := utiltestingapi.MakeResourceFlavor("tas-2").
+		NodeLabel("example.com/gpu-type", "l40").
+		TopologyName("block").
+		Obj()
+	orphanFlavor := utiltestingapi.MakeResourceFlavor("orphan").
+		NodeLabel("example.com/gpu-type", "l4").
+		TopologyName("missing").
+		Obj()
+	blockTopology := utiltestingapi.MakeTopology("block").Levels("example.com/block").Obj()
+
+	h100Provider := utiltestingalpha.MakeCapacityProvider("h100-pool").ControllerName(ControllerName).OrchestratedFlavors("h100").Obj()
+	a100Provider := utiltestingalpha.MakeCapacityProvider("a100-pool").ControllerName(ControllerName).OrchestratedFlavors("a100").Obj()
+	defaultProvider := utiltestingalpha.MakeCapacityProvider("default-pool").ControllerName(ControllerName).OrchestratedFlavors("default").Obj()
+	tasProvider := utiltestingalpha.MakeCapacityProvider("tas-pool").ControllerName(ControllerName).OrchestratedFlavors("tas").Obj()
+	tasProvider2 := utiltestingalpha.MakeCapacityProvider("tas-pool-2").ControllerName(ControllerName).OrchestratedFlavors("tas-2").Obj()
+	orphanProvider := utiltestingalpha.MakeCapacityProvider("orphan-pool").ControllerName(ControllerName).OrchestratedFlavors("orphan").Obj()
+	// Two providers that claim the same flavor are Misconfigured, so both must be reconciled when a matching Node changes.
+	h100DuplicateProvider := utiltestingalpha.MakeCapacityProvider("h100-pool-2").ControllerName(ControllerName).OrchestratedFlavors("h100").Obj()
+	externalProvider := utiltestingalpha.MakeCapacityProvider("external").ControllerName("example.com/external").OrchestratedFlavors("a100").Obj()
+
+	type nodeEvent struct {
+		kind     string
+		old, new *corev1.Node
+		// other replaces the event object with something that is not a Node.
+		other client.Object
+	}
+	create := func(n *corev1.Node) nodeEvent { return nodeEvent{kind: "create", new: n} }
+	del := func(n *corev1.Node) nodeEvent { return nodeEvent{kind: "delete", old: n} }
+	update := func(o, n *corev1.Node) nodeEvent { return nodeEvent{kind: "update", old: o, new: n} }
+	generic := func(n *corev1.Node) nodeEvent { return nodeEvent{kind: "generic", new: n} }
+	createOther := func(o client.Object) nodeEvent { return nodeEvent{kind: "create", other: o} }
+
+	cases := map[string]struct {
+		providers  []*kueuealpha.CapacityProvider
+		flavors    []*kueue.ResourceFlavor
+		topologies []*kueue.Topology
+		failGet    string
+		failList   bool
+		event      nodeEvent
+		want       []string
+	}{
+		"create enqueues the owner of the matched flavor": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     create(gpuNode("n", "h100").Obj()),
+			want:      []string{"h100-pool"},
+		},
+		"create enqueues every provider that owns the matched flavor": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, h100DuplicateProvider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor},
+			event:     create(gpuNode("n", "h100").Obj()),
+			want:      []string{"h100-pool", "h100-pool-2"},
+		},
+		"delete enqueues the owner of the matched flavor": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     del(gpuNode("n", "a100").Obj()),
+			want:      []string{"a100-pool"},
+		},
+		"generic enqueues the owner of the matched flavor": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     generic(gpuNode("n", "a100").Obj()),
+			want:      []string{"a100-pool"},
+		},
+		"update that does not change labels enqueues the owner once": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     update(gpuNode("n", "h100").Ready().Obj(), gpuNode("n", "h100").Obj()),
+			want:      []string{"h100-pool"},
+		},
+		"update adding the flavor label enqueues the new owner": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     update(testingnode.MakeNode("n").Obj(), gpuNode("n", "h100").Obj()),
+			want:      []string{"h100-pool"},
+		},
+		"update removing the flavor label enqueues the previous owner": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     update(gpuNode("n", "h100").Obj(), testingnode.MakeNode("n").Obj()),
+			want:      []string{"h100-pool"},
+		},
+		"update moving a node between flavors enqueues both owners": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     update(gpuNode("n", "h100").Obj(), gpuNode("n", "a100").Obj()),
+			want:      []string{"a100-pool", "h100-pool"},
+		},
+		"update changing only an unrelated label enqueues nobody": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event: update(
+				gpuNode("n", "l4").Obj(),
+				gpuNode("n", "l4").Label("example.com/other", "x").Obj(),
+			),
+			want: []string{},
+		},
+		"node matching no flavor enqueues nobody": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     create(gpuNode("n", "l4").Obj()),
+			want:      []string{},
+		},
+		"not ready and cordoned nodes still enqueue the owner": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     update(gpuNode("n", "h100").Ready().Obj(), gpuNode("n", "h100").NotReady().Unschedulable().Obj()),
+			want:      []string{"h100-pool"},
+		},
+		"node matching flavors of two providers enqueues both": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, defaultProvider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, defaultFlavor},
+			event:     create(gpuNode("n", "h100").Obj()),
+			want:      []string{"default-pool", "h100-pool"},
+		},
+		"flavor of a provider served by another controller is ignored": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, externalProvider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     create(gpuNode("n", "a100").Obj()),
+			want:      []string{},
+		},
+		"topology flavor requires the level labels": {
+			providers:  []*kueuealpha.CapacityProvider{h100Provider, tasProvider},
+			flavors:    []*kueue.ResourceFlavor{h100Flavor, tasFlavor},
+			topologies: []*kueue.Topology{blockTopology},
+			event:      create(gpuNode("n", "l4").Obj()),
+			want:       []string{},
+		},
+		"topology flavor matches a node with the level labels": {
+			providers:  []*kueuealpha.CapacityProvider{h100Provider, tasProvider},
+			flavors:    []*kueue.ResourceFlavor{h100Flavor, tasFlavor},
+			topologies: []*kueue.Topology{blockTopology},
+			event:      create(gpuNode("n", "l4").Label("example.com/block", "b1").Obj()),
+			want:       []string{"tas-pool"},
+		},
+		"update adding the level label enqueues the topology flavor owner": {
+			providers:  []*kueuealpha.CapacityProvider{h100Provider, tasProvider},
+			flavors:    []*kueue.ResourceFlavor{h100Flavor, tasFlavor},
+			topologies: []*kueue.Topology{blockTopology},
+			event:      update(gpuNode("n", "l4").Obj(), gpuNode("n", "l4").Label("example.com/block", "b1").Obj()),
+			want:       []string{"tas-pool"},
+		},
+		"flavor with a missing topology matches nothing": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, orphanProvider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, orphanFlavor},
+			event:     create(gpuNode("n", "l4").Label("example.com/block", "b1").Obj()),
+			want:      []string{},
+		},
+		"flavor that does not exist matches nothing": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor},
+			event:     create(gpuNode("n", "a100").Obj()),
+			want:      []string{},
+		},
+		"flavors sharing a Topology enqueue only the owner of the matched flavor": {
+			providers:  []*kueuealpha.CapacityProvider{tasProvider, tasProvider2},
+			flavors:    []*kueue.ResourceFlavor{tasFlavor, tasFlavor2},
+			topologies: []*kueue.Topology{blockTopology},
+			event:      create(gpuNode("n", "l40").Label("example.com/block", "b1").Obj()),
+			want:       []string{"tas-pool-2"},
+		},
+		"failure to list the providers enqueues nobody": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			failList:  true,
+			event:     create(gpuNode("n", "h100").Obj()),
+			want:      []string{},
+		},
+		"an object that is not a Node enqueues all providers": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			event:     createOther(&corev1.Pod{}),
+			want:      []string{"a100-pool", "h100-pool"},
+		},
+		"failure to get a ResourceFlavor enqueues all providers": {
+			providers: []*kueuealpha.CapacityProvider{h100Provider, a100Provider},
+			flavors:   []*kueue.ResourceFlavor{h100Flavor, a100Flavor},
+			failGet:   "ResourceFlavor",
+			event:     create(gpuNode("n", "l4").Obj()),
+			want:      []string{"a100-pool", "h100-pool"},
+		},
+		"failure to get a Topology enqueues all providers": {
+			providers:  []*kueuealpha.CapacityProvider{h100Provider, tasProvider},
+			flavors:    []*kueue.ResourceFlavor{h100Flavor, tasFlavor},
+			topologies: []*kueue.Topology{blockTopology},
+			failGet:    "Topology",
+			event:      create(gpuNode("n", "l4").Obj()),
+			want:       []string{"h100-pool", "tas-pool"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var objs []client.Object
+			for _, p := range tc.providers {
+				objs = append(objs, p)
+			}
+			for _, f := range tc.flavors {
+				objs = append(objs, f)
+			}
+			for _, topology := range tc.topologies {
+				objs = append(objs, topology)
+			}
+			builder := utiltesting.NewClientBuilder().WithObjects(objs...)
+			if tc.failList {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*kueuealpha.CapacityProviderList); ok {
+							return errors.New("listing CapacityProviders failed")
+						}
+						return cl.List(ctx, list, opts...)
+					},
+				})
+			}
+			if tc.failGet != "" {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						switch obj.(type) {
+						case *kueue.ResourceFlavor:
+							if tc.failGet == "ResourceFlavor" {
+								return errors.New("getting ResourceFlavor failed")
+							}
+						case *kueue.Topology:
+							if tc.failGet == "Topology" {
+								return errors.New("getting Topology failed")
+							}
+						}
+						return cl.Get(ctx, key, obj, opts...)
+					},
+				})
+			}
+			r := NewReconciler(builder.Build())
+			h := r.nodeEventHandler()
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			switch tc.event.kind {
+			case "create":
+				var obj client.Object = tc.event.new
+				if tc.event.other != nil {
+					obj = tc.event.other
+				}
+				h.Create(ctx, event.CreateEvent{Object: obj}, q)
+			case "update":
+				h.Update(ctx, event.UpdateEvent{ObjectOld: tc.event.old, ObjectNew: tc.event.new}, q)
+			case "delete":
+				h.Delete(ctx, event.DeleteEvent{Object: tc.event.old, DeleteStateUnknown: true}, q)
+			case "generic":
+				h.Generic(ctx, event.GenericEvent{Object: tc.event.new}, q)
+			}
+
+			got := []string{}
+			for q.Len() > 0 {
+				item, _ := q.Get()
+				got = append(got, item.Name)
+				q.Done(item)
+			}
+			slices.Sort(got)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected enqueued providers (-want,+got):\n%s", diff)
 			}
 		})
 	}
