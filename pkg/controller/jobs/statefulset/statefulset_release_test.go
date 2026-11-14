@@ -244,7 +244,7 @@ func TestScaleDownWaitsForActiveOwnedPods(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			now := time.Now()
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease)
+			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease) //nolint:staticcheck // SA1019: testing deprecated feature gate migration
 			ctx := t.Context()
 			sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(0).Obj()
 			wlBuilder := utiltestingapi.MakeWorkload(GetWorkloadName(sts.UID, sts.Name), sts.Namespace).
@@ -427,7 +427,7 @@ func TestHasActiveOwnedPods(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease)
+			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tc.fastQuotaRelease) //nolint:staticcheck // SA1019: testing deprecated feature gate migration
 			ctx := t.Context()
 			sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(0).Obj()
 			objects := []client.Object{sts}

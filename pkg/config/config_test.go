@@ -377,6 +377,21 @@ resources:
 		t.Fatal(err)
 	}
 
+	frameworkConfigsConfig := filepath.Join(tmpDir, "frameworkConfigs.yaml")
+	if err := os.WriteFile(frameworkConfigsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+integrations:
+  frameworks:
+  - "batch/job"
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnTerminal
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	invalidConfig := filepath.Join(tmpDir, "invalid-config.yaml")
 	if err := os.WriteFile(invalidConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -948,6 +963,34 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
+		{
+			name:       "integrations with frameworkConfigs",
+			configFile: frameworkConfigsConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.SchemeGroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  new(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1094,7 +1137,6 @@ webhook:
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
-
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
