@@ -8828,3 +8828,111 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Job flavors with conflicting node labels", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns           *corev1.Namespace
+		flavorA      *kueue.ResourceFlavor
+		flavorB      *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+	})
+	ginkgo.AfterAll(func() {
+		// The cluster-scoped fixtures are deleted in the AfterEach nodes
+		// below, which run before this node while the manager can still
+		// process their finalizers.
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
+			features.FailAdmissionOnConflictingFlavorLabels: true,
+		})
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "flavor-conflict-")
+		flavorA = utiltestingapi.MakeResourceFlavor("flavor-zone-conflict-a").
+			NodeLabel("topology.kubernetes.io/zone", "zone-a").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavorA)
+		flavorB = utiltestingapi.MakeResourceFlavor("flavor-zone-conflict-b").
+			NodeLabel("topology.kubernetes.io/zone", "zone-b").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavorB)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cq-zone-conflict").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorA.Name).Resource(corev1.ResourceCPU, "1").Obj(),
+			).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorB.Name).Resource(corev1.ResourceMemory, "1Gi").Obj(),
+			).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		// Both kinds of objects are kept by a finalizer until they are no
+		// longer in use, so delete the ClusterQueue before the flavors.
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorB, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorA, true)
+	})
+
+	ginkgo.It("Should keep the workload pending when assigned flavors have conflicting node labels", func() {
+		// High-level scenario (see kueue#14409): a PodSet whose resources span
+		// two resource groups can be assigned two flavors which set the same
+		// node-label key to different values. Flavor assignment now rejects
+		// that combination, so the workload never reserves quota and remains
+		// pending with a readable no-fit reason.
+		localQueue := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+
+		newJob := func(name string) *batchv1.Job {
+			return testingjob.MakeJob(name, ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Request(corev1.ResourceMemory, "1Gi").
+				Obj()
+		}
+
+		ginkgo.By("creating the first job and waiting for a no-fit condition")
+		firstJob := newJob("first-job")
+		behavioral.MustCreate(ctx, k8sClient, firstJob)
+		firstWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(firstJob.Name, firstJob.UID), Namespace: ns.Name}
+		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, firstWlKey)
+
+		ginkgo.By("checking the conflict is reported before admission")
+		firstWl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, firstWlKey, firstWl)).Should(gomega.Succeed())
+			g.Expect(firstWl.Status.Admission).Should(gomega.BeNil())
+			cond := apimeta.FindStatusCondition(firstWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).ShouldNot(gomega.BeNil())
+			g.Expect(cond.Status).Should(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+			g.Expect(cond.Message).Should(gomega.ContainSubstring(flavorA.Name))
+			g.Expect(cond.Message).Should(gomega.ContainSubstring(flavorB.Name))
+			g.Expect(cond.Message).Should(gomega.ContainSubstring("topology.kubernetes.io/zone"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the first job stays suspended")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstJob), firstJob)).Should(gomega.Succeed())
+			g.Expect(firstJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("a second job can use the CPU quota")
+		// Requesting only CPU gives the second job a different scheduling shape,
+		// so BestEffortFIFO does not skip it as equivalent to the pending
+		// workload. Admission also shows that the first workload reserved no quota.
+		secondJob := testingjob.MakeJob("second-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, secondJob)
+		secondWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(secondJob.Name, secondJob.UID), Namespace: ns.Name}
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, secondWlKey)
+	})
+})
