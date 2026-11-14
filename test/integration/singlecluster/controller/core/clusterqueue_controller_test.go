@@ -440,6 +440,49 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			behavioral.ExpectLQReservingActiveWorkloadsMetric(localQueue, 0)
 		})
 
+		ginkgo.It("Should update resource metrics when an admitted workload finishes while the ClusterQueue is terminating", func() {
+			onDemandFlavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
+
+			workloads := []*kueue.Workload{
+				utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").Obj(),
+				utiltestingapi.MakeWorkload("two", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").Obj(),
+			}
+
+			ginkgo.By("Admitting the workloads")
+			for _, wl := range workloads {
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()).Obj())
+				behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(ac.Name), kueue.CheckStateReady, true)
+			}
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workloads...)
+			behavioral.ExpectCQResourceReservations(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 2)
+			behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("cohort", flavorOnDemand, string(corev1.ResourceCPU), 2)
+
+			ginkgo.By("Deleting the ClusterQueue")
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			behavioral.ExpectClusterQueueStatusMetric(clusterQueue, metrics.CQStatusTerminating)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing one workload")
+			integration.FinishWorkloads(ctx, k8sClient, workloads[0])
+			behavioral.ExpectCQResourceReservations(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 1)
+			behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("cohort", flavorOnDemand, string(corev1.ResourceCPU), 1)
+
+			ginkgo.By("Finishing the other workload lets the ClusterQueue be deleted")
+			integration.FinishWorkloads(ctx, k8sClient, workloads[1])
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, false)
+		})
+
 		ginkgo.It("Should update pending resource metric when a pending workload's effective resources change", func() {
 			wl := utiltestingapi.MakeWorkload("one", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
