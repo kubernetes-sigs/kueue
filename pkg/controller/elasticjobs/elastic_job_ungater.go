@@ -280,7 +280,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
 	for _, p := range pods {
-		if utilpod.IsTerminated(p) {
+		if !p.DeletionTimestamp.IsZero() || utilpod.IsTerminated(p) {
 			continue
 		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])

@@ -558,6 +558,99 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"deleting running pod does not consume granted count": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "4").
+								Count(4).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("pod-0", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-1", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-2", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-deleting", kueue.DefaultPodSetName).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-replacement", kueue.DefaultPodSetName).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("pod-0", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-1", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-2", kueue.DefaultPodSetName).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-deleting", kueue.DefaultPodSetName).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+				*makeElasticPodForPodSet("pod-replacement", kueue.DefaultPodSetName).Obj(),
+			},
+		},
+		"skip deleting gated pods": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*makeElasticPodForPodSet("pod-0-deleting", kueue.DefaultPodSetName).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodPending).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("pod-1", kueue.DefaultPodSetName).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*makeElasticPodForPodSet("pod-0-deleting", kueue.DefaultPodSetName).
+					Finalizer("test/finalizer").
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodPending).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*makeElasticPodForPodSet("pod-1", kueue.DefaultPodSetName).Obj(),
+			},
+		},
 		"succeeded pod does not consume granted count": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
