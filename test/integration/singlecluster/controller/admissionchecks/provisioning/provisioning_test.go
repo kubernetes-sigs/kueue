@@ -1743,6 +1743,62 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
+		ginkgo.It("Should keep a PodSet with a GPU only in its limits apart from a PodSet without one", func() {
+			gpuWl := utiltestingapi.MakeWorkload("wl-gpu", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("launcher", 1).
+						Request(corev1.ResourceCPU, "1").
+						Image("image").
+						Obj(),
+					*utiltestingapi.MakePodSet("worker", 2).
+						Request(corev1.ResourceCPU, "1").
+						Limit(resourceGPU, "1").
+						Image("image").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, gpuWl)
+			gpuWlKey := client.ObjectKeyFromObject(gpuWl)
+			gpuReqKey := types.NamespacedName{
+				Namespace: gpuWlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(gpuWlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, gpuWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("launcher").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+							Assignment(resourceGPU, kueue.ResourceFlavorReference(rf.Name), "2").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the worker has a PodTemplate of its own, requesting the GPU", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, gpuReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdRequest.Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+
+				workerTemplate := &corev1.PodTemplate{}
+				workerTemplateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[1].PodTemplateRef.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, workerTemplateKey, workerTemplate)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Expect(workerTemplate.Template.Spec.Containers[0].Resources.Requests).To(gomega.HaveKey(resourceGPU))
+			})
+		})
+
 		expectNodeSelector := func(podSet autoscaling.PodSet, want map[string]string) {
 			ginkgo.GinkgoHelper()
 			template := &corev1.PodTemplate{}
