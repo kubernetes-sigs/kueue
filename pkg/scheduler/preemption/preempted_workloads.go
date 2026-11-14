@@ -34,6 +34,11 @@ func (p PreemptedWorkloads) HasAny(newTargets []*Target) bool {
 	return false
 }
 
+func (p PreemptedWorkloads) Has(wlRef workload.Reference) bool {
+	_, ok := p[wlRef]
+	return ok
+}
+
 func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 	for _, target := range newTargets {
 		p[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
