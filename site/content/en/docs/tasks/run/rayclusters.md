@@ -67,6 +67,18 @@ Note that a RayCluster will hold resource quotas while it exists. For optimal re
 
 Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is admitted by Kueue, Kueue will unsuspend it by setting `spec.suspend` to `false`, regardless of its previous value.
 
+#### Idle suspend
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+KubeRay v1.8 and later can suspend a RayCluster that has no Ray driver connected. With `spec.idleTerminationOptions` and the `Suspend` policy, the Ray autoscaler sets `spec.idleSuspend` to `true` and KubeRay deletes the Pods.
+
+When the `RayClusterIdleSuspend` [feature gate](/docs/installation/#change-the-feature-gates-configuration) is set to `true`, Kueue releases the quota of the RayCluster while `spec.idleSuspend` is `true`. Kueue also sets `spec.suspend` to `true`, so that the RayCluster starts again only after it is admitted.
+
+To resume the RayCluster, clear `spec.idleSuspend`. Kueue queues the RayCluster again and unsuspends it once it is admitted.
+
+RayClusters managed by MultiKueue are not supported: they keep their quota while they are idle-suspended.
+
 ### d. Limitations
 - Limited Worker Groups: Because a Kueue workload can have a maximum of 18 PodSets, the maximum number of `spec.workerGroupSpecs` is 17
 - In-Tree Autoscaling Constraints: Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayCluster objects. To enable in-tree autoscaling:

@@ -414,8 +414,40 @@ func TestReconciler(t *testing.T) {
 		RequestHead(corev1.ResourceCPU, "10").
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
+	baseWorkloadWrapper := utiltestingapi.MakeWorkload("test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+				PodSpec(corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						*utiltesting.MakeContainer().
+							Name("head-container").
+							Obj(),
+					},
+				}).
+				Obj(),
+			*utiltestingapi.MakePodSet("workers-group-0", 1).
+				PodSpec(corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						*utiltesting.MakeContainer().
+							Name("worker-container").
+							WithResourceReq(corev1.ResourceCPU, "10").
+							Obj(),
+					},
+				}).
+				Obj(),
+		).
+		Request(corev1.ResourceCPU, "10").
+		Generation(1)
+	baseAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).
+		PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).
+		Obj()
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
+		featureGates      map[featuregate.Feature]bool
 		job               rayv1.RayCluster
 		initObjects       []client.Object
 		workloads         []kueue.Workload
@@ -660,6 +692,174 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"when an idle-suspended cluster is still active, it is stopped and keeps its quota": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				State(rayv1.Ready).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				IdleSuspend(true).
+				State(rayv1.Ready).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
+		"when an idle-suspended cluster is no longer active, its workload is put on hold": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				IdleSuspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now.Add(-time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadOnHold,
+						Message:            "Job is on hold",
+						ObservedGeneration: 1,
+					}).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+		},
+		"when an idle-suspended cluster is resumed, the hold on its workload is cleared": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job:          *baseJobWrapper.Clone().IdleSuspend(false).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(false).Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadOnHold,
+						Message:            "Job is on hold",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "Job is no longer on hold",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+		},
+		"when RayClusterIdleSuspend is disabled, an idle-suspended cluster keeps its quota": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: false},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
+		"when RayClusterIdleSuspend is disabled, a hold left on the workload is cleared": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: false},
+			job:          *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadOnHold,
+						Message:            "Job is on hold",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "Job is no longer on hold",
+						ObservedGeneration: 1,
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+		},
 		"RayCluster with NumOfHosts > 1": {
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
@@ -796,6 +996,7 @@ func TestReconciler(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
@@ -890,6 +1091,53 @@ func TestCustomEquivalenceOptions(t *testing.T) {
 			}
 			if !tc.wantEmpty && len(opts) == 0 {
 				t.Errorf("CustomEquivalenceOptions() = nil, want non-empty")
+			}
+		})
+	}
+}
+
+func TestIsOnHold(t *testing.T) {
+	cases := map[string]struct {
+		featureGate bool
+		job         *rayv1.RayCluster
+		want        bool
+	}{
+		"idleSuspend is not set": {
+			featureGate: true,
+			job:         testingrayutil.MakeCluster("job", "ns").Obj(),
+		},
+		"idleSuspend is false": {
+			featureGate: true,
+			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(false).Obj(),
+		},
+		"idleSuspend is true": {
+			featureGate: true,
+			job:         testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).Obj(),
+			want:        true,
+		},
+		"idleSuspend is true and RayClusterIdleSuspend is disabled": {
+			job: testingrayutil.MakeCluster("job", "ns").IdleSuspend(true).Obj(),
+		},
+		"idleSuspend is true on a MultiKueue manager cluster": {
+			featureGate: true,
+			job: testingrayutil.MakeCluster("job", "ns").
+				IdleSuspend(true).
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+		},
+		"idleSuspend is true on a MultiKueue worker cluster": {
+			featureGate: true,
+			job: testingrayutil.MakeCluster("job", "ns").
+				IdleSuspend(true).
+				Label(kueue.MultiKueueOriginLabel, "origin").
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RayClusterIdleSuspend, tc.featureGate)
+			if got := (*RayCluster)(tc.job).IsOnHold(); got != tc.want {
+				t.Errorf("IsOnHold() = %t, want %t", got, tc.want)
 			}
 		})
 	}
