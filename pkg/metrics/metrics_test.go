@@ -371,6 +371,32 @@ func TestReportMultiKueueWorkloadAdmitted(t *testing.T) {
 	}
 }
 
+func TestClearMultiKueueClusterMetrics(t *testing.T) {
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+	counters := []*prometheus.CounterVec{MultiKueueWorkloadsDispatchedTotal, MultiKueueWorkloadsAdmittedTotal, MultiKueueWorkloadsEvictedTotal}
+	for _, vec := range counters {
+		vec.Reset()
+		t.Cleanup(vec.Reset)
+	}
+	// worker1 is shared by cq1 and cq2.
+	for _, s := range []struct {
+		cq      kueue.ClusterQueueReference
+		cluster string
+	}{{"cq1", "worker1"}, {"cq2", "worker1"}, {"cq1", "worker2"}} {
+		ReportMultiKueueWorkloadDispatched(s.cq, s.cluster, tracker)
+		ReportMultiKueueWorkloadAdmitted(s.cq, s.cluster, tracker)
+		ReportMultiKueueWorkloadEvicted(s.cq, s.cluster, kueue.WorkloadEvictedByPreemption, tracker)
+	}
+
+	ClearMultiKueueClusterMetrics("worker1")
+
+	// worker1 series are gone, worker2 is untouched.
+	for _, vec := range counters {
+		expectFilteredMetricsCount(t, vec, 0, "cluster", "worker1")
+		expectFilteredMetricsCount(t, vec, 1, "cluster", "worker2")
+	}
+}
+
 func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 

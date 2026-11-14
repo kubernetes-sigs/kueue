@@ -1125,6 +1125,14 @@ func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
+// ClearMultiKueueClusterMetrics drops the workload counters reported for a worker
+// cluster, across all ClusterQueues. Called when the cluster is removed.
+func ClearMultiKueueClusterMetrics(cluster string) {
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(prometheus.Labels{"cluster": cluster})
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, tracker *roletracker.RoleTracker) {
 	WorkloadCreationLatency.WithLabelValues(jobKind, roletracker.GetRole(tracker)).Observe(latency.Seconds())
 }
