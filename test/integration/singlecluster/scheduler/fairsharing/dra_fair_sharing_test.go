@@ -38,7 +38,7 @@ import (
 )
 
 var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
-	ginkgo.When("Using AdmissionFairSharing with DRA resources", ginkgo.Ordered, func() {
+	ginkgo.When("Using AdmissionFairSharing with DRA resources", func() {
 		var (
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
@@ -78,8 +78,8 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			return wl
 		}
 
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		ginkgo.BeforeEach(func() {
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				afsConfig(
 					metav1.Duration{Duration: 1 * time.Second},
 					metav1.Duration{Duration: 5 * time.Second},
@@ -110,14 +110,6 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.MustCreate(ctx, k8sClient, rct)
 		})
 
-		ginkgo.AfterAll(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-		})
-
 		ginkgo.AfterEach(func() {
 			for _, wl := range wls {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
@@ -128,6 +120,12 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			for _, cq := range cqs {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
+
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("DRA resource usage affects AFS admission ordering", framework.SlowSpec, func() {
@@ -291,7 +289,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 		})
 	})
 
-	ginkgo.When("AdmissionFairSharing.ResourceWeights applies weight to DRA logical resources", ginkgo.Ordered, func() {
+	ginkgo.When("AdmissionFairSharing.ResourceWeights applies weight to DRA logical resources", func() {
 		var (
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
@@ -304,8 +302,8 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			wls []*kueue.Workload
 		)
 
-		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		ginkgo.BeforeEach(func() {
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				&config.AdmissionFairSharing{
 					UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
 					UsageHalfLifeTime:     metav1.Duration{Duration: 1 * time.Second},
@@ -339,14 +337,6 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.MustCreate(ctx, k8sClient, rct)
 		})
 
-		ginkgo.AfterAll(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
-		})
-
 		ginkgo.AfterEach(func() {
 			for _, wl := range wls {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
@@ -357,6 +347,12 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			for _, cq := range cqs {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
+
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("should prioritize lower weighted usage", framework.SlowSpec, func() {

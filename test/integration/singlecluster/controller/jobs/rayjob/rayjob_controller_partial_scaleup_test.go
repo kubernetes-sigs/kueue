@@ -36,7 +36,7 @@ import (
 // KEP-12100: partial replica scale-up for a RayJob. The RayCluster integration is covered in its
 // own suite; this one exists because RayJob derives its workload slice name differently, so the
 // scale-up probe has to be verified separately for it.
-var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), func() {
 	// The RayJob workload has the head PodSet at index 0 and the single worker group at index 1;
 	// the submitter PodSet is only added in K8sJobMode, which these specs avoid.
 	const (
@@ -60,18 +60,13 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-scale-up-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
