@@ -42,6 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1053,6 +1054,47 @@ func TestReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
+		},
+		"concurrent admission parent keeps the check mirrored from the variant when the config is missing": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				AdmittedAt(true, now).
+				Obj(),
+			checks: []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+					Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
+		"concurrent admission parent with a pending check does not create a ProvisioningRequest": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+					Obj(),
+			},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"concurrent admission parent removes the requests it owns when finished": {
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
 		},
 		"with config": {
 			workload: baseWorkload.DeepCopy(),
