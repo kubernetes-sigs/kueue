@@ -1246,6 +1246,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"workload", klog.KObj(wl),
 				"controlledBy", controlledBy,
 			)
+			msg := fmt.Sprintf("Prebuilt workload %q is controlled by %s %q and cannot be used by this job. "+
+				"Select a different prebuilt workload", klog.KObj(wl), controlledBy.Kind, controlledBy.Name)
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadHasAnotherController, "PrebuiltWorkloadRefused",
+				api.TruncateEventMessage(msg))
 			return nil, nil
 		}
 
@@ -1260,6 +1264,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"Skipping finished prebuilt Workload",
 				"workload", klog.KObj(wl),
 			)
+			msg := fmt.Sprintf("Prebuilt workload %q is already finished and cannot be used by this job. "+
+				"Select a different prebuilt workload", klog.KObj(wl))
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadFinished, "PrebuiltWorkloadRefused",
+				api.TruncateEventMessage(msg))
 			return nil, nil
 		}
 
