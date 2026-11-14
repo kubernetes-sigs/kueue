@@ -246,6 +246,19 @@ func TestValidateUpdate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
 			},
 		},
+		"elastic job created without the gate can be unsuspended without the SparkApplication elastic feature": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Suspend(true).Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Suspend(false).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                    true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
+			},
+			wantErr: nil,
+		},
 		"elastic job must not drop the ElasticJobSchedulingGate without the SparkApplication elastic feature": {
 			oldSparkApp: elasticSparkApp.Clone().Obj(),
 			newSparkApp: elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
