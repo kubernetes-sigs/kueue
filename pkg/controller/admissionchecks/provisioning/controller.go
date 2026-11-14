@@ -26,7 +26,6 @@ import (
 	"maps"
 	arrayslices "slices"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -75,6 +74,7 @@ const (
 
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
+	errUnknownPodTemplate            = errors.New("no podSet is named after the PodTemplate")
 )
 
 var (
@@ -838,9 +838,13 @@ func (c *Controller) syncCheckStates(
 					}
 				case isProvisioned(pr):
 					if updateCheckState(&checkState, kueue.CheckStateReady) {
+						psUpdates, err := c.podSetUpdates(ctx, wl, pr, prc)
+						if err != nil {
+							return false, err
+						}
 						updated = true
 						// add the pod podSetUpdates
-						checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
+						checkState.PodSetUpdates = psUpdates
 						// propagate the message from the provisioning request status into the workload
 						// to change to the "successfully provisioned" message after provisioning
 						updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -883,32 +887,75 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
+// podSetUpdates returns an update for each PodSet that a PodTemplate of pr is
+// named after, and for the PodSets merged into it when merging them again adds
+// up to the count in pr.
+func (c *Controller) podSetUpdates(ctx context.Context, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) ([]kueue.PodSetUpdate, error) {
+	previousCounts, sameBaseline, err := c.requestBaseline(ctx, wl)
+	if err != nil {
+		return nil, err
+	}
+	var mergedPodSets []MergedPodSet
+	if sameBaseline {
+		// pr does not record which PodSets were merged into each PodTemplate, so merge the PodSets again.
+		if mergedPodSets, err = mergePodSets(ctx, c.client, wl, &prc.Spec, previousCounts); err != nil {
+			// Returning a permanent error, such as a flavor that now conflicts with a PodSet, would keep the check pending for good.
+			if !podset.IsPermanent(err) {
+				return nil, err
+			}
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to merge PodSets again, updating only the PodSets the PodTemplates are named after",
+				"provisioningRequest", klog.KObj(pr))
+			mergedPodSets = nil
+		}
+	}
+	groups := slices.ToMap(mergedPodSets, func(i int) (kueue.PodSetReference, *MergedPodSet) {
+		return mergedPodSets[i].Name, &mergedPodSets[i]
+	})
 	podSets := wl.Spec.PodSets
 	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
-	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
-		podSetUpdate := kueue.PodSetUpdate{
-			Name: refMap[ps.PodTemplateRef.Name],
-			Annotations: map[string]string{
-				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
-				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
-			},
+	covered := sets.New[kueue.PodSetReference]()
+	for _, ps := range pr.Spec.PodSets {
+		name, ok := refMap[ps.PodTemplateRef.Name]
+		if !ok {
+			// The Workload's PodSets can change after pr is created, while no quota is reserved.
+			return nil, fmt.Errorf("%w: %q", errUnknownPodTemplate, ps.PodTemplateRef.Name)
 		}
-		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
-			podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))
-			for _, nodeSelector := range psUpdate.NodeSelector {
-				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
-				if !ok {
-					log.Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
-					continue
-				}
-				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
+		covered.Insert(name)
+		// PodSets can merge differently than when pr was created, for example after
+		// podSetMergePolicy or a flavor changes, so only trust a group that adds up to the count in pr.
+		if group, found := groups[name]; found && group.Count == ps.Count {
+			covered.Insert(group.Names...)
+		}
+	}
+
+	podSetUpdate := kueue.PodSetUpdate{
+		Annotations: map[string]string{
+			autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
+			autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
+		},
+	}
+	if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
+		podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))
+		for _, nodeSelector := range psUpdate.NodeSelector {
+			value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
+			if !ok {
+				ctrl.LoggerFrom(ctx).Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
+				continue
 			}
+			podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
 		}
-		return podSetUpdate
-	})
+	}
+	var updates []kueue.PodSetUpdate
+	for i := range podSets {
+		if covered.Has(podSets[i].Name) {
+			update := *podSetUpdate.DeepCopy()
+			update.Name = podSets[i].Name
+			updates = append(updates, update)
+		}
+	}
+	return updates, nil
 }
 
 type acHandler struct {
@@ -1112,6 +1159,8 @@ type MergedPodSet struct {
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
+	// Names are the Workload PodSets this MergedPodSet covers, Name first.
+	Names []kueue.PodSetReference
 }
 
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
@@ -1122,6 +1171,27 @@ func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Wo
 		return nil, nil
 	}
 	return workloadslicing.PreviousAdmittedPodSetCounts(ctx, c.client, wl)
+}
+
+// requestBaseline returns the baseline that wl's request was created with,
+// read in the same lookup that checks it comes from the slice wl replaces.
+// It returns false when that slice is not the latest admitted one, for example
+// after it is deleted, since merging again could then add PodSets that the
+// request does not cover.
+func (c *Controller) requestBaseline(ctx context.Context, wl *kueue.Workload) (workload.PodSetsCounts, bool, error) {
+	replaced := workloadslicing.ReplacementForKey(wl)
+	if replaced == nil || !workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		counts, err := c.previousSlicePodSetCounts(ctx, wl)
+		if err != nil {
+			return nil, false, err
+		}
+		return counts, true, nil
+	}
+	baseline, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, c.client, wl.Namespace, workloadslicing.SliceName(wl), workloadslicing.WithFinishedWorkloads())
+	if err != nil || baseline == nil || workload.Key(baseline) != *replaced {
+		return nil, false, err
+	}
+	return workload.ExtractGrantedPodSetCountsAfterReclaim(baseline), true, nil
 }
 
 func (c *Controller) mergePodSets(
@@ -1163,6 +1233,7 @@ func mergePodSets(
 
 		if i := findMergeTarget(effectiveTemplates, template, mergePolicy); i >= 0 {
 			mergedPodSets[i].Count += candidate.Count
+			mergedPodSets[i].Names = append(mergedPodSets[i].Names, candidate.Name)
 			continue
 		}
 		mergedPodSets = append(mergedPodSets, candidate)
@@ -1220,6 +1291,7 @@ func requestedPodSets(
 
 		requested = append(requested, MergedPodSet{
 			Name:             psName,
+			Names:            []kueue.PodSetReference{psName},
 			PodSet:           ps,
 			PodSetAssignment: psa,
 			Count:            count,
