@@ -81,6 +81,9 @@ type tasScheduleForTASCase struct {
 
 	featureGates map[featuregate.Feature]bool
 
+	// fairSharing enables Fair Sharing with this configuration when set.
+	fairSharing *config.FairSharing
+
 	// recoveryTimeout bounds failed TAS replacement deferral in this case.
 	// A nil value keeps the default used by normal Kueue configuration.
 	recoveryTimeout *time.Duration
@@ -182,6 +185,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 						schdcache.WithResourceTransformations(tc.resourceTransformations),
 						// The fake client serves every kind, DeviceTaintRules included.
 						schdcache.WithDeviceTaintRules(true),
+						schdcache.WithFairSharing(tc.fairSharing != nil),
 					}
 					if features.Enabled(features.SchedulerLibraryIntegration) {
 						simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
@@ -261,7 +265,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					if tc.recoveryTimeout != nil {
 						recoveryTimeout = *tc.recoveryTimeout
 					}
-					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
+					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()), WithFairSharing(tc.fairSharing)}
 					if recoveryTimeout > 0 {
 						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(new(recoveryTimeout)))
 					}
