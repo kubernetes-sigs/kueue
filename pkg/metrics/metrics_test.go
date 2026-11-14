@@ -435,6 +435,8 @@ func TestReportAndCleanupClusterQueueMultiKueueWorkloads(t *testing.T) {
 }
 
 func TestReportMultiKueueWorkloadNominationRounds(t *testing.T) {
+	MultiKueueWorkloadNominationRounds.Reset()
+	t.Cleanup(MultiKueueWorkloadNominationRounds.Reset)
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
 	ReportMultiKueueWorkloadNominationRounds("rounds-cq1", "incremental", 1, leaderTracker)

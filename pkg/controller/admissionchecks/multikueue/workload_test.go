@@ -4975,6 +4975,10 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 		// nominations are the successive values of status.nominatedClusterNames
 		// seen by update events before the workload is admitted.
 		nominations [][]string
+		// recreatedAt is the index in nominations from which the workload has a new
+		// UID, as when it is deleted and created again under the same name and the
+		// informer reports that as one update.
+		recreatedAt int
 		deleted     bool
 		wantCount   uint64
 		wantSum     float64
@@ -5002,6 +5006,12 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 		"no rounds are known, as after a manager restart": {
 			wantCount: 0,
 		},
+		"rounds of a workload created again under the same name are dropped": {
+			nominations: [][]string{nil, {"worker1"}, {"worker1", "worker2"}, {"worker1"}},
+			recreatedAt: 3,
+			wantCount:   1,
+			wantSum:     1,
+		},
 		"rounds of a deleted workload are dropped": {
 			nominations: [][]string{nil, {"worker1"}},
 			deleted:     true,
@@ -5016,10 +5026,16 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
 			wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+			uidAt := func(i int) types.UID {
+				if tc.recreatedAt > 0 && i >= tc.recreatedAt {
+					return "recreated"
+				}
+				return "original"
+			}
 			for i := 1; i < len(tc.nominations); i++ {
 				reconciler.Update(event.UpdateEvent{
-					ObjectOld: wlBuilder.Clone().NominatedClusterNames(tc.nominations[i-1]...).Obj(),
-					ObjectNew: wlBuilder.Clone().NominatedClusterNames(tc.nominations[i]...).Obj(),
+					ObjectOld: wlBuilder.Clone().UID(uidAt(i - 1)).NominatedClusterNames(tc.nominations[i-1]...).Obj(),
+					ObjectNew: wlBuilder.Clone().UID(uidAt(i)).NominatedClusterNames(tc.nominations[i]...).Obj(),
 				})
 			}
 			if tc.deleted {

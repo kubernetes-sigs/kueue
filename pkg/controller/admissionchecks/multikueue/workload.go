@@ -1367,10 +1367,18 @@ func (w *wlReconciler) Update(e event.UpdateEvent) bool {
 		if clusterName := workload.ClusterName(oldWl); clusterName != "" && workload.ClusterName(newWl) == "" {
 			w.addPreviousClusterName(client.ObjectKeyFromObject(newWl).String(), clusterName)
 		}
+		key := client.ObjectKeyFromObject(newWl).String()
+		// The informer can report a workload that was deleted and created again under
+		// the same name as one update, with no delete event. The new workload must not
+		// inherit the rounds of the old one.
+		recreated := oldWl.UID != newWl.UID
+		if recreated {
+			w.nominationRounds.Delete(key)
+		}
 		// Clearing the nominations, for example after admission, does not open a round.
 		newNominated := sets.New(newWl.Status.NominatedClusterNames...)
-		if newNominated.Len() > 0 && !newNominated.Equal(sets.New(oldWl.Status.NominatedClusterNames...)) {
-			w.nominationRounds.Update(client.ObjectKeyFromObject(newWl).String(), func(rounds int, _ bool) int {
+		if newNominated.Len() > 0 && (recreated || !newNominated.Equal(sets.New(oldWl.Status.NominatedClusterNames...))) {
+			w.nominationRounds.Update(key, func(rounds int, _ bool) int {
 				return rounds + 1
 			})
 		}
@@ -1388,7 +1396,7 @@ func (w *wlReconciler) addPreviousClusterName(key, clusterName string) {
 
 // reportNominationRounds observes the rounds the workload needed for this
 // admission and resets its count, so a re-admission after eviction starts from 0.
-// No rounds are known for a workload whose dispatch started before a manager restart.
+// Only the rounds since the last manager restart are known.
 func (w *wlReconciler) reportNominationRounds(wl *kueue.Workload) {
 	var rounds int
 	w.nominationRounds.UpdateOrDelete(client.ObjectKeyFromObject(wl).String(), func(existing int) (int, bool) {
