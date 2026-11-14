@@ -264,12 +264,16 @@ func moveInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, resolved ma
 	moved := 0
 	retry := false
 	for key, info := range c.workloads.inadmissible {
+		// A Namespace read failure cannot make a Workload in backoff eligible.
+		if !c.backoffWaitingTimeExpired(info) {
+			continue
+		}
 		ns, found := resolved[info.Obj.Namespace]
 		if !found || ns.retry {
 			retry = true
 			continue
 		}
-		if !ns.found || !c.namespaceSelector.Matches(ns.labels) || !c.backoffWaitingTimeExpired(info) {
+		if !ns.found || !c.namespaceSelector.Matches(ns.labels) {
 			continue
 		}
 		if c.workloads.MoveToActive(key, info) {
