@@ -9693,7 +9693,7 @@ func TestReconciler(t *testing.T) {
 						Type:    ConditionTypeTerminationTarget,
 						Status:  corev1.ConditionTrue,
 						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
+						Message: "The prebuilt workload is out of sync with its user job",
 					}).
 					Obj(),
 				*basePodWrapper.
@@ -9709,7 +9709,7 @@ func TestReconciler(t *testing.T) {
 						Type:    ConditionTypeTerminationTarget,
 						Status:  corev1.ConditionTrue,
 						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
+						Message: "The prebuilt workload is out of sync with its user job",
 					}).
 					Obj(),
 			},
@@ -9733,17 +9733,201 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 				{
 					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"when the admitted prebuilt workload is not equivalent to the running pod group, pods are stopped and quota is held": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localTestQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					StatusConditions(corev1.PodCondition{
+						Type:    ConditionTypeTerminationTarget,
+						Status:  corev1.ConditionTrue,
+						Reason:  "NoMatchingWorkload",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					StatusConditions(corev1.PodCondition{
+						Type:    ConditionTypeTerminationTarget,
+						Status:  corev1.ConditionTrue,
+						Reason:  "NoMatchingWorkload",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localTestQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"when the prebuilt workload is finished OutOfSync and the stopped pod group is inactive, pod and workload finalizers are removed": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("test-group").
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodFailed).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					StatusConditions(corev1.PodCondition{
+						Type:    ConditionTypeTerminationTarget,
+						Status:  corev1.ConditionTrue,
+						Reason:  "NoMatchingWorkload",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("test-group").
+					KueueFinalizer().
+					DeletionTimestamp(now).
+					StatusPhase(corev1.PodFailed).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					StatusConditions(corev1.PodCondition{
+						Type:    ConditionTypeTerminationTarget,
+						Status:  corev1.ConditionTrue,
+						Reason:  "NoMatchingWorkload",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localTestQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonOutOfSync,
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantPods: nil,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localTestQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonOutOfSync,
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/test-group' is declared finished",
+				},
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
 			reconcilerOptions: []jobframework.Option{

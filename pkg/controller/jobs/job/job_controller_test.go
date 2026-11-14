@@ -4674,7 +4674,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
@@ -4875,10 +4875,327 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"when the admitted prebuilt workload is out of sync and the job has active pods, the job is stopped and quota is held": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				NodeSelector("provisioning", "spot").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				StartTime(now).
+				Active(5).
+				Condition(batchv1.JobCondition{
+					Type:               batchv1.JobSuspended,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				NodeSelector("provisioning", "spot").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				Active(5).
+				Condition(batchv1.JobCondition{
+					Type:               batchv1.JobSuspended,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+			},
+		},
+		"when a partially admitted prebuilt workload is out of sync and the suspended job still has active pods, it stays stopped": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				NodeSelector("provisioning", "spot").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				Active(5).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				NodeSelector("provisioning", "spot").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				Active(5).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+		},
+		"when the admitted prebuilt workload is out of sync and the stopped job has no active pods, podset info is restored and the workload is finished OutOfSync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				NodeSelector("provisioning", "spot").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				Active(0).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				Parallelism(10).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Active(0).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(4).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(6).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonOutOfSync,
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"when the job is already finished and its prebuilt workload is out of sync, the workload is finished Succeeded": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Condition(batchv1.JobCondition{
+					Type:               batchv1.JobComplete,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now),
+					Message:            "Job finished successfully",
+				}).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Condition(batchv1.JobCondition{
+					Type:               batchv1.JobComplete,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now),
+					Message:            "Job finished successfully",
+				}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+			},
+		},
+		"when the prebuilt workload is already finished Succeeded and controlled by an out-of-sync job, its finalizer is removed": {
+			job: baseJobWrapper.
+				Clone().
+				Parallelism(5).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Parallelism(5).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+			},
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			featureGates: map[featuregate.Feature]bool{
