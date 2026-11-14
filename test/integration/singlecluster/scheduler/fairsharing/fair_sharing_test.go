@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
 					Duration: 1 * time.Second,
@@ -128,7 +128,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor1, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor2, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Preemption is disabled", func() {
@@ -2169,7 +2168,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 			&config.AdmissionFairSharing{
 				UsageHalfLifeTime: metav1.Duration{
 					Duration: 2 * time.Second,
@@ -2200,7 +2199,6 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Using AdmissionFairSharing at Cohort level", func() {
@@ -2507,7 +2505,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(nil))
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
@@ -2529,7 +2527,6 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("A ClusterQueue borrows from a Cohort tree whose lendable quota changes", func() {

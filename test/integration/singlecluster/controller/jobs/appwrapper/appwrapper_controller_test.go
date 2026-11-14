@@ -71,7 +71,7 @@ const (
 
 var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
@@ -83,7 +83,6 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 	ginkgo.AfterAll(func() {
 		priorityClass := &schedulingv1.PriorityClass{Name: priorityClassName}
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-		fwk.StopManager(ctx)
 	})
 
 	var (
@@ -526,10 +525,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 var _ = ginkgo.Describe("AppWrapper controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	var (
@@ -593,7 +589,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -608,7 +604,6 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 
 	ginkgo.AfterAll(func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	var (
@@ -820,10 +815,7 @@ var _ = ginkgo.Describe("AppWrapper controller when waitForPodsReady enabled", g
 
 var _ = ginkgo.Describe("AppWrapper controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 	})
 
 	var (
@@ -908,11 +900,7 @@ var _ = ginkgo.Describe("AppWrapper controller with TopologyAwareScheduling", gi
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
 	})
 
 	ginkgo.BeforeEach(func() {

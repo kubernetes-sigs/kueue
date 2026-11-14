@@ -31,12 +31,11 @@ var _ = ginkgo.Describe("MPIJob Webhook", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(mpijob.SetupMPIJobWebhook))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(mpijob.SetupMPIJobWebhook))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {

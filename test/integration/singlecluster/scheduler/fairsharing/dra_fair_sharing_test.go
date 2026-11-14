@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 		}
 
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				afsConfig(
 					metav1.Duration{Duration: 1 * time.Second},
 					metav1.Duration{Duration: 5 * time.Second},
@@ -115,7 +115,6 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -305,7 +304,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 		)
 
 		ginkgo.BeforeAll(func() {
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(
 				&config.AdmissionFairSharing{
 					UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
 					UsageHalfLifeTime:     metav1.Duration{Duration: 1 * time.Second},
@@ -344,7 +343,6 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.AfterEach(func() {

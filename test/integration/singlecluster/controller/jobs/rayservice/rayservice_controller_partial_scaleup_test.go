@@ -72,10 +72,7 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 			features.ElasticJobsViaWorkloadSlices:                          true,
 			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 		})
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 	})
 
 	ginkgo.BeforeEach(func() {

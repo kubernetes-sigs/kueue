@@ -32,13 +32,12 @@ import (
 var _ = ginkgo.Describe("XGBoostJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(xgboostjob.SetupXGBoostJobWebhook))
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(xgboostjob.SetupXGBoostJobWebhook))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "xgboost-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("with TopologyAwareScheduling", func() {

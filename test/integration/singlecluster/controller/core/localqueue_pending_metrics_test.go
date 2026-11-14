@@ -41,7 +41,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		// Do not start the scheduler: unrelated scheduling attempts could refresh
 		// a stale ClusterQueue metric after a LocalQueue is removed.
-		fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(nil))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-pending-metrics-")
 		flavor = utiltestingapi.MakeResourceFlavor("pending-metrics-default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -69,7 +69,6 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should refresh pending metrics when a LocalQueue is deleted", func() {

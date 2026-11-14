@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
@@ -71,7 +71,6 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
@@ -177,7 +176,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				// The Job webhook is set up next to the Pod one because the parent Jobs
 				// created below are otherwise rejected by the mjob.kb.io webhook config.
 				func(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -199,7 +198,6 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("Should manage the pod when the ownerReference UID doesn't match the parent job", func() {
@@ -272,7 +270,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				podcontroller.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
@@ -283,7 +281,6 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is not set", func() {

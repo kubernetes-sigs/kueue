@@ -43,7 +43,7 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
 		behavioral.MustCreate(ctx, k8sClient, alphaFlavor)
@@ -65,7 +65,6 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, alphaFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should record workload_eviction_latency_seconds when a preemptee returns to Pending", func() {

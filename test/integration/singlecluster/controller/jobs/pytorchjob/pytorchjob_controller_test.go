@@ -58,14 +58,10 @@ const (
 
 var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
 			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
 		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
 	})
 
 	var (
@@ -103,11 +99,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:pytorch", "area:jobs
 
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Label("job:pytorch", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 	})
 
 	var (
@@ -328,7 +320,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(
+		fwk.StartManagerForSpec(
 			ctx,
 			cfg,
 			managerSetup(
@@ -343,7 +335,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.L
 
 	ginkgo.AfterAll(func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -493,11 +484,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Labe
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(false))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(false))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -638,11 +625,7 @@ var _ = ginkgo.Describe("PyTorchJob controller with TopologyAwareScheduling", gi
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(true))
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(true))
 	})
 
 	ginkgo.BeforeEach(func() {

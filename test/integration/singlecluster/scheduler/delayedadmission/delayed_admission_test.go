@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 	)
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -73,7 +73,6 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQ, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, delayedCheck, true)
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.Context("Delayed admission check", func() {

@@ -93,13 +93,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
-		fwk.StartManager(ctx, cfg, managerSetup)
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup)
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Reconciling clusterQueue usage status", func() {
@@ -1438,7 +1437,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label
 		var trackerCtx context.Context
 		trackerCtx, trackerCancel = context.WithCancel(ctx)
 		go tracker.Start(trackerCtx, ctrl.Log)
-		fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil, withRoleTracker(tracker)))
+		fwk.StartManagerForSpec(ctx, cfg, managerAndControllerSetup(nil, withRoleTracker(tracker)))
 
 		rf = utiltestingapi.MakeResourceFlavor("ha-transition-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -1458,7 +1457,6 @@ var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label
 			close(electedChan)
 		}
 		trackerCancel()
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("Should resync metrics after role transition from follower to leader", func() {

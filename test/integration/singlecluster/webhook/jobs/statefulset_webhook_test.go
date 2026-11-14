@@ -49,7 +49,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			err = serverVersionFetcher.FetchServerVersion()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			fwk.StartManager(ctx, cfg, managerSetup(
+			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 				statefulset.SetupWebhook,
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
@@ -58,7 +58,6 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {

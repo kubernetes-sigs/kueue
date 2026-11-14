@@ -66,10 +66,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      true,
 		})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -271,10 +268,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): true,
 			string(features.PartialAdmission):                                      false,
 		})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
 	})
 
 	ginkgo.BeforeEach(func() {
