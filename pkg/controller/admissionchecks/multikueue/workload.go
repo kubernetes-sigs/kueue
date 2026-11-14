@@ -434,6 +434,7 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 			// group.local still names clusterName: it was either read before the eviction that
 			// recorded clusterName, or admitted there again. Nothing can be removed yet, so keep
 			// the entry for a later reconcile.
+			ctrl.LoggerFrom(ctx).V(3).Info("Deferring removal of remote objects on a previous cluster the workload still names", "workerCluster", clusterName)
 			continue
 		}
 		retry, err := w.removeObjectsOnPreviousCluster(ctx, group, clusterName)
@@ -524,7 +525,13 @@ func (w *wlReconciler) remoteClientsForWorkload(
 	if admitting := workload.ClusterName(local); admitting != "" && !slices.Contains(clusterNames, admitting) {
 		// Without a MultiKueueCluster the admitting cluster cannot be reached,
 		// so leave it out and let the workload be retried right away.
-		if _, found := w.clusters.controllerFor(admitting); found {
+		// Check the object rather than w.clusters: after a restart, the clusters reconciler
+		// may not have added the cluster yet, while the cached Get waits for the informer to sync.
+		err := w.client.Get(ctx, types.NamespacedName{Name: admitting}, &kueue.MultiKueueCluster{})
+		if client.IgnoreNotFound(err) != nil {
+			return nil, nil, err
+		}
+		if err == nil {
 			clusterNames = append(clusterNames, admitting)
 		}
 	}

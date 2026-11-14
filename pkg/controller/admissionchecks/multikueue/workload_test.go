@@ -96,7 +96,10 @@ func TestWlReconcile(t *testing.T) {
 		worker1DisconnectedSince *time.Time
 		worker1OnUpdateError     error
 		worker1RemovedFromConfig bool
-		dispatcherName           *string
+		// worker1NotInClustersReconciler keeps the MultiKueueCluster of worker1 but not its
+		// client in the clusters reconciler, as after a restart before the cluster is reconciled.
+		worker1NotInClustersReconciler bool
+		dispatcherName                 *string
 
 		// second worker
 		useSecondWorker          bool
@@ -2425,6 +2428,40 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout / 2},
 		},
+		"the local workload admission check stays Ready when its admitting cluster removed from the config is not yet in the clusters reconciler": {
+			featureGates:                   map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor:                   "wl1",
+			worker1RemovedFromConfig:       true,
+			worker1NotInClustersReconciler: true,
+			useSecondWorker:                true,
+			managersJobs:                   []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ClusterName("worker1").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
+		},
 		"the local workload is retried immediately when its admitting cluster has no MultiKueueCluster": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -3241,7 +3278,11 @@ func TestWlReconcile(t *testing.T) {
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
+					utiltestingapi.MakeMultiKueueCluster("worker1").Obj(),
 				)
+				if tc.useSecondWorker {
+					managerBuilder = managerBuilder.WithObjects(utiltestingapi.MakeMultiKueueCluster("worker2").Obj())
+				}
 
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
@@ -3266,7 +3307,9 @@ func TestWlReconcile(t *testing.T) {
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connState.connected = !tc.worker1Reconnecting
 				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
-				cRec.remoteClients["worker1"] = w1remoteClient
+				if !tc.worker1NotInClustersReconciler {
+					cRec.remoteClients["worker1"] = w1remoteClient
+				}
 
 				var worker2Client SelectivelyCachingClient
 				if tc.useSecondWorker {

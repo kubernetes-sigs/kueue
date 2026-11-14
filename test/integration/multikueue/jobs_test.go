@@ -894,6 +894,58 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should keep a workload on its admitting worker removed from the MultiKueueConfig after a manager restart before the worker is reconciled", framework.SlowSpec, func() {
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("removing worker2 from the MultiKueueConfig", func() {
+			f.updateConfigClusters(f.workerCluster1.Name)
+		})
+
+		// Without the kubeconfig Secret, the restarted manager keeps the worker2 MultiKueueCluster but
+		// never adds a client for it, so it stays as right after a restart, before it is reconciled.
+		ginkgo.By("restarting the manager without the worker2 kubeconfig Secret", func() {
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret2, true)
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			})
+			gomega.Eventually(func(g gomega.Gomega) {
+				cluster := &kueue.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.workerCluster2), cluster)).To(gomega.Succeed())
+				g.Expect(cluster.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.MultiKueueClusterActive, "BadKubeConfig"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the workload stays admitted on worker2 and is not dispatched to worker1", func() {
+			expectNoEviction([]types.NamespacedName{wlLookupKey}, f.multiKueueAC.Name, behavioral.LongConsistentDuration)
+			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+		})
+
+		ginkgo.By("restoring the worker2 kubeconfig Secret, the workload keeps running on worker2", func() {
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client,
+				utiltesting.MakeSecret(f.managerMultiKueueSecret2.Name, managersConfigNamespace.Name).
+					Data(kueue.MultiKueueConfigSecretKey, f.managerMultiKueueSecret2.Data[kueue.MultiKueueConfigSecretKey]).
+					Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				cluster := &kueue.MultiKueueCluster{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.workerCluster2), cluster)).To(gomega.Succeed())
+				g.Expect(cluster.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.MultiKueueClusterActive))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			expectNoEviction([]types.NamespacedName{wlLookupKey}, f.multiKueueAC.Name, behavioral.LongConsistentDuration)
+			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
 		admittedMetricBefore := behavioral.GetMultiKueueWorkloadsAdmittedTotal(f.managerCq, "worker1")
 		job := testingjob.MakeJob("job", f.managerNs.Name).
