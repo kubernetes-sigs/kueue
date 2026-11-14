@@ -59,8 +59,8 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 		r := NewRequeuer()
 		defer r.queue.ShutDown()
 		m := NewManager(cl, nil, r)
-		addInadmissibleTestQueue(t, ctx, m, "cq", "lq", "ns", "")
-		first := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns", "first")
+		addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
+		first := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "first")
 		done := make(chan error, 1)
 		go func() { done <- r.Start(ctx) }()
 		defer func() {
@@ -101,7 +101,7 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 			t.Fatal("worker did not recover without a second notification")
 		}
 
-		second := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns", "second")
+		second := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "second")
 		r.notifyClusterQueue("cq")
 		time.Sleep(requeueBatchPeriod)
 		synctest.Wait()
@@ -142,8 +142,8 @@ func TestInadmissibleRequeueRevalidatesAfterNamespaceRead(t *testing.T) {
 					},
 				}).Build()
 			m = NewManagerForUnitTests(cl, nil)
-			addInadmissibleTestQueue(t, ctx, m, "cq", "lq", "ns", "")
-			wl = addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns", "wl")
+			addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
+			wl = addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "wl")
 			moved, retry := requeueWorkloadsCQWithRetry(ctx, m, "cq")
 			if moved != 0 || retry {
 				t.Errorf("moved=%d, retry=%t; want 0, false", moved, retry)
@@ -155,7 +155,7 @@ func TestInadmissibleRequeueRevalidatesAfterNamespaceRead(t *testing.T) {
 	}
 }
 
-func addInadmissibleTestWorkload(t *testing.T, ctx context.Context, m *Manager, cl client.Client, cqName, lqName, namespace, name string) *kueue.Workload {
+func addInadmissibleTestWorkload(ctx context.Context, t *testing.T, m *Manager, cl client.Client, cqName, lqName, namespace, name string) *kueue.Workload {
 	t.Helper()
 	wl := utiltestingapi.MakeWorkload(name, namespace).Queue(kueue.LocalQueueName(lqName)).Obj()
 	if err := cl.Create(ctx, wl); err != nil {
@@ -171,7 +171,7 @@ func addInadmissibleTestWorkload(t *testing.T, ctx context.Context, m *Manager, 
 	return wl
 }
 
-func addInadmissibleTestQueue(t *testing.T, ctx context.Context, m *Manager, cqName, lqName, namespace, cohortName string) {
+func addInadmissibleTestQueue(ctx context.Context, t *testing.T, m *Manager, cqName, lqName, namespace, cohortName string) {
 	t.Helper()
 	cqBuilder := utiltestingapi.MakeClusterQueue(cqName)
 	if cohortName != "" {
@@ -214,8 +214,8 @@ func TestInadmissibleRequeueTransientNamespaceRetry(t *testing.T) {
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
 	m = NewManager(cl, nil, r)
-	addInadmissibleTestQueue(t, ctx, m, "cq", "lq", "ns-a", "")
-	wl := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns-a", "retry-me")
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns-a", "")
+	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns-a", "retry-me")
 
 	req := requeueRequest{ClusterQueue: "cq"}
 	r.reconcile(ctx, req)
@@ -256,10 +256,10 @@ func TestInadmissibleRequeueCohortPartialProgress(t *testing.T) {
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
 	m := NewManager(cl, nil, r)
-	addInadmissibleTestQueue(t, ctx, m, "cq-a", "lq-a", "ns-a", "shared")
-	addInadmissibleTestQueue(t, ctx, m, "cq-b", "lq-b", "ns-b", "shared")
-	wlA := addInadmissibleTestWorkload(t, ctx, m, cl, "cq-a", "lq-a", "ns-a", "wl-a")
-	wlB := addInadmissibleTestWorkload(t, ctx, m, cl, "cq-b", "lq-b", "ns-b", "wl-b")
+	addInadmissibleTestQueue(ctx, t, m, "cq-a", "lq-a", "ns-a", "shared")
+	addInadmissibleTestQueue(ctx, t, m, "cq-b", "lq-b", "ns-b", "shared")
+	wlA := addInadmissibleTestWorkload(ctx, t, m, cl, "cq-a", "lq-a", "ns-a", "wl-a")
+	wlB := addInadmissibleTestWorkload(ctx, t, m, cl, "cq-b", "lq-b", "ns-b", "wl-b")
 
 	req := requeueRequest{Cohort: "shared"}
 	r.reconcile(ctx, req)
@@ -297,10 +297,10 @@ func TestInadmissibleRequeueDeduplicatesNamespaceReads(t *testing.T) {
 			},
 		}).Build()
 	m := NewManagerForUnitTests(cl, nil)
-	addInadmissibleTestQueue(t, ctx, m, "cq", "lq", "ns", "")
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
 	var wls []*kueue.Workload
 	for i := range 100 {
-		wl := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns", fmt.Sprintf("wl-%03d", i))
+		wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", fmt.Sprintf("wl-%03d", i))
 		wls = append(wls, wl)
 	}
 	moved, retry := requeueWorkloadsCQWithRetry(ctx, m, "cq")
@@ -337,11 +337,11 @@ func TestInadmissibleRequeueDetectsWorkloadsAddedDuringNamespaceRead(t *testing.
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
 	m = NewManager(cl, nil, r)
-	addInadmissibleTestQueue(t, ctx, m, "cq", "lq-a", "ns-a", "")
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq-a", "ns-a", "")
 	if err := m.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq-b", "ns-b").ClusterQueue("cq").Obj()); err != nil {
 		t.Fatalf("add second LocalQueue: %v", err)
 	}
-	first := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq-a", "ns-a", "first")
+	first := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq-a", "ns-a", "first")
 	req := requeueRequest{ClusterQueue: "cq"}
 	r.reconcile(ctx, req)
 	if !injected || late == nil {
@@ -368,8 +368,8 @@ func TestInadmissibleRequeueDeletedNamespaceDoesNotRetry(t *testing.T) {
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
 	m := NewManager(cl, nil, r)
-	addInadmissibleTestQueue(t, ctx, m, "cq", "lq", "ns-deleted", "")
-	wl := addInadmissibleTestWorkload(t, ctx, m, cl, "cq", "lq", "ns-deleted", "wl")
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns-deleted", "")
+	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns-deleted", "wl")
 	req := requeueRequest{ClusterQueue: "cq"}
 	r.reconcile(ctx, req)
 	if got := r.queue.NumRequeues(req); got != 0 {
