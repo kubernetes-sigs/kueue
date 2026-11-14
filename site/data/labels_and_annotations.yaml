@@ -599,16 +599,16 @@
 
 - key: kueue.x-k8s.io/wait-for-pods-ready
   type: Annotation
-  example: '`kueue.x-k8s.io/wait-for-pods-ready: ''{"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40}''`'
+  example: '`kueue.x-k8s.io/wait-for-pods-ready: ''{"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40, "unscheduledTimeoutSeconds": 10}''`'
   used_on: |
     Any Kueue-managed resource (for example a [batch/Job](/docs/tasks/run/jobs/) or a
     StatefulSet). Kueue propagates the annotation to the corresponding
     [Workload](/docs/concepts/workload/).
   description: |
-    The annotation sets a per-workload
-    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) optionally timeout and
-    a recovery timeout, both in seconds, overriding those fields in the cluster-wide
-    `waitForPodsReady` configuration for that single workload.
+    The annotation sets per-workload
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) timeouts in seconds.
+    Each specified field overrides the corresponding cluster-wide value; omitted
+    fields use the cluster-wide values.
 
     The value is a JSON object with the following fields:
     - `timeoutSeconds` (optional): the maximum time, in seconds, Kueue waits for the
@@ -617,9 +617,15 @@
     - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
       ready workload may stay with unready Pods before it is evicted. Must be greater
       than `0` when set.
+    - `unscheduledTimeoutSeconds` (optional): the time since admission allowed for
+      all required Pods to be scheduled or to have succeeded. Must be non-negative.
+      Set it to `0` to disable scheduling tracking for this Workload.
 
     The admission webhook rejects the resource if the value is not a valid JSON object,
-    if either timeout is not greater than `0`, or if either timeout exceeds the
-    cluster-wide `maxTimeoutOnWorkload` limit, which defaults to 2 hours.
+    if none of the three fields is set, if `timeoutSeconds` or `recoveryTimeoutSeconds`
+    is not positive, if `unscheduledTimeoutSeconds` is negative, or if any value
+    exceeds `maxTimeoutOnWorkload`, which defaults to 2 hours.
 
     This annotation is alpha-level for the `WorkloadLevelWaitForPodsReady` feature gate.
+    `unscheduledTimeoutSeconds` also requires the `WaitForPodsReadyUnscheduledTimeout`
+    feature gate.

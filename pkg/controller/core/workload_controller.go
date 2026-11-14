@@ -325,11 +325,6 @@ func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
 	}
 }
 
-func (r *WorkloadReconciler) podsScheduledTrackingEnabled() bool {
-	return features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
-		r.waitForPodsReady != nil && r.waitForPodsReady.unscheduledTimeout != nil && *r.waitForPodsReady.unscheduledTimeout > 0
-}
-
 // WithWorkloadUpdateWatchers allows to specify the workload update watchers
 func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
 	return func(r *WorkloadReconciler) {
@@ -1829,11 +1824,10 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// parseWorkloadTimeouts defines the workload timeouts either from workload
-// spec or the annotation.
-func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (*int64, *int64) {
+// parseWorkloadTimeouts reads the workload timeouts from the spec or annotation.
+func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) *kueue.WaitForPodsReady {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		return nil, nil
+		return nil
 	}
 	cfg := wl.Spec.WaitForPodsReady
 	if cfg == nil {
@@ -1842,43 +1836,47 @@ func parseWorkloadTimeouts(ctx context.Context, wl *kueue.Workload) (*int64, *in
 		cfg, err = waitforpodsready.ParseWaitForPodsReady(wl)
 		if err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration")
-			return nil, nil
+			return nil
 		}
 	}
-	if cfg == nil {
-		return nil, nil
-	}
-	return cfg.TimeoutSeconds, cfg.RecoveryTimeoutSeconds
+	return cfg
 }
 
-// determineTimeouts returns the timeout and recovery timeout for the workload.
-// It relies first on the per-workload spec, then on the legacy per-workload annotation,
-// and finally falls back to the cluster-level configuration.
+// determineTimeouts returns the startup, recovery, and scheduling timeouts for the workload.
+// Startup and recovery timeouts use the per-workload spec, then the legacy
+// Workload annotation, and finally the cluster configuration. The scheduling
+// timeout uses the spec or the cluster configuration.
 // It returns ok=false when no workload timeout or cluster configuration is available.
-func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
-	workloadTimeoutSeconds, workloadRecoveryTimeoutSeconds := parseWorkloadTimeouts(ctx, wl)
+func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, unscheduledTimeout time.Duration, ok bool) {
+	cfg := parseWorkloadTimeouts(ctx, wl)
 	hasClusterConfig := r.waitForPodsReady != nil
 
 	// Resolve the timeout, preferring the per-workload value over the cluster-level one.
 	switch {
-	case workloadTimeoutSeconds != nil && *workloadTimeoutSeconds > 0:
-		timeout = time.Duration(*workloadTimeoutSeconds) * time.Second
+	case cfg != nil && cfg.TimeoutSeconds != nil && *cfg.TimeoutSeconds > 0:
+		timeout = time.Duration(*cfg.TimeoutSeconds) * time.Second
 	case hasClusterConfig:
 		timeout = r.waitForPodsReady.timeout
 	default:
 		// No start timeout is configured at either level.
-		return 0, nil, false
+		return 0, nil, 0, false
 	}
 
 	// Resolve the recovery timeout with the same per-workload-over-cluster precedence.
 	switch {
-	case workloadRecoveryTimeoutSeconds != nil && *workloadRecoveryTimeoutSeconds > 0:
-		recoveryTimeout = new(time.Duration(*workloadRecoveryTimeoutSeconds) * time.Second)
+	case cfg != nil && cfg.RecoveryTimeoutSeconds != nil && *cfg.RecoveryTimeoutSeconds > 0:
+		recoveryTimeout = new(time.Duration(*cfg.RecoveryTimeoutSeconds) * time.Second)
 	case hasClusterConfig:
 		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
 	}
 
-	return timeout, recoveryTimeout, true
+	var clusterUnscheduledTimeout time.Duration
+	if hasClusterConfig && r.waitForPodsReady.unscheduledTimeout != nil {
+		clusterUnscheduledTimeout = *r.waitForPodsReady.unscheduledTimeout
+	}
+	unscheduledTimeout = waitforpodsready.EffectiveUnscheduledTimeout(wl, clusterUnscheduledTimeout)
+
+	return timeout, recoveryTimeout, unscheduledTimeout, true
 }
 
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
@@ -1887,7 +1885,7 @@ func (r *WorkloadReconciler) determineTimeouts(ctx context.Context, wl *kueue.Wo
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(ctx context.Context, wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	timeout, recoveryTimeout, ok := r.determineTimeouts(ctx, wl)
+	timeout, recoveryTimeout, unscheduledTimeout, ok := r.determineTimeouts(ctx, wl)
 	if !ok {
 		return "", 0
 	}
@@ -1902,8 +1900,8 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(ctx context.Context, wl *k
 	}
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
-	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout))
+	if unscheduledTimeout > 0 && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout, unscheduledTimeout))
 	}
 
 	switch {
@@ -1918,16 +1916,16 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(ctx context.Context, wl *k
 	return "", 0
 }
 
-func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout time.Duration) time.Time {
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout, unscheduledTimeout time.Duration) time.Time {
 	deadline := metav1.NewTime(admittedAt.Add(timeout))
-	if r.waitForPodsReady.unscheduledTimeout == nil {
+	if unscheduledTimeout <= 0 {
 		return deadline.Time
 	}
 	cur := workload.CurrentPodsScheduledCondition(wl, admittedAt)
 	if cur == nil || cur.Status != metav1.ConditionFalse {
 		return deadline.Time
 	}
-	schedulingDeadline := metav1.NewTime(admittedAt.Add(*r.waitForPodsReady.unscheduledTimeout))
+	schedulingDeadline := metav1.NewTime(admittedAt.Add(unscheduledTimeout))
 	if schedulingDeadline.Before(&deadline) {
 		return schedulingDeadline.Time
 	}

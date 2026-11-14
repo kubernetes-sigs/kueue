@@ -3726,15 +3726,16 @@ var _ = ginkgo.Describe("Interacting with scheduler", func() {
 
 var _ = ginkgo.Describe("Job controller interacting with Workload controller when waitForPodsReady is enabled", func() {
 	var (
-		backoffBaseSeconds              int32
-		backoffLimitCount               *int32
-		waitForPodsReadyTimeout         metav1.Duration
-		waitForPodsReadyRecoveryTimeout *metav1.Duration
-		startManager                    func()
-		ns                              *corev1.Namespace
-		fl                              *kueue.ResourceFlavor
-		cq                              *kueue.ClusterQueue
-		lq                              *kueue.LocalQueue
+		backoffBaseSeconds                 int32
+		backoffLimitCount                  *int32
+		waitForPodsReadyTimeout            metav1.Duration
+		waitForPodsReadyRecoveryTimeout    *metav1.Duration
+		waitForPodsReadyUnscheduledTimeout *metav1.Duration
+		startManager                       func()
+		ns                                 *corev1.Namespace
+		fl                                 *kueue.ResourceFlavor
+		cq                                 *kueue.ClusterQueue
+		lq                                 *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -3745,6 +3746,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 		// timeout is what triggers the eviction.
 		waitForPodsReadyTimeout = metav1.Duration{Duration: 5 * time.Minute}
 		waitForPodsReadyRecoveryTimeout = nil
+		waitForPodsReadyUnscheduledTimeout = nil
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -3757,7 +3759,8 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 					BackoffBaseSeconds: new(backoffBaseSeconds),
 					BackoffLimitCount:  backoffLimitCount,
 				},
-				RecoveryTimeout: waitForPodsReadyRecoveryTimeout,
+				RecoveryTimeout:    waitForPodsReadyRecoveryTimeout,
+				UnscheduledTimeout: waitForPodsReadyUnscheduledTimeout,
 			}
 			fwk.StartManagerForSpec(ctx, cfg, managerAndControllersSetup(
 				false,
@@ -4431,6 +4434,79 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
 					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration),
 				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("the per-workload unscheduled timeout overrides the cluster timeout", ginkgo.Label("feature:workloadlevelwaitforpodsready", "feature:waitforpodsreadyunscheduledtimeout"), func() {
+		const unscheduledTimeoutSeconds int64 = 8
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			waitForPodsReadyUnscheduledTimeout = &metav1.Duration{Duration: time.Minute}
+			backoffBaseSeconds = 60
+		})
+
+		ginkgo.It("should evict an unscheduled workload by its per-workload timeout", func() {
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":8}`).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+			ginkgo.By("checking the annotation is stored in the Workload spec")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.WaitForPodsReady).NotTo(gomega.BeNil())
+				g.Expect(wl.Spec.WaitForPodsReady.UnscheduledTimeoutSeconds).To(gomega.HaveValue(gomega.Equal(unscheduledTimeoutSeconds)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("creating an unscheduled pod linked to the Workload")
+			pod := testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj()
+			pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+			behavioral.MustCreate(ctx, k8sClient, pod)
+
+			ginkgo.By("admitting the Workload")
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "2").
+					Obj()).
+				Obj()
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
+
+			ginkgo.By("checking scheduling and readiness observations")
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking eviction uses the per-workload scheduling deadline")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElement(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+						Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration),
+				))
+				g.Expect(wl.Status.SchedulingStats).To(gomega.HaveValue(gomega.HaveField("Evictions", gomega.ContainElement(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForScheduling,
+						Count:           1,
+					},
+				))))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -486,7 +486,7 @@ func setupIndexes(
 	resourceSliceAPIAvailable bool,
 ) error {
 	var indexerOpts []indexer.Option
-	if waitforpodsready.PodsScheduledTrackingEnabled(cfg.WaitForPodsReady) {
+	if waitforpodsready.PodsScheduledTrackerNeeded(cfg.WaitForPodsReady) {
 		indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())
 	}
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer(), indexerOpts...)
@@ -616,7 +616,7 @@ func setupControllers(
 		}
 	}
 
-	if waitforpodsready.PodsScheduledTrackingEnabled(cfg.WaitForPodsReady) {
+	if waitforpodsready.PodsScheduledTrackerNeeded(cfg.WaitForPodsReady) {
 		tracker := unscheduledpods.NewTracker(mgr.GetClient(), opts.RoleTracker, cfg.WaitForPodsReady)
 		if failedCtrl, err := tracker.SetupWithManager(mgr, cfg); err != nil {
 			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
