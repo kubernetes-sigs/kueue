@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -5038,6 +5039,32 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMultiKueueWorkloadNominationRoundsReadmission(t *testing.T) {
+	metrics.MultiKueueWorkloadNominationRounds.Reset()
+	t.Cleanup(metrics.MultiKueueWorkloadNominationRounds.Reset)
+
+	reconciler := &wlReconciler{
+		dispatcherName:   config.MultiKueueDispatcherModeAllAtOnce,
+		nominationRounds: utilmaps.NewSyncMap[string, int](0),
+	}
+	wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).Admission(utiltestingapi.MakeAdmission("q1").Obj())
+
+	// Each admission follows one nomination round, so the second admission must
+	// not report the round of the first one.
+	for range 2 {
+		reconciler.Update(event.UpdateEvent{
+			ObjectOld: wlBuilder.Clone().Obj(),
+			ObjectNew: wlBuilder.Clone().NominatedClusterNames("worker1").Obj(),
+		})
+		reconciler.reportNominationRounds(wlBuilder.Clone().Obj())
+	}
+
+	gotCount, gotSum := nominationRoundsObservations(t)
+	if gotCount != 2 || gotSum != 2 {
+		t.Errorf("want 2 observations with sum 2, got %d with sum %v", gotCount, gotSum)
 	}
 }
 
