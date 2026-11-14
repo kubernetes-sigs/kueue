@@ -314,8 +314,10 @@ The provider also updates the sum when the `MultiKueueCapacityProviderConfig` or
 
 The provider reads the quota of each worker ClusterQueue like this:
 
-- It uses `status.effectiveQuotas` if it is set.
+- It uses `status.effectiveQuotas` if it is set, unless the worker ClusterQueue has `EffectiveQuotaActive=False` ([Stale Effective Quota] in [KEP-12382]).
 - Otherwise, it uses `spec.resourceGroups`.
+
+The provider also recomputes the sum when the `EffectiveQuotaActive` condition of a worker ClusterQueue changes, for example when its effective quota expires.
 
 This is the [Source of Truth for Quotas] rule from [KEP-12382], but the provider does not check the feature gates of the worker.
 This has one known problem:
@@ -325,7 +327,6 @@ This has one known problem:
 
 [MultiKueue ClusterQueue Reconciler]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#multikueue-clusterqueue-reconciler
 [Source of Truth for Quotas]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#source-of-truth-for-quotas
-[Automatic expiration of effective quota]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#automatic-expiration-of-effective-quota
 
 ### CapacitySynchronized condition
 
@@ -341,6 +342,7 @@ The `Synchronized` reason when some worker clusters are disconnected is an excep
 The Alpha provider uses this exception, so that one disconnected worker cluster does not stop the quota update for all other worker clusters.
 
 If the condition is not True, DQO does not distribute the capacity, and the manager `status.effectiveQuotas` keeps its last value.
+If the DQO sets `effectiveQuotaTTLSeconds`, that value expires at its `validUntil`.
 This is the DQO behavior from [KEP-12382] ([Stale Effective Quota]).
 
 [Stale Effective Quota]: https://github.com/kubernetes-sigs/kueue/tree/main/keps/12382-dynamic-quota-orchestration#stale-effective-quota
@@ -429,11 +431,13 @@ The KEP-12382 tests cover the DQO distribution.
 
 - The provider sums the quotas of the related worker ClusterQueues into one flavor.
 - The provider uses the worker `status.effectiveQuotas` when it is present, otherwise `spec.resourceGroups`.
+- The provider uses the worker `spec.resourceGroups` when the worker ClusterQueue has `EffectiveQuotaActive=False`.
 - The provider sets each `CapacitySynchronized` reason from the table in [CapacitySynchronized condition](#capacitysynchronized-condition).
 
 #### Integration tests
 
 - A change of a worker LocalQueue or ClusterQueue updates `CapacityProvider.status.capacity`.
+- When the effective quota of a worker ClusterQueue expires, `CapacityProvider.status.capacity` uses its `spec.resourceGroups`.
 - The provider, the DQO and the manager `ClusterQueue.status.effectiveQuotas` work together.
 - The API rejects a `MultiKueueCapacityProviderConfig` with `managerSubtreeRootRef.kind: Cohort`.
 - Kueue ignores `MultiKueueConfig.spec.quotaManagement`.
@@ -450,6 +454,7 @@ The KEP-12382 tests cover the DQO distribution.
   - The feature is implemented behind the `DQOMultiKueueCapacityProvider` feature gate, disabled by default.
     The gate depends on the `DynamicQuotaOrchestration` and `MultiKueue` feature gates.
   - The KEP-9988 Alpha1 code is removed (see [Upgrade from KEP-9988 Alpha1](#upgrade-from-kep-9988-alpha1)).
+  - The provider uses the worker `spec.resourceGroups` when the worker ClusterQueue has `EffectiveQuotaActive=False` ([Stale Effective Quota] in [KEP-12382]).
   - The unit, integration and e2e tests from the [Test Plan](#test-plan) are implemented.
   - The migration guide and an **ACTION REQUIRED** release note are published (see [Risks and Mitigations](#risks-and-mitigations)).
 
@@ -462,7 +467,6 @@ The KEP-12382 tests cover the DQO distribution.
   - Decide how the provider handles temporarily unavailable workers ([Account for temporarily unavailable workers]), especially a decrease of the manager quota when some worker clusters are disconnected, based on user feedback.
     For example, the provider can keep the last known quota of a disconnected worker until `workerLostTimeout` expires, or DQO can add a cooldown for capacity decreases.
   - e2e tests cover the MultiKueue provider together with another CapacityProvider for the same manager ClusterQueue.
-  - Re-evaluate using `spec.resourceGroups` when a worker ClusterQueue marks its `status.effectiveQuotas` as stale ([Automatic expiration of effective quota] in [KEP-12382]).
   - Re-evaluate marking the MultiKueue `CapacityProvider` as not synchronized when the feature gate is disabled, based on user feedback.
   - Re-evaluate dropping the Kueue controller manager's RBAC permission to update `ClusterQueue` objects, if no other feature needs it.
   - User documentation is published on the website, and the release notes say how to opt out.
