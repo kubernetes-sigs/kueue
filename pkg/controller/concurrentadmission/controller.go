@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,6 +64,7 @@ const (
 	ConcurrentAdmissionController  = "concurrent-admission-controller"
 	ReasonCreatedVariant           = "CreatedVariant"
 	ReasonDeletedVariant           = "DeletedVariant"
+	ReasonUpdatedVariant           = "UpdatedVariant"
 	ReasonActivatedVariant         = "ActivatedVariant"
 	ReasonDeactivatedVariant       = "DeactivatedVariant"
 	ReasonPreemptionUngatedVariant = "PreemptionUngatedVariant"
@@ -226,6 +228,10 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
 	if err != nil {
 		log.Error(err, "Failed to delete stale variants")
+		return ctrl.Result{}, err
+	}
+	if err := r.syncVariantSpecs(ctx, parent, variants); err != nil {
+		log.Error(err, "Failed to sync variant specs")
 		return ctrl.Result{}, err
 	}
 
@@ -406,6 +412,66 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 			"Variant Workload %q deleted; flavor %q no longer in ClusterQueue", klog.KObj(v), flavor)
 	}
 	return freshVariants, nil
+}
+
+func (r *variantReconciler) syncVariantSpecs(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	if workload.HasQuotaReservation(parent) {
+		return nil
+	}
+	for i := range variants {
+		v := &variants[i]
+		if workload.HasQuotaReservation(v) {
+			continue
+		}
+		updated, err := r.syncVariant(ctx, parent, v)
+		if err != nil {
+			return err
+		}
+		if updated {
+			log.V(2).Info("Variant spec synced to match parent", "variant", klog.KObj(v), "parent", klog.KObj(parent))
+		}
+	}
+	return nil
+}
+
+func (r *variantReconciler) syncVariant(ctx context.Context, parent, variant *kueue.Workload) (bool, error) {
+	flavor := concurrentadmission.GetVariantFlavor(variant)
+
+	desiredSpec := *parent.Spec.DeepCopy()
+	desiredSpec.Active = variant.Spec.Active
+
+	tempWl := &kueue.Workload{Spec: desiredSpec}
+	workload.EnsurePreemptionGateOnSpec(tempWl, controllerconsts.ConcurrentAdmissionPreemptionGate)
+	desiredSpec = tempWl.Spec
+
+	desiredLabels := maps.Clone(parent.Labels)
+	delete(desiredLabels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+
+	desiredAnnotations := maps.Clone(parent.Annotations)
+	if desiredAnnotations == nil {
+		desiredAnnotations = make(map[string]string)
+	}
+	desiredAnnotations[controllerconsts.WorkloadAllowedResourceFlavorAnnotation] = string(flavor)
+
+	specChanged := !equality.Semantic.DeepEqual(variant.Spec, desiredSpec)
+	labelsChanged := !maps.Equal(variant.Labels, desiredLabels)
+	annotationsChanged := !maps.Equal(variant.Annotations, desiredAnnotations)
+
+	if !specChanged && !labelsChanged && !annotationsChanged {
+		return false, nil
+	}
+
+	variant.Spec = desiredSpec
+	variant.Labels = desiredLabels
+	variant.Annotations = desiredAnnotations
+
+	if err := r.client.Update(ctx, variant); err != nil {
+		return false, fmt.Errorf("updating variant %s to match parent spec: %w", klog.KObj(variant), err)
+	}
+	r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonUpdatedVariant, ReasonUpdatedVariant,
+		"Variant Workload %q updated", klog.KObj(variant))
+	return true, nil
 }
 
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
