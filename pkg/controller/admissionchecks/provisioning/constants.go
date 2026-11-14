@@ -20,4 +20,9 @@ const (
 	ConfigKind           = "ProvisioningRequestConfig"
 	CheckInactiveMessage = "the check is not active"
 	NoRequestNeeded      = "the provisioning request is not needed"
+
+	// placeholderImage is set on every container and init container without an
+	// image in a ProvisioningRequest PodTemplate. It is never pulled. The tag
+	// keeps the API server from defaulting imagePullPolicy to Always.
+	placeholderImage = "kueue.x-k8s.io/placeholder-image:placeholder"
 )
