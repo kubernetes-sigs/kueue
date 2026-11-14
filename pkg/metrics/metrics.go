@@ -1605,6 +1605,13 @@ func ClearCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference) {
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
+// DeleteCohortSubtreeAdmittedActiveWorkloads removes the cohort subtree
+// admitted-active series for the given custom-label values.
+func DeleteCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreeAdmittedActiveWorkloads.DeleteLabelValues(labels...)
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
