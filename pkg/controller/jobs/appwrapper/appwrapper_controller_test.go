@@ -158,6 +158,183 @@ func TestPodSets(t *testing.T) {
 
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with unconstrained topology annotation in PodSetInfos": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: pytorchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{
+						{},
+						{Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}},
+					},
+				}).
+				Component(testingappwrapper.Component{
+					Template: batchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+				*utiltestingapi.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					UnconstrainedTopologyRequest().
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+				*utiltestingapi.MakePodSet("aw-2", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					UnconstrainedTopologyRequest().
+					PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with unconstrained topology annotation in PodSetInfos and no pod index label": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					DeclaredPodSets: []awv1beta2.AppWrapperPodSet{{Path: "template.spec.template", Replicas: new(int32(2))}},
+					Template:        batchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					UnconstrainedTopologyRequest().
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with other annotations in PodSetInfos": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: batchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{"ann1": "ann-value1"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with fewer PodSetInfos than PodSets": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: pytorchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					UnconstrainedTopologyRequest().
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+				*utiltestingapi.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJob.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with unconstrained topology annotation in PodSetInfos for a declared PodSet without a template": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					DeclaredPodSets: []awv1beta2.AppWrapperPodSet{
+						{Path: "template.spec.missing"},
+						{Path: "template.spec.template", Replicas: new(int32(2))},
+					},
+					Template: batchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{
+						{Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}},
+						{},
+					},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with required and preferred topology annotation and unconstrained topology annotation in PodSetInfos": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: pytorchJobTAS,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{
+						{Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}},
+						{Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}},
+					},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 1).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
+					RequiredTopologyRequest("cloud.com/rack").
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+				*utiltestingapi.MakePodSet("aw-1", 4).
+					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
+					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+					PreferredTopologyRequest("cloud.com/block").
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with unconstrained topology annotation set to false and unconstrained topology annotation in PodSetInfos": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: utiltestingjob.MakeJob("job", "ns").
+						SetTypeMeta().
+						Parallelism(2).
+						PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "false").
+						Obj(),
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{{
+				Name:  "aw-0",
+				Count: 2,
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(false),
+					PodIndexLabel: new("batch.kubernetes.io/job-completion-index"),
+				},
+			}},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"without unconstrained topology request if TAS is disabled": {
+			job: testingappwrapper.MakeAppWrapper("aw", "ns").
+				Component(testingappwrapper.Component{
+					Template: batchJob,
+					PodSetInfos: []awv1beta2.AppWrapperPodSetInfo{{
+						Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"},
+					}},
+				}).
+				Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("aw-0", 2).
+					PodSpec(batchJob.Spec.Template.Spec).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 
 	for name, tc := range testCases {
