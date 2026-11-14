@@ -813,11 +813,9 @@ key with the PodSet count.</p>
 </td>
 <td>
    <p>DeviceClassNames enumerates the DeviceClasses represented by this resource name.
-Each device class name must be a valid qualified name consisting of an optional DNS subdomain prefix
-followed by a slash and a DNS label, or just a DNS label.
-DNS labels consist of lower-case alphanumeric characters or hyphens,
-and must start and end with an alphanumeric character.
-DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
+Each name must be a valid DeviceClass name, which is a DNS subdomain:
+lower-case alphanumeric characters, hyphens or periods,
+starting and ending with an alphanumeric character.
 The total length of each name must not exceed 253 characters.</p>
 </td>
 </tr>

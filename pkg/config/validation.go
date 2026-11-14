@@ -577,7 +577,12 @@ func validateExcludeDeviceClassNames(c *configapi.Configuration) field.ErrorList
 	seen := make(sets.Set[corev1.ResourceName])
 	for idx, deviceClass := range names {
 		dcPath := excludeDeviceClassNamesPath.Index(idx)
-		allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
+		if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, strings.Join(errs, "; ")))
+		}
+		if len(string(deviceClass)) > 253 {
+			allErrs = append(allErrs, field.Invalid(dcPath, deviceClass, "must not exceed 253 characters"))
+		}
 		if seen.Has(deviceClass) {
 			allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
 		} else {
@@ -591,15 +596,12 @@ func validateExcludeDeviceClassNames(c *configapi.Configuration) field.ErrorList
 	return allErrs
 }
 
-// validateDeviceClassName checks a DeviceClass name listed in
-// deviceClassMappings or excludeDeviceClassNames.
+// validateDeviceClassName checks that deviceClass is a valid DeviceClass object name,
+// which is a DNS subdomain of at most 253 characters.
 func validateDeviceClassName(deviceClass corev1.ResourceName, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if errs := content.IsLabelKey(string(deviceClass)); len(errs) > 0 {
-		allErrs = append(allErrs, field.Invalid(path, deviceClass, strings.Join(errs, "; ")))
-	}
-	if len(string(deviceClass)) > 253 {
-		allErrs = append(allErrs, field.Invalid(path, deviceClass, "must not exceed 253 characters"))
+	for _, msg := range apimachineryutilvalidation.IsDNS1123Subdomain(string(deviceClass)) {
+		allErrs = append(allErrs, field.Invalid(path, deviceClass, msg))
 	}
 	return allErrs
 }

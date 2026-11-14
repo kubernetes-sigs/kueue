@@ -3781,7 +3781,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "whole-foo",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -3985,11 +3985,11 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "whole-foo",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 						{
 							Name:             "shared-bar",
-							DeviceClassNames: []corev1.ResourceName{"bar.com/device-1g", "bar.com/device-2g"},
+							DeviceClassNames: []corev1.ResourceName{"device-1g.bar.com", "device-2g.bar.com"},
 						},
 					},
 				},
@@ -4001,7 +4001,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "mixed-devices",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/gpu", "bar.com/accelerator", "baz.org/compute"},
+							DeviceClassNames: []corev1.ResourceName{"gpu.foo.com", "accelerator.bar.com", "compute.baz.org"},
 						},
 					},
 				},
@@ -4013,7 +4013,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "@invalid-name",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4031,11 +4031,11 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "duplicate-name",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 						{
 							Name:             "duplicate-name",
-							DeviceClassNames: []corev1.ResourceName{"bar.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.bar.com"},
 						},
 					},
 				},
@@ -4071,7 +4071,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "valid-name",
-							DeviceClassNames: []corev1.ResourceName{"valid.com/device", "@invalid-device"},
+							DeviceClassNames: []corev1.ResourceName{"device.valid.com", "@invalid-device"},
 						},
 					},
 				},
@@ -4089,11 +4089,11 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "first-resource",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 						{
 							Name:             "second-resource",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4115,7 +4115,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 						},
 						{
 							Name:             "valid-name",
-							DeviceClassNames: []corev1.ResourceName{"@invalid-device", "valid.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"@invalid-device", "device.valid.com"},
 						},
 					},
 				},
@@ -4141,7 +4141,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "duplicate-devices",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device", "bar.com/device", "foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com", "device.bar.com", "device.foo.com"},
 						},
 					},
 				},
@@ -4159,7 +4159,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4177,7 +4177,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "foo bar",
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4231,7 +4231,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("a", 240), strings.Repeat("b", 12))), // 253 chars total
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4243,7 +4243,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("a", 240), strings.Repeat("b", 14))), // 255 chars total
-							DeviceClassNames: []corev1.ResourceName{"foo.com/device"},
+							DeviceClassNames: []corev1.ResourceName{"device.foo.com"},
 						},
 					},
 				},
@@ -4261,7 +4261,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "valid-name",
-							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("x", 240), strings.Repeat("y", 12)))}, // 253 chars total
+							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s.%s", strings.Repeat("x", 240), strings.Repeat("y", 12)))}, // 253 chars total
 						},
 					},
 				},
@@ -4273,7 +4273,7 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 					DeviceClassMappings: []configapi.DeviceClassMapping{
 						{
 							Name:             "valid-name",
-							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s/%s", strings.Repeat("x", 240), strings.Repeat("y", 14)))}, // 255 chars total
+							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(fmt.Sprintf("%s.%s", strings.Repeat("x", 240), strings.Repeat("y", 13)))}, // 254 chars total
 						},
 					},
 				},
@@ -4282,6 +4282,102 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"device class name longer than 63 characters": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{corev1.ResourceName(strings.Repeat("a", 60) + ".example.com")},
+						},
+					},
+				},
+			},
+		},
+		"device class name with uppercase": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{"GPU.example.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"device class name with underscore": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{"gpu_class.example.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+			},
+		},
+		"device class name in label key prefix form": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{"gpu.example.com", "example.com/gpu"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[1]",
+				},
+			},
+		},
+		"device class names with leading or trailing dot or dash": {
+			cfg: &configapi.Configuration{
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "valid-name",
+							DeviceClassNames: []corev1.ResourceName{".gpu.example.com", "gpu.example.com.", "-gpu.example.com", "gpu.example.com-"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[0]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[1]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[2]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].deviceClassNames[3]",
 				},
 			},
 		},
