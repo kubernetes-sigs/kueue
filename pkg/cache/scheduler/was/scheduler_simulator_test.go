@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -2197,5 +2198,76 @@ func Test_newWASSchedulerConfig_GangSchedulingPluginEnabled(t *testing.T) {
 	})
 	if status.Code() != fwk.Unschedulable {
 		t.Errorf("RunPlacementFeasiblePlugins status = %v, want %v", status.Code(), fwk.Unschedulable)
+	}
+}
+
+func TestScheduleWorkload_PreemptionCandidateOrdering(t *testing.T) {
+	const ns = "default"
+
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+	node := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("10"),
+			corev1.ResourcePods: resource.MustParse("20"),
+		}).
+		Ready().
+		Obj()
+
+	existingPods := make([]*corev1.Pod, 10)
+	for i := range 10 {
+		existingPods[i] = testingpod.MakePod(fmt.Sprintf("victim-%d-pod", i), ns).
+			UID(fmt.Sprintf("victim-%d-uid", i)).
+			Annotation(kueue.WorkloadAnnotation, fmt.Sprintf("victim-%d", i)).
+			NodeName("node1").
+			StatusPhase(corev1.PodRunning).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+
+	scrambledIndices := []int{5, 6, 7, 8, 9, 0, 1, 2, 3, 4}
+	candidates := make([]workload.Reference, len(scrambledIndices))
+	for i, idx := range scrambledIndices {
+		candidates[i] = workload.NewReference(ns, fmt.Sprintf("victim-%d", idx))
+	}
+
+	pg := &schedulingv1beta1.PodGroup{
+		Name: "pg", Namespace: ns,
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+		},
+	}
+
+	for k := 1; k <= 9; k++ {
+		t.Run(fmt.Sprintf("K=%d", k), func(t *testing.T) {
+			sim := newTestSimulatorWithPodGroups(ctx, t, []*corev1.Node{node}, existingPods, []*schedulingv1beta1.PodGroup{pg})
+
+			incomingPod := testingpod.MakePod("p", ns).
+				UID("p-uid").
+				SchedulingGroup("pg").
+				Request(corev1.ResourceCPU, strconv.Itoa(k)).
+				Obj()
+
+			got := sim.ScheduleWorkload(ctx, []*corev1.Pod{incomingPod},
+				simulator.WithPreemptionCandidates(slices.Values(candidates)),
+			)
+
+			wantPlacements := simulator.PodPlacements{
+				client.ObjectKey{Namespace: ns, Name: "p"}: {Node: "node1"},
+			}
+			wantPreempted := candidates[:k]
+
+			if diff := cmp.Diff(wantPlacements, got.PodPlacements, cmpErrorMessage); diff != "" {
+				t.Errorf("unexpected placements (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(wantPreempted, got.PreemptionVictims); diff != "" {
+				t.Errorf("unexpected preemption victims (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
