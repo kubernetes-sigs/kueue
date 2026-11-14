@@ -675,6 +675,83 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			})
 		})
 
+		ginkgo.It("should requeue a workload when a late admission check retry delay expires", func() {
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+			// Leave the queue unset until the post-eviction state is initialized.
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Request(resourceGPU, "1").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check retry")
+				workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "check retry", false)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:  kueue.AdmissionCheckReference(check1.Name),
+					State: kueue.CheckStatePending,
+				}, behavioral.RealClock)
+				workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:                kueue.AdmissionCheckReference(check2.Name),
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: new(int32(5)),
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			retryCheck := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(check2.Name))
+			gomega.Expect(retryCheck).NotTo(gomega.BeNil())
+			retryAt := retryCheck.LastTransitionTime.Add(5 * time.Second)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
+				g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("waiting for the timer without further workload updates")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			gomega.Expect(quotaReserved).NotTo(gomega.BeNil())
+			gomega.Expect(quotaReserved.LastTransitionTime.Time).To(gomega.BeTemporally(">=", retryAt))
+			gomega.Expect(workload.HasRetryChecks(wl)).To(gomega.BeFalse())
+
+			ginkgo.By("admitting the workload once its checks are ready")
+			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check1.Name), kueue.CheckStateReady, false)
+			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check2.Name), kueue.CheckStateReady, false)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+
+		ginkgo.It("should deactivate a workload when a flavor-specific check rejects after quota release", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("queue").Active(true).Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("reporting a late rejection while backoff is pending without quota", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check retry")
+					workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "check retry", false)
+					wl.Status.RequeueState = &kueue.RequeueState{RequeueAt: new(metav1.NewTime(time.Now().Add(time.Hour)))}
+					workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:       kueue.AdmissionCheckReference(check3.Name),
+						State:      kueue.CheckStateRejected,
+						RetryCount: new(int32(1)),
+					}, behavioral.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(wl)).To(gomega.BeFalse())
+				g.Expect(workloadevict.IsEvictedByDeactivation(wl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: "AdmissionCheckRejected",
+				Type:   corev1.EventTypeWarning,
+				Note:   `Deactivated due to AdmissionCheck in Rejected state: "check3"`,
+			})
+		})
+
 		// Deactivating an already-evicted Workload skips Evict(), so the DeactivationTarget
 		// cleanup and the check reset it performs must not be lost: the user has to be able
 		// to reactivate the Workload afterwards.
