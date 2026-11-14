@@ -474,8 +474,8 @@ The label 'result' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.MultiKueueName,
 			Name:      "workload_nomination_rounds",
-			Help: `The number of nomination rounds a workload went through before a worker cluster admitted it, per 'cluster_queue' and 'dispatcher'. A nomination round is a change of the workload's nominated worker clusters, so the metric covers every dispatcher, including external ones. The AllAtOnce dispatcher always reports 1.
-A workload is observed once per admission, so it is observed again if it is evicted and re-admitted. Rounds are tracked in memory, so a workload that is being dispatched while the manager restarts is not observed.`,
+			Help: `The number of nomination rounds a workload went through before a worker cluster admitted it, per 'cluster_queue' and 'dispatcher'. A nomination round is a change of the workload's nominated worker clusters, so the metric covers every dispatcher, including external ones. The AllAtOnce dispatcher reports 1 unless the connected worker clusters change while the workload waits.
+A workload is observed once per admission, so it is observed again if it is evicted and re-admitted. Rounds are tracked in memory, so a workload that is being dispatched while the manager restarts is not observed, or is observed with fewer rounds.`,
 			// Rounds are small integers, so exponential buckets would merge adjacent values.
 			Buckets: prometheus.LinearBuckets(1, 1, 10),
 		}, []string{"cluster_queue", "dispatcher", "replica_role"},
