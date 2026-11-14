@@ -69,8 +69,13 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusInadmissible, inadmissible.Count(wlLabelVals), customLabels)
 		}
 	} else {
-		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active.Total(), cqCustomLabels, m.roleTracker)
-		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
+		activeCount, inadmissibleCount := cq.Pending()
+		if !cqActive {
+			inadmissibleCount += activeCount
+			activeCount = 0
+		}
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, activeCount, cqCustomLabels, m.roleTracker)
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissibleCount, cqCustomLabels, m.roleTracker)
 	}
 
 	if features.Enabled(features.SchedulingEquivalenceHashing) {
