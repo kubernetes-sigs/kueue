@@ -188,16 +188,16 @@ Null inputs are treated as absent.
 {{- fail "managerConfig must be a map" }}
 {{- end }}
 {{- $mode := default "" $values.mode }}
-{{- if and (ne $mode "structured") (hasKey $values "controllerManagerConfigYaml") (ne $values.controllerManagerConfigYaml nil) }}
+{{- if and (ne $mode "structured") (ne $values.controllerManagerConfigYaml nil) }}
 {{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
 {{- else }}
-{{- if and (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- if ne $values.structuredOverrides nil }}
 {{- if not (kindIs "map" $values.structuredOverrides) }}
 {{- fail "managerConfig.structuredOverrides must be a map" }}
 {{- end }}
 {{- end }}
 {{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
-{{- if and (ne $mode "yaml") (hasKey $values "structuredOverrides") (ne $values.structuredOverrides nil) }}
+{{- if and (ne $mode "yaml") (ne $values.structuredOverrides nil) }}
 {{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
 {{- end }}
 {{- toYaml $config }}
