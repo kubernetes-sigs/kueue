@@ -128,6 +128,27 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"should not fail when the workload to create already exists": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			// Without an owner reference the owner index misses it, as a cache
+			// that has not seen an earlier create would.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					Obj(),
+			},
+		},
 		"should create prebuilt workload with leader template": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
