@@ -69,6 +69,25 @@ func (m *ResourceMapper) Lookup(deviceClass corev1.ResourceName) (corev1.Resourc
 	return logicalResource, found
 }
 
+// LogicalResourceNames returns the quota resource names this mapper can produce,
+// including counter-backed names that are stored on the counter config rather
+// than in deviceClassToResource.
+func (m *ResourceMapper) LogicalResourceNames() sets.Set[corev1.ResourceName] {
+	names := sets.New[corev1.ResourceName]()
+	if m == nil {
+		return names
+	}
+	for _, logical := range m.deviceClassToResource {
+		names.Insert(logical)
+	}
+	for _, configs := range m.deviceClassCounters {
+		for _, config := range configs {
+			names.Insert(config.quotaResource)
+		}
+	}
+	return names
+}
+
 // getCounterConfigs returns the counter configurations for a DeviceClass, or nil if
 // the DeviceClass does not use counter-based quota.
 func (m *ResourceMapper) getCounterConfigs(deviceClass corev1.ResourceName) []deviceClassCounterConfig {

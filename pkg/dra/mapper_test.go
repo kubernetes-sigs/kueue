@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
@@ -176,6 +177,50 @@ func TestDRAResourceMapper_Lookup(t *testing.T) {
 				if actualResource != lookup.expectedRes {
 					t.Errorf("lookup(%s) resource = %v, want %v", lookup.deviceClass, actualResource, lookup.expectedRes)
 				}
+			}
+		})
+	}
+}
+
+func TestDRAResourceMapper_LogicalResourceNames(t *testing.T) {
+	cases := map[string]struct {
+		nilMapper bool
+		config    []configapi.DeviceClassMapping
+		want      sets.Set[corev1.ResourceName]
+	}{
+		"nil mapper": {
+			nilMapper: true,
+			want:      sets.New[corev1.ResourceName](),
+		},
+		"empty configuration": {
+			config: []configapi.DeviceClassMapping{},
+			want:   sets.New[corev1.ResourceName](),
+		},
+		"device class mappings": {
+			config: []configapi.DeviceClassMapping{
+				{
+					Name:             corev1.ResourceName("gpu"),
+					DeviceClassNames: []corev1.ResourceName{"gpu.example.com", "gpu-class"},
+				},
+				{
+					Name:             corev1.ResourceName("foo"),
+					DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
+				},
+			},
+			want: sets.New[corev1.ResourceName]("gpu", "foo"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var mapper *ResourceMapper
+			if !tc.nilMapper {
+				mapper = NewResourceMapper()
+				if err := mapper.PopulateFromConfiguration(tc.config); err != nil {
+					t.Fatalf("PopulateFromConfiguration: %v", err)
+				}
+			}
+			if diff := cmp.Diff(tc.want, mapper.LogicalResourceNames()); diff != "" {
+				t.Errorf("LogicalResourceNames() mismatch (-want/+got):\n%s", diff)
 			}
 		})
 	}
