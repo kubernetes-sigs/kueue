@@ -5412,109 +5412,330 @@ func TestPreemptionStrategy(t *testing.T) {
 	})
 }
 
-func TestPreemptionStrategy_PreemptionFilter(t *testing.T) {
+func TestPreemptionFilter(t *testing.T) {
 	vLowKey := workload.NewReference("default", "v-low")
 	vMidKey := workload.NewReference("default", "v-mid")
+	vOtherCQKey := workload.NewReference("default", "v-other-cq")
 	unknownKey := workload.NewReference("default", "unknown")
 
 	cases := map[string]struct {
-		incomingCPU     string
-		yieldCandidates int
-		unpreempt       []workload.Reference
-		preempt         []workload.Reference
-		reset           bool
-		wantMayFit      bool
-		wantPreempted   []workload.Reference
+		incomingCPU         string
+		hasQuotaReservation bool
+		allowBorrowing      bool
+		cohortNominalCPU    string
+		siblingBorrowerCPU  string
+		preempt             []workload.Reference
+		unpreempt           []workload.Reference
+		repreempt           []workload.Reference
+		resetAndReinit      bool
+		removeFromSnapshot  []workload.Reference
+		wantMayFit          bool
+		wantPreempted       []workload.Reference
 	}{
-		"quota full before yielding candidates": {
-			incomingCPU: "2",
-			wantMayFit:  false,
+		"quota full before preempting workloads": {
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			wantMayFit:     false,
 		},
-		"yielding one candidate frees enough quota": {
-			incomingCPU:     "2",
-			yieldCandidates: 1,
-			wantMayFit:      true,
-			wantPreempted:   []workload.Reference{vLowKey},
+		"preempting one workload frees enough quota": {
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey},
+			wantMayFit:     true,
+			wantPreempted:  []workload.Reference{vLowKey},
 		},
-		"yielding one candidate is insufficient for larger workload": {
-			incomingCPU:     "4",
-			yieldCandidates: 1,
-			wantMayFit:      false,
-			wantPreempted:   []workload.Reference{vLowKey},
+		"preempting one workload is insufficient for larger workload": {
+			incomingCPU:    "4",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey},
+			wantMayFit:     false,
+			wantPreempted:  []workload.Reference{vLowKey},
 		},
-		"yielding both candidates frees enough quota for larger workload": {
-			incomingCPU:     "4",
-			yieldCandidates: 2,
-			wantMayFit:      true,
-			wantPreempted:   []workload.Reference{vLowKey, vMidKey},
+		"preempting both workloads frees enough quota for larger workload": {
+			incomingCPU:    "4",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey, vMidKey},
+			wantMayFit:     true,
+			wantPreempted:  []workload.Reference{vLowKey, vMidKey},
 		},
-		"unpreempting yielded candidate restores usage so workload no longer fits": {
-			incomingCPU:     "2",
-			yieldCandidates: 1,
-			unpreempt:       []workload.Reference{vLowKey},
-			wantMayFit:      false,
+		"unpreempting candidate restores usage so workload no longer fits": {
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey},
+			unpreempt:      []workload.Reference{vLowKey},
+			wantMayFit:     false,
 		},
 		"reprieving unneeded second candidate keeps quota satisfied": {
-			incomingCPU:     "2",
-			yieldCandidates: 2,
-			unpreempt:       []workload.Reference{vMidKey},
-			wantMayFit:      true,
-			wantPreempted:   []workload.Reference{vLowKey},
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey, vMidKey},
+			unpreempt:      []workload.Reference{vMidKey},
+			wantMayFit:     true,
+			wantPreempted:  []workload.Reference{vLowKey},
 		},
 		"re-preempting after unpreempt removes candidate again": {
-			incomingCPU:     "2",
-			yieldCandidates: 1,
-			unpreempt:       []workload.Reference{vLowKey},
-			preempt:         []workload.Reference{vLowKey},
-			wantMayFit:      true,
-			wantPreempted:   []workload.Reference{vLowKey},
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey},
+			unpreempt:      []workload.Reference{vLowKey},
+			repreempt:      []workload.Reference{vLowKey},
+			wantMayFit:     true,
+			wantPreempted:  []workload.Reference{vLowKey},
 		},
-		"preempting unyielded or unknown workload is a no-op": {
-			incomingCPU: "2",
-			preempt:     []workload.Reference{vLowKey, unknownKey},
-			wantMayFit:  false,
+		"duplicate PreemptWorkload and UnpreemptWorkload calls are idempotent": {
+			incomingCPU:    "4",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey, vLowKey},
+			unpreempt:      []workload.Reference{vMidKey, vMidKey},
+			wantMayFit:     false,
+			wantPreempted:  []workload.Reference{vLowKey},
 		},
-		"reset restores all preempted candidates": {
-			incomingCPU:     "4",
-			yieldCandidates: 2,
-			reset:           true,
-			wantMayFit:      false,
+		"preempting unknown workload is a no-op": {
+			incomingCPU:    "2",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{unknownKey},
+			wantMayFit:     false,
+		},
+		"reset restores all preempted workloads": {
+			incomingCPU:    "4",
+			allowBorrowing: true,
+			preempt:        []workload.Reference{vLowKey, vMidKey},
+			resetAndReinit: true,
+			wantMayFit:     false,
+		},
+		"removing committed victims from active snapshot does not affect filter": {
+			incomingCPU:        "2",
+			allowBorrowing:     true,
+			removeFromSnapshot: []workload.Reference{vLowKey, vMidKey},
+			wantMayFit:         false,
+		},
+		"borrowing disallowed rejects workload that only fits with cohort quota": {
+			incomingCPU:      "2",
+			allowBorrowing:   false,
+			cohortNominalCPU: "2",
+			wantMayFit:       false,
+		},
+		"borrowing allowed accepts workload that fits with cohort quota": {
+			incomingCPU:      "2",
+			allowBorrowing:   true,
+			cohortNominalCPU: "2",
+			wantMayFit:       true,
+		},
+		"preempting borrower in sibling ClusterQueue frees cohort quota": {
+			incomingCPU:        "2",
+			allowBorrowing:     true,
+			cohortNominalCPU:   "2",
+			siblingBorrowerCPU: "2",
+			preempt:            []workload.Reference{vOtherCQKey},
+			wantMayFit:         true,
+			wantPreempted:      []workload.Reference{vOtherCQKey},
+		},
+		"workload with existing quota reservation always fits": {
+			incomingCPU:         "2",
+			hasQuotaReservation: true,
+			allowBorrowing:      false,
+			wantMayFit:          true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			strategy, snapshot := setupPreemptionStrategy(t, tc.incomingCPU)
-			if tc.yieldCandidates > 0 {
-				yielded := 0
-				for range strategy.Candidates() {
-					yielded++
-					if yielded == tc.yieldCandidates {
-						break
-					}
+			now := time.Now()
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			cqBuilder := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority})
+			if tc.cohortNominalCPU != "" {
+				cqBuilder.Cohort("cohort")
+			}
+			cq := cqBuilder.Obj()
+
+			admittedIn := func(cqName kueue.ClusterQueueReference, name string, prio int32, cpu string) kueue.Workload {
+				return *utiltestingapi.MakeWorkload(name, "default").
+					Priority(prio).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, cpu).Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "default", cpu).
+								Obj()).
+							Obj(),
+						now,
+					).
+					Obj()
+			}
+
+			items := []kueue.Workload{
+				admittedIn("cq", "v-low", 10, "2"),
+				admittedIn("cq", "v-mid", 20, "2"),
+			}
+			if tc.siblingBorrowerCPU != "" {
+				items = append(items, admittedIn("cq-other", "v-other-cq", 5, tc.siblingBorrowerCPU))
+			}
+
+			cl := utiltesting.NewClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: items}).
+				Build()
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if tc.cohortNominalCPU != "" {
+				cohort := utiltestingapi.MakeCohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, tc.cohortNominalCPU).Obj()).
+					Obj()
+				if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
+					t.Fatalf("adding Cohort to cache: %v", err)
 				}
 			}
-			for _, wlKey := range tc.unpreempt {
-				strategy.UnpreemptWorkload(wlKey)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to cache: %v", err)
 			}
+			if tc.siblingBorrowerCPU != "" {
+				cqOther := utiltestingapi.MakeClusterQueue("cq-other").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj()
+				if err := cqCache.AddClusterQueue(ctx, cqOther); err != nil {
+					t.Fatalf("adding sibling ClusterQueue to cache: %v", err)
+				}
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("building snapshot: %v", err)
+			}
+
+			incomingBuilder := utiltestingapi.MakeWorkload("incoming", "default").
+				Priority(50).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, tc.incomingCPU).Obj())
+			if tc.hasQuotaReservation {
+				incomingBuilder.ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", tc.incomingCPU).
+							Obj()).
+						Obj(),
+					now,
+				)
+			}
+			wlInfo := workload.NewInfo(log, incomingBuilder.Obj())
+			wlInfo.ClusterQueue = "cq"
+			assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
+			})
+
+			filter := BuildFilter(log, snapshot, wlInfo)
+
+			var revertRemoval func()
+			if len(tc.removeFromSnapshot) > 0 {
+				var toRemove []*workload.Info
+				for _, wlKey := range tc.removeFromSnapshot {
+					toRemove = append(toRemove, snapshot.ClusterQueue("cq").Workloads[wlKey])
+				}
+				revertRemoval = snapshot.SimulateWorkloadRemoval(toRemove)
+				defer revertRemoval()
+			}
+
+			cpuRes := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+			snapUsageBefore := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]
+
+			filter.Initialize(&assignment, tc.allowBorrowing)
 			for _, wlKey := range tc.preempt {
-				strategy.PreemptWorkload(wlKey)
+				filter.PreemptWorkload(wlKey)
 			}
-			if tc.reset {
-				strategy.Reset()
+			for _, wlKey := range tc.unpreempt {
+				filter.UnpreemptWorkload(wlKey)
 			}
-			if got := strategy.MayFit(); got != tc.wantMayFit {
+			for _, wlKey := range tc.repreempt {
+				filter.PreemptWorkload(wlKey)
+			}
+			if tc.resetAndReinit {
+				filter.Reset()
+				filter.Initialize(&assignment, tc.allowBorrowing)
+			}
+
+			if got := filter.MayFit(); got != tc.wantMayFit {
 				t.Errorf("MayFit() = %v, want %v", got, tc.wantMayFit)
 			}
+
 			var gotPreempted []workload.Reference
-			for _, wlKey := range []workload.Reference{vLowKey, vMidKey} {
-				if !workloadInSnapshot(snapshot, wlKey) {
+			for _, wlKey := range []workload.Reference{vLowKey, vMidKey, vOtherCQKey} {
+				if _, isPreempted := filter.preempted[wlKey]; isPreempted {
+					if _, stillActive := filter.workloads[wlKey]; stillActive {
+						t.Errorf("workload %q is in both filter.preempted and filter.workloads", wlKey)
+					}
 					gotPreempted = append(gotPreempted, wlKey)
 				}
 			}
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
-				t.Errorf("workloads preempted from snapshot mismatch (-want +got):\n%s", diff)
+				t.Errorf("workloads preempted in filter mismatch (-want +got):\n%s", diff)
+			}
+
+			if gotSnapUsage := snapshot.ClusterQueue("cq").ResourceNode.Usage[cpuRes]; gotSnapUsage.Cmp(snapUsageBefore) != 0 {
+				t.Errorf("PreemptionFilter mutated source snapshot usage: got %v, want %v", gotSnapUsage, snapUsageBefore)
 			}
 		})
 	}
+}
+
+func TestPreemptionFilter_Lifecycle(t *testing.T) {
+	_, snapshot := setupPreemptionStrategy(t, "2")
+	_, log := utiltesting.ContextWithLog(t)
+	vLowKey := workload.NewReference("default", "v-low")
+
+	wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
+		Priority(50).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2").Obj()).
+		Obj())
+	wlInfo.ClusterQueue = "cq"
+	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+		corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Preempt},
+	})
+
+	expectPanic := func(t *testing.T, name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("%s did not panic when filter was uninitialized", name)
+			}
+		}()
+		fn()
+	}
+
+	t.Run("uninitialized and post-Reset guards", func(t *testing.T) {
+		filter := BuildFilter(log, snapshot, wlInfo)
+		// Safe no-op
+		filter.Reset()
+
+		expectPanic(t, "MayFit before Initialize", func() { _ = filter.MayFit() })
+		expectPanic(t, "PreemptWorkload before Initialize", func() { filter.PreemptWorkload(vLowKey) })
+		expectPanic(t, "UnpreemptWorkload before Initialize", func() { filter.UnpreemptWorkload(vLowKey) })
+
+		filter.Initialize(&assignment, true)
+		filter.PreemptWorkload(vLowKey)
+		if !filter.MayFit() {
+			t.Fatal("expected MayFit() = true after preempting v-low")
+		}
+
+		// Reset restores preempted state and marks filter uninitialized; repeated Reset is a no-op.
+		filter.Reset()
+		filter.Reset()
+
+		expectPanic(t, "MayFit after Reset", func() { _ = filter.MayFit() })
+		expectPanic(t, "PreemptWorkload after Reset", func() { filter.PreemptWorkload(vLowKey) })
+		expectPanic(t, "UnpreemptWorkload after Reset", func() { filter.UnpreemptWorkload(vLowKey) })
+	})
+
+	t.Run("re-Initialize without Reset restores preempted workloads", func(t *testing.T) {
+		filter := BuildFilter(log, snapshot, wlInfo)
+		filter.Initialize(&assignment, true)
+		filter.PreemptWorkload(vLowKey)
+		if !filter.MayFit() {
+			t.Fatal("expected MayFit() = true after preempting v-low")
+		}
+
+		filter.Initialize(&assignment, true)
+		if filter.MayFit() {
+			t.Fatal("expected MayFit() = false after re-Initialize restored v-low")
+		}
+	})
 }

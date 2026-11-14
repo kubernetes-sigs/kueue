@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -97,7 +98,21 @@ type PreemptionStrategy struct {
 	targetsByKey map[workload.Reference]*Target
 }
 
-var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
+type PreemptionFilter struct {
+	log       logr.Logger
+	preemptor *workload.Info
+
+	managerSnap *schdcache.BareManagerSnapshot
+
+	initialized    bool
+	usage          workload.Usage
+	allowBorrowing bool
+
+	workloads map[workload.Reference]*workload.Info
+	preempted map[workload.Reference]*workload.Info
+}
+
+var _ simulator.PreemptionFilter = (*PreemptionFilter)(nil)
 
 type strategyOption func(*PreemptionStrategy)
 
@@ -126,6 +141,11 @@ func newPreemptionStrategy(
 	return ps
 }
 
+// AllowBorrowing informs whether borrowing is configured for this strategy.
+func (ps *PreemptionStrategy) AllowBorrowing() bool {
+	return ps.allowBorrowing
+}
+
 // Candidates returns a lazy sequence of candidate workload keys for this strategy.
 func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 	return func(yield func(workload.Reference) bool) {
@@ -139,7 +159,7 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 	}
 }
 
-func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
+func (ps *PreemptionStrategy) preemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; inSnapshot {
 			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
@@ -147,7 +167,7 @@ func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {
 	}
 }
 
-func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
+func (ps *PreemptionStrategy) unpreemptWorkload(wlKey workload.Reference) {
 	if t, ok := ps.targetsByKey[wlKey]; ok {
 		if _, inSnapshot := t.WorkloadCq.Workloads[wlKey]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
@@ -155,14 +175,107 @@ func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey workload.Reference) {
 	}
 }
 
-func (ps *PreemptionStrategy) MayFit() bool {
-	return workloadQuotaFits(ps.pCtx, ps.allowBorrowing)
-}
-
 // Reset restores any workloads still preempted in the strategy back to the snapshot.
 func (ps *PreemptionStrategy) Reset() {
 	for wlKey := range ps.targetsByKey {
-		ps.UnpreemptWorkload(wlKey)
+		ps.unpreemptWorkload(wlKey)
+	}
+}
+
+func BuildFilter(
+	log logr.Logger,
+	snapshot *schdcache.Snapshot,
+	wl *workload.Info,
+) *PreemptionFilter {
+	// TODO(#18163,#15211): Remove the copying and pass the original snapshot
+	// once was and native paths are aligned in terms of the initial state of the cluster.
+	//
+	// Right now the Filter has to operate on its own, separate copy of the snapshot.
+	// This is due to a divergence in the setup for Filter and the Strategy,
+	// as the former requires workload quota to be accounted for in the snapshot
+	// and the latter for it to be removed. The requirements for the filter will
+	// change as issues #18163 and #15211 are resolved.
+	managerSnap := snapshot.CopyManager()
+	pf := &PreemptionFilter{
+		log:         log,
+		preemptor:   wl,
+		managerSnap: managerSnap,
+		workloads:   make(map[workload.Reference]*workload.Info),
+		preempted:   make(map[workload.Reference]*workload.Info),
+	}
+	for _, cq := range snapshot.ClusterQueues() {
+		maps.Copy(pf.workloads, cq.Workloads)
+	}
+	return pf
+}
+
+func (pf *PreemptionFilter) MayFit() bool {
+	if !pf.initialized {
+		panic("PreemptionFilter not initialized")
+	}
+
+	if workload.HasQuotaReservation(pf.preemptor.Obj) {
+		return true
+	}
+
+	cq := pf.managerSnap.ClusterQueue(pf.preemptor.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	return usageFits(pf.usage, cq, pf.allowBorrowing)
+}
+
+func (pf *PreemptionFilter) PreemptWorkload(wlKey workload.Reference) {
+	if !pf.initialized {
+		panic("PreemptionFilter not initialized")
+	}
+
+	if wl, ok := pf.workloads[wlKey]; ok {
+		pf.managerSnap.RemoveWorkload(wl)
+		pf.preempted[wlKey] = wl
+		delete(pf.workloads, wlKey)
+	}
+}
+
+func (pf *PreemptionFilter) UnpreemptWorkload(wlKey workload.Reference) {
+	if !pf.initialized {
+		panic("PreemptionFilter not initialized")
+	}
+
+	if wl, preempted := pf.preempted[wlKey]; preempted {
+		pf.managerSnap.AddWorkload(wl)
+		pf.workloads[wlKey] = wl
+		delete(pf.preempted, wlKey)
+	}
+}
+
+// reset restores any workloads still preempted in the filter back to the manager snapshot.
+func (pf *PreemptionFilter) Reset() {
+	if pf.initialized {
+		pf.restore()
+		pf.initialized = false
+	}
+}
+
+// Initialize sets up the usage and borrowing for the fit check.
+func (pf *PreemptionFilter) Initialize(assignment *flavorassigner.Assignment, allowBorrowing bool) {
+	if pf.initialized {
+		pf.restore()
+	}
+
+	pf.initialized = true
+	pf.usage = workload.Usage{
+		Quota: workload.ResourceUsage{
+			Assigned: assignment.TotalRequestsFor(pf.log, pf.preemptor),
+		},
+		TAS: pf.preemptor.TASUsage(),
+	}
+	pf.allowBorrowing = allowBorrowing
+}
+
+func (pf *PreemptionFilter) restore() {
+	for wlKey := range pf.preempted {
+		pf.UnpreemptWorkload(wlKey)
 	}
 }
 
@@ -182,10 +295,10 @@ func (ps *PreemptionStrategy) GetTargets(preemptedWorkloads []workload.Reference
 		if !ok {
 			return nil, fmt.Errorf("preempted workload %q is not a candidate in this preemption strategy", wlKey)
 		}
-		ps.PreemptWorkload(wlKey)
+		ps.preemptWorkload(wlKey)
 		targets = append(targets, t)
 	}
-	if !ps.MayFit() {
+	if !workloadQuotaFits(ps.pCtx, ps.allowBorrowing) {
 		if logV := ps.pCtx.log.V(5); logV.Enabled() {
 			logV.Info("Discarding preemption targets: insufficient quota",
 				"preemptingWorkload", klog.KObj(ps.pCtx.preemptor.Obj),
@@ -665,11 +778,15 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 // workloadQuotaFits determines if the quota requested by the workload is available in
 // the ClusterQueue and its cohort, if it belongs to one.
 func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
-	for fr, v := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
+	return usageFits(preemptionCtx.workloadUsage, preemptionCtx.preemptorCQ, allowBorrowing)
+}
+
+func usageFits(usage workload.Usage, cq *schdcache.ClusterQueueSnapshot, allowBorrowing bool) bool {
+	for fr, v := range usage.Quota.Assigned {
+		if !allowBorrowing && cq.BorrowingWith(fr, v) {
 			return false
 		}
-		if v.Cmp(preemptionCtx.preemptorCQ.Available(fr)) > 0 {
+		if v.Cmp(cq.Available(fr)) > 0 {
 			return false
 		}
 	}
