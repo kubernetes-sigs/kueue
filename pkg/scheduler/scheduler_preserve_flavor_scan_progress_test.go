@@ -120,7 +120,7 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 						Obj(),
 				},
 			},
-			wantPendingFlavor: "",
+			wantPendingFlavor: "tas-flavor-2",
 		},
 		"gate enabled": {
 			featureGates: map[featuregate.Feature]bool{
