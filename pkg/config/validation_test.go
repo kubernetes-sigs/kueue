@@ -2115,6 +2115,29 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"transformation output colliding with device class mapping name rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{{
+						Name:             "gpu",
+						DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+					}},
+					Transformations: []configapi.ResourceTransformation{{
+						Input:    "example.com/credits",
+						Strategy: new(configapi.Replace),
+						Outputs:  corev1.ResourceList{"gpu": resource.MustParse("1")},
+					}},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[gpu]",
+					Detail: "conflicts with a deviceClassMappings name; choose a distinct logical quota name",
+				},
+			},
+		},
 		"transformation taking pods as input rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

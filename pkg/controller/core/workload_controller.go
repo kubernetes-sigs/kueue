@@ -186,8 +186,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 
 	// Process Extended Resources backed by DRA
 	var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+	var replacedExtendedResourceQuotaKeys map[kueue.PodSetReference]map[corev1.ResourceName]corev1.ResourceName
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wi)
+		extendedResources, replaced, replacedQuotaKeys, extFieldErrs := dra.ResolveExtendedResourceQuotaWithQuotaKeys(ctx, r.client, r.draMapper, wi)
 		if len(extFieldErrs) > 0 {
 			return true, ctrl.Result{}, nil, r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
 		}
@@ -196,6 +197,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		// logical name as the quota key, unifying quota accounting.
 		draResources = dra.MergeDRAResources(draResources, extendedResources)
 		replacedExtendedResources = replaced
+		replacedExtendedResourceQuotaKeys = replacedQuotaKeys
 	}
 
 	// Process counter-based resources for partitionable devices
@@ -237,6 +239,12 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
+	}
+	if len(replacedExtendedResources) > 0 {
+		// The accounting layer needs to know which logical quota key each replaced
+		// extended resource resolved to so it can suppress the DRA charge when a
+		// resource transformation consumes the original request.
+		queueOptions = append(queueOptions, workload.WithReplacedExtendedResourceQuotaKeys(replacedExtendedResourceQuotaKeys))
 	}
 	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil

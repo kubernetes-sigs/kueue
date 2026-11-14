@@ -520,6 +520,15 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 	var allErrs field.ErrorList
 	seenKeys := make(sets.Set[corev1.ResourceName])
 	refuseReserved := features.Enabled(features.ReservedResourceNameValidation)
+	deviceClassNames := make(sets.Set[corev1.ResourceName])
+	if features.Enabled(features.KueueDRAIntegration) {
+		for _, mapping := range res.DeviceClassMappings {
+			if !refuseReserved && mapping.Name == corev1.ResourcePods {
+				continue
+			}
+			deviceClassNames.Insert(mapping.Name)
+		}
+	}
 	for idx, transform := range res.Transformations {
 		strategy := ptr.Deref(transform.Strategy, "")
 		if strategy != configapi.Retain && strategy != configapi.Replace {
@@ -530,6 +539,16 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			allErrs = append(allErrs, field.Duplicate(resourceTransformationPath.Index(idx).Child("input"), transform.Input))
 		} else {
 			seenKeys.Insert(transform.Input)
+		}
+		if deviceClassNames.Has(transform.Input) {
+			allErrs = append(allErrs, field.Invalid(resourceTransformationPath.Index(idx).Child("input"), transform.Input,
+				"conflicts with a deviceClassMappings name; choose a distinct logical quota name"))
+		}
+		for outputName := range transform.Outputs {
+			if deviceClassNames.Has(outputName) {
+				allErrs = append(allErrs, field.Invalid(resourceTransformationPath.Index(idx).Child("outputs").Key(string(outputName)), outputName,
+					"conflicts with a deviceClassMappings name; choose a distinct logical quota name"))
+			}
 		}
 		// pods is reserved for the request Kueue synthesizes from the PodSet
 		// count, so a transformation must not name it in any position. Gated
