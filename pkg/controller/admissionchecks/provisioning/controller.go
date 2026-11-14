@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"maps"
 	arrayslices "slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +72,8 @@ const (
 	// attempt is int32; reserve enough digits so prefix+attempt stays within 253.
 	provisioningRequestAttemptMaxDigits = 10
 	podTemplatesPrefix                  = "ppt"
+	// coveredPodSetsAnnotation lists the Workload PodSets that a request created with a podSetMergePolicy covers.
+	coveredPodSetsAnnotation = "kueue.x-k8s.io/provisioning-podsets"
 )
 
 var (
@@ -365,6 +368,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 			if err != nil {
 				msg := fmt.Sprintf("Error merging PodSets: %v", err)
 				return c.handleError(ctx, wl, ac, nil, msg, err)
+			}
+			// podSetMergePolicy, the flavors and the previous elastic slice can all change before
+			// the request is provisioned, so record now which PodSets it covers.
+			if prc.Spec.PodSetMergePolicy != nil {
+				metav1.SetMetaDataAnnotation(&req.ObjectMeta, coveredPodSetsAnnotation, coveredPodSets(mergedPodSets))
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -866,32 +874,60 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
+// coveredPodSets returns the names of the Workload PodSets in mergedPodSets, comma-separated.
+func coveredPodSets(mergedPodSets []MergedPodSet) string {
+	var names []string
+	for _, mergedPodSet := range mergedPodSets {
+		for _, name := range mergedPodSet.Names {
+			names = append(names, string(name))
+		}
+	}
+	return strings.Join(names, ",")
+}
+
+// podSetUpdates returns an update for each PodSet that pr covers.
 func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
 	podSets := wl.Spec.PodSets
 	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
 		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
 	})
-	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
-		podSetUpdate := kueue.PodSetUpdate{
-			Name: refMap[ps.PodTemplateRef.Name],
-			Annotations: map[string]string{
-				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
-				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
-			},
+	covered := sets.New[kueue.PodSetReference]()
+	for _, ps := range pr.Spec.PodSets {
+		covered.Insert(refMap[ps.PodTemplateRef.Name])
+	}
+	// Requests created without podSetMergePolicy, or by an older Kueue, have no record.
+	if names, found := pr.Annotations[coveredPodSetsAnnotation]; found {
+		for name := range strings.SplitSeq(names, ",") {
+			covered.Insert(kueue.PodSetReference(name))
 		}
-		if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
-			podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))
-			for _, nodeSelector := range psUpdate.NodeSelector {
-				value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
-				if !ok {
-					log.Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
-					continue
-				}
-				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
+	}
+
+	podSetUpdate := kueue.PodSetUpdate{
+		Annotations: map[string]string{
+			autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
+			autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
+		},
+	}
+	if psUpdate := prc.Spec.PodSetUpdates; psUpdate != nil {
+		podSetUpdate.NodeSelector = make(map[string]string, len(psUpdate.NodeSelector))
+		for _, nodeSelector := range psUpdate.NodeSelector {
+			value, ok := pr.Status.ProvisioningClassDetails[nodeSelector.ValueFromProvisioningClassDetail]
+			if !ok {
+				log.Info("skipping detail not found in the ProvisioningClassDetails", "detail", nodeSelector.ValueFromProvisioningClassDetail)
+				continue
 			}
+			podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
 		}
-		return podSetUpdate
-	})
+	}
+	var updates []kueue.PodSetUpdate
+	for i := range podSets {
+		if covered.Has(podSets[i].Name) {
+			update := *podSetUpdate.DeepCopy()
+			update.Name = podSets[i].Name
+			updates = append(updates, update)
+		}
+	}
+	return updates
 }
 
 type acHandler struct {
@@ -1095,6 +1131,8 @@ type MergedPodSet struct {
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
+	// Names are the Workload PodSets this MergedPodSet covers, Name first.
+	Names []kueue.PodSetReference
 }
 
 // previousSlicePodSetCounts returns the admitted baseline an elastic slice's
@@ -1146,6 +1184,7 @@ func mergePodSets(
 
 		if i := findMergeTarget(effectiveTemplates, template, mergePolicy); i >= 0 {
 			mergedPodSets[i].Count += candidate.Count
+			mergedPodSets[i].Names = append(mergedPodSets[i].Names, candidate.Name)
 			continue
 		}
 		mergedPodSets = append(mergedPodSets, candidate)
@@ -1203,6 +1242,7 @@ func requestedPodSets(
 
 		requested = append(requested, MergedPodSet{
 			Name:             psName,
+			Names:            []kueue.PodSetReference{psName},
 			PodSet:           ps,
 			PodSetAssignment: psa,
 			Count:            count,
