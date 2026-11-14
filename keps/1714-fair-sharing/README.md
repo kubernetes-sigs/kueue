@@ -9,7 +9,10 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4: reclaim nominal quota without evicting borrowers to equalize shares](#story-4-reclaim-nominal-quota-without-evicting-borrowers-to-equalize-shares)
   - [Risks and Mitigations](#risks-and-mitigations)
+    - [Borrowed capacity is kept until the borrower finishes](#borrowed-capacity-is-kept-until-the-borrower-finishes)
+    - [The name can be read as &quot;do not preempt&quot;](#the-name-can-be-read-as-do-not-preempt)
 - [Design Details](#design-details)
   - [Nominal-first admission ordering](#nominal-first-admission-ordering)
   - [Share value function and weights](#share-value-function-and-weights)
@@ -18,13 +21,33 @@
     - [Choosing workloads from ClusterQueues for preemption](#choosing-workloads-from-clusterqueues-for-preemption)
     - [Algorithmic Optimization](#algorithmic-optimization)
     - [Minimum number of preemptions](#minimum-number-of-preemptions)
+  - [ReclaimOnly preemption strategy](#reclaimonly-preemption-strategy)
+    - [API](#api)
+    - [Validation](#validation)
+    - [Handling](#handling)
+      - [Order of candidates](#order-of-candidates)
+      - [Workloads in the preemptor's ClusterQueue](#workloads-in-the-preemptors-clusterqueue)
+      - [Smallest target set](#smallest-target-set)
+    - [Interaction with other controls](#interaction-with-other-controls)
   - [Test Plan](#test-plan)
+    - [ReclaimOnly](#reclaimonly)
+      - [Unit tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+      - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
     - [Beta](#beta)
+    - [ReclaimOnly](#reclaimonly-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [A <code>None</code> preemption strategy](#a-none-preemption-strategy)
+  - [<code>reclaimWithinCohort: Never</code> with a share-based list](#reclaimwithincohort-never-with-a-share-based-list)
+  - [One strategy per ClusterQueue](#one-strategy-per-clusterqueue)
+  - [Configurable Preemptions instead of a new value](#configurable-preemptions-instead-of-a-new-value)
+  - [Nearest ClusterQueue first](#nearest-clusterqueue-first)
+  - [<code>ReclaimOnly</code> followed by a share strategy](#reclaimonly-followed-by-a-share-strategy)
+  - [Admission Fair Sharing across ClusterQueues](#admission-fair-sharing-across-clusterqueues)
 <!-- /toc -->
 
 ## Summary
@@ -32,6 +55,9 @@ This KEP introduces weight-based Fair Sharing of unused resources across
 needing ClusterQueues, respecting borrowing and lending limits, multi-level
 hierarchy and preferences of cohorts to distribute unused resources 
 internally.
+
+Setting `fairSharing.preemptionStrategies` to `[ReclaimOnly]` keeps admission ordered by share and limits Fair Sharing preemption across ClusterQueues to reclaim of nominal quota.
+Configurable Preemptions can still select additional targets.
 
 ## Motivation
 Currently unused resources are allocated on the "first come first served" basis
@@ -90,6 +116,8 @@ unused capacity) should be resolved in favor of Fair Sharing than maximizing the
 utilization (the big greedy workload should be preempted to admit smaller
 workloads from other CQ that consume only their fair share).
 
+* Let an administrator keep the share-based admission ordering and limit cross-ClusterQueue preemption to reclaim of nominal quota (scenario S1), including reclaim by a Cohort that is still within its subtree nominal quota.
+
 ### Non-Goals
 * Use historical data (for example CQ A used a lot of shared capacity for the last
 week, so now it should get less because others, who didn't need anything then, have
@@ -101,6 +129,14 @@ without major redesign.
 Fair Sharing will be a global switch (at least initially).
 
 * Maximize utilization at the cost of Fair Sharing.
+
+* Disable every preemption.
+`ReclaimOnly` still reclaims nominal quota, and it still preempts inside the preemptor's ClusterQueue when `withinClusterQueue` allows it.
+
+* Change admission ordering, weights, or the share value.
+
+* Choose `ReclaimOnly` for a single ClusterQueue.
+`preemptionStrategies` stays cluster-wide.
 
 ## Proposal
 
@@ -129,6 +165,12 @@ under the same Cohort.
 
 Fair Sharing will be configured for the whole cluster, using the configuration
 file. In Alpha it will be just a feature gate.
+
+Share-based preemption is selected by an explicit `preemptionStrategies` list.
+When `fairSharing` is set, that list is required and an empty list is rejected.
+An administrator who wants the admission ordering without share-based preemption sets `preemptionStrategies` to `[ReclaimOnly]`.
+A workload then preempts workloads in other ClusterQueues only to reclaim nominal quota.
+Details are in [ReclaimOnly preemption strategy](#reclaimonly-preemption-strategy).
 
 ### User Stories (Optional)
 
@@ -175,6 +217,34 @@ to execute. I want to distribute the resources from CS in the following way:
 1A and 1B are equally important but 1C is 3x more important than 1A and 1B.
 * Inside C2 there is just a single CQ, so it gets all 150 GPUS.
 
+#### Story 4: reclaim nominal quota without evicting borrowers to equalize shares
+
+Two teams share one Cohort.
+Each ClusterQueue has a nominal quota of 5 CPU and the same weight.
+Jobs are short, so borrowed CPU returns when they finish.
+Ordering admission by share is enough for the teams to converge.
+Evicting a running job only to equalize shares wastes work that was about to finish.
+Each team must still be able to take back its own nominal quota.
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+fairSharing:
+  preemptionStrategies: [ReclaimOnly]
+```
+
+Both `team-a` and `team-b` set `spec.preemption.reclaimWithinCohort: Any`.
+`team-a` is admitted at 8 CPU, so it is borrowing 3 CPU from `team-b`.
+
+| Incoming workload on `team-b` | `[LessThanOrEqualToFinalShare, LessThanInitialShare]` | `[ReclaimOnly]` |
+| --- | --- | --- |
+| 5 CPU, which fits in the nominal quota | Preempt `team-a` until `team-b` fits | Preempt `team-a` until `team-b` fits in its nominal quota |
+| 6 CPU, so `team-b` would borrow 1 CPU | Preempt `team-a`. `team-b`'s share with the new workload is lower than `team-a`'s current share, so `LessThanInitialShare` applies | Leave `team-a` running. `team-b` stays pending until borrowed CPU is free |
+
+The same split applies one level up.
+A Cohort that is still inside its subtree nominal quota reclaims from a sibling Cohort that is borrowing.
+It does not preempt that sibling only because the sibling's share is higher.
+
 ### Risks and Mitigations
 
 * Fair Sharing may increase the number of preemptions in the system vs current
@@ -186,6 +256,20 @@ finishes. Mitigations include:
 * Fair Sharing may decrease utilization of the unused resources while attempting to
 distribute them fairly, vs provide the tighties bin-packing. To avoid these scenarios,
 users should prefer to run massive workloads under nominal quotas.
+
+#### Borrowed capacity is kept until the borrower finishes
+
+Under `ReclaimOnly`, two ClusterQueues that are both borrowing are not preempted to equalize shares.
+A ClusterQueue can hold borrowed capacity for the lifetime of its workloads while another ClusterQueue with a lower share waits.
+That is the tradeoff Story 4 asks for when workload churn is high.
+An administrator who needs the shares to converge by eviction keeps a share-based `preemptionStrategies` list.
+
+#### The name can be read as "do not preempt"
+
+`ReclaimOnly` still preempts to reclaim nominal quota.
+It also still preempts inside the preemptor's ClusterQueue when `withinClusterQueue` allows it.
+The configuration reference has to say both next to the value, so an administrator does not read the name as disabling preemption.
+`reclaimWithinCohort: Never` is what disables cross-ClusterQueue reclaim.
 
 
 ## Design Details
@@ -255,6 +339,10 @@ AdmitWorkload(x CQ, w Workload)
    Choose a workload from the biggest offender for preemption
  Possibly undo some preemption, while w still fits
 ```
+
+`preemptionStrategies: [ReclaimOnly]` runs only scenario S1 from the sections below.
+Scenario S2 is not used.
+The API and the order of candidates are in [ReclaimOnly preemption strategy](#reclaimonly-preemption-strategy).
 
 #### Choosing ClusterQueues to preempt from
 
@@ -358,6 +446,173 @@ double-check if some of them could be simply put back as they either:
 lending/borrowing limits on the way.
 
 * Are providing capacity that is also provided in much bigger quantity by other workloads
+
+### ReclaimOnly preemption strategy
+
+`[ReclaimOnly]` keeps the admission ordering from this KEP and applies only scenario S1 when choosing workloads in other ClusterQueues.
+
+#### API
+
+`ReclaimOnly` is a value of the existing `fairSharing.preemptionStrategies` list in `config.kueue.x-k8s.io/v1beta2`.
+It is not a new field and it has no feature gate.
+
+```go
+type PreemptionStrategy string
+
+const (
+	LessThanOrEqualToFinalShare PreemptionStrategy = "LessThanOrEqualToFinalShare"
+	LessThanInitialShare        PreemptionStrategy = "LessThanInitialShare"
+
+	// ReclaimOnly preempts a Workload in another ClusterQueue only to reclaim
+	// nominal quota (scenario S1).
+	// AlmostLCA(preemptor, preemptee), with the preemptor Workload admitted,
+	// must stay within its nominal quota, and every Cohort and ClusterQueue
+	// on the path from AlmostLCA(preemptee, preemptor) down to the preemptee's
+	// ClusterQueue must be borrowing.
+	// Workloads in the preemptor's own ClusterQueue can still be preempted
+	// according to withinClusterQueue.
+	// Fair Sharing still orders admission.
+	// It never triggers a preemption on its own to rebalance shares.
+	// Candidates are considered starting from the ClusterQueues farthest from
+	// the preemptor in the cohort hierarchy.
+	// A level that cannot be reclaimed yet is revisited once reclaiming
+	// elsewhere makes it possible.
+	//
+	// Not the default.
+	// Used only when preemptionStrategies is exactly ["ReclaimOnly"].
+	// An empty preemptionStrategies list is invalid and does not select
+	// ReclaimOnly.
+	ReclaimOnly PreemptionStrategy = "ReclaimOnly"
+)
+
+type FairSharing struct {
+	// preemptionStrategies indicates which constraints a preemption must
+	// satisfy.
+	// The next entry is used only when the incoming Workload still does not
+	// fit after the previous entries.
+	// AlmostLCA(x, y) is defined under "Choosing ClusterQueues to preempt from".
+	//
+	// Only the following lists are supported:
+	// - ["LessThanOrEqualToFinalShare"]
+	// - ["LessThanInitialShare"]
+	// - ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
+	// - ["ReclaimOnly"]
+	//
+	// Any other combination or ordering fails validation and
+	// kueue-controller-manager does not start.
+	//
+	// Required when fairSharing is set.
+	// There is no default that means ReclaimOnly.
+	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
+}
+```
+
+#### Validation
+
+`fairSharing` itself is optional.
+When it is omitted, Fair Sharing is off and classical preemption is unchanged.
+
+When `fairSharing` is set, `preemptionStrategies` must be one of these lists:
+
+* `["LessThanOrEqualToFinalShare"]`
+* `["LessThanInitialShare"]`
+* `["LessThanOrEqualToFinalShare", "LessThanInitialShare"]`
+* `["ReclaimOnly"]`
+
+An empty list is rejected.
+`ReclaimOnly` together with either share strategy is rejected, in either order.
+Any other value, duplicate, or order is rejected.
+Kueue reports the field as unsupported and does not start.
+
+Removing `fairSharing` from the configuration turns Fair Sharing off, including `ReclaimOnly`.
+Kueue reads the configuration at startup, so a change applies when kueue-controller-manager restarts.
+
+#### Handling
+
+Admission is unchanged.
+Pending workloads are still ordered by dominant resource share and weight.
+`FairSharingPrioritizeNonBorrowing` still prefers a subtree that is not borrowing.
+
+For a workload in another ClusterQueue, all of the following have to hold:
+
+1. `reclaimWithinCohort` is not `Never`, and the workload passes that policy (`Any` or `LowerPriority`).
+2. The target ClusterQueue is borrowing a flavor the incoming workload still needs.
+3. Every Cohort on the path from that ClusterQueue up to AlmostLCA(target, preemptor), and that AlmostLCA itself, is borrowing.
+   A Cohort or ClusterQueue that is within its nominal quota protects the workloads under it.
+   A child that is borrowing from its sibling is protected when the parent Cohort is still within its subtree nominal quota.
+4. AlmostLCA(preemptor, target), with the incoming workload counted, is within nominal quota for every flavor the incoming workload requests.
+   In a flat Cohort the AlmostLCA is the ClusterQueue itself.
+   For a Cohort, nominal quota is the subtree quota.
+
+The incoming workload's usage is counted while these checks run.
+The eviction reason is `InCohortReclamation` ("reclamation within the cohort").
+`kueue_preempted_workloads_total` counts that reason on the preempting ClusterQueue.
+Share comparison (scenario S2) does not run, so the reason is never `InCohortFairSharing`.
+
+##### Order of candidates
+
+Other ClusterQueues are considered before the preemptor's own ClusterQueue.
+
+The LeastCommonAncestors on the path from the preemptor up to the root are visited starting at the root.
+ClusterQueues under a farther LeastCommonAncestor are considered before nearer ones.
+Inside one LeastCommonAncestor, the higher share value comes first.
+Ties break the same way as for the share-based strategies.
+When a farther ClusterQueue and a nearer one are both valid reclaim targets and one workload is enough, the farther one is preempted.
+
+After each selected target, the search starts again at the farthest LeastCommonAncestor.
+Reclaiming a closer ClusterQueue lowers the preemptor's Cohorts and can bring a farther AlmostLCA back within nominal quota.
+The search stops when a full pass selects nothing.
+
+Example:
+
+```text
+root
+├── cohort-c          subtree nominal 10
+│   ├── a             nominal 10    P pending, requests 8
+│   └── s             nominal 0     S admitted, uses 4
+└── t                 nominal 2     T admitted, uses 6
+```
+
+`P` fits in `a`'s nominal quota, but only 2 CPU are free.
+`t` is farther.
+With `P` admitted, `cohort-c` would use 12 against a subtree nominal of 10, so `t` is not a reclaim target yet.
+`s` is closer, `a` stays within its nominal quota of 10, and `s` is borrowing, so `S` is preempted.
+`cohort-c` is then within its subtree nominal quota, the search returns to the root, and `T` is preempted.
+`P` is admitted.
+
+##### Workloads in the preemptor's ClusterQueue
+
+These are considered only after the pass over other ClusterQueues selects nothing.
+`withinClusterQueue` decides which of them are candidates.
+`Never` skips them.
+The eviction reason is `InClusterQueue` ("prioritization in the ClusterQueue").
+
+After each such preemption the search over other ClusterQueues starts again from the root.
+Dropping the preemptor's own usage can make an AlmostLCA fit within nominal quota, which makes a borrower reclaimable in the same attempt.
+
+A workload that would still borrow at its AlmostLCA gets no target in another ClusterQueue.
+It can still preempt inside its own ClusterQueue.
+Fair Sharing does not use "the workload would borrow" as a reason to look for targets in other ClusterQueues.
+
+##### Smallest target set
+
+After the incoming workload fits, Kueue tries to put targets back from the last one selected to the first, while the incoming workload still fits.
+A target is kept when putting it back would make another remaining target fail the nominal-quota checks.
+In the example above, `T` is a valid reclaim only while `S` stays preempted, so `S` is not put back.
+
+#### Interaction with other controls
+
+| Control | Under `[ReclaimOnly]` |
+| --- | --- |
+| `withinClusterQueue` | Unchanged. Selects workloads in the preemptor's ClusterQueue. `Never` disables that. |
+| `reclaimWithinCohort` | Unchanged as a filter. `Never` disables cross-ClusterQueue reclaim. Otherwise the nominal-quota checks above still apply. |
+| `borrowWithinCohort` | Does not select targets. A value other than `Never` does not add share-based preemption. |
+| `LessThanOrEqualToFinalShare`, `LessThanInitialShare` | Not evaluated. A list that also contains `ReclaimOnly` is rejected at startup. |
+| `FairSharingPreemptWithinNominal` | Ignored. The nominal-quota check always runs. Turning the gate off does not switch `ReclaimOnly` to share comparison. |
+| `FairSharingVerifyFinalTargets` | Ignored. The final target set is always checked, including while dropping targets. |
+| `FairSharingReevaluatePreemptionCandidates` | Ignored. The restart from the farthest LeastCommonAncestor is unconditional. |
+| `ConfigurablePreemptions` | When the gate is enabled and the ClusterQueue references a `PreemptionConfig`, those rules still run after `ReclaimOnly` candidates are exhausted. They can preempt workloads that `ReclaimOnly` would keep. |
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
@@ -365,6 +620,39 @@ existing tests to make this code solid enough prior to committing the changes ne
 to implement this enhancement.
 
 This is a very complex feature so there will be lots of unit, integration and e2e test covering various scenarios.
+
+#### ReclaimOnly
+
+##### Unit tests
+
+* Configuration validation accepts `["ReclaimOnly"]`.
+* Configuration validation rejects an empty list, a reversed share-strategy list, and every list that mixes `ReclaimOnly` with a share strategy.
+* A preemptor that would borrow does not preempt another ClusterQueue, even when that ClusterQueue has a higher share.
+* A preemptor that stays within nominal quota reclaims one workload from a borrowing ClusterQueue, with reason `InCohortReclamation`.
+* A lower-priority workload in the preemptor's own ClusterQueue is preempted under `withinClusterQueue`, with reason `InClusterQueue`, including when the incoming workload would otherwise borrow.
+* After that in-ClusterQueue preemption brings the AlmostLCA back within nominal quota, a borrowing ClusterQueue is reclaimed in the same attempt.
+* In a nested Cohort, when both a nearer and a farther ClusterQueue can be reclaimed and one is enough, only the farther one is preempted.
+* In a nested Cohort, a farther ClusterQueue that fails the nominal-quota check becomes a target only after a closer ClusterQueue is reclaimed, and both are preempted when the incoming workload needs both.
+* A ClusterQueue that is within its nominal quota is not reclaimed, even when its workload has a lower priority than a workload in a borrowing sibling under the same Cohort.
+* A preemptor whose own Cohort would still be borrowing does not reclaim from a ClusterQueue outside that Cohort.
+* The cases above have the same result with `FairSharingPreemptWithinNominal` disabled, with `FairSharingVerifyFinalTargets` disabled, and with both disabled.
+* With `ReclaimOnly` and `reclaimWithinCohort` set, fair sharing alone is not permission to preempt while borrowing.
+  `borrowWithinCohort` without fair sharing still is.
+
+##### Integration tests
+
+* Hierarchical Cohorts: ClusterQueue `a` has nominal quota 10, sibling `s` has nominal 0 and uses 4, and `t` under the root has nominal 0 and uses 6.
+  A new 6 CPU workload on `a` reclaims only `t`.
+  A following 4 CPU workload on `a` reclaims `s`.
+  `kueue_preempted_workloads_total` increases with reason `InCohortReclamation`.
+* A workload that would borrow stays pending, and the admitted workloads in the other ClusterQueue are not evicted.
+* A workload that fits in nominal quota preempts one borrowing workload and is then admitted.
+
+##### e2e tests
+
+No new end-to-end test.
+The new behavior is quota accounting and eviction inside one cluster.
+The integration tests already create Cohorts, ClusterQueues, and Workloads and observe admission, the `Evicted` condition, and the preemption metric.
 
 ### Graduation Criteria
 #### Alpha
@@ -388,18 +676,100 @@ A Beta release will incorporate feedback from users, and introduce improvements 
 metrics
 * Scalability scenarios
 
+#### ReclaimOnly
+
+No separate feature gate.
+The value is an accepted `preemptionStrategies` list on the existing Fair Sharing configuration.
+Once the implementation ([#17857](https://github.com/kubernetes-sigs/kueue/pull/17857)) merges, it is available whenever `fairSharing` is set.
+Until then, validation rejects `["ReclaimOnly"]`.
+
+It is ready for general use when:
+
+* The validation, unit, and integration tests in the Test Plan pass.
+* The preemption concept page and the `v1beta2` configuration reference describe the value, the supported lists, and the farthest-first order.
+* A configuration that does not set `[ReclaimOnly]` keeps the share-based preemption it has today.
+
+Changing the farthest-first order, or which target is kept when one target is valid only together with another, is a behavior change and needs a KEP update.
+
 ## Implementation History
 
 * 2024.03.18 - KEP created (#1773)
 * 2024.04.24 - Make dominant resource share flavor aware (#2037)
 * 2026.03.27 - Fix nominal-first to check per-flavor borrowing at every hierarchy level (#10149)
+* 2026.11.11 - Specify the `ReclaimOnly` preemption strategy (scenario S1 only); implementation in #17857
 
 ## Drawbacks
 
 The main drawback is that Fair Sharing (together with Hierarchical Cohorts) significantly increases
 the complexity of scheduling in Kueue.
 
+`ReclaimOnly` adds a second candidate order next to the highest-share order.
+Operators have to pick one list and live with either more evictions or slower convergence.
+
 ## Alternatives
 
 * Stay with the current first come first served mechanism of distributing unused resources.
+
+### A `None` preemption strategy
+
+A value that disables cross-ClusterQueue preemption would also disable nominal-quota reclaim.
+Story 4 still needs that reclaim.
+`reclaimWithinCohort: Never` already disables reclaim, for `ReclaimOnly` and for the share-based lists.
+
+### `reclaimWithinCohort: Never` with a share-based list
+
+That turns off scenario S1 and scenario S2 together.
+Nominal quota is then not enforced against borrowers.
+`ReclaimOnly` turns off only S2.
+
+### One strategy per ClusterQueue
+
+The use case is a cluster-wide choice between rebalancing shares and only reclaiming nominal quota.
+A per-ClusterQueue value would let one queue demand share rebalancing while its peer refuses it.
+The comparison has no single answer in that case.
+`preemptionStrategies` stays cluster-wide.
+
+### Configurable Preemptions instead of a new value
+
+[KEP-13396](../13396-configurable-preemptions/README.md) is still Alpha and does not cover reclaim or Fair Sharing.
+That coverage is not planned for v0.21.
+Waiting for it leaves Story 4 unconfigurable on the API that already selects the share strategies.
+`ReclaimOnly` is that selection.
+Once Configurable Preemptions can express "Fair Sharing admission, reclaim only", this value can be revisited.
+Matching the behavior still requires the farthest-first order, not only a filter on the existing highest-share order.
+
+### Nearest ClusterQueue first
+
+Visiting the closest borrowing ClusterQueue first, once, never returns to a farther ClusterQueue that becomes reclaimable only after the closer one is gone.
+In the nested example under [Order of candidates](#order-of-candidates), `P` would fail to get its nominal quota.
+Farthest-first, restarted after every target, reclaims `S` and then `T` in the same attempt.
+
+### `ReclaimOnly` followed by a share strategy
+
+A list such as `["ReclaimOnly", "LessThanInitialShare"]` would fall through to share rebalancing when reclaim is not enough.
+That brings back the evictions Story 4 exists to avoid.
+Validation rejects every mixed list, so the fall-through cannot be configured by accident.
+
+### Admission Fair Sharing across ClusterQueues
+
+In the share-based lists, ordering candidates by share mainly keeps chains of preemptions short.
+With `ReclaimOnly`, the share ordering of admission becomes the main way unused quota is spread.
+That is close to [Admission Fair Sharing](../4136-admission-fair-sharing/README.md), which orders workloads by historical usage.
+Extending Admission Fair Sharing to order workloads across ClusterQueues was considered instead of a new value.
+
+It is not proposed here because:
+
+* `admissionScope` exists only on ClusterQueue.
+  Workloads from different ClusterQueues are not compared by usage today.
+  The Cohort scope sketched in KEP-4136 needs usage status on Cohorts, a Cohort-wide candidate list, and rules for nested Cohorts.
+  That is a separate KEP update with its own API.
+* The signals differ.
+  Admission Fair Sharing orders by usage decayed over a half life.
+  The share value orders by current usage above nominal quota, with weights and borrowing and lending limits.
+  The administrator in Story 4 wants the share ordering Fair Sharing already gives and only wants scenario S2 off.
+  Moving to a usage history changes the admission order and needs a half life and sampling interval tuned per cluster.
+* Nominal quota still has to be reclaimed with either ordering.
+  `ReclaimOnly` keeps the Fair Sharing rules for that (scenario S1 and the checks under [Handling](#handling)).
+
+If Admission Fair Sharing gains a Cohort scope, `ReclaimOnly` can be revisited, as with Configurable Preemptions.
 
