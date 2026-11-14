@@ -188,6 +188,18 @@ func (j *ClusterWrapper) Suspend(s bool) *ClusterWrapper {
 	return j
 }
 
+// IdleSuspend updates the idle-suspend status of the job
+func (j *ClusterWrapper) IdleSuspend(s bool) *ClusterWrapper {
+	j.Spec.IdleSuspend = &s
+	return j
+}
+
+// State sets the state reported in the job status
+func (j *ClusterWrapper) State(s rayv1.ClusterState) *ClusterWrapper {
+	j.Status.State = s
+	return j
+}
+
 func (j *ClusterWrapper) RequestWorkerGroup(name corev1.ResourceName, quantity string) *ClusterWrapper {
 	c := &j.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0]
 	if c.Resources.Requests == nil {
