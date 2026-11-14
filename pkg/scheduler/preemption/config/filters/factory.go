@@ -29,6 +29,10 @@ import (
 
 // NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters.
 // It returns a slice of errors identifying all filters that failed to build if compilation fails.
+//
+// The fields of the preemptor that the filters read, beyond its scheduling
+// shape, are listed in config.PreemptorHashFields, which a new filter reading
+// the preemptor has to be added to.
 func NewCandidateFilters(
 	log logr.Logger,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,

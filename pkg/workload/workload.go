@@ -124,6 +124,9 @@ type InfoOptions struct {
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
 	skipSchedulingHash       bool
+	// preemptorHashFields are set on the Info if setPreemptorHashFields is.
+	preemptorHashFields    *PreemptorHashFields
+	setPreemptorHashFields bool
 	dra
 }
 
@@ -158,6 +161,15 @@ func WithPreserveTotalRequests() InfoOption {
 // Use it only for Infos kept in the scheduler cache or for checks that do not
 // need the hash. Before adding an Info to the queue manager, create or update
 // it without this option.
+// WithPreemptorHashFields sets the PreemptorHashFields the scheduling hash
+// includes, see Info.SetPreemptorHashFields.
+func WithPreemptorHashFields(fields *PreemptorHashFields) InfoOption {
+	return func(o *InfoOptions) {
+		o.preemptorHashFields = fields
+		o.setPreemptorHashFields = true
+	}
+}
+
 func WithSkipSchedulingHash() InfoOption {
 	return func(o *InfoOptions) {
 		o.skipSchedulingHash = true
@@ -215,6 +227,10 @@ type Info struct {
 	// Workloads with the same hash have identical scheduling-relevant shape
 	// and will receive the same FlavorAssigner result given the same cluster state.
 	SchedulingHash EquivalenceHash
+
+	// PreemptorHashFields are the fields the SchedulingHash includes on top of
+	// the scheduling shape. Owned by SetPreemptorHashFields.
+	PreemptorHashFields *PreemptorHashFields
 
 	// TopologySpreading is the parsed topology-spreading configuration for
 	// each PodSet group (see tas.GroupKeyForPodSet) that carries one. Missing
@@ -320,9 +336,76 @@ func (i *Info) updateDerivedFields(log logr.Logger, skipSchedulingHash bool) {
 	if skipSchedulingHash {
 		i.SchedulingHash = ""
 	} else {
-		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs, i.PreemptorHashFields)
 	}
 	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
+}
+
+// SetPreemptorHashFields sets the PreemptorHashFields the SchedulingHash
+// includes, recomputing it if they change. Update keeps them.
+func (i *Info) SetPreemptorHashFields(log logr.Logger, fields *PreemptorHashFields) {
+	if i.PreemptorHashFields == fields {
+		return
+	}
+	i.PreemptorHashFields = fields
+	if i.SchedulingHash != "" {
+		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs, fields)
+	}
+}
+
+// PreemptorHashFields are the fields of a preemptor that the rules of a
+// PreemptionConfig read and the scheduling shape leaves out. Workloads with the
+// same scheduling shape that differ in one of them may be treated differently
+// by the rules, so the SchedulingHash of a workload in a ClusterQueue using a
+// PreemptionConfig includes them, see SetPreemptorHashFields.
+type PreemptorHashFields struct {
+	// LabelKeys are the keys of the labels read, sorted.
+	LabelKeys []string
+	// PriorityClass is set if spec.priorityClassRef is read.
+	PriorityClass bool
+	// BasePriority is set if the base priority is read. The scheduling shape
+	// has only the effective priority.
+	BasePriority bool
+	// LocalQueue is set if the LocalQueue is read.
+	LocalQueue bool
+}
+
+// Differ reports whether the rules reading fields may tell a and b apart.
+func (fields *PreemptorHashFields) Differ(a, b *kueue.Workload) bool {
+	return !equality.Semantic.DeepEqual(fields.shape(a), fields.shape(b))
+}
+
+// shape returns the values of fields in wl, or nil if no field is read. A
+// field read but missing in wl is null, so it differs from an empty value.
+func (fields *PreemptorHashFields) shape(wl *kueue.Workload) map[string]any {
+	if fields == nil {
+		return nil
+	}
+	shape := make(map[string]any)
+	if len(fields.LabelKeys) > 0 {
+		labels := make(map[string]*string, len(fields.LabelKeys))
+		for _, key := range fields.LabelKeys {
+			if value, ok := wl.Labels[key]; ok {
+				labels[key] = &value
+			} else {
+				labels[key] = nil
+			}
+		}
+		shape["labels"] = labels
+	}
+	if fields.PriorityClass {
+		shape["priorityClass"] = wl.Spec.PriorityClassRef
+	}
+	if fields.BasePriority {
+		shape["basePriority"] = priority.Priority(wl)
+	}
+	if fields.LocalQueue {
+		shape["localQueue"] = queue.KeyFromWorkload(wl)
+	}
+	if len(shape) == 0 {
+		return nil
+	}
+	return shape
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
@@ -336,7 +419,11 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
 	i.rebuildTotalRequests(&options)
-	if i.shouldUpdateDerivedFields(prev) {
+	fieldsChanged := options.setPreemptorHashFields && options.preemptorHashFields != i.PreemptorHashFields
+	if fieldsChanged {
+		i.PreemptorHashFields = options.preemptorHashFields
+	}
+	if fieldsChanged || i.shouldUpdateDerivedFields(prev) {
 		i.updateDerivedFields(log, options.skipSchedulingHash)
 	}
 }
@@ -419,8 +506,9 @@ func (i *Info) rebuildTotalRequests(options *InfoOptions) {
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
 // SpecShape), effective count, total and per-Pod requests, minCount,
-// topologyRequest, and the raw topology-spreading annotation per PodSet.
-func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec) EquivalenceHash {
+// topologyRequest, and the raw topology-spreading annotation per PodSet, as
+// well as the values of preemptorFields.
+func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec, preemptorFields *PreemptorHashFields) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
@@ -469,6 +557,9 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
 			shape["replacementFor"] = val
 		}
+	}
+	if preemptor := preemptorFields.shape(wl); preemptor != nil {
+		shape["preemptor"] = preemptor
 	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {

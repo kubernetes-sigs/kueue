@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -426,7 +425,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	}
 
 	oldActive := cqImpl.Active()
-	oldConfigName := cqImpl.preemptionConfigName()
+	oldConfigName, oldUsesConfig := cqImpl.preemptionConfigName()
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
@@ -434,7 +433,8 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 
 	// Workloads found inadmissible under the previous preemption rules, including
 	// ones bulk-moved by their scheduling hash, may be admissible under the new ones.
-	preemptionConfigChanged := !ptr.Equal(oldConfigName, cqImpl.preemptionConfigName())
+	configName, usesConfig := cqImpl.preemptionConfigName()
+	preemptionConfigChanged := usesConfig != oldUsesConfig || configName != oldConfigName
 	if requeueInadmissibleWorkloads || preemptionConfigChanged {
 		// Broadcast occurs after inadmissible workloads are requeued.
 		// Immediate broadcast is no-op, as there are no workloads
@@ -740,10 +740,13 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	if q == nil {
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
-	allOptions := append(m.workloadInfoOptions, opts...)
+	allOptions := append(slices.Clone(m.workloadInfoOptions), opts...)
+	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	if cq != nil {
+		allOptions = append(allOptions, workload.WithPreemptorHashFields(cq.PreemptorHashFields()))
+	}
 	wInfo := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
 
-	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
 	// carry it over. Any update to the Workload lands here, and on a busy cluster those
 	// arrive constantly, which would otherwise send the scan back to the first flavor every
@@ -778,7 +781,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 // has not yet been patched with the updated condition when RequeueWorkload is called.
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	if features.Enabled(features.SchedulingEquivalenceHashing) && triggersBulkMove(reason) {
-		m.refreshEquivalenceHasher(ctx, info.ClusterQueue)
+		m.readPreemptorHashFields(ctx, info.ClusterQueue)
 	}
 	requeued, draWorkload := m.requeueWorkloadLocked(ctx, info, reason, quotaReservedReason)
 	if draWorkload != nil {
@@ -883,28 +886,27 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	return added, nil
 }
 
-// refreshEquivalenceHasher reads the PreemptionConfig referenced by the
-// ClusterQueue the workload was popped from, right before its EquivalenceHasher
-// decides a bulk move. The client reads from the informer cache, as the
-// scheduler does on every preemption attempt, so this costs no API call once
-// that informer is running. It runs without the Manager lock held, as the first
-// read starts that informer and waits for it to sync. If the PreemptionConfig
-// cannot be read, the last EquivalenceHasher is kept, and none read means the
-// ClusterQueue does not bulk-move workloads.
-func (m *Manager) refreshEquivalenceHasher(ctx context.Context, cqName kueue.ClusterQueueReference) {
+// readPreemptorHashFields reads the PreemptionConfig the ClusterQueue the
+// workload was popped from uses, if its PreemptorHashFields are not read yet,
+// so that it bulk-moves workloads. This happens once the ClusterQueue starts
+// using a PreemptionConfig, or after a read failed. The client reads from the
+// informer cache, as the scheduler does on every preemption attempt, so this
+// costs no API call once that informer is running. It runs without the Manager
+// lock held, as the first read starts that informer and waits for it to sync.
+func (m *Manager) readPreemptorHashFields(ctx context.Context, cqName kueue.ClusterQueueReference) {
 	m.RLock()
 	cq := m.hm.ClusterQueue(cqName)
 	m.RUnlock()
 	if cq == nil {
 		return
 	}
-	configName := cq.preemptionConfigName()
-	if configName == nil {
+	configName, needed := cq.needsPreemptorHashFields()
+	if !needed {
 		return
 	}
 	preemptionConfig := &kueuealpha.PreemptionConfig{}
-	if err := m.client.Get(ctx, client.ObjectKey{Name: *configName}, preemptionConfig); err != nil {
-		log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", cqName, "preemptionConfigName", *configName)
+	if err := m.client.Get(ctx, client.ObjectKey{Name: configName}, preemptionConfig); err != nil {
+		log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", cqName, "preemptionConfigName", configName)
 		if apierrors.IsNotFound(err) {
 			log.V(3).Info("PreemptionConfig not found")
 		} else {
@@ -912,7 +914,12 @@ func (m *Manager) refreshEquivalenceHasher(ctx context.Context, cqName kueue.Clu
 		}
 		return
 	}
-	cq.setEquivalenceHasher(*configName, preemptionconfig.NewEquivalenceHasher(preemptionConfig))
+	fields := preemptionconfig.PreemptorHashFields(preemptionConfig)
+	// The scheduling hashes of the queued workloads change, so take the lock
+	// the other readers of the queued workloads hold.
+	m.Lock()
+	defer m.Unlock()
+	cq.setPreemptorHashFields(configName, fields)
 }
 
 // forgetInflight releases the claim that Pop took on a workload in the given

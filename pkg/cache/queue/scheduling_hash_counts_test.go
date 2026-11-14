@@ -267,7 +267,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-a", "blocked-hash", "1"))
 				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-b", "blocked-hash", "1"))
 				cq.PushOrUpdate(makeSchedulingHashInfo(log, now, "active-c", "other-hash", "1"))
-				if _, moved := cq.handleInadmissibleHash(&workload.Info{SchedulingHash: "blocked-hash"}, "dummy-reason"); moved != 2 {
+				if moved := cq.handleInadmissibleHash("blocked-hash", "dummy-reason"); moved != 2 {
 					t.Fatalf("handleInadmissibleHash() moved = %d, want 2", moved)
 				}
 			},

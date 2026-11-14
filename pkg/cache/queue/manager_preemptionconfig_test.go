@@ -302,3 +302,62 @@ func TestRequeueWorkloadReadsPreemptionConfigWithoutLock(t *testing.T) {
 		t.Error("RequeueWorkload read the PreemptionConfig with the Manager lock held")
 	}
 }
+
+// The PreemptionConfig is read only until the ClusterQueue has its
+// PreemptorHashFields, and again once it references another PreemptionConfig.
+func TestRequeueWorkloadReadsPreemptionConfigOncePerReference(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	reads := map[string]int{}
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(utiltesting.MakeNamespace(defaultNamespace),
+			kueuetestalpha1.MakePreemptionConfig("config").Obj(),
+			kueuetestalpha1.MakePreemptionConfig("other").Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueuealpha.PreemptionConfig); ok {
+					reads[key.Name]++
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil)
+	cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, "config").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+	requeue := func(name string) {
+		t.Helper()
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).Queue("lq").Request(corev1.ResourceCPU, "1").Obj()
+		if err := cl.Create(ctx, wl); err != nil {
+			t.Fatalf("Failed adding Workload to the client: %v", err)
+		}
+		info := workload.NewInfo(log, wl)
+		// Set by Heads when the scheduler pops the workload.
+		info.ClusterQueue = "cq"
+		manager.RequeueWorkload(ctx, info, RequeueReasonNoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+	}
+
+	requeue("first")
+	requeue("second")
+	if diff := gocmp.Diff(map[string]int{"config": 1}, reads); diff != "" {
+		t.Errorf("Unexpected PreemptionConfig reads (-want,+got):\n%s", diff)
+	}
+
+	updated := cq.DeepCopy()
+	updated.Annotations[kueuealpha.PreemptionConfigNameAnnotation] = "other"
+	if err := manager.UpdateClusterQueue(updated, false); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+	requeue("third")
+	requeue("fourth")
+	if diff := gocmp.Diff(map[string]int{"config": 1, "other": 1}, reads); diff != "" {
+		t.Errorf("Unexpected PreemptionConfig reads after switching the PreemptionConfig (-want,+got):\n%s", diff)
+	}
+}
