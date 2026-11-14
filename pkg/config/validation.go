@@ -428,6 +428,9 @@ var (
 			configapi.LessThanOrEqualToFinalShare,
 			configapi.LessThanInitialShare,
 		},
+		{
+			configapi.ReclaimOnly,
+		},
 	}
 
 	validStrategySetsStr = func() []string {

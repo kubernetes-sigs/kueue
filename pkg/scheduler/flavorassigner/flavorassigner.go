@@ -240,7 +240,10 @@ type FlavorAssigner struct {
 	cq                *schdcache.ClusterQueueSnapshot
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
-	oracle            preemptionOracle
+	// fairSharingReclaimOnly is true when FairSharing uses the ReclaimOnly
+	// preemption strategy, which never preempts while the preemptor borrows.
+	fairSharingReclaimOnly bool
+	oracle                 preemptionOracle
 
 	// replaceWorkloadSlice identifies the workload slice that will be replaced by this workload.
 	// It must be considered during flavor computation and included in the preemption targets.
@@ -1169,13 +1172,20 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	return noFit, borrow, &status
 }
 
+// WithFairSharingReclaimOnly marks that FairSharing uses the ReclaimOnly
+// preemption strategy.
+func (a *FlavorAssigner) WithFairSharingReclaimOnly(reclaimOnly bool) *FlavorAssigner {
+	a.fairSharingReclaimOnly = reclaimOnly
+	return a
+}
+
 func (a *FlavorAssigner) canPreemptWithinClusterQueue() bool {
 	return a.cq.Preemption.WithinClusterQueue != "" && a.cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 	return (a.cq.Preemption.BorrowWithinCohort != nil && a.cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever) ||
-		(a.enableFairSharing && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever) ||
+		(a.enableFairSharing && !a.fairSharingReclaimOnly && a.cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever) ||
 		a.usesConfigurablePreemption()
 }
 
