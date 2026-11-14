@@ -1228,7 +1228,7 @@ func (m *Manager) resyncLocalQueueGaugeMetricsLocked(lq *LocalQueue) {
 	}
 	reportLQPendingWorkloads(m, lq)
 	reportLQFinishedWorkloads(m, lq)
-	if features.Enabled(features.UnadmittedWorkloadsObservability) && m.lqMetrics.IsEnabled() {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
 		m.resyncLocalQueueUnadmittedWorkloadsMetricsLocked(lq.Key)
 	}
 }

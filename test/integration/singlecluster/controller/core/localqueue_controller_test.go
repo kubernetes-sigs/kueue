@@ -576,7 +576,7 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 		behavioral.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
-		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.metrics-test").
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue.metrics-test-" + ns.Name).
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("model-c").Resource(resourceGPU, "5", "5").Obj(),
 			).
@@ -707,6 +707,78 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 		gomega.Eventually(func(g gomega.Gomega) {
 			behavioral.ExpectLQPendingWorkloadsMetric(queueDeleteMetrics, 0, 0)
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should filter unadmitted workload metrics after LocalQueue label changes", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+		queue := utiltestingapi.MakeLocalQueue("queue-unadmitted-metrics", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			Label("metrics-test", "false").
+			Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, queue)
+
+		lqLabels := map[string]string{"name": queue.Name, "namespace": ns.Name}
+		cqLabels := map[string]string{"cluster_queue": clusterQueue.Name}
+		expectCQCount := func(want float64) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := testingmetrics.CollectFilteredGaugeVec(metrics.UnadmittedWorkloads, cqLabels)
+				g.Expect(got).To(gomega.HaveLen(1))
+				g.Expect(got[0].Value).To(gomega.Equal(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		expectLQCount := func(want float64) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels)
+				g.Expect(got).To(gomega.HaveLen(1))
+				g.Expect(got[0].Value).To(gomega.Equal(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+		updateLabel := func(value string) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.LocalQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updated)).To(gomega.Succeed())
+				updated.Labels["metrics-test"] = value
+				g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		wl := utiltestingapi.MakeWorkload("wl-unadmitted-metrics", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		expectCQCount(1)
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		updateLabel("true")
+		expectLQCount(1)
+
+		updateLabel("false")
+		gomega.Eventually(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeZero())
+
+		secondWL := utiltestingapi.MakeWorkload("wl-unadmitted-metrics-2", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).
+			Request(resourceGPU, "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, secondWL)
+		expectCQCount(2)
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		qManager.ResyncGaugeMetrics()
+		gomega.Consistently(func() int {
+			return len(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, lqLabels))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.BeZero())
+
+		updateLabel("true")
+		expectLQCount(2)
 	})
 })
 
