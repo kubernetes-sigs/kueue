@@ -57,7 +57,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -5043,28 +5042,43 @@ func TestMultiKueueWorkloadNominationRoundsMetric(t *testing.T) {
 }
 
 func TestMultiKueueWorkloadNominationRoundsReadmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 	metrics.MultiKueueWorkloadNominationRounds.Reset()
 	t.Cleanup(metrics.MultiKueueWorkloadNominationRounds.Reset)
 
-	reconciler := &wlReconciler{
-		dispatcherName:   config.MultiKueueDispatcherModeAllAtOnce,
-		nominationRounds: utilmaps.NewSyncMap[string, int](0),
-	}
-	wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).Admission(utiltestingapi.MakeAdmission("q1").Obj())
+	ctx, _ := utiltesting.ContextWithLog(t)
+	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
+	wlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
+	req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
 
 	// Each admission follows one nomination round, so the second admission must
 	// not report the round of the first one.
-	for range 2 {
+	for admission := uint64(1); admission <= 2; admission++ {
+		if admission > 1 {
+			wl := &kueue.Workload{}
+			if err := reconciler.client.Get(ctx, client.ObjectKey{Name: "wl1", Namespace: TestNamespace}, wl); err != nil {
+				t.Fatalf("getting the workload: %v", err)
+			}
+			wl.Status.AdmissionChecks[0].State = kueue.CheckStatePending
+			if err := reconciler.client.Status().Update(ctx, wl); err != nil {
+				t.Fatalf("resetting the admission check: %v", err)
+			}
+		}
 		reconciler.Update(event.UpdateEvent{
 			ObjectOld: wlBuilder.Clone().Obj(),
 			ObjectNew: wlBuilder.Clone().NominatedClusterNames("worker1").Obj(),
 		})
-		reconciler.reportNominationRounds(wlBuilder.Clone().Obj())
-	}
 
-	gotCount, gotSum := nominationRoundsObservations(t)
-	if gotCount != 2 || gotSum != 2 {
-		t.Errorf("want 2 observations with sum 2, got %d with sum %v", gotCount, gotSum)
+		// The first reconcile admits the workload; the second one must not observe it again.
+		for i := range 2 {
+			if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				t.Fatalf("admission %d: unexpected error on reconcile %d: %v", admission, i+1, err)
+			}
+			gotCount, gotSum := nominationRoundsObservations(t)
+			if gotCount != admission || gotSum != float64(admission) {
+				t.Errorf("admission %d, after reconcile %d: want %d observations with sum %d, got %d with sum %v", admission, i+1, admission, admission, gotCount, gotSum)
+			}
+		}
 	}
 }
 
