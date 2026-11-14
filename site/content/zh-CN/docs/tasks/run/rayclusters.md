@@ -13,7 +13,7 @@ description: 在启用了 Kueue 的环境里运行 RayClusters
 
 ## 开始之前 {#before-you-begin}
 
-1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.1.0 或更高版本。
+1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.3.0 或更高版本。
 
 2. 请参见 [Administer cluster quotas](/zh-cn/docs/tasks/manage/administer_cluster_quotas)
    了解初始 Kueue 设置的详细信息。
