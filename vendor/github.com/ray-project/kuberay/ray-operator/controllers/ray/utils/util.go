@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -162,6 +163,11 @@ func FindRayClusterSuspendStatus(instance *rayv1.RayCluster) rayv1.RayClusterCon
 		}
 	}
 	return ""
+}
+
+// IsRayClusterSuspendOrIdleSuspend returns true if either spec.Suspend=true or spec.IdleSuspend=true
+func IsRayClusterSuspendOrIdleSuspend(instance *rayv1.RayCluster) bool {
+	return instance.Spec.Suspend != nil && *instance.Spec.Suspend || instance.Spec.IdleSuspend != nil && *instance.Spec.IdleSuspend
 }
 
 // IsRunningAndReady returns true if pod is in the PodRunning Phase, if it has a condition of PodReady.
@@ -658,6 +664,9 @@ func GenerateHashWithoutReplicasAndWorkersToDelete(rayClusterSpec rayv1.RayClust
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MaxReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].MinReplicas = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].ScaleStrategy.WorkersToDelete = nil
+		// External controllers like Kueue may set ScaleGate to signal quota exhaustion,
+		// which should not trigger a new RayCluster preparation.
+		updatedRayClusterSpec.WorkerGroupSpecs[i].ScaleStrategy.ScaleGate = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.Tolerations = nil
 		updatedRayClusterSpec.WorkerGroupSpecs[i].Template.Spec.SchedulingGates = nil
 	}
@@ -799,6 +808,15 @@ func IsAuthEnabled(spec *rayv1.RayClusterSpec) bool {
 
 func IsK8sAuthEnabled(authOptions *rayv1.AuthOptions) bool {
 	return authOptions != nil && authOptions.EnableK8sTokenAuth != nil && *authOptions.EnableK8sTokenAuth
+}
+
+// IsCollectorEnabled returns whether the operator manages the collector container of the
+// RayCluster: the RayClusterHistoryServer feature gate is on and the RayCluster opts in with
+// historyServerOptions.collectorOptions.
+func IsCollectorEnabled(spec *rayv1.RayClusterSpec) bool {
+	return features.Enabled(features.RayClusterHistoryServer) &&
+		spec.HistoryServerOptions != nil &&
+		spec.HistoryServerOptions.CollectorOptions != nil
 }
 
 // IsTLSEnabled returns whether TLS is enabled for the RayCluster.
@@ -1164,7 +1182,9 @@ func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
 		dRef := desired.Spec.ParentRefs[i]
 
 		if string(eRef.Name) != string(dRef.Name) ||
-			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) {
+			string(ptr.Deref(eRef.Namespace, "")) != string(ptr.Deref(dRef.Namespace, "")) ||
+			string(ptr.Deref(eRef.SectionName, "")) != string(ptr.Deref(dRef.SectionName, "")) ||
+			ptr.Deref(eRef.Port, 0) != ptr.Deref(dRef.Port, 0) {
 			return false
 		}
 	}
@@ -1212,6 +1232,24 @@ func IsHTTPRouteEqual(existing, desired *gwv1.HTTPRoute) bool {
 	return true
 }
 
+// SupportsFlexibleRestartPolicy returns true when the Ray version is 2.56.0 or later,
+// meaning the RestartPolicy for head and worker pods is no longer forced to Never
+// when autoscaler V2 is active.
+// If the version is unspecified or below 2.56.0 the original behavior (restrict to Never) applies.
+// https://github.com/ray-project/ray/pull/63764 fixes the issue we ran into here and is merged into Ray 2.56.0,
+// even though that PR was not intended to address this issue.
+func SupportsFlexibleRestartPolicy(rayVersion string) bool {
+	if rayVersion == "" {
+		return false
+	}
+	v, err := utilversion.ParseGeneric(rayVersion)
+	if err != nil {
+		return false
+	}
+	minVersion := utilversion.MustParseGeneric("2.56.0")
+	return v.AtLeast(minVersion)
+}
+
 // IsGatewayEqual checks if the existing Gateway matches the desired Gateway.
 // This check only compares the fields explicitly managed by the RayService controller.
 // If the controller starts managing additional Gateway fields in the future,
@@ -1240,4 +1278,15 @@ func IsGatewayEqual(existing, desired *gwv1.Gateway) bool {
 		}
 	}
 	return true
+}
+
+var nodeLabelFieldPath = regexp.MustCompile(`^metadata\.labels\['([^']+)'\]$`)
+
+// NodeLabelKey returns the node label key a labelRef fieldPath selects. Only metadata.labels['<key>'] is supported
+func NodeLabelKey(fieldPath string) (string, error) {
+	m := nodeLabelFieldPath.FindStringSubmatch(fieldPath)
+	if m == nil {
+		return "", fmt.Errorf("unsupported fieldPath %q, only metadata.labels['<key>'] is supported", fieldPath)
+	}
+	return m[1], nil
 }

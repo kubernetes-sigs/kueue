@@ -41,11 +41,38 @@ const (
 	NeuronCoreRayResourceName          = "neuron_cores"
 	TPUContainerResourceName           = "google.com/tpu"
 	TPURayResourceName                 = "TPU"
+	AscendRayResourceName              = "NPU"
 )
 
 var customAcceleratorToRayResourceMap = map[string]string{
 	NeuronCoreContainerResourceName: NeuronCoreRayResourceName,
 	TPUContainerResourceName:        TPURayResourceName,
+}
+
+func isNPUResourceKey(key string) bool {
+	lowerKey := strings.ToLower(key)
+	if strings.HasPrefix(lowerKey, "huawei.com/ascend") {
+		// Skip metadata resource keys like huawei.com/Ascend910B-memory and huawei.com/Ascend910B-core,
+		// which describe accelerator capacity rather than being actual Ray compute resources.
+		if strings.HasSuffix(lowerKey, "-memory") || strings.HasSuffix(lowerKey, "-core") {
+			return false
+		}
+		return true
+	}
+	if lowerKey == "huawei.com/npu" {
+		return true
+	}
+	return false
+}
+
+func getCustomAcceleratorRayResourceName(resourceKeyString string) string {
+	if rayResourceName, ok := customAcceleratorToRayResourceMap[resourceKeyString]; ok {
+		return rayResourceName
+	}
+	if isNPUResourceKey(resourceKeyString) {
+		return AscendRayResourceName
+	}
+	return ""
 }
 
 // Get the port required to connect to the Ray cluster by worker nodes and drivers
@@ -277,7 +304,9 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 		if utils.IsAutoscalingV2Enabled(&instance.Spec) {
 			setAutoscalerV2EnvVars(&podTemplate)
-			podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
+			if !utils.SupportsFlexibleRestartPolicy(instance.Spec.RayVersion) {
+				podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
+			}
 		} else if utils.IsAutoscalingV1Enabled(&instance.Spec) {
 			setAutoscalerV1EnvVars(&podTemplate)
 		}
@@ -301,7 +330,7 @@ func DefaultHeadPodTemplate(ctx context.Context, instance rayv1.RayCluster, head
 
 	configureTLS(&podTemplate, instance, rayv1.HeadNode)
 
-	if features.Enabled(features.RayClusterHistoryServer) && instance.Spec.HistoryServerOptions != nil && instance.Spec.HistoryServerOptions.CollectorOptions != nil {
+	if utils.IsCollectorEnabled(&instance.Spec) {
 		fqdnRayIP := utils.GenerateFQDNServiceName(ctx, instance, instance.Namespace)
 		collectorContainer := BuildCollectorContainer(instance.Spec.HistoryServerOptions.CollectorOptions, rayv1.HeadNode, instance.Name, instance.Namespace, fqdnRayIP, instance.Labels)
 
@@ -695,7 +724,8 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 		podTemplate.Spec.Containers[utils.RayContainerIndex].Ports = append(podTemplate.Spec.Containers[utils.RayContainerIndex].Ports, metricsPort)
 	}
 
-	if utils.IsAutoscalingEnabled(&instance.Spec) && utils.IsAutoscalingV2Enabled(&instance.Spec) {
+	if utils.IsAutoscalingEnabled(&instance.Spec) && utils.IsAutoscalingV2Enabled(&instance.Spec) && !utils.SupportsFlexibleRestartPolicy(instance.Spec.RayVersion) {
+		// Use the autoscaler version to determine whether the RestartPolicy should be Never or not.
 		podTemplate.Spec.RestartPolicy = corev1.RestartPolicyNever
 	}
 
@@ -705,7 +735,7 @@ func DefaultWorkerPodTemplate(ctx context.Context, instance rayv1.RayCluster, wo
 
 	configureTLS(&podTemplate, instance, rayv1.WorkerNode)
 
-	if features.Enabled(features.RayClusterHistoryServer) && instance.Spec.HistoryServerOptions != nil && instance.Spec.HistoryServerOptions.CollectorOptions != nil {
+	if utils.IsCollectorEnabled(&instance.Spec) {
 		collectorContainer := BuildCollectorContainer(instance.Spec.HistoryServerOptions.CollectorOptions, rayv1.WorkerNode, instance.Name, instance.Namespace, fqdnRayIP, instance.Labels)
 
 		if utils.IsAuthEnabled(&instance.Spec) {
@@ -1061,6 +1091,24 @@ func getCollectorContainerIndex(pod corev1.Pod) int {
 		}
 	}
 	return -1
+}
+
+// SetDefaultCollectorImage sets the image of the injected collector container to defaultImage if the
+// RayCluster doesn't specify `historyServerOptions.collectorOptions.image`. It is a no-op if the
+// collector is not defined through `historyServerOptions.collectorOptions`.
+func SetDefaultCollectorImage(instance *rayv1.RayCluster, podTemplate *corev1.PodTemplateSpec, defaultImage string) {
+	if !utils.IsCollectorEnabled(&instance.Spec) {
+		return
+	}
+	for i := range podTemplate.Spec.Containers {
+		container := &podTemplate.Spec.Containers[i]
+		if container.Name == utils.CollectorContainerName {
+			if container.Image == "" {
+				container.Image = defaultImage
+			}
+			return
+		}
+	}
 }
 
 // BuildCollectorContainer builds a history server collector container which can be appended to the head and worker pods.
@@ -1458,7 +1506,7 @@ func addWellKnownAcceleratorResources(rayStartParams map[string]string, resource
 
 		// Add the first encountered custom accelerator resource from the resource limits to the rayStartParams if not already present
 		if !isCustomAcceleratorResourceAdded {
-			if rayResourceName, ok := customAcceleratorToRayResourceMap[resourceKeyString]; ok && !resourceValue.IsZero() {
+			if rayResourceName := getCustomAcceleratorRayResourceName(resourceKeyString); rayResourceName != "" && !resourceValue.IsZero() {
 				if _, exists := resourcesMap[rayResourceName]; !exists {
 					resourcesMap[rayResourceName] = resourceValue.AsApproximateFloat64()
 
@@ -1485,6 +1533,10 @@ func isCustomAcceleratorPresentInResources(resourcesMap map[string]float64) bool
 			if _, ok := resourcesMap[customAcceleratorRayResource]; ok {
 				return true
 			}
+		}
+
+		if _, ok := resourcesMap[AscendRayResourceName]; ok {
+			return true
 		}
 	}
 
@@ -1669,6 +1721,8 @@ func updateRayStartParamsResources(ctx context.Context, rayStartParams map[strin
 			rayStartParams["memory"] = strconv.FormatInt(q.Value(), 10)
 		} else if utils.IsGPUResourceKey(normalizedName) {
 			rayStartParams["num-gpus"] = strconv.FormatInt(q.Value(), 10)
+		} else if rayResourceName := getCustomAcceleratorRayResourceName(name); rayResourceName != "" {
+			rayResourcesJson[rayResourceName] = q.AsApproximateFloat64()
 		} else {
 			rayResourcesJson[name] = q.AsApproximateFloat64()
 		}

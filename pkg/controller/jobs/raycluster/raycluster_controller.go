@@ -81,6 +81,7 @@ type RayCluster rayv1.RayCluster
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
+var _ jobframework.JobWithResumableHold = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	return EquivalenceOptions()
@@ -100,6 +101,24 @@ func (j *RayCluster) IsActive() bool {
 
 func (j *RayCluster) Suspend() {
 	j.Spec.Suspend = new(true)
+}
+
+// IsOnHold reports whether the RayCluster is idle-suspended. The Ray autoscaler
+// sets spec.idleSuspend on an idle cluster and KubeRay then deletes its Pods,
+// so its quota can be released.
+// MultiKueue is not supported: the field is set on the worker cluster's copy,
+// where releasing the quota would diverge from the manager cluster.
+func (j *RayCluster) IsOnHold() bool {
+	return features.Enabled(features.RayClusterIdleSuspend) &&
+		ptr.Deref(j.Spec.IdleSuspend, false) &&
+		!isManagedByMultiKueue(j.Object()) &&
+		j.Labels[kueue.MultiKueueOriginLabel] == ""
+}
+
+// IsHoldResumable is not gated, so that a Workload left on hold is queued again
+// after the RayClusterIdleSuspend feature gate is disabled.
+func (j *RayCluster) IsHoldResumable() bool {
+	return true
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {
