@@ -55,6 +55,16 @@ type rayAutoscalingTestContext struct {
 	kubernetesClients kubernetesClientsMap
 }
 
+func fastAutoscalerOptions() *rayv1.AutoscalerOptions {
+	return &rayv1.AutoscalerOptions{
+		IdleTimeoutSeconds: new(int32(1)),
+		Env: []corev1.EnvVar{{
+			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+			Value: "1",
+		}},
+	}
+}
+
 func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string) *kueue.Workload {
 	ginkgo.GinkgoHelper()
 	wls := &kueue.WorkloadList{}
@@ -135,13 +145,7 @@ func runRayClusterSequentialScaleUpTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: new(int32(1)),
-			Env: []corev1.EnvVar{{
-				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-				Value: "1",
-			}},
-		}).
+		WithAutoscalerOptions(fastAutoscalerOptions()).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
@@ -268,13 +272,7 @@ func runRayJobAutoscalingTest(
 		Image(rayv1.HeadNode, e2e.GetKuberayTestImage()).
 		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
 		Obj()
-	rayJob.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
-		IdleTimeoutSeconds: new(int32(1)),
-		Env: []corev1.EnvVar{{
-			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-			Value: "1",
-		}},
-	}
+	rayJob.Spec.RayClusterSpec.AutoscalerOptions = fastAutoscalerOptions()
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(0))
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(0))
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))
@@ -417,13 +415,7 @@ func runRayClusterAutoscalingTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: new(int32(1)),
-			Env: []corev1.EnvVar{{
-				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-				Value: "1",
-			}},
-		}).
+		WithAutoscalerOptions(fastAutoscalerOptions()).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
@@ -611,13 +603,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		Queue(managerLq.Name).
 		WorkloadPriorityClass(managerLowWPC.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: new(int32(1)),
-			Env: []corev1.EnvVar{{
-				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-				Value: "1",
-			}},
-		}).
+		WithAutoscalerOptions(fastAutoscalerOptions()).
 		FirstWorkerGroupReplicas(1, 1, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
@@ -774,13 +760,7 @@ func runRayClusterPreemptionBeforeRepointTest(
 		Queue(managerLq.Name).
 		WorkloadPriorityClass(managerLowWPC.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
-			IdleTimeoutSeconds: new(int32(1)),
-			Env: []corev1.EnvVar{{
-				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-				Value: "1",
-			}},
-		}).
+		WithAutoscalerOptions(fastAutoscalerOptions()).
 		FirstWorkerGroupReplicas(0, 0, 1).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
