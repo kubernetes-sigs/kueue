@@ -1496,6 +1496,16 @@ func OwnedBySinglePod(w *kueue.Workload) bool {
 	return ref.Kind == "Pod" && ref.APIVersion == "v1"
 }
 
+// OwnedByPods reports whether the Workload's PodSet templates were copied from
+// Pods that already exist, rather than describing Pods yet to be created. A
+// StatefulSet or LeaderWorkerSet Workload also gains its Pods as owners, but
+// its template was copied from the parent's template, so it does not qualify.
+func OwnedByPods(w *kueue.Workload) bool {
+	return w != nil && len(w.OwnerReferences) > 0 && !slices.ContainsFunc(w.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind != "Pod" || ref.APIVersion != "v1"
+	})
+}
+
 func HasUnhealthyNodes(w *kueue.Workload) bool {
 	return w != nil && len(w.Status.UnhealthyNodes) > 0
 }
