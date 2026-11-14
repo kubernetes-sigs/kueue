@@ -238,3 +238,84 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 		})
 	}
 }
+func TestPendingDRADevicesMetrics(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	t.Cleanup(func() { metrics.ClearClusterQueueDRADevicesPendingMetrics("cq") })
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).Obj()
+	cl := utiltesting.NewFakeClient(utiltesting.MakeNamespace("ns"), wl)
+	checker := &pendingWorkloadsStatusChecker{active: true}
+	m := NewManagerForUnitTests(cl, checker, WithPreemptionExpectations(preemptexpectations.New()))
+
+	if err := m.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	if err := m.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+
+	reqs := []workload.DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+	}
+	if err := m.AddOrUpdateWorkload(ctx, log, wl, workload.WithDRADeviceRequests(reqs)); err != nil {
+		t.Fatalf("Adding Workload: %v", err)
+	}
+
+	reportPendingWorkloads(m, "cq")
+
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueDRADevicesPending, map[string]string{
+		"cluster_queue": "cq",
+		"device_class":  "gpu.example.com",
+		"replica_role":  roletracker.RoleStandalone,
+	})
+	if len(got) != 1 {
+		t.Fatalf("Expected one pending DRA device metric, got %v", got)
+	}
+	if got[0].Value != 4 {
+		t.Errorf("Pending DRA device metric = %g, want 4", got[0].Value)
+	}
+
+	// Pop workload and verify pending count still reports 4 while checked out
+	if popped := m.Heads(ctx); len(popped) != 1 {
+		t.Fatalf("Expected one workload head, got %d", len(popped))
+	}
+	reportPendingWorkloads(m, "cq")
+
+	got = testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueDRADevicesPending, map[string]string{
+		"cluster_queue": "cq",
+		"device_class":  "gpu.example.com",
+		"replica_role":  roletracker.RoleStandalone,
+	})
+	if len(got) != 1 {
+		t.Fatalf("Expected one pending DRA device metric while checked out, got %v", got)
+	}
+	if got[0].Value != 4 {
+		t.Errorf("Pending DRA device metric while checked out = %g, want 4", got[0].Value)
+	}
+
+	// Delete workload and verify pending count clears to 0
+	m.DeleteWorkload(log, workload.Key(wl))
+	reportPendingWorkloads(m, "cq")
+
+	got = testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueDRADevicesPending, map[string]string{
+		"cluster_queue": "cq",
+		"device_class":  "gpu.example.com",
+		"replica_role":  roletracker.RoleStandalone,
+	})
+	if len(got) != 1 {
+		t.Fatalf("Expected one pending DRA device metric, got %v", got)
+	}
+	if got[0].Value != 0 {
+		t.Errorf("Pending DRA device metric after deletion = %g, want 0", got[0].Value)
+	}
+}

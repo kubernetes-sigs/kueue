@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func Test_GetResourceRequests(t *testing.T) {
@@ -97,6 +98,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		featureGates    map[featuregate.Feature]bool
 		skipDeviceCheck bool
 		want            map[kueue.PodSetReference]corev1.ResourceList
+		wantDRARequests []workload.DRADeviceRequest
 		wantErr         field.ErrorList
 	}{
 		{
@@ -1032,6 +1034,14 @@ func Test_GetResourceRequests(t *testing.T) {
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {"res-1": resource.MustParse("2")},
 			},
+			wantDRARequests: []workload.DRADeviceRequest{
+				{
+					PodSet:          "main",
+					DeviceClass:     "test-deviceclass-1",
+					LogicalResource: "res-1",
+					CountPerPod:     2,
+				},
+			},
 		},
 		{
 			name: "CEL selectors with nonexistent DeviceClass returns error",
@@ -1154,7 +1164,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testMapper = NewResourceMapper()
 			}
 			sliceCache := NewResourceSliceCache(baseClient)
-			got, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceCheck)
+			got, gotReqs, err := GetResourceRequestsForResourceClaimTemplates(ctx, baseClient, sliceCache, testMapper, wlCopy, tc.skipDeviceCheck)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("GetResourceRequestsForResourceClaimTemplates() error mismatch (-want +got):\n%s", diff)
 			}
@@ -1162,6 +1172,11 @@ func Test_GetResourceRequests(t *testing.T) {
 			if err == nil {
 				if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("GetResourceRequestsForResourceClaimTemplates() result mismatch (-want +got):\n%s", diff)
+				}
+				if tc.wantDRARequests != nil {
+					if diff := cmp.Diff(tc.wantDRARequests, gotReqs, cmpopts.EquateEmpty()); diff != "" {
+						t.Errorf("GetResourceRequestsForResourceClaimTemplates() dra requests mismatch (-want +got):\n%s", diff)
+					}
 				}
 			}
 		})
