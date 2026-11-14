@@ -1170,12 +1170,16 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
+	originalAssignment := *existingAssignment
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
 	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
-	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment, groupAnchor)
+	requiredReplacementDomain, err := s.requiredReplacementDomain(tr, existingAssignment, &originalAssignment, headNodeName, groupAnchor)
+	if err != nil {
+		return nil, nil, err.Error()
+	}
 	if isRequired(tr.PodSet.TopologyRequest) && (len(existingAssignment.Domains) > 0 || len(groupAnchor) > 0) && requiredReplacementDomain == "" {
 		return nil, nil, "cannot replace the node: required topology domain of the remaining assignment cannot be determined"
 	}
@@ -1332,47 +1336,54 @@ func findPSA(wl *kueue.Workload, psName kueue.PodSetReference) *kueue.PodSetAssi
 	return nil
 }
 
-func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, groupAnchor []utiltas.TopologyDomainAssignment) utiltas.TopologyDomainID {
+func (s *TASFlavorSnapshot) requiredReplacementDomain(
+	tr *TASPodSetRequests,
+	remainingAssignment, originalAssignment *utiltas.TopologyAssignment,
+	unhealthyNode string,
+	groupAnchor []utiltas.TopologyDomainAssignment,
+) (utiltas.TopologyDomainID, error) {
 	key := s.levelKeyWithImpliedFallback(tr)
 	if key == nil {
-		return ""
+		return "", nil
 	}
 	levelIdx, found := s.resolveLevelIdx(*key)
 	if !found {
-		return ""
+		return "", nil
 	}
 
 	// no domain to comply with so we don't require any domain at all
 	// this happens when the faulty node was the only one in the assignment
 	// of the PodSet and of the rest of its PodSet group
-	if len(ta.Domains) == 0 && len(groupAnchor) == 0 {
-		return ""
+	if len(remainingAssignment.Domains) == 0 && len(groupAnchor) == 0 {
+		return "", nil
 	}
 
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
 	if reason != "" {
-		return ""
+		return "", nil
 	}
-	if len(ta.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) && (tr.Count%sliceSize != 0) {
+	if len(remainingAssignment.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) {
 		// For multi-layer constraints, find the innermost broken constraint's domain.
 		// This ensures the replacement is confined to the tightest topology level
 		// that needs repair, preserving intermediate grouping invariants.
 		constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr.PodSet.TopologyRequest)
-		if len(constraints) > 1 {
-			for _, v := range slices.Backward(constraints) {
-				if tr.Count%v.Size != 0 {
-					return s.findIncompleteSliceDomain(ta, tr.Count, v.Size, v.Topology)
+		for _, v := range slices.Backward(constraints) {
+			if tr.PodSet.TopologyRequest.PodIndexLabel != nil {
+				domain, err := s.indexedSliceReplacementDomain(originalAssignment, unhealthyNode, v.Size, v.Topology)
+				if err != nil || domain != "" {
+					return domain, err
 				}
+			} else if tr.Count%sliceSize != 0 && tr.Count%v.Size != 0 {
+				return s.findIncompleteSliceDomain(remainingAssignment, tr.Count, v.Size, v.Topology), nil
 			}
 		}
-		return s.findIncompleteSliceDomain(ta, tr.Count, sliceSize, s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.explicitLowestLevel()))
 	}
 
 	if !isRequired(tr.PodSet.TopologyRequest) {
-		return ""
+		return "", nil
 	}
 
-	domains := ta.Domains
+	domains := remainingAssignment.Domains
 	if len(domains) == 0 {
 		// The PodSet lost its only node, but the rest of its PodSet group still
 		// pins the domain the whole group must stay in.
@@ -1388,9 +1399,76 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		for i := nodeLevel; i > levelIdx; i-- {
 			domain = domain.parent
 		}
-		return domain.id
+		return domain.id, nil
 	}
-	return ""
+	return "", nil
+}
+
+// indexedSliceReplacementDomain uses the original rank intervals rather than
+// aggregate counts: more than one slice may have lost a node. Missing nodes
+// retain their ranks, so a surviving member of the same cohort can pin the domain.
+// Losing only whole slices leaves their replacement domain unconstrained.
+func (s *TASFlavorSnapshot) indexedSliceReplacementDomain(
+	ta *utiltas.TopologyAssignment,
+	unhealthyNode string,
+	sliceSize int32,
+	topologyKey string,
+) (utiltas.TopologyDomainID, error) {
+	sliceLevelIdx, found := s.resolveLevelIdx(topologyKey)
+	if !found || sliceSize <= 0 {
+		return "", fmt.Errorf("cannot determine original slice topology domain for unhealthy node %q", unhealthyNode)
+	}
+	type rankInterval struct {
+		start, end int64
+	}
+	var failedIntervals []rankInterval
+	var rank int64
+	size := int64(sliceSize)
+	for _, assignment := range ta.Domains {
+		end := rank + int64(assignment.Count)
+		if assignment.Values[len(assignment.Values)-1] == unhealthyNode {
+			if len(failedIntervals) > 0 && failedIntervals[len(failedIntervals)-1].end == rank {
+				failedIntervals[len(failedIntervals)-1].end = end
+			} else {
+				failedIntervals = append(failedIntervals, rankInterval{start: rank, end: end})
+			}
+		}
+		rank = end
+	}
+	var cohorts []rankInterval
+	for _, interval := range failedIntervals {
+		if interval.start%size == 0 && interval.end%size == 0 {
+			continue
+		}
+		cohorts = append(cohorts, rankInterval{start: interval.start / size * size, end: (interval.end + size - 1) / size * size})
+	}
+	if len(cohorts) == 0 {
+		return "", nil
+	}
+
+	var requiredDomain utiltas.TopologyDomainID
+	rank = 0
+	cohortIdx := 0
+	for _, assignment := range ta.Domains {
+		end := rank + int64(assignment.Count)
+		for cohortIdx < len(cohorts) && cohorts[cohortIdx].end <= rank {
+			cohortIdx++
+		}
+		if cohortIdx < len(cohorts) && cohorts[cohortIdx].start < end {
+			domain := s.sliceLevelDomain(ta.Levels, assignment.Values, sliceLevelIdx)
+			if domain != nil {
+				if requiredDomain != "" && requiredDomain != domain.id {
+					return "", fmt.Errorf("indexed slices containing unhealthy node %q span multiple %q domains", unhealthyNode, topologyKey)
+				}
+				requiredDomain = domain.id
+			}
+		}
+		rank = end
+	}
+	if requiredDomain == "" {
+		return "", fmt.Errorf("cannot determine original slice topology domain for unhealthy node %q", unhealthyNode)
+	}
+	return requiredDomain, nil
 }
 
 // domainForAssignmentValues resolves the domain referenced by a serialized
