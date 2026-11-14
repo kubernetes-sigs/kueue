@@ -220,8 +220,8 @@ github.com/prometheus/common v0.73.1 h1:SZWh/j4AvhCdhX8jvYSnxvPxhWlC9QZkjJ+tOrEr
 github.com/prometheus/common v0.73.1/go.mod h1:I9aA/Ukz9s1olOobh8KtCkU7B1mQPQsB9UvQPsUQ1Dk=
 github.com/prometheus/procfs v0.22.0 h1:6q9+/JL9IKAPbCmBrv9n5O5Ty3NKnciV5X7YGw0oics=
 github.com/prometheus/procfs v0.22.0/go.mod h1:CvmFr/GVhIjIvWJZW3tgkODBQMRIf0EyWMQLHCHab58=
-github.com/ray-project/kuberay/ray-operator v1.7.0 h1:Yt/5N7vBQACL81UEF4A192btVfczHNJ4PFlebj6mvsw=
-github.com/ray-project/kuberay/ray-operator v1.7.0/go.mod h1:rk7rIgHYLnBs9ccN+pgCKMOzCR0FB2v0A0Yz2iN5Odo=
+github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0 h1:6idMz+0uEXV7igeY9FP/NT2Yky/4LS2sbGr0C2A1aIs=
+github.com/ray-project/kuberay/ray-operator v1.8.0-rc.0/go.mod h1:QyYBRf006/IQca+Rng4IlTplUizwE1ILogXNJVQFgBQ=
 github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
 github.com/robfig/cron/v3 v3.0.1/go.mod h1:eQICP3HwyT7UooqI/z+Ov+PtYAWygg1TEWWzGIFLtro=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
@@ -472,5 +472,5 @@ sigs.k8s.io/structured-merge-diff/v6 v6.4.2 h1:qdOxHwrl2Kaag1aQEarlYcOA9vSyGCp3C
 sigs.k8s.io/structured-merge-diff/v6 v6.4.2/go.mod h1:M3W8sfWvn2HhQDIbGWj3S099YozAsymCo/wrT5ohRUE=
 sigs.k8s.io/yaml v1.6.0 h1:G8fkbMSAFqgEFgh4b1wmtzDnioxFCUgTZhlbj5P9QYs=
 sigs.k8s.io/yaml v1.6.0/go.mod h1:796bPqUfzR/0jLAl6XjHl3Ck7MiyVv8dbTdyT3/pMf4=
-volcano.sh/apis v1.14.0 h1:Rf8wzGFmgzbyg85GO0CxapDDEk/VM3D7QbjbI/sH+OQ=
-volcano.sh/apis v1.14.0/go.mod h1:CKQbxVt0o4lTKisC0MonoXWruGFC0S8KU+UuzaZ5E7k=
+volcano.sh/apis v1.15.2 h1:L36cw3pRU+nqrrFoNuHMVJJ364bjzeTHiSrBZ1XTJBk=
+volcano.sh/apis v1.15.2/go.mod h1:rIDP5D1IR0Tq0uGIMCjMdTEDXMzyTMbwlXhxtMdxLls=
