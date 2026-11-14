@@ -51,6 +51,42 @@ class InstallTest(unittest.TestCase):
                 installer.install("kind", "v2", binary)
                 self.assertEqual(download.call_count, 4)
 
+    def test_replaced_binary_is_reinstalled(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+            binary = Path(temp) / "kind"
+            with patch.object(installer, "release_binary", side_effect=[b"version one", b"version two"]) as download:
+                installer.install("kind", "v1", binary)
+                binary.write_bytes(b"replaced by another branch")
+                binary.chmod(0o755)
+                installer.install("kind", "v1", binary)
+            self.assertEqual(download.call_count, 2)
+            self.assertEqual(binary.read_bytes(), b"version two")
+            self.assertEqual(binary.with_name("kind.release-version").read_text(), installer.marker_contents(
+                "v1 linux/amd64", installer.binary_digest(binary)
+            ))
+
+    def test_legacy_marker_is_a_cache_miss(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+            binary = Path(temp) / "kind"
+            binary.write_bytes(b"cached binary")
+            binary.chmod(0o755)
+            binary.with_name("kind.release-version").write_text("v1 linux/amd64\n")
+            with patch.object(installer, "release_binary", return_value=b"reinstalled") as release:
+                installer.install("kind", "v1", binary)
+            release.assert_called_once_with("kind", "v1", "linux", "amd64")
+            self.assertEqual(binary.read_bytes(), b"reinstalled")
+
+    def test_undecodable_marker_is_a_cache_miss(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
+            binary = Path(temp) / "kind"
+            binary.write_bytes(b"cached binary")
+            binary.chmod(0o755)
+            binary.with_name("kind.release-version").write_bytes(b"\xff\n")
+            with patch.object(installer, "release_binary", return_value=b"reinstalled") as release:
+                installer.install("kind", "v1", binary)
+            release.assert_called_once_with("kind", "v1", "linux", "amd64")
+            self.assertEqual(binary.read_bytes(), b"reinstalled")
+
     def test_failed_upgrade_preserves_installed_version(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
             binary = Path(temp) / "kind"
@@ -94,10 +130,16 @@ class InstallTest(unittest.TestCase):
         for responses in ([missing], [checksum, missing], [other_host]):
             with self.subTest(responses=responses), tempfile.TemporaryDirectory() as temp, patch.object(installer.subprocess, "check_output", return_value="linux\namd64\n"):
                 binary = Path(temp) / "mdtoc"
-                with patch.object(installer, "download", side_effect=responses), patch.object(installer, "install_source") as source:
+                def source(*args):
+                    binary.write_bytes(b"source binary")
+                    binary.chmod(0o755)
+
+                with patch.object(installer, "download", side_effect=responses), patch.object(installer, "install_source", side_effect=source) as source_install:
                     installer.install("mdtoc", "v1", binary)
-                    source.assert_called_once_with("mdtoc", "v1", binary)
-                self.assertEqual(binary.with_name("mdtoc.release-version").read_text(), "v1 linux/amd64\nsource\n")
+                    source_install.assert_called_once_with("mdtoc", "v1", binary)
+                self.assertEqual(binary.with_name("mdtoc.release-version").read_text(), installer.marker_contents(
+                    "v1 linux/amd64", installer.binary_digest(binary), source=True
+                ))
 
     def test_install_errors_do_not_fall_back_to_source(self):
         checksum = f"{hashlib.sha256(b'correct').hexdigest()}  mdtoc-amd64-linux\n".encode()
@@ -145,7 +187,8 @@ class InstallTest(unittest.TestCase):
                         installer.install("mdtoc", "v1", binary)
                         build.assert_called_once_with("mdtoc", "v1", binary)
                         self.assertEqual(binary.read_bytes(), b"source binary")
-                        self.assertEqual(binary.with_name("mdtoc.release-version").read_text(), "v1 linux/amd64\nsource\n")
+                        self.assertEqual(binary.with_name("mdtoc.release-version").read_text(),
+                                         f"v1 linux/amd64\nsource\n{hashlib.sha256(b'source binary').hexdigest()}\n")
                         # Reuse the source path on the next invocation, even while GitHub is down.
                         installer.install("mdtoc", "v1", binary)
                         self.assertEqual(request.call_count, len(responses))
@@ -287,7 +330,7 @@ class InstallTest(unittest.TestCase):
             binary = root / "kind"
             binary.write_bytes(b"binary")
             binary.chmod(0o755)
-            (root / "kind.release-version").write_text("v1 linux/amd64\n")
+            (root / "kind.release-version").write_text(installer.marker_contents("v1 linux/amd64", installer.binary_digest(binary)))
             artifacts = root / "release-artifacts"
             logs = root / "installation-logs"
             env = {**os.environ, "GO_CMD": str(fake_go), "ARTIFACTS": str(artifacts), "INSTALL_LOG_DIR": str(logs)}
@@ -318,7 +361,7 @@ class InstallTest(unittest.TestCase):
             binary = root / "kind"
             binary.write_bytes(b"binary")
             binary.chmod(0o755)
-            (root / "kind.release-version").write_text("v1 linux/amd64\n")
+            (root / "kind.release-version").write_text(installer.marker_contents("v1 linux/amd64", installer.binary_digest(binary)))
             artifacts = root / "artifacts"
             logs = root / "installation-logs"
             env = {**os.environ, "GO_CMD": str(fake_go), "ARTIFACTS": str(artifacts), "INSTALL_LOG_DIR": str(logs), "PROW_JOB_ID": "test-prow-job"}
@@ -489,6 +532,22 @@ else:
             command = ["bash", str(Path(__file__).with_name("source.sh")), str(directory / "generator"), "example/generator", "v1", "example/generator"]
             subprocess.run(command, env=env, check=True)
             subprocess.run(command, env=env, check=True)
+            (directory / "generator").write_text("replaced binary")
+            (directory / "generator").chmod(0o755)
+            subprocess.run(command, env=env, check=True)
+            marker = directory / "generator.source-version"
+            self.assertEqual((directory / "generator").read_text(), "binary")
+            self.assertEqual(marker.read_text().splitlines()[1:], [
+                hashlib.sha256((directory / "generator").read_bytes()).hexdigest()
+            ])
+            subprocess.run(command, env=env, check=True)
+            marker.write_text(marker.read_text().splitlines()[0] + "\n")
+            subprocess.run(command, env=env, check=True)
+            self.assertEqual((directory / "generator").read_text(), "binary")
+            self.assertEqual(marker.read_text().splitlines()[1:], [
+                hashlib.sha256((directory / "generator").read_bytes()).hexdigest()
+            ])
+            subprocess.run(command, env=env, check=True)
             command[-2] = "v2"
             subprocess.run(command, env=env, check=True)
             env["GOFLAGS"] = "-tags=custom"
@@ -504,6 +563,8 @@ else:
             subprocess.run(command, env=env, check=True)
             subprocess.run(command, env=env, check=True)
             self.assertEqual((directory / "generator.calls").read_text().splitlines(), [
+                "example/generator@v1",
+                "example/generator@v1",
                 "example/generator@v1",
                 "example/generator@v2",
                 "example/generator@v2",
@@ -552,6 +613,39 @@ else:
                     self.assertFalse(marker.exists())
                     self.assertFalse(binary.exists())
 
+    def test_source_build_rejects_failed_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_go = root / "go"
+            fake_go.write_text('''#!/usr/bin/env python3
+import pathlib
+import sys
+if sys.argv[1] == "env":
+    values = {"GOVERSION": "go1.27.0", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64", "GOFLAGS": ""}
+    print("\\n".join(values[key] for key in sys.argv[2:]))
+else:
+    binary = pathlib.Path(__import__("os").environ["GOBIN"]) / "generator"
+    binary.write_text("binary")
+    binary.chmod(0o755)
+''')
+            fake_go.chmod(0o755)
+            binary = root / "generator"
+            command = ["bash", str(Path(__file__).with_name("source.sh")), str(binary), "example/generator", "v1", "example/generator"]
+            env = {**os.environ, "GO_CMD": str(fake_go)}
+            # A Bash startup file must not replace the PATH used for the fake checksum command.
+            env.pop("BASH_ENV", None)
+            subprocess.run(command, env=env, check=True)
+            marker = root / "generator.source-version"
+            original_marker = marker.read_text()
+            (root / "sha256sum").write_text("#!/bin/sh\nexit 1\n")
+            (root / "sha256sum").chmod(0o755)
+            binary.write_text("replaced binary")
+            binary.chmod(0o755)
+            result = subprocess.run(command, env={**env, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Could not calculate SHA-256", result.stderr)
+            self.assertEqual(marker.read_text(), original_marker)
+
     def test_codegen_downloads_module_before_querying_source_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -591,6 +685,55 @@ else:
             self.assertEqual((root / "download-calls").read_text(), "2")
             self.assertTrue((root / "downloaded").exists())
 
+    def test_custom_linter_preserves_build_and_move_failures(self):
+        """Keep build and move failures distinct from checksum failures."""
+        for stage, exit_code in (("build", 23), ("move", 42)):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                config = root / "hack/testing/kal-linter/.custom-gcl.yaml"
+                config.parent.mkdir(parents=True)
+                config.write_text("version: v1\n")
+                (root / "bin").mkdir()
+                fake_go = root / "go"
+                fake_go.write_text('#!/bin/sh\nprintf "%s\\n" go1.27.0\n')
+                fake_go.chmod(0o755)
+                linter = root / "bin/golangci-lint"
+                linter.write_text('''#!/bin/sh
+if [ "$1" = version ]; then echo test-linter; exit 0; fi
+echo "custom build invoked" >&2
+exit "$KAL_TEST_BUILD_EXIT"
+''')
+                linter.chmod(0o755)
+                fake_mv = root / "mv"
+                fake_mv.write_text('#!/bin/sh\necho "move invoked" >&2\nexit 42\n')
+                fake_mv.chmod(0o755)
+                marker = root / "bin/golangci-lint-kube-api-linter.source-version"
+                marker.write_text("previous marker\n")
+                (root / "Makefile").write_text(
+                    f"GO_CMD := {fake_go}\nBIN_DIR := {root / 'bin'}\n"
+                    f"include {Path(__file__).resolve().parents[1] / 'make/deps.mk'}\n"
+                )
+                env = {
+                    **os.environ,
+                    "KAL_TEST_BUILD_EXIT": "23" if stage == "build" else "0",
+                    "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
+                }
+                env.pop("BASH_ENV", None)
+                result = subprocess.run(
+                    ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"],
+                    cwd=root, env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                # Make returns its own failure status, but reports the recipe's original status.
+                self.assertIn(f"Error {exit_code}", result.stderr)
+                self.assertIn("custom build invoked", result.stderr)
+                if stage == "build":
+                    self.assertNotIn("move invoked", result.stderr)
+                else:
+                    self.assertIn("move invoked", result.stderr)
+                self.assertNotIn("Could not calculate SHA-256", result.stderr)
+                self.assertEqual(marker.read_text(), "previous marker\n")
+
     def test_custom_linter_rebuilds_on_configuration_and_toolchain_changes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -617,11 +760,17 @@ echo built >> "$KAL_TEST_LOG"
             command = ["make", "-s", "-o", "golangci-lint", "NETWORK_INSTALL_RETRY=env", "golangci-lint-kal"]
             for _ in range(2):
                 subprocess.run(command, cwd=root, env=env, check=True)
-            self.assertEqual((root / "builds").read_text().splitlines(), ["built"])
+            custom_binary = root / "bin/golangci-lint-kube-api-linter"
+            custom_binary.write_text("replaced binary")
+            custom_binary.chmod(0o755)
+            subprocess.run(command, cwd=root, env=env, check=True)
+            marker = root / "bin/golangci-lint-kube-api-linter.source-version"
+            marker.write_text(marker.read_text().splitlines()[0] + "\n")
+            subprocess.run(command, cwd=root, env=env, check=True)
             config.write_text("version: v2\n")
             subprocess.run(command, cwd=root, env=env, check=True)
             subprocess.run(command, cwd=root, env={**env, "KAL_TEST_VERSION": "go1.27.1"}, check=True)
-            self.assertEqual((root / "builds").read_text().splitlines(), ["built"] * 3)
+            self.assertEqual((root / "builds").read_text().splitlines(), ["built"] * 5)
 
 
 if __name__ == "__main__":
