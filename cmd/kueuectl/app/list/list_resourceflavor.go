@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 )
 
 var (
@@ -96,7 +97,7 @@ func NewResourceFlavorCmd(clientGetter clientgetter.ClientGetter, streams generi
 func (o *ResourceFlavorOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
+	o.Limit, err = listlimit.ListRequestLimit()
 	if err != nil {
 		return err
 	}
