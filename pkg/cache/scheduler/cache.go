@@ -190,6 +190,8 @@ type Cache struct {
 	roleTracker  *roletracker.RoleTracker
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
+	// Keyed by LocalQueue: the cached LocalQueue is replaced when its ClusterQueue changes or is re-created.
+	localQueueRecorders map[queue.LocalQueueReference]*metrics.LocalQueueRecorder
 
 	podTracker       *podtracker.Tracker
 	simulatorFactory simulator.Factory
@@ -208,6 +210,7 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
+		localQueueRecorders:    make(map[queue.LocalQueueReference]*metrics.LocalQueueRecorder),
 		podTracker:             &podtracker.Tracker{},
 		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
@@ -536,6 +539,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		qImpl.customLabels.LQStore(qKey, q.GetLabels(), q.Annotations)
 		qImpl.resetFlavorsAndResources(cqImpl.resourceNode.Usage, cqImpl.AdmittedUsage)
 		cqImpl.localQueues[qKey] = qImpl
+		c.addLocalQueueRecorder(qKey)
 	}
 	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
@@ -790,6 +794,7 @@ func (c *Cache) handleParentUpdate(cachedParent *cohort) {
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	c.Lock()
 	defer c.Unlock()
+	c.addLocalQueueRecorder(queueKey(q))
 	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
 	if cq == nil {
 		return nil
@@ -797,19 +802,37 @@ func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	return cq.addLocalQueue(q)
 }
 
+func (c *Cache) addLocalQueueRecorder(qKey queue.LocalQueueReference) {
+	if _, ok := c.localQueueRecorders[qKey]; ok || !c.lqMetrics.IsEnabled() {
+		return
+	}
+	namespace, lqName := queue.MustParseLocalQueueReference(qKey)
+	c.localQueueRecorders[qKey] = metrics.NewLocalQueueRecorder(metrics.LocalQueueReference{
+		Name:      lqName,
+		Namespace: namespace,
+	})
+}
+
 func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
-	cq := c.hm.ClusterQueue(q.Spec.ClusterQueue)
-	if cq == nil {
-		return
+	qKey := queueKey(q)
+	// Delete the recorder under the cache lock, so that a re-created LocalQueue gets
+	// a recorder only after the clear.
+	c.localQueueRecorders[qKey].Delete()
+	delete(c.localQueueRecorders, qKey)
+	if cq := c.hm.ClusterQueue(q.Spec.ClusterQueue); cq != nil {
+		cq.deleteLocalQueue(q)
 	}
-	cq.deleteLocalQueue(q)
 }
 
 func (c *Cache) GetCacheLocalQueue(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	c.RLock()
 	defer c.RUnlock()
+	return c.getCacheLocalQueueWithoutLock(cqName, lqKey)
+}
+
+func (c *Cache) getCacheLocalQueueWithoutLock(cqName kueue.ClusterQueueReference, lqKey queue.LocalQueueReference) (*LocalQueue, error) {
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return nil, ErrCqNotFound
@@ -1407,19 +1430,28 @@ func queueKey(q *kueue.LocalQueue) queue.LocalQueueReference {
 	return queue.NewLocalQueueReference(q.Namespace, kueue.LocalQueueName(q.Name))
 }
 
-// ShouldExposeLocalQueueMetricsForWorkload determines if LocalQueue metric reporting should be made for the associated LocalQueue.
-func (c *Cache) ShouldExposeLocalQueueMetricsForWorkload(log logr.Logger, wl *kueue.Workload) bool {
+// LocalQueueRecorderForWorkload returns the recorder of the Workload's LocalQueue
+// if LocalQueue metrics should be reported for it, and nil otherwise.
+func (c *Cache) LocalQueueRecorderForWorkload(log logr.Logger, wl *kueue.Workload) *metrics.LocalQueueRecorder {
 	if !c.lqMetrics.IsEnabled() {
-		return false
+		return nil
 	}
 	if wl.Status.Admission == nil {
 		log.V(5).Info("Skip the update for local queue metrics for a workload without admission", "workload", klog.KObj(wl))
-		return false
+		return nil
 	}
-	lq, err := c.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, queue.KeyFromWorkload(wl))
+	lqKey := queue.KeyFromWorkload(wl)
+	// One read lock for both lookups, so the selector check and the recorder belong to
+	// the same LocalQueue even if it is deleted and re-created with the same name.
+	c.RLock()
+	defer c.RUnlock()
+	lq, err := c.getCacheLocalQueueWithoutLock(wl.Status.Admission.ClusterQueue, lqKey)
 	if err != nil {
 		log.Error(err, "Failed to get LocalQueue for metrics", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)))
-		return false
+		return nil
 	}
-	return lq.shouldExposeMetrics(c.lqMetrics)
+	if !lq.shouldExposeMetrics(c.lqMetrics) {
+		return nil
+	}
+	return c.localQueueRecorders[lqKey]
 }

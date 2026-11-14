@@ -17,13 +17,22 @@ limitations under the License.
 package evict
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -127,6 +136,89 @@ func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
 			if diff := cmp.Diff(tc.wantCondition, gotCondition,
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
 				t.Errorf("Unexpected condition from IsEvictedByPodsReadyTimeout: (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEvict(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lq := metrics.LocalQueueReference{Name: "lq", Namespace: "ns"}
+	lqLabels := map[string]string{"name": "lq", "namespace": "ns"}
+	lqB := metrics.LocalQueueReference{Name: "lq-b", Namespace: "ns"}
+	cases := map[string]struct {
+		lqRecorder               bool
+		deleteDuringStatusUpdate bool
+		// storedQueue, when set, is where the stored Workload is pending, after it lost
+		// its quota and moved since the caller read it.
+		storedQueue          kueue.LocalQueueName
+		evictOptions         []Option
+		wantLocalQueueSeries int
+	}{
+		"without a LocalQueue recorder": {},
+		"with a LocalQueue recorder": {
+			lqRecorder:           true,
+			wantLocalQueueSeries: 1,
+		},
+		"LocalQueue deleted during the status update": {
+			lqRecorder:               true,
+			deleteDuringStatusUpdate: true,
+		},
+		"Workload moved to another LocalQueue before a loose status write": {
+			lqRecorder:   true,
+			storedQueue:  "lq-b",
+			evictOptions: []Option{WithLooseOnApply()},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clearMetrics := func() {
+				metrics.ClearClusterQueueMetrics("cq")
+				metrics.ClearLocalQueueMetrics(lq)
+				metrics.ClearLocalQueueMetrics(lqB)
+			}
+			clearMetrics()
+			t.Cleanup(clearMetrics)
+			var lqRecorder *metrics.LocalQueueRecorder
+			if tc.lqRecorder {
+				lqRecorder = metrics.NewLocalQueueRecorder(lq)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()
+			stored := wl
+			if tc.storedQueue != "" {
+				stored = utiltestingapi.MakeWorkload("wl", "ns").Queue(tc.storedQueue).Obj()
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(stored).
+				WithStatusSubresource(stored).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, lqLabels); len(got) != 0 {
+							t.Errorf("LocalQueue evicted workloads series before the status update = %v, want none", got)
+						}
+						if tc.deleteDuringStatusUpdate {
+							lqRecorder.Delete()
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
+				}).
+				Build()
+
+			if err := Evict(
+				ctx, cl, &utiltesting.EventRecorder{}, wl, kueue.WorkloadEvictedByPreemption, "Preempted", "",
+				testingclock.NewFakeClock(now), lqRecorder, nil, nil, tc.evictOptions...,
+			); err != nil {
+				t.Fatalf("Evict() error = %v", err)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.EvictedWorkloadsTotal, map[string]string{"cluster_queue": "cq"}); len(got) != 1 {
+				t.Errorf("ClusterQueue evicted workloads series = %v, want 1", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, lqLabels); len(got) != tc.wantLocalQueueSeries {
+				t.Errorf("LocalQueue evicted workloads series = %v, want %d", got, tc.wantLocalQueueSeries)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueEvictedWorkloadsTotal, map[string]string{"name": "lq-b", "namespace": "ns"}); len(got) != 0 {
+				t.Errorf("LocalQueue lq-b evicted workloads series = %v, want none", got)
 			}
 		})
 	}
