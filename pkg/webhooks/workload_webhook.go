@@ -550,11 +550,14 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 	return scaledDown
 }
 
-// validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count
-// and added tolerations.
+// validateImmutablePodSet validates immutability except scale-down count and accompanying minCount
+// reductions, and added tolerations.
 func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
+		if new.MinCount != nil && old.MinCount != nil && *new.MinCount == min(*old.MinCount, new.Count) {
+			new.MinCount = old.MinCount
+		}
 		new.Count = old.Count
 	}
 	if features.Enabled(features.AllowAddingPodTemplateTolerations) && utiltolerations.ContainsAll(new.Template.Spec.Tolerations, old.Template.Spec.Tolerations) {
@@ -565,7 +568,7 @@ func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.Erro
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
-// validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count
+// validateImmutablePodSets validates each PodSet's immutability, allowing scale-down adjustments
 // and added tolerations.
 func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
 	if len(new) != len(old) {

@@ -55,6 +55,27 @@ func (r *Manager) EnsureWorkloadSlices(
 	jobObjectGVK schema.GroupVersionKind,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
+	applyPodSetCounts := func(wl *kueue.Workload) {
+		workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
+		// Only initial admission follows the job's current minimum. Replacements
+		// and readmissions retain their baseline, even after a zero-second admission.
+		if workload.HasQuotaReservation(wl) ||
+			wl.Status.AccumulatedPastExecutionTimeSeconds != nil || ScaledUp(wl) {
+			return
+		}
+		for i := range wl.Spec.PodSets {
+			for _, jobPodSet := range jobPodSets {
+				if wl.Spec.PodSets[i].Name == jobPodSet.Name {
+					if jobPodSet.MinCount == nil {
+						wl.Spec.PodSets[i].MinCount = nil
+					} else {
+						wl.Spec.PodSets[i].MinCount = new(min(*jobPodSet.MinCount, wl.Spec.PodSets[i].Count))
+					}
+					break
+				}
+			}
+		}
+	}
 
 	workloads, err := FindNotFinishedWorkloads(ctx, r.Client, jobObject, jobObjectGVK)
 	if err != nil {
@@ -110,7 +131,7 @@ func (r *Manager) EnsureWorkloadSlices(
 		// a. It hasn't been admitted (no quota reserved), or
 		// b. It's a scale-down event.
 		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
-			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
+			applyPodSetCounts(wl)
 			if err := r.Client.Update(ctx, wl); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
@@ -140,7 +161,7 @@ func (r *Manager) EnsureWorkloadSlices(
 		}
 
 		if !workload.HasQuotaReservation(selectedWorkload) || ScaledDown(selectedCounts, jobPodSetsCounts) {
-			workload.ApplyPodSetCounts(selectedWorkload, jobPodSetsCounts)
+			applyPodSetCounts(selectedWorkload)
 			if err := r.Client.Update(ctx, selectedWorkload); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
 			}
