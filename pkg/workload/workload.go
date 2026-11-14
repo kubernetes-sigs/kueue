@@ -919,7 +919,7 @@ func SetConditionAndUpdate(ctx context.Context,
 	}
 	return workloadpatching.PatchStatus(ctx, c, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
 		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
-	})
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
 }
 
 const PodsNotReadyMessage = "Not all pods are ready or succeeded"
@@ -1134,6 +1134,25 @@ func SetPreemptedCondition(w *kueue.Workload, now time.Time, reason string, mess
 		LastTransitionTime: metav1.NewTime(now),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
+	}
+	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// SetPartiallyPreemptedCondition sets the PartiallyPreempted condition, reporting whether it
+// changed. True marks an in-flight partial-preemption target whose quota is still charged;
+// False marks the quota release (reason QuotaReleased) or the timeout (reason Timeout).
+func SetPartiallyPreemptedCondition(w *kueue.Workload, now time.Time, active bool, reason, message string) bool {
+	status := metav1.ConditionFalse
+	if active {
+		status = metav1.ConditionTrue
+	}
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadPartiallyPreempted,
+		Status:             status,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+		ObservedGeneration: w.Generation,
 	}
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }

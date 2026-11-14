@@ -469,6 +469,18 @@ type PodSetAssignment struct {
 	//
 	// +optional
 	DelayedTopologyRequest *DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+
+	// partialPreemption describes an in-progress partial preemption of this
+	// PodSet. Only Kueue sets it. Kueue releases the quota of the Pods in
+	// excess of targetCount only after they have terminated: it then lowers
+	// count to targetCount and resourceUsage in proportion, and clears this
+	// field.
+	//
+	// This field is alpha-level. Kueue sets it only when the PartialPreemption
+	// feature gate is enabled.
+	//
+	// +optional
+	PartialPreemption *PodSetPartialPreemptionStatus `json:"partialPreemption,omitempty"`
 }
 
 // DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
@@ -484,6 +496,18 @@ const (
 	// DelayedTopologyRequestStateReady indicates the delayed TopologyRequest is was requested and completed.
 	DelayedTopologyRequestStateReady DelayedTopologyRequestState = "Ready"
 )
+
+// PodSetPartialPreemptionStatus describes an in-progress partial preemption of
+// a PodSet.
+type PodSetPartialPreemptionStatus struct {
+	// targetCount is the number of Pods that the PodSet is being shrunk to.
+	// It is lower than the assignment's count and not lower than the PodSet's
+	// partialPreemption.minCount. Kueue may lower it, but never raises it.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	TargetCount *int32 `json:"targetCount,omitempty"`
+}
 
 // +kubebuilder:validation:XValidation:rule="self.slices.all(x, size(x.valuesPerLevel) == size(self.levels))", message="valuesPerLevel must have the same length as the number of levels in this TopologyAssignment"
 type TopologyAssignment struct {
@@ -627,10 +651,29 @@ type PodSet struct {
 	// +kubebuilder:validation:Minimum=0
 	MinCount *int32 `json:"minCount,omitempty"`
 
+	// partialPreemption configures partial preemption of this PodSet, in which
+	// Kueue shrinks the PodSet instead of evicting the whole Workload.
+	// If unset, Kueue does not shrink this PodSet.
+	//
+	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	//
+	// +optional
+	PartialPreemption *PodSetPartialPreemption `json:"partialPreemption,omitempty"`
+
 	// topologyRequest defines the topology request for the PodSet.
 	//
 	// +optional
 	TopologyRequest *PodSetTopologyRequest `json:"topologyRequest,omitempty"`
+}
+
+// PodSetPartialPreemption configures partial preemption of a PodSet.
+type PodSetPartialPreemption struct {
+	// minCount is the lowest number of Pods that partial preemption may shrink
+	// the PodSet to. It does not stop Kueue from evicting the whole Workload.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	MinCount *int32 `json:"minCount,omitempty"`
 }
 
 type PreemptionGate struct {
@@ -1086,6 +1129,21 @@ const (
 	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all
 	// the Pods declared for the group.
 	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
+
+	// WorkloadPartiallyPreempted means that partial preemption has shrunk one of the
+	// Workload's PodSets to a reclaim target. While it is True, Kueue evicts the PodSet's
+	// Pods above the target and keeps the quota charged. Once no Pod above the target is
+	// left, Kueue releases the reclaimed quota and sets this condition to False with
+	// reason QuotaReleased. This is an alpha condition set only with the PartialPreemption
+	// feature gate.
+	WorkloadPartiallyPreempted = "PartiallyPreempted"
+)
+
+// Reasons for the WorkloadPartiallyPreempted condition.
+const (
+	// WorkloadPartiallyPreemptedReasonQuotaReleased indicates that partial preemption
+	// released the shrunk PodSet's reclaimed quota because no Pod above the target remains.
+	WorkloadPartiallyPreemptedReasonQuotaReleased string = "QuotaReleased"
 )
 
 // Reasons for the WorkloadPreemptionBlocked condition.

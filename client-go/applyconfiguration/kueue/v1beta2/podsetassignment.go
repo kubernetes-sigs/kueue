@@ -163,6 +163,16 @@ type PodSetAssignmentApplyConfiguration struct {
 	// topologyAssignment.
 	//
 	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+	// partialPreemption describes an in-progress partial preemption of this
+	// PodSet. Only Kueue sets it. Kueue releases the quota of the Pods in
+	// excess of targetCount only after they have terminated: it then lowers
+	// count to targetCount and resourceUsage in proportion, and clears this
+	// field.
+	//
+	// This field is alpha-level. Kueue sets it only when the PartialPreemption
+	// feature gate is enabled.
+	//
+	PartialPreemption *PodSetPartialPreemptionStatusApplyConfiguration `json:"partialPreemption,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -222,5 +232,13 @@ func (b *PodSetAssignmentApplyConfiguration) WithTopologyAssignment(value *Topol
 // If called multiple times, the DelayedTopologyRequest field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithDelayedTopologyRequest(value kueuev1beta2.DelayedTopologyRequestState) *PodSetAssignmentApplyConfiguration {
 	b.DelayedTopologyRequest = &value
+	return b
+}
+
+// WithPartialPreemption sets the PartialPreemption field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PartialPreemption field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithPartialPreemption(value *PodSetPartialPreemptionStatusApplyConfiguration) *PodSetAssignmentApplyConfiguration {
+	b.PartialPreemption = value
 	return b
 }

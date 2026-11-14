@@ -118,10 +118,8 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 			}
 			victims = append(victims, target.WorkloadInfo)
 		}
-		restoreUsage := p.snapshot.SimulateWorkloadRemoval(victims)
-		defer restoreUsage()
-		restorePods := p.snapshot.SimulatePodRemoval(ctx, log, victims)
-		defer restorePods()
+		restore := p.snapshot.SimulateRemovals(ctx, log, victims)
+		defer restore()
 		result = asgn.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(p.wl))
 	}
 	if result.Failure() != nil {

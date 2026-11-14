@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -34,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -45,6 +47,11 @@ var (
 	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
 	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
+
+	partialPreemptionAnnotationPath = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
+	completionModePath              = field.NewPath("spec", "completionMode")
+	restartPolicyPath               = field.NewPath("spec", "template", "spec", "restartPolicy")
+	podFailurePolicyPath            = field.NewPath("spec", "podFailurePolicy")
 )
 
 // applyWorkloadSliceSchedulingGate ensures that the workload slice-specific
@@ -145,6 +152,7 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
+	allErrs = append(allErrs, validatePartialPreemptionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
@@ -170,6 +178,59 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		}
 	}
 	return allErrs
+}
+
+// validatePartialPreemptionCreate validates a Job that opts into partial preemption via the
+// kueue.x-k8s.io/partial-preemption="true" annotation. Partial preemption reclaims quota
+// reactively: Kueue evicts the Job's excess Pods and relies on the Job controller to recreate
+// them gated, rather than patching the Job. For batch/Job that is only safe when an evicted Pod
+// neither counts toward backoffLimit nor, on a clean SIGTERM exit, counts as a completion, so the
+// Job must use Indexed completion, restartPolicy Never, and a podFailurePolicy rule that ignores
+// the DisruptionTarget condition. The checks apply only when the PartialPreemption gate is on.
+func validatePartialPreemptionCreate(job *Job) field.ErrorList {
+	if !features.Enabled(features.PartialPreemption) ||
+		job.Annotations[constants.PartialPreemptionAnnotation] != "true" {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if !workloadslicing.Enabled(job.Object()) {
+		allErrs = append(allErrs, field.Invalid(partialPreemptionAnnotationPath, "true",
+			fmt.Sprintf("partial preemption requires the elastic job annotation %s", constants.ElasticJobAnnotation)))
+	}
+	if ptr.Deref(job.Spec.CompletionMode, batchv1.NonIndexedCompletion) != batchv1.IndexedCompletion {
+		allErrs = append(allErrs, field.Invalid(completionModePath, ptr.Deref(job.Spec.CompletionMode, batchv1.NonIndexedCompletion),
+			"must be Indexed when partial preemption is enabled"))
+	}
+	if job.Spec.Template.Spec.RestartPolicy != corev1.RestartPolicyNever {
+		allErrs = append(allErrs, field.Invalid(restartPolicyPath, job.Spec.Template.Spec.RestartPolicy,
+			"must be Never when partial preemption is enabled"))
+	}
+	if !hasDisruptionTargetIgnoreRule(job.Spec.PodFailurePolicy) {
+		allErrs = append(allErrs, field.Required(podFailurePolicyPath,
+			fmt.Sprintf("must contain a rule with action %q ignoring the %q pod condition when partial preemption is enabled",
+				batchv1.PodFailurePolicyActionIgnore, corev1.DisruptionTarget)))
+	}
+	return allErrs
+}
+
+// hasDisruptionTargetIgnoreRule reports whether the podFailurePolicy has a rule that ignores Pods
+// carrying a DisruptionTarget=True condition, so Kueue-evicted Pods do not count toward the Job's
+// backoffLimit.
+func hasDisruptionTargetIgnoreRule(policy *batchv1.PodFailurePolicy) bool {
+	if policy == nil {
+		return false
+	}
+	for _, rule := range policy.Rules {
+		if rule.Action != batchv1.PodFailurePolicyActionIgnore {
+			continue
+		}
+		for _, cond := range rule.OnPodConditions {
+			if cond.Type == corev1.DisruptionTarget && cond.Status == corev1.ConditionTrue {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
@@ -229,6 +290,7 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
+	allErrs = append(allErrs, validatePartialPreemptionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {

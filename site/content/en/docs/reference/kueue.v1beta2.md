@@ -2242,6 +2242,16 @@ enabled.</p>
 <p>This is an alpha field and requires enabling PartialAdmission feature gate.</p>
 </td>
 </tr>
+<tr><td><code>partialPreemption</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PodSetPartialPreemption"><code>PodSetPartialPreemption</code></a>
+</td>
+<td>
+   <p>partialPreemption configures partial preemption of this PodSet, in which
+Kueue shrinks the PodSet instead of evicting the whole Workload.
+If unset, Kueue does not shrink this PodSet.</p>
+<p>This is an alpha field and requires enabling the PartialPreemption feature gate.</p>
+</td>
+</tr>
 <tr><td><code>topologyRequest</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-PodSetTopologyRequest"><code>PodSetTopologyRequest</code></a>
 </td>
@@ -2459,6 +2469,66 @@ AdmissionCheck used.
 Kueue schedules the second pass of scheduling for each workload with at
 least one PodSet which has delayedTopologyRequest=true and without
 topologyAssignment.</p>
+</td>
+</tr>
+<tr><td><code>partialPreemption</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-PodSetPartialPreemptionStatus"><code>PodSetPartialPreemptionStatus</code></a>
+</td>
+<td>
+   <p>partialPreemption describes an in-progress partial preemption of this
+PodSet. Only Kueue sets it. Kueue releases the quota of the Pods in
+excess of targetCount only after they have terminated: it then lowers
+count to targetCount and resourceUsage in proportion, and clears this
+field.</p>
+<p>This field is alpha-level. Kueue sets it only when the PartialPreemption
+feature gate is enabled.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PodSetPartialPreemption`     {#kueue-x-k8s-io-v1beta2-PodSetPartialPreemption}
+
+**Appears in:**
+
+- [PodSet](#kueue-x-k8s-io-v1beta2-PodSet)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+
+<tr><td><code>minCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>minCount is the lowest number of Pods that partial preemption may shrink
+the PodSet to. It does not stop Kueue from evicting the whole Workload.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PodSetPartialPreemptionStatus`     {#kueue-x-k8s-io-v1beta2-PodSetPartialPreemptionStatus}
+
+**Appears in:**
+
+- [PodSetAssignment](#kueue-x-k8s-io-v1beta2-PodSetAssignment)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+
+<tr><td><code>targetCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>targetCount is the number of Pods that the PodSet is being shrunk to.
+It is lower than the assignment's count and not lower than the PodSet's
+partialPreemption.minCount. Kueue may lower it, but never raises it.</p>
 </td>
 </tr>
 </tbody>

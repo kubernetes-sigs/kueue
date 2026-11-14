@@ -55,6 +55,13 @@ type PodSetApplyConfiguration struct {
 	// This is an alpha field and requires enabling PartialAdmission feature gate.
 	//
 	MinCount *int32 `json:"minCount,omitempty"`
+	// partialPreemption configures partial preemption of this PodSet, in which
+	// Kueue shrinks the PodSet instead of evicting the whole Workload.
+	// If unset, Kueue does not shrink this PodSet.
+	//
+	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	//
+	PartialPreemption *PodSetPartialPreemptionApplyConfiguration `json:"partialPreemption,omitempty"`
 	// topologyRequest defines the topology request for the PodSet.
 	//
 	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
@@ -95,6 +102,14 @@ func (b *PodSetApplyConfiguration) WithCount(value int32) *PodSetApplyConfigurat
 // If called multiple times, the MinCount field is set to the value of the last call.
 func (b *PodSetApplyConfiguration) WithMinCount(value int32) *PodSetApplyConfiguration {
 	b.MinCount = &value
+	return b
+}
+
+// WithPartialPreemption sets the PartialPreemption field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PartialPreemption field is set to the value of the last call.
+func (b *PodSetApplyConfiguration) WithPartialPreemption(value *PodSetPartialPreemptionApplyConfiguration) *PodSetApplyConfiguration {
+	b.PartialPreemption = value
 	return b
 }
 

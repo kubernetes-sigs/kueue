@@ -475,6 +475,7 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 	if old == nil || new == nil {
 		return nil
 	}
+	var allErrs field.ErrorList
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if len(new.PodSetAssignments) != len(old.PodSetAssignments) {
 			return apivalidation.ValidateImmutableField(new, old, path)
@@ -485,7 +486,37 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
-	return apivalidation.ValidateImmutableField(new, old, path)
+	if len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		partialPreemptionEnabled := features.Enabled(features.PartialPreemption)
+		for i := range new.PodSetAssignments {
+			np := &new.PodSetAssignments[i]
+			op := &old.PodSetAssignments[i]
+			if !partialPreemptionEnabled {
+				op.PartialPreemption = np.PartialPreemption
+				continue
+			}
+
+			oldCount := ptr.Deref(op.Count, 0)
+			hasPendingPartialPreemption := op.PartialPreemption != nil &&
+				op.PartialPreemption.TargetCount != nil &&
+				*op.PartialPreemption.TargetCount < oldCount
+			if np.PartialPreemption != nil && np.PartialPreemption.TargetCount != nil && *np.PartialPreemption.TargetCount > ptr.Deref(np.Count, 0) {
+				allErrs = append(allErrs, field.Invalid(
+					path.Child("podSetAssignments").Index(i).Child("partialPreemption", "targetCount"),
+					*np.PartialPreemption.TargetCount,
+					fmt.Sprintf("should be less than or equal to count (%d)", ptr.Deref(np.Count, 0))))
+				continue
+			}
+			// Kueue owns the target and may update or clear it to request scale-down.
+			op.PartialPreemption = np.PartialPreemption
+			// On release, count and resourceUsage may decrease only for a pending request.
+			if hasPendingPartialPreemption && ptr.Deref(np.Count, 0) <= oldCount {
+				op.Count = np.Count
+				op.ResourceUsage = np.ResourceUsage
+			}
+		}
+	}
+	return append(allErrs, apivalidation.ValidateImmutableField(new, old, path)...)
 }
 
 // validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked

@@ -241,6 +241,21 @@ func TestReconcileGenericJob(t *testing.T) {
 				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
 			},
 		},
+		"propagate partial preemption annotations to workload": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").
+					Annotations(map[string]string{
+						kueueconstants.PartialPreemptionAnnotation: "true",
+					}).
+					Obj(),
+			},
+		},
 		"update workload to match job (one existing workload)": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			req:          baseReq,

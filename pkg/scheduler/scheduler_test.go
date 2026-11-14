@@ -12483,7 +12483,7 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 		},
 	}
 	preempted := preemption.PreemptedWorkloads{
-		workload.Key(victimWL): victimInfo,
+		workload.Key(victimWL): {WorkloadInfo: victimInfo},
 	}
 	targets := []*preemption.Target{{WorkloadInfo: victimInfo}}
 

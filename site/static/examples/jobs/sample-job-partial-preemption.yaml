@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-partial-preemption-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/priority-class: user-priority
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+    kueue.x-k8s.io/partial-preemption: "true"
+    kueue.x-k8s.io/podset-partial-preemption-min-count: "2"
+spec:
+  parallelism: 10
+  completions: 100
+  backoffLimit: 0
+  podFailurePolicy:
+    rules:
+      - action: Ignore
+        onPodConditions:
+          - type: DisruptionTarget
+            status: "True"
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: bash:5
+          command: ["bash", "-c", "echo working && sleep 30"]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
