@@ -362,6 +362,74 @@ func TestInadmissibleRequeueDetectsWorkloadsAddedDuringNamespaceRead(t *testing.
 	}
 }
 
+// A failed Namespace read must not repeatedly retry a Workload that remains
+// ineligible due to its own backoff. Both forms of backoff are checked.
+func TestInadmissibleRequeueDoesNotRetryWorkloadsInBackoff(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		setBackoff func(*kueue.Workload)
+	}{
+		{
+			name: "WorkloadRequeued false",
+			setBackoff: func(wl *kueue.Workload) {
+				workload.SetRequeuedCondition(wl, "Backoff", "waiting for requeue", false)
+			},
+		},
+		{
+			name: "future requeueAt",
+			setBackoff: func(wl *kueue.Workload) {
+				requeueAt := metav1.NewTime(time.Now().Add(time.Hour))
+				wl.Status.RequeueState = &kueue.RequeueState{RequeueAt: &requeueAt}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			reads := 0
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*corev1.Namespace); ok {
+							reads++
+							return apierrors.NewServiceUnavailable("injected transient failure")
+						}
+						return delegate.Get(ctx, key, obj, opts...)
+					},
+				}).Build()
+			r := NewRequeuer()
+			defer r.queue.ShutDown()
+			m := NewManager(cl, nil, r)
+			addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
+			wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "in-backoff")
+
+			cq := m.getClusterQueue("cq")
+			cq.rwm.Lock()
+			pending := cq.workloads.GetInadmissible(workload.Key(wl))
+			tc.setBackoff(pending.Obj)
+			inBackoff := !cq.backoffWaitingTimeExpired(pending)
+			cq.rwm.Unlock()
+			if !inBackoff {
+				t.Fatal("test Workload must be in backoff")
+			}
+
+			req := requeueRequest{ClusterQueue: "cq"}
+			r.reconcile(ctx, req)
+			if reads != 1 {
+				t.Errorf("Namespace reads = %d, want 1", reads)
+			}
+			if got := r.queue.NumRequeues(req); got != 0 {
+				t.Errorf("ineligible Workload should not trigger Namespace retry, got %d", got)
+			}
+			if cq.workloads.GetInadmissible(workload.Key(wl)) == nil {
+				t.Error("Workload in backoff must remain inadmissible")
+			}
+			if cq.workloads.GetActive(workload.Key(wl)) != nil {
+				t.Error("Workload in backoff must not move to the active heap")
+			}
+		})
+	}
+}
+
 func TestInadmissibleRequeueDeletedNamespaceDoesNotRetry(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewFakeClient()
