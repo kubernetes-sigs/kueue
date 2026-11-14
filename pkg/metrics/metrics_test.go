@@ -403,24 +403,35 @@ func TestReportAndCleanupClusterQueueMultiKueueWorkloads(t *testing.T) {
 			ReportMultiKueueWorkloadAdmitted("cleanup-cq1", cluster, tracker)
 			ReportMultiKueueWorkloadEvicted("cleanup-cq1", cluster, kueue.WorkloadEvictedByPreemption, tracker)
 		}
+		for _, dispatcher := range []string{"incremental", "all-at-once"} {
+			ReportMultiKueueWorkloadNominationRounds("cleanup-cq1", dispatcher, 1, tracker)
+		}
 	}
 	// cleanup-cq2 shares cleanup-worker1 with cleanup-cq1.
 	ReportMultiKueueWorkloadDispatched("cleanup-cq2", "cleanup-worker1", leaderTracker)
 	ReportMultiKueueWorkloadAdmitted("cleanup-cq2", "cleanup-worker1", leaderTracker)
 	ReportMultiKueueWorkloadEvicted("cleanup-cq2", "cleanup-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadNominationRounds("cleanup-cq2", "incremental", 1, leaderTracker)
 
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 4, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 4, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 4, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadNominationRounds, 4, "cluster_queue", "cleanup-cq1")
+
+	// A label resync clears only the gauge metrics, so the histogram must survive it.
+	ClearClusterQueueMetrics("cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadNominationRounds, 4, "cluster_queue", "cleanup-cq1")
 
 	ClearDeletedClusterQueueMetrics("cleanup-cq1")
 
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 0, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 0, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadNominationRounds, 0, "cluster_queue", "cleanup-cq1")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 1, "cluster_queue", "cleanup-cq2")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 1, "cluster_queue", "cleanup-cq2")
 	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 1, "cluster_queue", "cleanup-cq2")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadNominationRounds, 1, "cluster_queue", "cleanup-cq2")
 }
 
 func TestReportMultiKueueWorkloadNominationRounds(t *testing.T) {
