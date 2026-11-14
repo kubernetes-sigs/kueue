@@ -3190,6 +3190,141 @@ func TestWlReconcile(t *testing.T) {
 	}
 }
 
+func TestReconcileGroupPriorityBoostSpecSync(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PriorityBoost, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadLevelWaitForPodsReady, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+
+	now := time.Now().Truncate(time.Second)
+	base := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		PodPriorityClassRef("pod-priority").
+		Priority(100).
+		Annotation(constants.PriorityBoostAnnotationKey, "100").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+		AdmittedAt(true, now).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+		ClusterName("worker1")
+	deactivated := base.Clone().Active(false).Obj()
+	delete(deactivated.Annotations, constants.PriorityBoostAnnotationKey)
+
+	cases := map[string]struct {
+		local              *kueue.Workload
+		wantRemoved        bool
+		wantRemotePriority int32
+	}{
+		"pod priority boost change does not suppress timeout drift removal": {
+			local: base.Clone().
+				Annotation(constants.PriorityBoostAnnotationKey, "200").
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 600}).
+				Obj(),
+			wantRemoved: true,
+		},
+		"pod priority boost removal does not suppress deactivation removal": {
+			local:       deactivated,
+			wantRemoved: true,
+		},
+		"pod priority spec and boost changes preserve removal": {
+			local: base.Clone().
+				Priority(200).
+				Annotation(constants.PriorityBoostAnnotationKey, "200").
+				Obj(),
+			wantRemoved: true,
+		},
+		"pod priority boost-only change leaves the remote unchanged": {
+			local:              base.Clone().Annotation(constants.PriorityBoostAnnotationKey, "200").Obj(),
+			wantRemotePriority: 100,
+		},
+		"workload priority and boost changes preserve the in-place update": {
+			local: base.Clone().
+				WorkloadPriorityClassRef("workload-priority").
+				Priority(200).
+				Annotation(constants.PriorityBoostAnnotationKey, "200").
+				Obj(),
+			wantRemotePriority: 200,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			remote := base.Clone().PriorityClassRef(tc.local.Spec.PriorityClassRef.DeepCopy()).Obj()
+			wantRemote := remote.DeepCopy()
+			wantRemote.Spec.Priority = new(tc.wantRemotePriority)
+			localJob := testingjob.MakeJob("job1", TestNamespace).
+				Suspend(false).
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj()
+			remoteJob := testingjob.MakeJob("job1", TestNamespace).
+				Suspend(false).
+				PrebuiltWorkloadLabel("wl1").
+				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+				Obj()
+			managerClient := getClientBuilder(ctx).
+				WithObjects(tc.local, localJob).
+				WithStatusSubresource(tc.local, localJob).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				Build()
+			workerClient := NewNeverCachingClient(getClientBuilder(ctx).
+				WithObjects(remote, remoteJob).
+				WithStatusSubresource(remote, remoteJob).
+				Build())
+			adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			group := &wlGroup{
+				local:       tc.local,
+				localClient: managerClient,
+				remotes:     map[string]*kueue.Workload{"worker1": remote},
+				remoteClients: map[string]*remoteClient{
+					"worker1": {client: workerClient, origin: defaultOrigin},
+				},
+				acName:        "ac1",
+				jobAdapter:    adapters[batchv1.SchemeGroupVersion.WithKind("Job").String()],
+				controllerKey: client.ObjectKeyFromObject(localJob),
+			}
+			reconciler := &wlReconciler{
+				client:            managerClient,
+				clock:             testingclock.NewFakeClock(now),
+				origin:            defaultOrigin,
+				workerLostTimeout: defaultWorkerLostTimeout,
+				recorder:          &utiltesting.EventRecorder{},
+				dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+			}
+
+			if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
+				t.Fatalf("reconcileGroup returned unexpected error: %v", err)
+			}
+			gotRemote := &kueue.Workload{}
+			err = workerClient.Get(ctx, client.ObjectKeyFromObject(remote), gotRemote)
+			if tc.wantRemoved {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("expected remote workload removal, got error: %v", err)
+				}
+				if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{}); !apierrors.IsNotFound(err) {
+					t.Fatalf("expected remote job removal, got error: %v", err)
+				}
+				acs := admissioncheck.FindAdmissionCheck(tc.local.Status.AdmissionChecks, group.acName)
+				if acs == nil || acs.State != kueue.CheckStateRetry {
+					t.Errorf("expected admission check Retry, got: %v", acs)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("getting remote workload: %v", err)
+				}
+				if diff := cmp.Diff(wantRemote.Spec, gotRemote.Spec, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("unexpected remote spec (-want/+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(wantRemote.Annotations, gotRemote.Annotations); diff != "" {
+					t.Errorf("unexpected remote annotations (-want/+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
 func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
