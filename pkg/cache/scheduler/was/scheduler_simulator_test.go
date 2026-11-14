@@ -1240,7 +1240,7 @@ func TestScheduleWorkload(t *testing.T) {
 		return client.ObjectKey{Namespace: ns, Name: name}
 	}
 	failedPlacement := func(reason string) *simulator.PodPlacement {
-		return &simulator.PodPlacement{Error: errors.New(reason), Reasons: []string{reason}}
+		return &simulator.PodPlacement{Reasons: []string{reason}}
 	}
 	wlRef := func(name string) workload.Reference {
 		return workload.NewReference(ns, name)
@@ -1344,7 +1344,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("fits"):     failedPlacement("pod group is unschedulable"),
-				key("errors"):   failedPlacement(`running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`),
+				key("errors"):   {Error: errors.New(`running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`)},
 				key("skipped1"): failedPlacement("pod group is unschedulable"),
 				key("skipped2"): failedPlacement("pod group is unschedulable"),
 			},

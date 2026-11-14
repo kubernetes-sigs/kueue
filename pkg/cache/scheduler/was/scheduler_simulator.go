@@ -245,13 +245,13 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 	for _, podResult := range wasResult.PodResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
 		status := podResult.Status
-		if status.IsSuccess() {
+		switch {
+		case status.IsSuccess():
 			placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
-		} else {
-			placements[podKey] = &simulator.PodPlacement{
-				Error:   status.AsError(),
-				Reasons: status.Reasons(),
-			}
+		case status.IsError():
+			placements[podKey] = &simulator.PodPlacement{Error: status.AsError()}
+		default:
+			placements[podKey] = &simulator.PodPlacement{Reasons: status.Reasons()}
 		}
 	}
 
