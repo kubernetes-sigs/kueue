@@ -201,6 +201,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		workload       *kueue.Workload
 		deviceClasses  []*resourceapi.DeviceClass
 		mapperMappings []configapi.DeviceClassMapping
+		excluded       []corev1.ResourceName
 		enablePD       bool
 		want           map[kueue.PodSetReference]corev1.ResourceList
 		wantReplaced   map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
@@ -221,6 +222,40 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 					"example.com/gpu": resource.MustParse("2"),
 				},
 			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			name: "extended resource backed by an excluded DeviceClass is replaced with no charge",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "2").
+					Request("nvidia.com/mig-1g.10gb", "1").
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass, migDeviceClass},
+			excluded:      []corev1.ResourceName{"gpu.nvidia.com"},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"nvidia.com/mig-1g.10gb": resource.MustParse("1"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu", "nvidia.com/mig-1g.10gb"),
+			},
+		},
+		{
+			name: "only an extended resource backed by an excluded DeviceClass is replaced with no charge",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "2").
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			excluded:      []corev1.ResourceName{"gpu.nvidia.com"},
 			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
@@ -666,6 +701,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAExcludeDeviceClasses, true)
 			if tt.enablePD {
 				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPartitionableDevices, true)
 			}
@@ -673,6 +709,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			if tt.mapperMappings != nil {
 				_ = mapper.PopulateFromConfiguration(tt.mapperMappings)
 			}
+			mapper.SetExcludedDeviceClasses(tt.excluded)
 
 			cl := newFakeClient(tt.deviceClasses...)
 

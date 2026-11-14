@@ -658,6 +658,20 @@ type Resources struct {
 	// for Dynamic Resource Allocation support.
 	// +optional
 	DeviceClassMappings []DeviceClassMapping `json:"deviceClassMappings,omitempty"`
+
+	// ExcludeDeviceClassNames lists DeviceClasses that Kueue does not charge quota for,
+	// such as companion devices taken next to accelerators that are charged another way.
+	// Kueue does not reject a ResourceClaimTemplate request for a listed DeviceClass because
+	// of its allocation mode or a missing mapping, unless it is one alternative of a
+	// firstAvailable request that also names an unlisted DeviceClass. While the
+	// KueueDRAIntegrationExtendedResource feature gate is enabled, Kueue does not charge
+	// requests for an extended resource backed by a listed DeviceClass either.
+	// A DeviceClass listed here must not appear in DeviceClassMappings.
+	// Each name follows the rules of DeviceClassMapping.DeviceClassNames.
+	// At most 16 names are allowed.
+	// Requires the KueueDRAExcludeDeviceClasses feature gate.
+	// +optional
+	ExcludeDeviceClassNames []corev1.ResourceName `json:"excludeDeviceClassNames,omitempty"`
 }
 
 type ResourceTransformationStrategy string

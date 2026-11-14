@@ -355,6 +355,9 @@ func main() {
 				resourceFormatter.RegisterBinaryFormattedResource(resourceName)
 			}
 		}
+		if features.Enabled(features.KueueDRAExcludeDeviceClasses) && cfg.Resources != nil {
+			draMapper.SetExcludedDeviceClasses(cfg.Resources.ExcludeDeviceClassNames)
+		}
 	}
 	if cfg.FairSharing != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))

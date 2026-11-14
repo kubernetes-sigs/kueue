@@ -145,6 +145,9 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		draMapper := dra.NewResourceMapper()
 		err = draMapper.PopulateFromConfiguration(controllersCfg.Resources.DeviceClassMappings)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if features.Enabled(features.KueueDRAExcludeDeviceClasses) {
+			draMapper.SetExcludedDeviceClasses(controllersCfg.Resources.ExcludeDeviceClassNames)
+		}
 		resourceFormatter := resources.NewResourceFormatter()
 		for _, resourceName := range draMapper.CounterBasedResourceNames() {
 			resourceFormatter.RegisterBinaryFormattedResource(resourceName)

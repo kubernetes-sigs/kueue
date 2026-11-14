@@ -1009,6 +1009,16 @@ const (
 	// sets back a priority changed directly on the Workload. Disable this gate to
 	// keep such a priority until the class is reconciled again.
 	WorkloadPriorityClassWatchesWorkloads featuregate.Feature = "WorkloadPriorityClassWatchesWorkloads"
+
+	// owner: @7xuanlu
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/18171
+	//
+	// Enable resources.excludeDeviceClassNames in the Kueue Configuration. Kueue does not
+	// charge DRA requests for the listed DeviceClasses, or reject them for their
+	// allocation mode or a missing mapping. A firstAvailable request that mixes listed
+	// and unlisted DeviceClasses is still rejected.
+	KueueDRAExcludeDeviceClasses featuregate.Feature = "KueueDRAExcludeDeviceClasses"
 )
 
 func init() {
@@ -1066,6 +1076,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 	DQOMultiKueueCapacityProvider:                       {DynamicQuotaOrchestration, MultiKueue},
+	KueueDRAExcludeDeviceClasses:                        {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1565,6 +1576,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadPriorityClassWatchesWorkloads: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KueueDRAExcludeDeviceClasses: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
