@@ -232,6 +232,10 @@ type ClusterQueue struct {
 
 	// localQueueCounts tracks the pending workloads per LocalQueue.
 	localQueueCounts *localQueueCounts
+
+	// variantParents tracks the pending ConcurrentAdmission Variants of each
+	// Parent, so the pending counts count each Parent once.
+	variantParents *variantParentCounts
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -334,6 +338,7 @@ func newClusterQueueImpl(ctx context.Context, wo workload.Ordering, clock clock.
 		pw:                     &pw,
 		pendingResourcesTotal:  make(map[corev1.ResourceName]resources.Amount),
 		localQueueCounts:       newLocalQueueCounts(),
+		variantParents:         newVariantParentCounts(),
 	}
 }
 
@@ -446,6 +451,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			!draRequestsChanged(oldInfo, wInfo) {
 			c.inadmissibleWorkloads.insert(key, wInfo)
 			c.localQueueCounts.updateInadmissible(oldInfo, wInfo)
+			c.variantParents.updateInadmissible(oldInfo, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -548,12 +554,14 @@ func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workloa
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.addPendingResources(wInfo)
 	c.localQueueCounts.addInadmissible(wInfo)
+	c.variantParents.addInadmissible(wInfo)
 }
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.subtractPendingResources(wInfo)
 	c.inadmissibleWorkloads.delete(key)
 	c.localQueueCounts.removeInadmissible(wInfo)
+	c.variantParents.removeInadmissible(wInfo)
 }
 
 // pushToHeapIfNotTracked pushes wInfo onto the heap and accounts for its
@@ -575,6 +583,7 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 	}
 	c.addPendingResources(wInfo)
 	c.localQueueCounts.addActive(wInfo)
+	c.variantParents.addActive(wInfo)
 	return true
 }
 
@@ -589,6 +598,7 @@ func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
 	c.heap.PushOrUpdate(wInfo)
 	c.addPendingResources(wInfo)
 	c.localQueueCounts.updateActive(old, wInfo)
+	c.variantParents.updateActive(old, wInfo)
 }
 
 // removeFromHeap removes the workload from the heap and subtracts its pending
@@ -598,6 +608,7 @@ func (c *ClusterQueue) removeFromHeap(key workload.Reference) {
 		c.subtractPendingResources(old)
 		c.heap.Delete(key)
 		c.localQueueCounts.removeActive(old)
+		c.variantParents.removeActive(old)
 	}
 }
 
@@ -613,6 +624,7 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 	}
 	c.inadmissibleWorkloads.delete(key)
 	c.localQueueCounts.moveToActive(wInfo)
+	c.variantParents.moveToActive(wInfo)
 	return true
 }
 
@@ -623,6 +635,7 @@ func (c *ClusterQueue) moveHeapToInadmissible(key workload.Reference, wInfo *wor
 	c.heap.Delete(key)
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.localQueueCounts.moveToInadmissible(wInfo)
+	c.variantParents.moveToInadmissible(wInfo)
 }
 
 // Delete removes the workload from ClusterQueue.
@@ -745,6 +758,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.localQueueCounts.removeActive(c.inflight)
+		c.variantParents.removeInflight(c.inflight)
 		c.inflight = nil
 	}
 }
@@ -804,7 +818,8 @@ func (c *ClusterQueue) PendingTotal() int {
 func (c *ClusterQueue) Pending() (int, int) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.pendingActive(), c.pendingInadmissible()
+	activeExcess, inadmissibleExcess := c.variantParents.excess()
+	return c.pendingActive() - activeExcess, c.pendingInadmissible() - inadmissibleExcess
 }
 
 // pendingActive returns the number of active pending workloads,
@@ -844,6 +859,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	c.popCycle++
 	if c.inflight != nil {
 		c.localQueueCounts.removeActive(c.inflight)
+		c.variantParents.removeInflight(c.inflight)
 	}
 	if c.heap.Len() == 0 {
 		c.inflight = nil
@@ -851,6 +867,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	}
 	wl := c.heap.Pop()
 	c.subtractPendingResources(wl)
+	c.variantParents.moveActiveToInflight(wl)
 	c.inflight = wl
 	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation
 	return c.inflight
