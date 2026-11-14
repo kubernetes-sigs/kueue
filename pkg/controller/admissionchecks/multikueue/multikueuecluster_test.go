@@ -1529,7 +1529,7 @@ func TestEstablishWatch(t *testing.T) {
 			}
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing, true)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, establishing, true)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1563,7 +1563,7 @@ func TestEstablishWatch(t *testing.T) {
 
 		var establishing atomic.Bool
 		start := time.Now()
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		elapsed := time.Since(start)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
@@ -1601,7 +1601,7 @@ func TestEstablishWatch(t *testing.T) {
 		}).Build()
 
 		var establishing atomic.Bool
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
@@ -1609,7 +1609,7 @@ func TestEstablishWatch(t *testing.T) {
 			t.Fatalf("want nil watcher, got: %v", w)
 		}
 		// Subsequent attempt while background watch establishment is still running must fail with errWatchEstablishInProgress.
-		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if !errors.Is(err2, errWatchEstablishInProgress) {
 			t.Fatalf("want errWatchEstablishInProgress, got: %v", err2)
 		}
@@ -1629,7 +1629,7 @@ func TestEstablishWatch(t *testing.T) {
 
 		// Now that the late watch is cleaned up and establishing reset to false, another attempt should succeed.
 		cFast := getClientBuilder(ctx).Build()
-		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", 0, testTimeout, &establishing, true)
 		if err3 != nil {
 			t.Fatalf("unexpected error establishing watch after background finished: %v", err3)
 		}
