@@ -134,6 +134,15 @@ func TestReclaimablePods(t *testing.T) {
 			Completions: 6,
 		},
 	)
+	job1Done := jobset.ReplicatedJobStatus{Name: "replicated-job-1", Succeeded: 1}
+	job1Reclaim := []kueue.ReclaimablePod{{Name: "replicated-job-1", Count: 2}}
+	partialWithPolicy := func(fp jobset.FailurePolicy, restarts int32) *testingjobset.JobSetWrapper {
+		w := baseWrapper.Clone().JobsStatus(job1Done)
+		w.Spec.FailurePolicy = &fp
+		w.Status.Restarts = restarts
+		w.Status.RestartsCountTowardsMax = restarts
+		return w
+	}
 
 	testcases := map[string]struct {
 		jobSet *jobset.JobSet
@@ -188,6 +197,127 @@ func TestReclaimablePods(t *testing.T) {
 					Count: 6,
 				},
 			},
+		},
+		"RestartJobSet with remaining budget blocks partial reclaim": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).Obj(),
+			want:   nil,
+		},
+		"RestartJobSet with exhausted budget reclaims": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 2).Obj(),
+			want:   job1Reclaim,
+		},
+		"ignored restart increments Restarts without exhausting RestartsCountTowardsMax": {
+			jobSet: func() *jobset.JobSet {
+				js := partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 1}, 0).Obj()
+				js.Status.Restarts = 1
+				js.Status.RestartsCountTowardsMax = 0
+				return js
+			}(),
+			want: nil,
+		},
+		"JobRestartsCountTowardsMax exhausting MaxRestarts reclaims": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 1).JobsStatus(
+				job1Done,
+				jobset.ReplicatedJobStatus{
+					Name:                       "replicated-job-2",
+					JobRestartsCountTowardsMax: []int32{1, 0},
+				},
+			).Obj(),
+			want: job1Reclaim,
+		},
+		"RestartingJobSet condition blocks stale partial reclaim at MaxRestarts": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 1}, 1).Condition(metav1.Condition{
+				Type:   string(jobset.JobSetRestarting),
+				Status: metav1.ConditionTrue,
+			}).Obj(),
+			want: nil,
+		},
+		"RestartJobSetAndIgnoreMaxRestarts blocks partial reclaim": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				Rules: []jobset.FailurePolicyRule{{Action: jobset.RestartJobSetAndIgnoreMaxRestarts}},
+			}, 0).Obj(),
+			want: nil,
+		},
+		"unconditional FailJobSet rule reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules:       []jobset.FailurePolicyRule{{Action: jobset.FailJobSet}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"FailJobSet rule with catch-all message pattern reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:                      jobset.FailJobSet,
+					OnJobFailureMessagePatterns: []string{".*"},
+				}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"unconditional RestartJob rule reclaims despite MaxRestarts>0": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules:       []jobset.FailurePolicyRule{{Action: jobset.RestartJob}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"TargetReplicatedJobs FailJobSet on incomplete job reclaims completed stage": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:               jobset.FailJobSet,
+					TargetReplicatedJobs: []string{"replicated-job-2"},
+				}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"TargetReplicatedJobs RestartJob on incomplete job reclaims completed stage": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:               jobset.RestartJob,
+					TargetReplicatedJobs: []string{"replicated-job-2"},
+				}},
+			}, 0).Obj(),
+			want: job1Reclaim,
+		},
+		"TargetReplicatedJobs FailJobSet only on completed job blocks when incomplete job can RestartJobSet": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:               jobset.FailJobSet,
+					TargetReplicatedJobs: []string{"replicated-job-1"},
+				}},
+			}, 0).Obj(),
+			want: nil,
+		},
+		"conditional FailJobSet rule falls back to RestartJobSet": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{
+				MaxRestarts: 2,
+				Rules: []jobset.FailurePolicyRule{{
+					Action:              jobset.FailJobSet,
+					OnJobFailureReasons: []string{batchv1.JobReasonPodFailurePolicy},
+				}},
+			}, 0).Obj(),
+			want: nil,
+		},
+		"RestartJobSet with remaining budget reclaims once all jobs succeed": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).JobsStatus(
+				job1Done,
+				jobset.ReplicatedJobStatus{Name: "replicated-job-2", Succeeded: 2},
+			).Obj(),
+			want: []kueue.ReclaimablePod{
+				{Name: "replicated-job-1", Count: 2},
+				{Name: "replicated-job-2", Count: 6},
+			},
+		},
+		"RestartJobSet with remaining budget reclaims once completed": {
+			jobSet: partialWithPolicy(jobset.FailurePolicy{MaxRestarts: 2}, 0).Condition(metav1.Condition{
+				Type:   string(jobset.JobSetCompleted),
+				Status: metav1.ConditionTrue,
+			}).Obj(),
+			want: job1Reclaim,
 		},
 	}
 

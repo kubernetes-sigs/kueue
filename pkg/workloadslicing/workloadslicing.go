@@ -524,3 +524,21 @@ func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Ta
 	}
 	return targets, nil
 }
+
+// ScaledDownPodSetNames returns the set of podSet names whose current count is
+// below the count granted at admission, i.e. those that have been scaled down.
+// Only meaningful for elastic workloads; returns empty otherwise.
+func ScaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
+	scaledDown := sets.New[kueue.PodSetReference]()
+	if !Enabled(wl) || wl.Status.Admission == nil {
+		return scaledDown
+	}
+	currentSizes := workload.ExtractPodSetCountsFromWorkload(wl)
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.Count != nil && *psa.Count > currentSizes[psa.Name] {
+			scaledDown.Insert(psa.Name)
+		}
+	}
+	return scaledDown
+}
