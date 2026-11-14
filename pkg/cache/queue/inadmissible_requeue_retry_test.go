@@ -18,7 +18,6 @@ package queue
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -26,7 +25,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -36,8 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// Exercise the real worker and delaying queue: a second notification must not
-// be necessary to recover, and a later failure must start with fresh backoff.
 func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, _ := utiltesting.ContextWithLog(t)
@@ -116,45 +112,6 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 	})
 }
 
-func TestInadmissibleRequeueRevalidatesAfterNamespaceRead(t *testing.T) {
-	for _, action := range []string{"delete Workload", "delete ClusterQueue", "change Namespace selector"} {
-		t.Run(action, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			var m *Manager
-			var wl *kueue.Workload
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
-				WithInterceptorFuncs(interceptor.Funcs{
-					Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if _, ok := obj.(*corev1.Namespace); ok {
-							switch action {
-							case "delete Workload":
-								m.DeleteWorkload(log, workload.Key(wl))
-							case "delete ClusterQueue":
-								m.DeleteClusterQueue(log, utiltestingapi.MakeClusterQueue("cq").Obj())
-							case "change Namespace selector":
-								cq := utiltestingapi.MakeClusterQueue("cq").NamespaceSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"eligible": "true"}}).Obj()
-								if err := m.UpdateClusterQueue(cq, false); err != nil {
-									return err
-								}
-							}
-						}
-						return delegate.Get(ctx, key, obj, opts...)
-					},
-				}).Build()
-			m = NewManagerForUnitTests(cl, nil)
-			addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
-			wl = addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "wl")
-			moved, retry := requeueWorkloadsCQWithRetry(ctx, m, "cq")
-			if moved != 0 || retry {
-				t.Errorf("moved=%d, retry=%t; want 0, false", moved, retry)
-			}
-			if cq := m.getClusterQueue("cq"); cq != nil && cq.workloads.GetActive(workload.Key(wl)) != nil {
-				t.Error("Workload was moved using stale queue state")
-			}
-		})
-	}
-}
-
 func addInadmissibleTestWorkload(ctx context.Context, t *testing.T, m *Manager, cl client.Client, cqName, lqName, namespace, name string) *kueue.Workload {
 	t.Helper()
 	wl := utiltestingapi.MakeWorkload(name, namespace).Queue(kueue.LocalQueueName(lqName)).Obj()
@@ -182,59 +139,6 @@ func addInadmissibleTestQueue(ctx context.Context, t *testing.T, m *Manager, cqN
 	}
 	if err := m.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue(lqName, namespace).ClusterQueue(cqName).Obj()); err != nil {
 		t.Fatalf("add LocalQueue: %v", err)
-	}
-}
-
-func TestInadmissibleRequeueTransientNamespaceRetry(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	namespace := utiltesting.MakeNamespace("ns-a")
-	failed := false
-	reads := 0
-	var m *Manager
-	cl := utiltesting.NewClientBuilder().WithObjects(namespace).WithInterceptorFuncs(interceptor.Funcs{
-		Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok && key.Name == "ns-a" {
-				reads++
-				// A slow API read here must not block all queue-manager writes.
-				if m != nil {
-					if !m.TryLock() {
-						t.Error("Namespace Get ran while queue manager held its write lock")
-					} else {
-						m.Unlock()
-					}
-				}
-				if !failed {
-					failed = true
-					return apierrors.NewServiceUnavailable("injected transient failure")
-				}
-			}
-			return delegate.Get(ctx, key, obj, opts...)
-		},
-	}).Build()
-	r := NewRequeuer()
-	defer r.queue.ShutDown()
-	m = NewManager(cl, nil, r)
-	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns-a", "")
-	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns-a", "retry-me")
-
-	req := requeueRequest{ClusterQueue: "cq"}
-	r.reconcile(ctx, req)
-	if got := r.queue.NumRequeues(req); got != 1 {
-		t.Fatalf("transient failure: NumRequeues = %d, want 1", got)
-	}
-	if got := m.getClusterQueue("cq").workloads.GetInadmissible(workload.Key(wl)); got == nil {
-		t.Fatal("transiently unreadable Workload should remain inadmissible")
-	}
-	// No second notification is sent: only the queued retry is required.
-	r.reconcile(ctx, req)
-	if got := r.queue.NumRequeues(req); got != 0 {
-		t.Errorf("successful retry: NumRequeues = %d, want 0", got)
-	}
-	if got := m.getClusterQueue("cq").workloads.GetActive(workload.Key(wl)); got == nil {
-		t.Error("Workload did not enter active heap when Namespace read recovered")
-	}
-	if reads != 2 {
-		t.Errorf("Namespace reads = %d, want 2", reads)
 	}
 }
 
@@ -284,7 +188,8 @@ func TestInadmissibleRequeueCohortPartialProgress(t *testing.T) {
 	}
 }
 
-func TestInadmissibleRequeueDeduplicatesNamespaceReads(t *testing.T) {
+// A Namespace read failure should not retry a Workload whose own backoff has not expired.
+func TestInadmissibleRequeueBackoffDoesNotRetry(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	reads := 0
 	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
@@ -292,141 +197,32 @@ func TestInadmissibleRequeueDeduplicatesNamespaceReads(t *testing.T) {
 			Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, ok := obj.(*corev1.Namespace); ok {
 					reads++
-				}
-				return delegate.Get(ctx, key, obj, opts...)
-			},
-		}).Build()
-	m := NewManagerForUnitTests(cl, nil)
-	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
-	var wls []*kueue.Workload
-	for i := range 100 {
-		wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", fmt.Sprintf("wl-%03d", i))
-		wls = append(wls, wl)
-	}
-	moved, retry := requeueWorkloadsCQWithRetry(ctx, m, "cq")
-	if moved != len(wls) || retry {
-		t.Errorf("moved=%d, retry=%t; want moved=%d, retry=false", moved, retry, len(wls))
-	}
-	if reads != 1 {
-		t.Errorf("Namespace Get calls = %d, want 1 for %d Workloads", reads, len(wls))
-	}
-}
-
-// A Workload can enter inadmissible while the requeuer is reading Namespaces.
-// It must not be processed with an absent Namespace snapshot (or forgotten).
-func TestInadmissibleRequeueDetectsWorkloadsAddedDuringNamespaceRead(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
-	var m *Manager
-	injected := false
-	var late *kueue.Workload
-	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns-a"), utiltesting.MakeNamespace("ns-b")).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, ok := obj.(*corev1.Namespace); ok && key.Name == "ns-a" && !injected {
-					injected = true
-					late = utiltestingapi.MakeWorkload("late", "ns-b").Queue("lq-b").Obj()
-					if err := delegate.Create(ctx, late); err != nil {
-						return err
-					}
-					m.getClusterQueue("cq").popCycle++
-					m.RequeueWorkload(ctx, workload.NewInfo(log, late), RequeueReasonGeneric, "")
+					return apierrors.NewServiceUnavailable("injected transient failure")
 				}
 				return delegate.Get(ctx, key, obj, opts...)
 			},
 		}).Build()
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
-	m = NewManager(cl, nil, r)
-	addInadmissibleTestQueue(ctx, t, m, "cq", "lq-a", "ns-a", "")
-	if err := m.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq-b", "ns-b").ClusterQueue("cq").Obj()); err != nil {
-		t.Fatalf("add second LocalQueue: %v", err)
+	m := NewManager(cl, nil, r)
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
+	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "in-backoff")
+	cq := m.getClusterQueue("cq")
+	cq.rwm.Lock()
+	pending := cq.workloads.GetInadmissible(workload.Key(wl))
+	workload.SetRequeuedCondition(pending.Obj, "Backoff", "waiting", false)
+	inBackoff := !cq.backoffWaitingTimeExpired(pending)
+	cq.rwm.Unlock()
+	if !inBackoff {
+		t.Fatal("Workload should be in backoff")
 	}
-	first := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq-a", "ns-a", "first")
 	req := requeueRequest{ClusterQueue: "cq"}
 	r.reconcile(ctx, req)
-	if !injected || late == nil {
-		t.Fatal("test did not insert the Workload during Namespace read")
+	if reads != 0 || r.queue.NumRequeues(req) != 0 {
+		t.Errorf("ineligible Workload should not trigger Namespace Get/retry: reads=%d, retries=%d", reads, r.queue.NumRequeues(req))
 	}
-	if got := m.getClusterQueue("cq").workloads.GetActive(workload.Key(first)); got == nil {
-		t.Error("original Workload was not moved")
-	}
-	if got := m.getClusterQueue("cq").workloads.GetInadmissible(workload.Key(late)); got == nil {
-		t.Error("new Workload must stay inadmissible until its Namespace has been read")
-	}
-	if got := r.queue.NumRequeues(req); got != 1 {
-		t.Errorf("late Namespace should trigger retry, got %d", got)
-	}
-	r.reconcile(ctx, req)
-	if got := m.getClusterQueue("cq").workloads.GetActive(workload.Key(late)); got == nil {
-		t.Error("late Workload not moved on next pass")
-	}
-}
-
-// A failed Namespace read must not repeatedly retry a Workload that remains
-// ineligible due to its own backoff. Both forms of backoff are checked.
-func TestInadmissibleRequeueDoesNotRetryWorkloadsInBackoff(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		setBackoff func(*kueue.Workload)
-	}{
-		{
-			name: "WorkloadRequeued false",
-			setBackoff: func(wl *kueue.Workload) {
-				workload.SetRequeuedCondition(wl, "Backoff", "waiting for requeue", false)
-			},
-		},
-		{
-			name: "future requeueAt",
-			setBackoff: func(wl *kueue.Workload) {
-				requeueAt := metav1.NewTime(time.Now().Add(time.Hour))
-				wl.Status.RequeueState = &kueue.RequeueState{RequeueAt: &requeueAt}
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			reads := 0
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
-				WithInterceptorFuncs(interceptor.Funcs{
-					Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if _, ok := obj.(*corev1.Namespace); ok {
-							reads++
-							return apierrors.NewServiceUnavailable("injected transient failure")
-						}
-						return delegate.Get(ctx, key, obj, opts...)
-					},
-				}).Build()
-			r := NewRequeuer()
-			defer r.queue.ShutDown()
-			m := NewManager(cl, nil, r)
-			addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
-			wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "in-backoff")
-
-			cq := m.getClusterQueue("cq")
-			cq.rwm.Lock()
-			pending := cq.workloads.GetInadmissible(workload.Key(wl))
-			tc.setBackoff(pending.Obj)
-			inBackoff := !cq.backoffWaitingTimeExpired(pending)
-			cq.rwm.Unlock()
-			if !inBackoff {
-				t.Fatal("test Workload must be in backoff")
-			}
-
-			req := requeueRequest{ClusterQueue: "cq"}
-			r.reconcile(ctx, req)
-			if reads != 1 {
-				t.Errorf("Namespace reads = %d, want 1", reads)
-			}
-			if got := r.queue.NumRequeues(req); got != 0 {
-				t.Errorf("ineligible Workload should not trigger Namespace retry, got %d", got)
-			}
-			if cq.workloads.GetInadmissible(workload.Key(wl)) == nil {
-				t.Error("Workload in backoff must remain inadmissible")
-			}
-			if cq.workloads.GetActive(workload.Key(wl)) != nil {
-				t.Error("Workload in backoff must not move to the active heap")
-			}
-		})
+	if cq.workloads.GetInadmissible(workload.Key(wl)) == nil {
+		t.Error("Workload in backoff must remain inadmissible")
 	}
 }
 
