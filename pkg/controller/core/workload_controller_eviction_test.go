@@ -20,15 +20,22 @@ import (
 	"testing"
 	"time"
 
+	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 func TestReconcileEviction(t *testing.T) {
@@ -36,6 +43,63 @@ func TestReconcileEviction(t *testing.T) {
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
+	conflictingPodSet := utiltestingapi.MakePodSet("main", 2).
+		Labels(map[string]string{"app": "test"}).
+		NodeSelector(map[string]string{corev1.LabelHostname: "node-a"}).Obj()
+	conflictingPodSet.Template.Spec.Affinity = &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			TopologyKey:   corev1.LabelHostname,
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}},
+		}},
+	}}
+	conflictingAdmission := utiltestingapi.MakeAdmission("q1").PodSets(
+		utiltestingapi.MakePodSetAssignment("main").Count(2).TopologyAssignment(
+			utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(utiltas.TopologyDomainAssignment{Values: []string{"node-a"}, Count: 2}).Obj(),
+		).Obj(),
+	).Obj()
+	conflictMessage := "PodsReady timeout: PodSet main is pinned to hostname node-a, where required Pod anti-affinity prevents its Pods from running concurrently; deactivating to stop retries"
+	conflictingWorkload := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(*conflictingPodSet).
+		ReserveQuotaAt(conflictingAdmission, now).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+			Reason:             "ByTest",
+			Message:            "Admitted by ClusterQueue q1",
+		}).
+		AdmittedAt(true, now).Obj()
+	deactivatedConflict := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(*conflictingPodSet).
+		ReserveQuotaAt(conflictingAdmission, now).
+		AdmittedAt(true, now).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadDeactivationTarget,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadPodAntiAffinityTopologyConflict,
+			Message: conflictMessage,
+		}).Obj()
+	retryLimitConflict := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(*conflictingPodSet).
+		ReserveQuotaAt(conflictingAdmission, now).
+		AdmittedAt(true, now).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadDeactivationTarget,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadRequeuingLimitExceeded,
+			Message: "exceeding the maximum number of re-queuing retries",
+		}).Obj()
+	controllerUIDJob := testingjob.MakeJob("job", "ns").UID("uid").
+		PodLabel(batchv1.ControllerUidLabel, "uid").Obj()
+	controllerUIDWorkload := conflictingWorkload.DeepCopy()
+	controllerUIDWorkload.Spec.PodSets[0].Template.Labels = nil
+	controllerUIDWorkload.Spec.PodSets[0].Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels =
+		map[string]string{batchv1.ControllerUidLabel: "uid"}
+	controllerUIDExpected := deactivatedConflict.DeepCopy()
+	controllerUIDExpected.Spec.PodSets[0].Template.Labels = nil
+	controllerUIDExpected.Spec.PodSets[0].Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels =
+		map[string]string{batchv1.ControllerUidLabel: "uid"}
 
 	cases := map[string]reconcileTestCase{
 		"unadmitted workload with rejected checks gets deactivated": {
@@ -592,6 +656,98 @@ func TestReconcileEviction(t *testing.T) {
 					Message:   `Evicted due to AdmissionChecks in Retry state: "check-1" (infrastructure not prepared); "check-3" (budget exhausted)`,
 				},
 			},
+		},
+		"deactivate pinned self anti-affinity conflict after PodsReady timeout": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second}),
+			},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *deactivatedConflict.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+		},
+		"pinned self anti-affinity conflict stays admitted without a PodsReady timeout": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+		},
+		"deactivate batch Job when controller UID label was removed from Workload": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second}),
+			},
+			additionalObjects: []client.Object{controllerUIDJob},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *controllerUIDWorkload.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *controllerUIDExpected.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+		},
+		"TAS disabled keeps retry limit handling for a persisted assignment": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second, requeuingBackoffLimitCount: new(int32(0))}),
+			},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *retryLimitConflict.DeepCopy()}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj(),
+		},
+		"JobSet uses configured retry limit for the same placement conflict": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second, requeuingBackoffLimitCount: new(int32(0))}),
+			},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(jobsetapi.GroupVersion.WithKind("JobSet"), "jobset", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *retryLimitConflict.DeepCopy()}).
+				ControllerReference(jobsetapi.GroupVersion.WithKind("JobSet"), "jobset", "uid").Obj(),
+		},
+		"MPIJob uses configured retry limit for the same placement conflict": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second, requeuingBackoffLimitCount: new(int32(0))}),
+			},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *conflictingWorkload.DeepCopy()}).
+				ControllerReference(kfmpi.SchemeGroupVersionKind, "mpijob", "uid").Obj(),
+			wantWorkload: (&utiltestingapi.WorkloadWrapper{Workload: *retryLimitConflict.DeepCopy()}).
+				ControllerReference(kfmpi.SchemeGroupVersionKind, "mpijob", "uid").Obj(),
+		},
+		"unowned Workload uses configured retry limit for the same placement conflict": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{timeout: 3 * time.Second, requeuingBackoffLimitCount: new(int32(0))}),
+			},
+			workload:     conflictingWorkload.DeepCopy(),
+			wantWorkload: retryLimitConflict.DeepCopy(),
+		},
+		"other placement conflicts keep configured retry handling": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                    3 * time.Second,
+					requeuingBackoffLimitCount: new(int32(0)),
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+				ReserveQuotaAt(conflictingAdmission, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+				ReserveQuotaAt(conflictingAdmission, now).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum number of re-queuing retries",
+				}).
+				Obj(),
 		},
 		"trigger deactivation of workload when reaching backoffLimitCount": {
 			reconcilerOpts: []Option{

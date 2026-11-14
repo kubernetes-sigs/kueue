@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -138,7 +140,22 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj *batchv1.Job) (admi
 	if err != nil {
 		return nil, err
 	}
-	return nil, validationErrs.ToAggregate()
+	return hostnameAntiAffinityWarnings(job), validationErrs.ToAggregate()
+}
+
+func hostnameAntiAffinityWarnings(job *Job) admission.Warnings {
+	template := &job.Spec.Template
+	if !features.Enabled(features.TopologyAwareScheduling) || ptr.Deref(job.Spec.Parallelism, 1) < 2 ||
+		(job.Spec.Completions != nil && *job.Spec.Completions < 2) ||
+		template.Spec.NodeSelector[corev1.LabelHostname] == "" ||
+		(template.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] != "true" && !utiltas.IsExplicitTAS(template.Annotations)) ||
+		!utilpod.HasSelfAntiAffinityOnHostname(template, job.Namespace) {
+		return nil
+	}
+	const warning = "Job Pods are restricted to hostname %q, but required Pod anti-affinity prevents them " +
+		"from running there concurrently; TAS may admit the Job while another Pod remains Pending. " +
+		"Allow another hostname or change the anti-affinity rule"
+	return admission.Warnings{fmt.Sprintf(warning, template.Spec.NodeSelector[corev1.LabelHostname])}
 }
 
 func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorList, error) {

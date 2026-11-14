@@ -28,6 +28,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -55,8 +56,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -12499,39 +12502,78 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("test-cq").Obj()
 	admission := utiltestingapi.MakeAdmission("test-cq").Obj()
 
-	makeAdmittedWorkload := func(quotaReservedAt time.Time) *kueue.Workload {
-		wl := utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("test-lq").
-			Admission(admission).
-			Condition(metav1.Condition{
-				Type:               kueue.WorkloadQuotaReserved,
-				Status:             metav1.ConditionTrue,
-				Reason:             "QuotaReserved",
-				LastTransitionTime: metav1.NewTime(quotaReservedAt),
-			}).
-			Condition(metav1.Condition{
-				Type:               kueue.WorkloadAdmitted,
-				Status:             metav1.ConditionTrue,
-				Reason:             "Admitted",
-				LastTransitionTime: metav1.NewTime(now),
-			}).
-			Obj()
-		return wl
+	admittedWorkload := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("test-lq").
+		Admission(admission).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		})
+	longWaitWorkload := admittedWorkload.Clone().Obj()
+	for i := range longWaitWorkload.Status.Conditions {
+		if longWaitWorkload.Status.Conditions[i].Type == kueue.WorkloadQuotaReserved {
+			longWaitWorkload.Status.Conditions[i].LastTransitionTime = metav1.NewTime(now.Add(-30 * time.Second))
+		}
 	}
+	ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Labels(map[string]string{"app": "test"}).Obj()
+	ps.Template.Spec.Affinity = &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+			TopologyKey:   corev1.LabelHostname,
+			LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}},
+		}},
+	}}
+	singleHostnameWorkload := admittedWorkload.Clone().PodSets(*ps).Admission(
+		utiltestingapi.MakeAdmission("test-cq").PodSets(
+			utiltestingapi.MakePodSetAssignment(ps.Name).TopologyAssignment(
+				utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domain(
+					utiltas.TopologyDomainAssignment{Values: []string{"node-a"}, Count: 2}).Obj(),
+			).Obj(),
+		).Obj(),
+	).Obj()
+	pinnedWorkload := (&utiltestingapi.WorkloadWrapper{Workload: *singleHostnameWorkload.DeepCopy()}).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj()
+	pinnedWorkload.Spec.PodSets[0].Template.Spec.NodeSelector = map[string]string{corev1.LabelHostname: "node-a"}
+	controllerUIDJob := testingjob.MakeJob("job", "ns").UID("uid").
+		PodLabel(batchv1.ControllerUidLabel, "uid").Obj()
+	controllerUIDWorkload := pinnedWorkload.DeepCopy()
+	controllerUIDWorkload.Spec.PodSets[0].Template.Labels = nil
+	controllerUIDWorkload.Spec.PodSets[0].Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels =
+		map[string]string{batchv1.ControllerUidLabel: "uid"}
+	pinnedUnownedWorkload := singleHostnameWorkload.DeepCopy()
+	pinnedUnownedWorkload.Spec.PodSets[0].Template.Spec.NodeSelector = map[string]string{corev1.LabelHostname: "node-a"}
+	unpinnedBatchWorkload := (&utiltestingapi.WorkloadWrapper{Workload: *singleHostnameWorkload.DeepCopy()}).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "uid").Obj()
+	splitHostnameWorkload := unpinnedBatchWorkload.DeepCopy()
+	splitHostnameWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment = utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(
+			utiltas.TopologyDomainAssignment{Values: []string{"node-a"}, Count: 1},
+			utiltas.TopologyDomainAssignment{Values: []string{"node-b"}, Count: 1},
+		).Obj()
 
 	cases := []struct {
-		name         string
-		newWorkload  *kueue.Workload
-		wantEventMsg string
+		name           string
+		newWorkload    *kueue.Workload
+		job            *batchv1.Job
+		disableTAS     bool
+		wantEventMsg   string
+		wantWarningMsg string
 	}{
 		{
 			name:         "quota-reserved and admitted in same cycle (zero wait)",
-			newWorkload:  makeAdmittedWorkload(now),
+			newWorkload:  admittedWorkload.Obj(),
 			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
 		},
 		{
 			name:         "non-zero wait between reservation and admission",
-			newWorkload:  makeAdmittedWorkload(now.Add(-30 * time.Second)),
+			newWorkload:  longWaitWorkload,
 			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 30s",
 		},
 		{
@@ -12548,12 +12590,57 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 				Obj(),
 			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
 		},
+		{
+			name:         "unowned Workload has no special warning",
+			newWorkload:  singleHostnameWorkload,
+			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+		},
+		{
+			name:         "batch Job without a hostname pin has no special warning",
+			newWorkload:  unpinnedBatchWorkload,
+			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+		},
+		{
+			name:           "pinned self anti-affinity warns conditionally without a configured timeout",
+			newWorkload:    pinnedWorkload,
+			wantEventMsg:   "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+			wantWarningMsg: "PodSet main is pinned to hostname node-a, where required Pod anti-affinity prevents its Pods from running concurrently; if a PodsReady timeout is configured and reached, Kueue will deactivate this Workload",
+		},
+		{
+			name:         "TAS disabled does not warn for a persisted assignment",
+			newWorkload:  pinnedWorkload,
+			disableTAS:   true,
+			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+		},
+		{
+			name:           "controller UID selector warns using owning Job Pod labels",
+			newWorkload:    controllerUIDWorkload,
+			job:            controllerUIDJob,
+			wantEventMsg:   "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+			wantWarningMsg: "PodSet main is pinned to hostname node-a, where required Pod anti-affinity prevents its Pods from running concurrently; if a PodsReady timeout is configured and reached, Kueue will deactivate this Workload",
+		},
+		{
+			name:         "pinned Workload without a batch Job owner has no special warning",
+			newWorkload:  pinnedUnownedWorkload,
+			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+		},
+		{
+			name:         "self anti-affinity assigned to different hostnames does not warn",
+			newWorkload:  splitHostnameWorkload,
+			wantEventMsg: "Admitted by ClusterQueue test-cq, wait time since reservation was 0s",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.disableTAS {
+				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, false)
+			}
 			ctx, log := utiltesting.ContextWithLog(t)
 			objs := []client.Object{utiltesting.MakeNamespace("ns")}
+			if tc.job != nil {
+				objs = append(objs, tc.job)
+			}
 			cl := utiltesting.NewClientBuilder().WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 			fakeClock := testingclock.NewFakeClock(now)
@@ -12565,14 +12652,24 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 
 			originalWorkload := utiltestingapi.MakeWorkload("wl", "ns").Obj()
-			scheduler.recordWorkloadAdmissionEvents(log, tc.newWorkload, originalWorkload, admission, 0)
+			scheduler.recordWorkloadAdmissionEvents(ctx, log, tc.newWorkload, originalWorkload, tc.newWorkload.Status.Admission, 0)
 
-			if len(recorder.RecordedEvents) != 1 {
-				t.Fatalf("expected 1 event, got %d: %v", len(recorder.RecordedEvents), recorder.RecordedEvents)
+			wantCount := 1
+			if tc.wantWarningMsg != "" {
+				wantCount++
+			}
+			if len(recorder.RecordedEvents) != wantCount {
+				t.Fatalf("expected %d events, got %d: %v", wantCount, len(recorder.RecordedEvents), recorder.RecordedEvents)
 			}
 			gotMsg := recorder.RecordedEvents[0].Message
 			if gotMsg != tc.wantEventMsg {
 				t.Errorf("event message:\n  got:  %q\n  want: %q", gotMsg, tc.wantEventMsg)
+			}
+			if tc.wantWarningMsg != "" {
+				warning := recorder.RecordedEvents[1]
+				if warning.EventType != corev1.EventTypeWarning || warning.Reason != kueue.WorkloadPodAntiAffinityTopologyConflict || warning.Message != tc.wantWarningMsg {
+					t.Errorf("warning event = %#v, want Warning/PodAntiAffinityTopologyConflict: %q", warning, tc.wantWarningMsg)
+				}
 			}
 		})
 	}

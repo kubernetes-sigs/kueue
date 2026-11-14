@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -766,6 +767,61 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs); diff != "" {
 				t.Errorf("validateCreate() validation errors mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateCreateHostnameAntiAffinityWarnings(t *testing.T) {
+	baseJob := testingutil.MakeJob("job", "default").
+		Queue("queue").
+		Parallelism(2).
+		Completions(2).
+		NodeSelector(corev1.LabelHostname, "node-a").
+		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		PodLabel("app", "test").
+		PodAffinity(&corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				TopologyKey:   corev1.LabelHostname,
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}},
+			}},
+		}}).
+		Obj()
+	message := "Job Pods are restricted to hostname \"node-a\", but required Pod anti-affinity prevents them from running there concurrently; TAS may admit the Job while another Pod remains Pending. Allow another hostname or change the anti-affinity rule"
+	onePodJob := baseJob.DeepCopy()
+	onePodJob.Spec.Parallelism = new(int32(1))
+	oneCompletionJob := baseJob.DeepCopy()
+	oneCompletionJob.Spec.Completions = new(int32(1))
+	nonmatchingJob := baseJob.DeepCopy()
+	nonmatchingJob.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels["app"] = "other"
+	controllerUIDJob := baseJob.DeepCopy()
+	controllerUIDJob.Spec.Template.Labels = map[string]string{batchv1.ControllerUidLabel: "uid"}
+	controllerUIDJob.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels =
+		map[string]string{batchv1.ControllerUidLabel: "uid"}
+	unpinnedJob := baseJob.DeepCopy()
+	delete(unpinnedJob.Spec.Template.Spec.NodeSelector, corev1.LabelHostname)
+	cases := map[string]struct {
+		job          *batchv1.Job
+		tasEnabled   bool
+		wantWarnings admission.Warnings
+	}{
+		"two pods pinned to one hostname receive a warning": {job: baseJob, tasEnabled: true, wantWarnings: admission.Warnings{message}},
+		"controller UID selector receives a warning":        {job: controllerUIDJob, tasEnabled: true, wantWarnings: admission.Warnings{message}},
+		"TAS disabled means no warning":                     {job: baseJob},
+		"one pod needs no warning":                          {job: onePodJob, tasEnabled: true},
+		"one completion needs no warning":                   {job: oneCompletionJob, tasEnabled: true},
+		"nonmatching anti-affinity needs no warning":        {job: nonmatchingJob, tasEnabled: true},
+		"without a hostname pin needs no create warning":    {job: unpinnedJob, tasEnabled: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.tasEnabled)
+			gotWarnings, err := (&JobWebhook{}).ValidateCreate(t.Context(), tc.job.DeepCopy())
+			if err != nil {
+				t.Fatalf("ValidateCreate() error = %v", err)
+			}
+			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
+				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

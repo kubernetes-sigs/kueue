@@ -1317,6 +1317,21 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return recheckAfter, nil
 	}
 
+	podSet, hostname, conflict, err := workload.PinnedBatchJobSelfAntiAffinityConflict(ctx, r.client, wl)
+	if err != nil {
+		return 0, err
+	}
+	if conflict {
+		message := fmt.Sprintf("PodsReady timeout: PodSet %s is pinned to hostname %s, where required Pod anti-affinity "+
+			"prevents its Pods from running concurrently; deactivating to stop retries", podSet, hostname)
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.SetDeactivationTarget(wl, kueue.WorkloadPodAntiAffinityTopologyConflict, message), nil
+		}); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+
 	deactivated, err := r.triggerDeactivation(ctx, wl)
 	if err != nil || deactivated {
 		return 0, err

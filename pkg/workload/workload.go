@@ -27,8 +27,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1478,6 +1480,46 @@ func HasConditionWithTypeAndReason(w *kueue.Workload, cond *metav1.Condition) bo
 		}
 	}
 	return false
+}
+
+// PinnedBatchJobSelfAntiAffinityConflict checks the Workload and, when needed,
+// the owning Job's Pod labels. Job-managed labels are removed from PodSets but
+// remain on the Pods created by the Job controller.
+func PinnedBatchJobSelfAntiAffinityConflict(ctx context.Context, c client.Client, w *kueue.Workload) (kueue.PodSetReference, string, bool, error) {
+	if w == nil || !features.Enabled(features.TopologyAwareScheduling) {
+		return "", "", false, nil
+	}
+	owner := metav1.GetControllerOf(w)
+	if owner == nil || owner.APIVersion != batchv1.SchemeGroupVersion.String() || owner.Kind != "Job" {
+		return "", "", false, nil
+	}
+	if podSet, hostname, conflict := utilpod.PinnedSelfAntiAffinityConflict(w); conflict {
+		return podSet, hostname, true, nil
+	}
+	if w.Status.Admission == nil || len(w.Spec.PodSets) != 1 {
+		return "", "", false, nil
+	}
+	template := &w.Spec.PodSets[0].Template
+	if template.Spec.NodeSelector[corev1.LabelHostname] == "" || template.Spec.Affinity == nil || template.Spec.Affinity.PodAntiAffinity == nil ||
+		!slices.ContainsFunc(template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution, func(term corev1.PodAffinityTerm) bool {
+			return term.TopologyKey == corev1.LabelHostname && term.LabelSelector != nil
+		}) {
+		return "", "", false, nil
+	}
+	job := &batchv1.Job{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: w.Namespace, Name: owner.Name}, job); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", "", false, nil
+		}
+		return "", "", false, fmt.Errorf("get owning Job %s/%s: %w", w.Namespace, owner.Name, err)
+	}
+	if job.UID != owner.UID {
+		return "", "", false, nil
+	}
+	withJobLabels := w.DeepCopy()
+	withJobLabels.Spec.PodSets[0].Template.Labels = job.Spec.Template.Labels
+	podSet, hostname, conflict := utilpod.PinnedSelfAntiAffinityConflict(withJobLabels)
+	return podSet, hostname, conflict, nil
 }
 
 // OwnedBySinglePod reports whether the Workload is owned by exactly one Pod

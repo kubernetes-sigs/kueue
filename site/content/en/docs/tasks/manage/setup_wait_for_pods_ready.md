@@ -197,6 +197,17 @@ If you don't specify any value for `backoffLimitCount`,
 a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
 Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](/docs/concepts/workload/#active).
 
+For a TAS `batch/v1` Job, Kueue also deactivates its Workload at the first
+`PodsReadyTimeout` when the Job pins at least two Pods to one hostname and a
+required Pod anti-affinity rule matches those Pods on that hostname. The
+Workload records the `PodAntiAffinityTopologyConflict` reason, and Kueue stops
+re-queuing it even when `backoffLimitCount` is unset. A Job that could finish
+sequentially may also be deactivated if it has not completed before the timeout.
+Kueue currently detects this conflict only for static label selectors in the
+Job's namespace; namespace selectors and `matchLabelKeys` or
+`mismatchLabelKeys` are not evaluated. For other placement conflicts, set a
+finite `backoffLimitCount` to prevent unbounded retries.
+
 The time to re-queue a workload after each consecutive timeout is increased
 exponentially, with the exponent of 2. The first delay is determined by the
 `backoffBaseSeconds` parameter (defaulting to 60). You can configure the maximum
