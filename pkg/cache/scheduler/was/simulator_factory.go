@@ -32,6 +32,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/gangscheduling"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
@@ -139,6 +141,9 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 				SchedulerName: corev1.DefaultSchedulerName,
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
+					MultiPoint: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{{Name: gangscheduling.Name}},
+					},
 					QueueSort: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
 					},
@@ -187,7 +192,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 			continue
 		}
 
-		wlKey := client.ObjectKeyFromObject(wl)
+		wlKey := workload.Key(wl)
 		tracker.RemoveWorkload(wlKey)
 
 		for _, vPod := range vPods {

@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -845,7 +844,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 })
 
-var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices support", func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -854,15 +853,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	)
 	cpuNominalQuota := 6
 
-	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup())
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -1184,11 +1178,10 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
 			BlockAdmission:     new(false),
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
-		ginkgo.DeferCleanup(fwk.StopManager, ctx)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 			clusterQueue.Spec.ConcurrentAdmissionPolicy = utiltestingapi.MakeClusterQueue(clusterQueue.Name).
@@ -1326,12 +1319,16 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			waitForPodsReady := &configapi.WaitForPodsReady{
 				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				BlockAdmission: new(false),
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					BackoffBaseSeconds: new(int32(60)),
+					BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
+				},
 			}
-			fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+			// Stop the restarted manager before restoring its per-spec feature gate.
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetupWithConfig(
 				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
 				jobframework.WithWaitForPodsReady(waitForPodsReady),
 			))
-			ginkgo.DeferCleanup(fwk.StopManager, ctx)
 
 			// The head and the autoscaler sidecar fit in the quota, but one more worker does not.
 			testRayCluster = testingraycluster.MakeCluster("foo", ns.Name).

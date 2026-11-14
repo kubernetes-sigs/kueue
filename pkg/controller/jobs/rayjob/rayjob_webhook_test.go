@@ -131,6 +131,25 @@ func TestDefault(t *testing.T) {
 
 func TestValidateCreate(t *testing.T) {
 	bigWorkerGroup := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
+	elasticJobWithRequiredTopology := testingrayutil.MakeJob("job", "ns").Queue("queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Obj()
+	elasticJobWithRequiredTopology.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations = map[string]string{
+		kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+	}
+	elasticJobWithSubmitterRequiredTopology := testingrayutil.MakeJob("job", "ns").Queue("queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		WithSubmissionMode(rayv1.K8sJobMode).
+		WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+			Annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+			},
+		}).
+		Obj()
+	elasticJobWithSubmitterPreferredTopology := elasticJobWithSubmitterRequiredTopology.DeepCopy()
+	elasticJobWithSubmitterPreferredTopology.Spec.SubmitterPodTemplate.Annotations = map[string]string{
+		kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+	}
 
 	testcases := map[string]struct {
 		job          *rayv1.RayJob
@@ -267,6 +286,85 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			}.ToAggregate(),
+		},
+		"elastic job with required topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			job:          elasticJobWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(workerGroupSpecsPath.Index(0).Child("template", "metadata", "annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			job: elasticJobWithRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling:      true,
+			},
+		},
+		"elastic job with submitter required topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			job:          elasticJobWithSubmitterRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "submitterPodTemplate", "metadata", "annotations", kueue.PodSetRequiredTopologyAnnotation),
+					"required topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with submitter preferred topology is rejected with ElasticJobsViaWorkloadSlicesWithTAS": {
+			job:          elasticJobWithSubmitterPreferredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "submitterPodTemplate", "metadata", "annotations", kueue.PodSetPreferredTopologyAnnotation),
+					"preferred topology is not supported with elastic jobs"),
+			}.ToAggregate(),
+		},
+		"elastic job with submitter required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
+			job:          elasticJobWithSubmitterRequiredTopology,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: false},
+		},
+		"non-elastic job with submitter required topology is accepted": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				WithSubmissionMode(rayv1.K8sJobMode).
+				WithSubmitterPodTemplate(*elasticJobWithSubmitterRequiredTopology.Spec.SubmitterPodTemplate).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+		},
+		"elastic job with ignored submitter template in SidecarMode is accepted": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithSubmissionMode(rayv1.SidecarMode).
+				WithSubmitterPodTemplate(*elasticJobWithSubmitterRequiredTopology.Spec.SubmitterPodTemplate).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+		},
+		"elastic job using an existing cluster with submitter required topology is accepted": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+				RayClusterSpec(nil).
+				WithSubmissionMode(rayv1.K8sJobMode).
+				WithSubmitterPodTemplate(*elasticJobWithSubmitterRequiredTopology.Spec.SubmitterPodTemplate).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+		},
+		"elastic job with submitter unconstrained topology is accepted": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithSubmissionMode(rayv1.K8sJobMode).
+				WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+					Annotations: map[string]string{
+						kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+					},
+				}).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+		},
+		"elastic job with default submitter template is accepted": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithSubmissionMode(rayv1.K8sJobMode).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
 		},
 		"valid topology request": {
 			job: testingrayutil.MakeJob("rayjob", "ns").Queue("queue").
@@ -683,6 +781,18 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+	elasticJobWithSubmitterRequiredTopology := testingrayutil.MakeJob("job", "ns").Queue("queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		WithSubmissionMode(rayv1.K8sJobMode).
+		WithSubmitterPodTemplate(corev1.PodTemplateSpec{
+			Annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+			},
+		}).
+		Obj()
+	unsuspendedElasticJob := elasticJobWithSubmitterRequiredTopology.DeepCopy()
+	unsuspendedElasticJob.Spec.Suspend = false
+
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayJob
 		newJob               *rayv1.RayJob
@@ -692,6 +802,11 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"existing elastic job with submitter required topology can be unsuspended": {
+			oldJob:       elasticJobWithSubmitterRequiredTopology,
+			newJob:       unsuspendedElasticJob,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true},
+		},
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(true).
@@ -768,7 +883,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is rejected when the job is unsuspended": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
 				Suspend(false).
@@ -778,25 +893,11 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				ShutdownAfterJobFinishes(true).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
-			oldJob: testingrayutil.MakeJob("job", "ns").
-				Queue("queue").
-				Suspend(false).
-				ShutdownAfterJobFinishes(true).
-				Obj(),
-			newJob: testingrayutil.MakeJob("job", "ns").
-				Suspend(false).
-				ShutdownAfterJobFinishes(true).
-				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:      nil,
-		},
-		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue(string(constants.DefaultLocalQueueName)).
 				Suspend(true).
@@ -807,26 +908,11 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
 			}.ToAggregate(),
 		},
-		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
-			oldJob: testingrayutil.MakeJob("job", "ns").
-				Queue(string(constants.DefaultLocalQueueName)).
-				Suspend(true).
-				ShutdownAfterJobFinishes(true).
-				Obj(),
-			newJob: testingrayutil.MakeJob("job", "ns").
-				Suspend(true).
-				ShutdownAfterJobFinishes(true).
-				Obj(),
-			defaultLqExist: true,
-			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
-			wantErr:        nil,
-		},
-		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
 				Suspend(true).
@@ -836,10 +922,9 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(true).
 				ShutdownAfterJobFinishes(true).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
-		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+		"prebuilt workload name change is not validated when the job is unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl1").
@@ -848,8 +933,7 @@ func TestValidateUpdate(t *testing.T) {
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl2").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
-			wantErr:      nil,
+			wantErr: nil,
 		},
 		"priorityClassName is immutable": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
@@ -883,7 +967,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
-					float64(3600),
+					`{"timeoutSeconds":3600}`,
 					"timeoutSeconds must be less than or equal to 60 seconds",
 				),
 			}.ToAggregate(),

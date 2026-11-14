@@ -17,6 +17,8 @@ Lists all pods that matches the given criteria: should be part of the specified 
 
  The --for=pod/pod-name option allows to find pods from the same pod group as the specified pod, including that pod itself.
 
+KUEUECTL_LIST_REQUEST_LIMIT sets how many objects kueuectl fetches from the Kubernetes API per request. It does not limit the output: all matching objects are listed. The default is 100; 0 fetches all objects in a single request.
+
 ```
 kueuectl list pods --for TYPE[.API-GROUP]/NAME
 ```

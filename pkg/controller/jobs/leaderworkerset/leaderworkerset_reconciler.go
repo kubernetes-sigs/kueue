@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -48,6 +49,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -62,6 +64,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -80,6 +83,7 @@ type workloadToCreate struct {
 
 type Reconciler struct {
 	integrationManager           *jobframework.IntegrationManager
+	queues                       *qcache.Manager
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
@@ -98,6 +102,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 
 	return &Reconciler{
 		integrationManager:           options.IntegrationManager,
+		queues:                       options.Queues,
 		client:                       client,
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
@@ -188,11 +193,8 @@ func (r *Reconciler) getStatefulSets(ctx context.Context, req reconcile.Request)
 	if err := r.client.List(ctx, statefulSets, client.InNamespace(req.Namespace),
 		client.MatchingLabels{leaderworkersetv1.SetNameLabelKey: req.Name},
 	); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to get StatefulSets")
-			return nil, err
-		}
-		return nil, nil
+		log.Error(err, "Failed to get StatefulSets")
+		return nil, err
 	}
 	return statefulSets.Items, nil
 }
@@ -241,9 +243,17 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	})
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+		// One call resolves the class once, so every component moving to it gets
+		// the same value. It goes first: a refused update stays on the in-memory
+		// Workload, and a later call would resend it, fail, and skip the rest.
+		priorityErr := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, toUpdate...)
+		if priorityErr != nil {
+			log.Error(priorityErr, "Failed to update workload priority")
+		}
+		updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
 			return r.updateWorkload(ctx, lws, toUpdate[i])
 		})
+		return errors.Join(priorityErr, updateErr)
 	})
 
 	eg.Go(func() error {
@@ -348,7 +358,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		"Created Workload: %v", workload.Key(createdWorkload),
 	)
 
-	jobframework.RecordWorkloadCreationLatency(ctx, lws, lws.GroupVersionKind().Kind, createdWorkload, r.customLabels, r.roleTracker)
+	jobframework.RecordWorkloadCreationLatency(ctx, lws, lws.GroupVersionKind().Kind, createdWorkload, r.queues, r.customLabels, r.roleTracker)
 
 	return nil
 }
@@ -358,6 +368,7 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if err != nil {
 		return nil, err
 	}
+
 	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if createdWorkload.Labels == nil {
@@ -402,11 +413,9 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	dropLWSPrefixedKeys(podSet.Template.Annotations)
 	jobframework.SanitizePodSet(podSet)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
-		if podIndexLabel != nil {
-			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
-		}
-		topologyRequest, err := builder.Build()
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy()).
+			PodIndexLabel(podIndexLabel).
+			Build()
 		if err != nil {
 			return nil, err
 		}
@@ -419,7 +428,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0, 2)
 
 	defaultPodSetName := kueue.DefaultPodSetName
-	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1)
+	defaultPodSetCount := ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		defaultPodSetName = workerPodSetName
@@ -459,6 +468,11 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = true
 	}
 
+	if features.Enabled(features.AllowAddingPodTemplateTolerations) && syncTolerations(lws, wl) {
+		log.V(3).Info("LeaderWorkerSet changed tolerations, updating workload")
+		shouldUpdate = true
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
@@ -466,12 +480,9 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	var waitForPodsReadyUpdated bool
-	var err error
+	var waitForPodsReadyEvent jobframework.WaitForPodsReadyEvent
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(lws, wl)
-		if err != nil {
-			return err
-		}
+		waitForPodsReadyUpdated, waitForPodsReadyEvent = jobframework.SyncWaitForPodsReady(ctx, lws, wl)
 		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
 	}
 
@@ -484,17 +495,38 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
 	}
-	if waitForPodsReadyUpdated {
-		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws)
-	}
-
-	err = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
-	if err != nil {
-		log.Error(err, "Failed to update workload priority")
-		return err
+	if waitForPodsReadyEvent != jobframework.WaitForPodsReadyEventNone {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws, wl, waitForPodsReadyEvent)
 	}
 
 	return nil
+}
+
+// syncTolerations copies the pod template tolerations to the Workload PodSets
+// and reports whether any PodSet changed. The webhook only allows adding
+// tolerations, so a Workload that holds a quota reservation gets them as well:
+// TAS checks node taints against them while the new pods run. The Workload on
+// a MultiKueue worker is a copy of the one on the manager cluster, so it is
+// left unchanged.
+func syncTolerations(lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) bool {
+	if _, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+		return false
+	}
+	return utiltolerations.CopyAddedByName(workload.PodTemplates(wl), podTemplates(lws))
+}
+
+// podTemplates returns the pod templates of the LeaderWorkerSet by the name of
+// the PodSet that podSets builds from them.
+func podTemplates(lws *leaderworkersetv1.LeaderWorkerSet) map[kueue.PodSetReference]*corev1.PodTemplateSpec {
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate == nil {
+		return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+			kueue.DefaultPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		}
+	}
+	return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+		leaderPodSetName: lws.Spec.LeaderWorkerTemplate.LeaderTemplate,
+		workerPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+	}
 }
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {
@@ -606,7 +638,7 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	}
 	podcontroller.SetPodGroupName(pod, wlName)
 	jobframework.SetPrebuiltWorkloadName(pod, wlName)
-	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
+	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize))
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
 
 	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {

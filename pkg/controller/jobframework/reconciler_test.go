@@ -64,6 +64,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
@@ -1454,10 +1455,32 @@ func TestEquivalentToWorkload(t *testing.T) {
 		PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 		Obj())
 
+	preferredTASJob := func(suspended bool) *job.Job {
+		return (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+			UID(testJobUID).
+			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.google.com/gce-topology-block").
+			Suspend(suspended).
+			Obj())
+	}
+
+	// A Workload created while the TopologyAwareScheduling feature gate was
+	// disabled has no topology request, even though its job requests one.
+	wlWithoutTopologyRequest := utiltestingapi.MakeWorkload("wl-without-topology-request", testNS).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodSpec(preferredTASJob(false).Spec.Template.Spec).
+			Obj()).
+		ControllerReference(testGVK, testJobName, testJobUID)
+
+	wlAdmittedWithoutTAS := wlWithoutTopologyRequest.Clone().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+		).Obj(), time.Now().Truncate(time.Hour)).
+		AdmittedAt(true, time.Now().Truncate(time.Hour))
+
 	baseWl := utiltestingapi.MakeWorkload("base", testNS).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			PodSpec(baseJob().Spec.Template.Spec).
-			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+			PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 			Obj())
 
 	tasWlWithoutIndex := utiltestingapi.MakeWorkload("tas-wl", testNS).
@@ -1524,11 +1547,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(true).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1546,11 +1569,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-admitted-partial-running", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(partiallyAdmittedJob(false).Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SetMinimumCount(1).
 					Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: new(int32(1))},
 				).Obj(), time.Now().Truncate(time.Hour)).
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
@@ -1599,7 +1622,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1625,7 +1648,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl: admittedWl.Clone().Name("owned-admitted-diff").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					PodSpec(baseJob().Spec.Template.Spec).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1663,7 +1686,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 					PodSpec(tasConflictJob.Spec.Template.Spec).
 					SetMinimumCount(2).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
@@ -1678,6 +1701,44 @@ func TestEquivalentToWorkload(t *testing.T) {
 				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				Obj(),
 			want: true,
+		},
+		"workload admitted without TAS matches a running job that requests a topology": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          preferredTASJob(false),
+			wl:           wlAdmittedWithoutTAS.DeepCopy(),
+			want:         true,
+		},
+		"workload with quota reserved without TAS but not admitted does not match a job that requests a topology": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          preferredTASJob(true),
+			wl: wlWithoutTopologyRequest.Clone().
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				Obj(),
+			want: false,
+		},
+		"workload admitted with TAS does not match a running job that requests a different topology": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          preferredTASJob(false),
+			wl: utiltestingapi.MakeWorkload("wl-admitted-with-tas", testNS).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					PodSpec(preferredTASJob(false).Spec.Template.Spec).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{
+						Name: kueue.DefaultPodSetName,
+						TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltas.TopologyDomainAssignment{Values: []string{"node-1"}, Count: 1}).
+							Obj(),
+					},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				AdmittedAt(true, time.Now().Truncate(time.Hour)).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
 		},
 	}
 	for name, tc := range testCases {
@@ -3274,6 +3335,7 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		ControllerReference(gvk, obj.Name, string(obj.UID)).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	// The successor starts without an owner reference and must be adopted by the job.
 	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
@@ -3316,7 +3378,13 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("PodSets changed: %s", diff)
 		}
-		wantFinished := before.Name == "old"
+		if before.Name == replacement.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("prebuilt workload was not adopted by the worker job")
+		}
+		if before.Name == old.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("predecessor workload lost its controller reference")
+		}
+		wantFinished := before.Name == old.Name
 		if workloadfinish.IsFinished(got) != wantFinished {
 			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
 		}

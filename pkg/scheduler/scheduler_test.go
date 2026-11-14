@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -38,7 +39,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/klog/v2/ktesting"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -46,6 +49,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -5725,6 +5729,185 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
+		// ClusterQueueA uses 20 of its nominal 5 plus borrowing limit 5, so nothing is
+		// reserved for a3-pending, which has no preemption candidates. c1-pending fits
+		// the cohort only by preempting both a1-admitted and a2-admitted.
+		"capacity reserved for a preemptor past the borrowing limit does not block preemption of its ClusterQueue": {
+			// Orders a3-pending before c1-pending.
+			featureGates: map[featuregate.Feature]bool{features.PrioritySortingWithinCohort: false},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("ClusterQueueA").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "5", "5").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+					}).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("ClusterQueueB").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "16").Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("ClusterQueueC").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").Resource("gpu", "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq", "eng-alpha").ClusterQueue("ClusterQueueA").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq", "eng-beta").ClusterQueue("ClusterQueueC").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a2-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a3-pending", "eng-alpha").
+					Creation(now.Add(-time.Second)).
+					Queue("lq").
+					Request("gpu", "4").
+					Obj(),
+				*utiltestingapi.MakeWorkload("c1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Priority(200).
+					Request("gpu", "21").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a2-admitted", "eng-alpha").
+					Queue("lq").
+					Priority(100).
+					Request("gpu", "10").
+					SimpleReserveQuota("ClusterQueueA", "on-demand", now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to reclamation within the cohort while borrowing; preemptor path: /root/ClusterQueueC; preemptee path: /root/ClusterQueueA",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("a3-pending", "eng-alpha").
+					Creation(now.Add(-time.Second)).
+					Queue("lq").
+					Request("gpu", "4").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 4 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("4"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("c1-pending", "eng-beta").
+					Creation(now).
+					Queue("lq").
+					Priority(200).
+					Request("gpu", "21").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 20 more needed. Pending the preemption of 2 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							"gpu": resource.MustParse("21"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ClusterQueueC": {"eng-beta/c1-pending"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ClusterQueueA": {"eng-alpha/a3-pending"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "10").
+						Obj()).
+					Obj(),
+				"eng-alpha/a2-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment("gpu", "on-demand", "10").
+						Obj()).
+					Obj(),
+			},
+		},
 		//
 		// Denote Cohorts in UPPERCASE, and ClusterQueues in lowercase.
 		// quota is at GUARANTEED cohort
@@ -11115,6 +11298,89 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 }
 
+// TestStatusUpdateWhenWorkloadDeleted covers a pending Workload that is deleted
+// while a scheduling cycle holds it: the failed status write is expected, so it must
+// not be logged as an error, and no event is recorded for the deleted Workload.
+func TestStatusUpdateWhenWorkloadDeleted(t *testing.T) {
+	cases := map[string]struct {
+		podsReadyTracking bool
+		run               func(ctx context.Context, log logr.Logger, s *Scheduler, e *entry)
+	}{
+		"requeue after the workload did not fit": {
+			run: func(ctx context.Context, _ logr.Logger, s *Scheduler, e *entry) {
+				e.status = notNominated
+				e.inadmissibleMsg = "didn't fit"
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+				s.requeueAndUpdate(ctx, *e)
+			},
+		},
+		"block admission while admitted workloads are not ready": {
+			podsReadyTracking: true,
+			run: func(ctx context.Context, log logr.Logger, s *Scheduler, e *entry) {
+				// Cancelled so that WaitForPodsReady returns instead of blocking on the not-ready Workload.
+				ctx, cancel := context.WithCancel(ctx)
+				cancel()
+				s.waitForPodsReadyIfNeeded(ctx, log, e)
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, mergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/WorkloadRequestUseMergePatch=%t", name, mergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, mergePatch)
+				logger := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true)))
+				ctx := ctrl.LoggerInto(t.Context(), logger)
+
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+				wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+				objs := []client.Object{wl, lq, utiltesting.MakeNamespace("ns")}
+				cl := utiltesting.NewClientBuilder().
+					WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(tc.podsReadyTracking))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
+				}
+				if tc.podsReadyTracking {
+					notReady := utiltestingapi.MakeWorkload("not-ready", "ns").SimpleReserveQuota(kueue.ClusterQueueReference(cq.Name), "default", time.Now()).Obj()
+					if !cqCache.AddOrUpdateWorkload(ctx, logger, notReady) {
+						t.Fatalf("Adding workload %s to cache", notReady.Name)
+					}
+				}
+
+				heads := qManager.Heads(ctx)
+				if len(heads) != 1 {
+					t.Fatalf("Got %d heads, want 1", len(heads))
+				}
+				if err := cl.Delete(ctx, wl); err != nil {
+					t.Fatalf("Deleting workload: %v", err)
+				}
+				tc.run(ctx, logger, scheduler, &entry{Head: heads[0]})
+
+				for _, entry := range logger.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+					if entry.Type == ktesting.LogError {
+						t.Errorf("Unexpected error log %q: %v", entry.Message, entry.Err)
+					}
+				}
+				if len(recorder.RecordedEvents) != 0 {
+					t.Errorf("Unexpected events: %+v", recorder.RecordedEvents)
+				}
+			})
+		}
+	}
+}
+
 // TestEntryMarkSkipped covers whether a Workload skipped because of contention keeps the
 // flavor scan progress it recorded this cycle.
 //
@@ -11576,6 +11842,34 @@ func TestResourcesToReserve(t *testing.T) {
 			wantReserved: resources.FlavorResourceQuantities{
 				{Flavor: kueue.ResourceFlavorReference("on-demand"), Resource: corev1.ResourceMemory}: resources.NewAmount(50),
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   resources.NewAmount(2),
+			},
+		},
+		{
+			name:           "Reserved gpu is what is left under the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(12),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(3),
+			},
+		},
+		{
+			name:           "Reserved gpu is zero when usage is already past the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(20),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(0),
 			},
 		},
 	}

@@ -1,5 +1,5 @@
 - title: "Orchestrate jobs with Kueue on GKE"
-  url: "https://cloud.google.com/kubernetes-engine/docs/concepts/kueue"
+  url: "https://docs.cloud.google.com/kubernetes-engine/docs/tutorials/kueue-intro"
   author: "Google Cloud Docs"
   platform: "GKE Documentation"
   date: "2025-11-20"

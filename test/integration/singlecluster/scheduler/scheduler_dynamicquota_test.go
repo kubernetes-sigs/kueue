@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", func() {
 	var (
 		ns                 *corev1.Namespace
 		flavor             *kueue.ResourceFlavor

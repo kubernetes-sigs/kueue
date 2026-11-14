@@ -108,14 +108,14 @@ func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.Mult
 
 	ginkgo.By(fmt.Sprintf("breaking the connection to %s", clusterKey), func() {
 		setSecretKubeConfig(ctx, cli, secretKey, unreachableKubeConfig(originalKubeConfig))
-		expectClusterActive(ctx, cli, clusterKey, metav1.ConditionFalse, "ClientConnectionFailed")
+		ExpectClusterActive(ctx, cli, clusterKey, metav1.ConditionFalse, "ClientConnectionFailed")
 	})
 
 	return func() {
 		ginkgo.GinkgoHelper()
 		ginkgo.By(fmt.Sprintf("restoring the connection to %s", clusterKey), func() {
 			setSecretKubeConfig(ctx, cli, secretKey, originalKubeConfig)
-			expectClusterActive(ctx, cli, clusterKey, metav1.ConditionTrue, "Active")
+			ExpectClusterActive(ctx, cli, clusterKey, metav1.ConditionTrue, "Active")
 		})
 	}
 }
@@ -145,10 +145,10 @@ func unreachableKubeConfig(kubeConfig []byte) []byte {
 	return out
 }
 
-func expectClusterActive(ctx context.Context, cli client.Client, clusterKey client.ObjectKey, status metav1.ConditionStatus, reason string) {
+func ExpectClusterActive(ctx context.Context, cli client.Client, clusterKey client.ObjectKey, status metav1.ConditionStatus, reason string) {
 	ginkgo.GinkgoHelper()
+	cluster := &kueue.MultiKueueCluster{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		cluster := &kueue.MultiKueueCluster{}
 		g.Expect(cli.Get(ctx, clusterKey, cluster)).To(gomega.Succeed())
 		activeCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
 		g.Expect(activeCondition).To(gomega.BeComparableTo(&metav1.Condition{
@@ -156,5 +156,15 @@ func expectClusterActive(ctx context.Context, cli client.Client, clusterKey clie
 			Status: status,
 			Reason: reason,
 		}, IgnoreConditionMessage, IgnoreConditionTimestampsAndObservedGeneration))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("MultiKueueCluster active condition did not match", cluster))
+}
+
+func SetMultiKueueConfigQuotaManagement(ctx context.Context, cli client.Client, mkConfig *kueue.MultiKueueConfig, mode kueue.MultiKueueConfigQuotaManagementMode) {
+	ginkgo.GinkgoHelper()
+	latestConfig := &kueue.MultiKueueConfig{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(mkConfig), latestConfig)).To(gomega.Succeed())
+		latestConfig.Spec.QuotaManagement = &mode //nolint:staticcheck // SA1019: tests that the deprecated field is ignored
+		g.Expect(cli.Update(ctx, latestConfig)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set MultiKueueConfig quotaManagement", latestConfig))
 }

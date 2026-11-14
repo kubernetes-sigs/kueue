@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -678,6 +679,100 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By("Check workload is deleted", func() {
 				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload1, false, behavioral.MediumTimeout)
 				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, behavioral.MediumTimeout)
+			})
+		})
+
+		ginkgo.It("should keep the Workload admitted when a toleration is added to the PodTemplate", func() {
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				Size(2).
+				Replicas(1).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				Queue(lq.Name).
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Create a LeaderWorkerSet", func() {
+				behavioral.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			createdWorkload := &kueue.Workload{}
+			ginkgo.By("Check the Workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			var quotaReserved metav1.Condition
+			ginkgo.By("Save the QuotaReserved condition of the Workload", func() {
+				wl := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), wl)).To(gomega.Succeed())
+				quotaReserved = *apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			})
+
+			toleration := corev1.Toleration{Key: "example.com/lws-e2e", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+
+			ginkgo.By("Add a toleration to the PodTemplate", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{toleration}
+					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Await for the Pods to be replaced with the toleration", func() {
+				pods := &corev1.PodList{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels(map[string]string{
+						leaderworkersetv1.SetNameLabelKey: lws.Name,
+					}))).To(gomega.Succeed())
+					g.Expect(pods.Items).To(gomega.HaveLen(2))
+					for _, p := range pods.Items {
+						g.Expect(p.Spec.Tolerations).To(gomega.ContainElement(toleration))
+					}
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for replicas to be ready again", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the same Workload gets the toleration", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), wl)).To(gomega.Succeed())
+					g.Expect(wl.UID).To(gomega.Equal(createdWorkload.UID))
+					g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+					g.Expect(wl.Spec.PodSets[0].Template.Spec.Tolerations).To(gomega.ContainElement(toleration))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the Workload keeps the same quota reservation and is not evicted", func() {
+				wl := &kueue.Workload{}
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), wl)).To(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).NotTo(gomega.BeNil())
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+					g.Expect(cond.LastTransitionTime).To(gomega.Equal(quotaReserved.LastTransitionTime))
+					g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+				}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 

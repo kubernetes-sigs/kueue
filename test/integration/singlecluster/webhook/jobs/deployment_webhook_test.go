@@ -23,13 +23,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	deploymentcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -48,7 +53,16 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		fwk.StartManager(ctx, cfg, managerSetup(
-			deploymentcontroller.SetupWebhook,
+			func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				options := jobframework.ProcessOptions(opts...)
+				gomega.Expect(indexer.Setup(ctx, mgr.GetFieldIndexer())).To(gomega.Succeed())
+				configuration := &configapi.Configuration{}
+				mgr.GetScheme().Default(configuration)
+				failedCtrl, err := core.SetupControllers(mgr, options.Queues, options.Cache, configuration,
+					core.SetupControllersOpts{})
+				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+				return deploymentcontroller.SetupWebhook(mgr, opts...)
+			},
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-")
@@ -121,7 +135,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			})
 		})
 
-		ginkgo.It("shouldn't allow to change the queue name (ReadyReplicas > 0)", func() {
+		ginkgo.It("should allow to change the queue name (ReadyReplicas > 0)", func() {
 			createdDeployment := &appsv1.Deployment{}
 
 			ginkgo.By("Update deployment status", func() {
@@ -133,12 +147,12 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Try to update", func() {
+			ginkgo.By("Change queue name", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
 					updatedDeployment := deploymentWrapper.Queue("another-queue").Obj()
-					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(utiltesting.BeForbiddenError())
+					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
@@ -147,9 +161,35 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
 					g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
 						To(
-							gomega.Equal("user-queue"),
+							gomega.Equal("another-queue"),
 							"Queue name should be injected to pod template labels",
 						)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("shouldn't allow to remove the queue label (ReadyReplicas > 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Update deployment status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Try to remove queue label", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+				delete(createdDeployment.Labels, constants.QueueLabel)
+				gomega.Expect(k8sClient.Update(ctx, createdDeployment)).To(utiltesting.BeForbiddenError())
+			})
+
+			ginkgo.By("Check that queue label not deleted from pod template spec", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels).Should(gomega.HaveKey(constants.QueueLabel))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -198,6 +238,78 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 						)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("should allow to set the queue name (ReadyReplicas > 0)", func() {
+			createdDeployment := &appsv1.Deployment{}
+
+			ginkgo.By("Update deployment status", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Set queue name", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					deploymentWrapper := &testingdeployment.DeploymentWrapper{Deployment: *createdDeployment}
+					updatedDeployment := deploymentWrapper.Queue("user-queue").Obj()
+					g.Expect(k8sClient.Update(ctx, updatedDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check queue name is injected to pod template label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					g.Expect(createdDeployment.Spec.Template.Labels[constants.QueueLabel]).
+						To(
+							gomega.Equal("user-queue"),
+							"Queue name should be injected to pod template labels",
+						)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should keep a ready Deployment without a queue-name updatable after the default LocalQueue is created", func() {
+			ginkgo.By("Marking the Deployment as ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdDeployment := &appsv1.Deployment{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+					createdDeployment.Status.Replicas = 1
+					createdDeployment.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, createdDeployment)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating the default LocalQueue")
+			defaultLq := utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue("cq").Obj()
+			behavioral.MustCreate(ctx, k8sClient, defaultLq)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultLq, true)
+			})
+
+			ginkgo.By("Waiting for the webhook to see the default LocalQueue")
+			gomega.Eventually(func(g gomega.Gomega) {
+				probe := testingdeployment.MakeDeployment("dep-probe", ns.Name).Obj()
+				g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+				g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(constants.QueueLabel, "default"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating the Deployment without the queue-name label")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdDeployment := &appsv1.Deployment{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+				metav1.SetMetaDataAnnotation(&createdDeployment.ObjectMeta, "example.com/touched", "true")
+				g.Expect(k8sClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			createdDeployment := &appsv1.Deployment{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).Should(gomega.Succeed())
+			gomega.Expect(createdDeployment.Labels).NotTo(gomega.HaveKey(constants.QueueLabel))
+			gomega.Expect(createdDeployment.Spec.Template.Labels).NotTo(gomega.HaveKey(constants.QueueLabel))
 		})
 	})
 

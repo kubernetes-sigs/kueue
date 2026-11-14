@@ -58,9 +58,6 @@ type RayClusterWebhook struct {
 // SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.
 func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
-	for _, opt := range opts {
-		opt(&options)
-	}
 	wh := &RayClusterWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
@@ -127,6 +124,10 @@ func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayCl
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing elastic jobs with required or
+	// preferred topology remain updatable (e.g. by the autoscaler or Kueue) after
+	// an upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
+	validationErrs = append(validationErrs, ValidateElasticJobTopologyRequest(obj, &obj.Spec, headGroupMetaPath, workerGroupSpecsPath)...)
 	return nil, validationErrs.ToAggregate()
 }
 

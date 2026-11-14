@@ -646,17 +646,19 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]resources.Amou
 
 // PendingTotal returns the total number of pending workloads.
 func (c *ClusterQueue) PendingTotal() int {
-	active, inadmissible := c.PendingBreakdown()
-	return active.Total() + inadmissible.Total()
+	active, inadmissible := c.Pending()
+	return active + inadmissible
 }
 
 // Pending returns the number of active and inadmissible pending workloads.
 func (c *ClusterQueue) Pending() (int, int) {
-	active, inadmissible := c.PendingBreakdown()
-	return active.Total(), inadmissible.Total()
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.Pending()
 }
 
-// Pending returns the number of active and inadmissible pending workloads.
+// PendingBreakdown returns LabelValsTrackers for active and inadmissible
+// pending workloads, keyed by workload custom label values.
 func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()

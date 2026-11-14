@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
-var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("job:pod", "area:jobs"), func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -48,7 +48,7 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 		lq *kueue.LocalQueue
 	)
 
-	ginkgo.BeforeAll(func() {
+	ginkgo.BeforeEach(func() {
 		nsSelector := &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -60,19 +60,14 @@ var _ = ginkgo.Describe("Pod controller verifying role requests", ginkgo.Label("
 		}
 		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		fwk.StartManager(ctx, cfg, managerSetup(
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup(
 			false,
 			true,
 			&configapi.Configuration{},
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
 
-	ginkgo.BeforeEach(func() {
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-role-requests-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()

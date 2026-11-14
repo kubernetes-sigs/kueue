@@ -367,7 +367,15 @@ func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.
 	return result
 }
 
-// PendingBreakdown returns the number of active and inadmissible pending workloads.
+// Pending returns the number of active and inadmissible pending workloads.
+func (p *PendingWorkloads) Pending() (int, int) {
+	p.RLock()
+	defer p.RUnlock()
+	return p.activeTracker.Total() + len(p.inflight), p.inadmissibleTracker.Total()
+}
+
+// PendingBreakdown returns LabelValsTrackers for active and inadmissible
+// pending workloads, keyed by workload custom label values.
 func (p *PendingWorkloads) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	p.RLock()
 	defer p.RUnlock()

@@ -57,8 +57,8 @@ func GetOperatorNamespace() string {
 }
 
 type Config struct {
-	WebhookServiceName                 string
-	WebhookSecretName                  string
+	ServiceName                        string
+	SecretName                         string
 	ValidatingWebhookConfigurationName string
 	MutatingWebhookConfigurationName   string
 }
@@ -72,12 +72,12 @@ func ManageCerts(mgr ctrl.Manager, cfg Config, setupFinished chan struct{}) erro
 
 	ns := GetOperatorNamespace()
 	// DNSName is <service name>.<namespace>.svc
-	dnsName := fmt.Sprintf("%s.%s.svc", cfg.WebhookServiceName, ns)
+	dnsName := fmt.Sprintf("%s.%s.svc", cfg.ServiceName, ns)
 
 	return cert.AddRotator(mgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
 			Namespace: ns,
-			Name:      cfg.WebhookSecretName,
+			Name:      cfg.SecretName,
 		},
 		CertDir:        certDir,
 		CAName:         caName,

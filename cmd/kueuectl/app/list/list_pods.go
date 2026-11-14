@@ -47,7 +47,7 @@ import (
 )
 
 var (
-	podLong = templates.LongDesc(`
+	podLong = listLongDesc(`
 		Lists all pods that match the given criteria: should be part 
 		of the specified Job kind, belonging to the specified namespace, 
 		matching the label selector or the field selector.

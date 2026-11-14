@@ -1,0 +1,12 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+# interface.go and multikueue.go are intentionally excluded because
+# they are implemented by external integrations and require approval
+# from top-level approvers.
+filters:
+  "^(base_webhook|constants|defaults|errors|events|indexer|integrationmanager|noop_controller|reconciler|setup|stop_reason|tas|tas_validation|utils|validation|workload_names)\\.go$":
+    approvers:
+    - jobframework-implementation-approvers
+  "_test\\.go$":
+    approvers:
+    - jobframework-implementation-approvers

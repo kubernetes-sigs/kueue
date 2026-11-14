@@ -1,8 +1,8 @@
 ---
-title: "演讲和展示"
-linkTitle: "演讲和展示"
+title: "演讲、案例研究与教程"
+linkTitle: "演讲、案例研究与教程"
 weight: 20
 layout: "talks"
 description: >
-  观看技术演讲、主题演讲和演示，并阅读 Kueue 落地生产的精选案例研究。
+  观看技术演讲、主题演讲和演示，并阅读来自 Kueue 社区的精选生产案例研究与技术教程。
 ---

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -28,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -41,6 +43,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 )
 
 var (
@@ -55,7 +58,6 @@ var (
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "OwnerReferences", "Finalizers"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
 	}
 )
 
@@ -124,10 +126,10 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		}
 	}
 	multiTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).EmptyMetadata().Obj(),
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).EmptyMetadata().Obj(),
 	}).Obj()
 	multiWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("worker", *toleration2.DeepCopy(), workerAdmissionToleration),
@@ -152,7 +154,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		Effect:   corev1.TaintEffectNoSchedule,
 	}
 	staleTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("node", staleKueueToleration),
@@ -160,7 +162,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			Obj(),
 	}).Obj()
 	staleWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(
 				withTolerations("node", staleBaseToleration, *toleration2.DeepCopy()),
@@ -168,7 +170,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			Obj(),
 	}).Suspend(false).Obj()
 	staleClearedWantTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
-		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 			EmptyMetadata().
 			ReplicatedJobs(withTolerations("node")).
 			Obj(),
@@ -201,7 +203,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -222,7 +224,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -252,7 +254,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -282,7 +284,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -384,7 +386,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -420,7 +422,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							kftrainerapi.ReplicatedJobPatch{
@@ -449,7 +451,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should set the Pod index offset to 0 on replicated jobs in a PodSet group": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -471,7 +473,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("launcher").
@@ -501,7 +503,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -521,7 +523,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("node").
@@ -538,7 +540,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 		"should keep the Pod index offset set on the runtime": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).Obj(),
@@ -557,7 +559,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			},
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("launcher").
@@ -639,7 +641,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 							testingtrainjob.MakeReplicatedJobPatch("user-provided-2").Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						ReplicatedJobs(
 							testingtrainjob.MakeReplicatedJobPatch("kueue-provided-1").Obj(),
@@ -656,7 +658,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 							testingtrainjob.MakeReplicatedJobPatch("user-provided-2").Obj(),
 						).
 						Obj(),
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
@@ -666,14 +668,14 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		"should report no change when the kueue RuntimePatch is already cleared": {
 			trainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				RuntimePatches([]kftrainerapi.RuntimePatch{
-					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+					testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 						EmptyMetadata().
 						Obj(),
 				}).
@@ -719,10 +721,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 func TestStop(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
-	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 		EmptyMetadata().
 		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj())
-	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(utiltrainjob.KueueRuntimePatchManager).
 		EmptyMetadata()
 	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
 		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj())
@@ -862,12 +864,64 @@ func TestReconciler(t *testing.T) {
 			Parallelism: 1,
 			Completions: 1,
 		}).Obj()
+	// Trainer applies the .spec.trainer overrides only to the container named "node".
+	trainerContainer := *utiltesting.MakeContainer().Name("node").Image("runtime-image").Obj()
+	testJobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Containers = []corev1.Container{trainerContainer}
 	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
+
+	// In the MPI runtime, the trainer ancestor is the launcher, and the nodes run the same "node" container.
+	mpiJobset := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "launcher",
+			Replicas:    1,
+			Parallelism: 1,
+			Completions: 1,
+			Labels: map[string]string{
+				"trainer.kubeflow.org/trainjob-ancestor-step": "trainer",
+			},
+		},
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "node",
+			Replicas:    1,
+			Parallelism: 1,
+			Completions: 1,
+		}).Obj()
+	for i := range mpiJobset.Spec.ReplicatedJobs {
+		mpiJobset.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers = []corev1.Container{trainerContainer}
+	}
+	mpiCtr := testingtrainjob.MakeClusterTrainingRuntime("mpi", mpiJobset.Spec)
+	mpiCtr.Spec.MLPolicy = &kftrainerapi.MLPolicy{MPI: &kftrainerapi.MPIMLPolicySource{}}
+	mpiTrainJob := testTrainJob.Clone().RuntimeRefName(mpiCtr.Name).TrainerImage("trainer-image", nil, nil)
+
+	now := time.Now().Truncate(time.Second)
+	// The Workload of an MPI TrainJob created by an earlier Kueue version. Trainer applied
+	// .spec.trainer.image only to the launcher, and the nodes kept the runtime image.
+	admittedMPIWorkloadWithRuntimeImageOnNodes := utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
+		PodSets(
+			*utiltestingapi.MakePodSet("launcher", 1).
+				Containers(*utiltesting.MakeContainer().Name("node").Image("trainer-image").Obj()).
+				PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+				SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
+				SubGroupCount(new(int32(1))).
+				Obj(),
+			*utiltestingapi.MakePodSet("node", 1).
+				Containers(trainerContainer).
+				PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+				SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
+				SubGroupCount(new(int32(1))).
+				Obj(),
+		).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("launcher").Obj(),
+			utiltestingapi.MakePodSetAssignment("node").Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now)
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		trainJob          *kftrainerapi.TrainJob
 		childJobSet       *jobsetapi.JobSet
+		workloads         []kueue.Workload
 		wantTrainJob      *kftrainerapi.TrainJob
 		wantWorkloads     []kueue.Workload
 	}{
@@ -882,11 +936,13 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 1).
+							Containers(trainerContainer).
 							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
 							SubGroupCount(new(int32(1))).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
+							Containers(testingjobset.TestPodSpec.Containers...).
 							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
 							SubGroupCount(new(int32(1))).
@@ -906,11 +962,13 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
 					PodSets(
 						*utiltestingapi.MakePodSet("node", 2).
+							Containers(trainerContainer).
 							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
 							SubGroupCount(new(int32(1))).
 							Obj(),
 						*utiltestingapi.MakePodSet("foo", 1).
+							Containers(testingjobset.TestPodSpec.Containers...).
 							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
 							SubGroupCount(new(int32(1))).
@@ -919,16 +977,61 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"trainer podset image is set to .Spec.Trainer.Image": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			trainJob:     testTrainJob.Clone().TrainerImage("trainer-image", nil, nil).Obj(),
+			wantTrainJob: testTrainJob.Clone().TrainerImage("trainer-image", nil, nil).Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(testTrainJob.Name, testTrainJob.Namespace).
+					PodSets(
+						*utiltestingapi.MakePodSet("node", 1).
+							Containers(*utiltesting.MakeContainer().Name("node").Image("trainer-image").Obj()).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
+							SubGroupCount(new(int32(1))).
+							Obj(),
+						*utiltestingapi.MakePodSet("foo", 1).
+							Containers(testingjobset.TestPodSpec.Containers...).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobsetapi.JobIndexKey)).
+							SubGroupCount(new(int32(1))).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"running MPI trainjob with a .Spec.Trainer.Image override is not suspended when its workload has the runtime image on the nodes": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			trainJob:      mpiTrainJob.Clone().Suspend(false).Obj(),
+			workloads:     []kueue.Workload{*admittedMPIWorkloadWithRuntimeImageOnNodes.Clone().Obj()},
+			wantTrainJob:  mpiTrainJob.Clone().Suspend(false).Obj(),
+			wantWorkloads: []kueue.Workload{*admittedMPIWorkloadWithRuntimeImageOnNodes.Clone().Obj()},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
-			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr, testNamespace).Build()
+			kClient := clientBuilder.WithObjects(tc.trainJob, testCtr, mpiCtr, testNamespace).Build()
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
+			}
+			for i := range tc.workloads {
+				wl := tc.workloads[i].DeepCopy()
+				if err := ctrl.SetControllerReference(tc.trainJob, wl, kClient.Scheme()); err != nil {
+					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				}
+				if err := kClient.Create(ctx, wl); err != nil {
+					t.Fatalf("Could not create workload: %v", err)
+				}
 			}
 			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
@@ -947,6 +1050,9 @@ func TestReconciler(t *testing.T) {
 			var gotTrainJob kftrainerapi.TrainJob
 			if err := kClient.Get(ctx, tJobKey, &gotTrainJob); err != nil {
 				t.Fatalf("Could not get Job after reconcile: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantTrainJob, &gotTrainJob, tjobCmpOpts); diff != "" {
+				t.Errorf("TrainJob after reconcile (-want,+got):\n%s", diff)
 			}
 			var gotWorkloads kueue.WorkloadList
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {

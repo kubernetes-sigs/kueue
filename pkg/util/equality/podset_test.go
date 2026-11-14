@@ -21,7 +21,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -65,7 +64,7 @@ func TestComparePodTemplate(t *testing.T) {
 				ps.RestartPolicy = corev1.RestartPolicyAlways
 				ps.DNSPolicy = corev1.DNSClusterFirst
 				ps.SchedulerName = "default-scheduler"
-				ps.TerminationGracePeriodSeconds = ptr.To[int64](30)
+				ps.TerminationGracePeriodSeconds = new(int64(30))
 				ps.SecurityContext = &corev1.PodSecurityContext{}
 				return ps
 			}(),
@@ -113,6 +112,7 @@ func TestComparePodSetSlices(t *testing.T) {
 		ignoreTolerations         bool
 		ignoreTopologyRequest     bool
 		ignoreTopologyIndexLabels bool
+		ignoreContainerImages     bool
 		wantEquivalent            bool
 	}{
 		"different name": {
@@ -360,6 +360,38 @@ func TestComparePodSetSlices(t *testing.T) {
 			ignoreTopologyIndexLabels: true,
 			wantEquivalent:            true,
 		},
+		"different container images": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img1").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img2").Obj()},
+			wantEquivalent: false,
+		},
+		"different container images, ignore container images": {
+			a:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img1").Obj()},
+			b:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img2").Obj()},
+			ignoreContainerImages: true,
+			wantEquivalent:        true,
+		},
+		"different init container images, ignore container images": {
+			a:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).InitContainers(corev1.Container{Name: "init", Image: "img1"}).Obj()},
+			b:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).InitContainers(corev1.Container{Name: "init", Image: "img2"}).Obj()},
+			ignoreContainerImages: true,
+			wantEquivalent:        true,
+		},
+		"different requests, ignore container images": {
+			a:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img1").Request("res", "1").Obj()},
+			b:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Image("img2").Request("res", "2").Obj()},
+			ignoreContainerImages: true,
+			wantEquivalent:        false,
+		},
+		"different container count, ignore container images": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Containers(
+				corev1.Container{Name: "c1", Image: "img"},
+				corev1.Container{Name: "c2", Image: "img"},
+			).Obj()},
+			ignoreContainerImages: true,
+			wantEquivalent:        false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -372,6 +404,9 @@ func TestComparePodSetSlices(t *testing.T) {
 			}
 			if tc.ignoreTopologyIndexLabels {
 				options = append(options, WithIgnoreTopologyIndexLabels())
+			}
+			if tc.ignoreContainerImages {
+				options = append(options, WithIgnoreContainerImages())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {

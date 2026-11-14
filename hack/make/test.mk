@@ -24,15 +24,16 @@ ENVTEST_K8S_VERSION ?= 1.37
 ENVTEST_RETRY_ATTEMPTS ?= 7
 ENVTEST_RETRY_DELAY ?= 2
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) --exponential -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
 
 # Number of processes to use during integration tests to run specs within a
-# suite in parallel. Suites still run sequentially. User may set this value to 1
-# to run without parallelism.
-INTEGRATION_NPROCS ?= 4
+# suite in parallel. Five workers limit concurrent API server initialization to
+# reduce OOM risk in the seven-CPU CI jobs. Suites still run sequentially. User may
+# set this value to 1 to run without parallelism.
+INTEGRATION_NPROCS ?= 5
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
 # Folder where the integration tests are located.
 ifdef INTEGRATION_TOTAL_SHARDS
@@ -40,8 +41,12 @@ INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGR
 ifeq ($(INTEGRATION_TARGET),)
 $(error Aborting execution due to invalid sharding parameters (INTEGRATION_SHARD_INDEX / INTEGRATION_TOTAL_SHARDS))
 endif
+# Shards list packages explicitly, so only the shard with the kueuectl suite
+# needs the kubectl-kueue binary.
+INTEGRATION_KUEUECTL_DEP := $(if $(findstring /kueuectl,$(INTEGRATION_TARGET)),kueuectl)
 else
 INTEGRATION_TARGET ?= ./test/integration/singlecluster/...
+INTEGRATION_KUEUECTL_DEP := kueuectl
 endif
 INTEGRATION_TARGET_MULTIKUEUE ?= ./test/integration/multikueue/...
 # Verbosity level for apiserver logging.
@@ -93,6 +98,14 @@ endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
 
+# Prow's Spyglass coverage lens renders $(ARTIFACTS)/filtered.cov, and
+# $(ARTIFACTS)/filtered.html when present. The filtered profile leaves out
+# generated, client-go, mock, kueuectl test helper and test/ helper code so it
+# does not inflate the denominator. This is the only exclusion list: the
+# merged profile (hack/testing/merge-unit-coverage.sh) uses the shards'
+# filtered.cov as is.
+UNIT_COVERAGE_EXCLUDE := /zz_generated\.|^sigs\.k8s\.io/kueue/(client-go|internal/mocks|cmd/kueuectl/app/testing|test)/
+
 ##@ Tests
 
 # Periodic builds are tested with full ray image
@@ -111,9 +124,22 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # fails under -race without an attributed test failure (kueue issue 13290). The file is
 # written only when a race is actually detected, so green runs stay clean.
 	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+# -coverpkg repeats each block once per test binary, so merge duplicate blocks by
+# summing their counts to keep filtered.cov small. Local sharded runs overwrite filtered.cov.
+	grep -Ev '$(UNIT_COVERAGE_EXCLUDE)' "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" \
+		| awk 'NR == 1 { print; next } { n[$$1 " " $$2] += $$3 } END { for (k in n) print k, n[k] }' > "$(ARTIFACTS)/filtered.cov"
+	$(GO_CMD) tool cover -html="$(ARTIFACTS)/filtered.cov" -o "$(ARTIFACTS)/filtered.html"
+
+# Run by the Prow jobs pull-kueue-test-unit-coverage-main and
+# post-kueue-test-unit-coverage-main; see hack/testing/merge-unit-coverage.sh.
+# The shard count lives in that script (UNIT_COVERAGE_SHARDS).
+.PHONY: test-unit-coverage-merge
+test-unit-coverage-merge: gopherage gojq ## Merge the coverage of the unit shards that Prow ran on this job's refs (Prow only).
+	GOPHERAGE=$(GOPHERAGE) JQ=$(GOJQ) \
+		$(PROJECT_DIR)/hack/testing/merge-unit-coverage.sh
 
 # Time budget for fuzzing each individual fuzz target.
-# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.28
 FUZZTIME ?= 1000x
 
 .PHONY: test-fuzz
@@ -145,7 +171,7 @@ test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
 ##   Run AdmissionFairSharing tests: INTEGRATION_FILTERS="--label-filter=feature:admissionfairsharing" make test-integration
 
 .PHONY: test-integration
-test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
+test-integration: compile-crd-manifests envtest ginkgo dep-crds $(INTEGRATION_KUEUECTL_DEP) ginkgo-top test-integration-run ## Run integration tests for all singlecluster suites with dependencies.
 
 .PHONY: test-integration-run ## Run integration tests for all singlecluster suites.
 test-integration-run:
@@ -723,14 +749,16 @@ run-test-e2e-multikueue-sequential-%:
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kind-k8s-main-image-build run-test-e2e-k8s-main-was
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
 	@echo "Fetching latest Kubernetes CI build version..."
-	$(eval K8S_CI_VERSION := $(shell curl -sL https://dl.k8s.io/ci/latest.txt))
+	$(eval K8S_CI_VERSION := $(or \
+		$(shell $(PROJECT_DIR)/hack/testing/retry.sh -- curl -fsSL https://dl.k8s.io/ci/latest.txt), \
+		$(error failed to fetch latest Kubernetes CI version)))
 	@echo "Building kind node image from k/k main: $(K8S_CI_VERSION)"
-	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
+	$(NETWORK_RETRY) $(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
 .PHONY: run-test-e2e-k8s-main-was
@@ -740,14 +768,6 @@ run-test-e2e-k8s-main-was:
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		APPWRAPPER_VERSION=$(APPWRAPPER_VERSION) \
-		JOBSET_VERSION=$(JOBSET_VERSION) \
-		KUBEFLOW_VERSION=$(KUBEFLOW_VERSION) \
-		KUBEFLOW_MPI_VERSION=$(KUBEFLOW_MPI_VERSION) \
-		KUBEFLOW_TRAINER_VERSION=$(KUBEFLOW_TRAINER_VERSION) \
-		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
-		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS="ray" \
-		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -999,28 +1019,34 @@ setup-e2e-env: kustomize yq dep-crds kind $(if $(filter true,$(E2E_USE_HELM)),he
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
-test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz-local: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
+
+# KueueViz uses Cypress and a shell RBAC test, not Ginkgo or external job operators.
+.PHONY: setup-kueueviz-e2e-env
+setup-kueueviz-e2e-env: kustomize yq kind $(if $(filter true,$(E2E_USE_HELM)),helm) kubectl
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && \
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
 	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+# Export through Make so quoted GOFLAGS are not reinterpreted by the recipe shell.
+test-e2e-kueueviz: export KUEUEVIZ_BACKEND_GOFLAGS = $(GOFLAGS) $(filter -race,$(GO_TEST_FLAGS))
+test-e2e-kueueviz: export KUEUEVIZ_MAKE = $(MAKE)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GOFLAGS = $(GOFLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_FLAGS = $(GO_TEST_FLAGS)
+test-e2e-kueueviz: export KUEUEVIZ_TEST_GO_CMD = $(GO_CMD)
+test-e2e-kueueviz: setup-kueueviz-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) KUEUEVIZ_RUN_BACKEND_TESTS=true \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
-	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
-	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
-	${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
