@@ -2080,6 +2080,57 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			}, behavioral.Timeout, behavioral.Interval).ShouldNot(gomega.ContainElement(cq.Name))
 		})
 
+		ginkgo.It("should move ClusterQueue series to the new label value when a terminating ClusterQueue is relabeled", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-terminating").
+				Label("team", "platform").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-terminating", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl-terminating-1", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl1)
+			wl2 := utiltestingapi.MakeWorkload("wl-terminating-2", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "platform", "training")
+
+			ginkgo.By("deleting the ClusterQueue while its workloads are admitted")
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating, "platform")
+
+			ginkgo.By("updating the terminating ClusterQueue label to team=infra")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCQ)).To(gomega.Succeed())
+				updatedCQ.Labels["team"] = "infra"
+				g.Expect(k8sClient.Update(ctx, &updatedCQ)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func() []string {
+				return customMetricLabels.CQGet(kueue.ClusterQueueReference(cq.Name))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Equal([]string{"infra"}))
+
+			ginkgo.By("deleting one of the admitted workloads")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+
+			ginkgo.By("verifying the series carry only the new label value")
+			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "infra", "training")
+			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating, "infra")
+			expectNoRemainingSeries(clusterQueueScopedMetrics(), map[string]string{"cluster_queue": cq.Name, "custom_team_cq": "platform"})
+		})
+
 		ginkgo.It("should clear LocalQueue series and stored label values when the LocalQueue is deleted", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq-lq-deleted").
 				Label("team", "platform").
