@@ -1014,7 +1014,8 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // disrupt an already admitted group.
 // The reservation is taken from the effective PodSet spec (requests defaulted from
 // limits, LimitRange defaults and RuntimeClass overhead applied), the same view
-// quota is accounted against.
+// quota is accounted against. If resolving adjustment inputs fails, the error is
+// returned so that reconciliation retries.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1022,9 +1023,10 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	if !slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return isGated(&pod) }) {
 		return nil, nil
 	}
-	in, errs := workload.ResolveAdjustmentInputs(ctx, c, wl)
-	for _, err := range errs {
+	in, err := workload.ResolveAdjustmentInputs(ctx, c, wl)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
+		return nil, err
 	}
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))

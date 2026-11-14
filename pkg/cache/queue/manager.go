@@ -841,6 +841,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
+	info.AdjustmentErr = fresh.AdjustmentErr
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)

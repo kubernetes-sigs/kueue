@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -1101,6 +1102,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				WithLists(&kueuealpha.PreemptionConfigList{Items: []kueuealpha.PreemptionConfig{tc.config}}).
 				WithLists(&corev1.NodeList{Items: tc.nodes}).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 
 			cqCache := schdcache.New(cl)
@@ -1239,6 +1241,7 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: workloads}).
 				WithLists(&kueuealpha.PreemptionConfigList{Items: []kueuealpha.PreemptionConfig{preemptionConfig}}).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 
 			cqCache := schdcache.New(cl)

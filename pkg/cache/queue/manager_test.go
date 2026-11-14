@@ -34,6 +34,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1240,7 +1241,10 @@ func TestAddOrUpdateWorkloadResourceLookupsRespectCancellation(t *testing.T) {
 func TestDeleteWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
-	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
+	cl := utiltesting.NewClientBuilder().
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, queueOptions...)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -1292,7 +1296,10 @@ func TestDeleteWorkload(t *testing.T) {
 func TestDeleteAndForgetWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
-	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
+	cl := utiltesting.NewClientBuilder().
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, queueOptions...)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -1689,7 +1696,9 @@ func TestRequeueWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cl := utiltesting.NewFakeClient()
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -2402,7 +2411,11 @@ func TestHeadsAsync(t *testing.T) {
 				cancel()
 				wg.Wait()
 			})
-			client := utiltesting.NewFakeClient(tc.initialObjs...)
+			client := utiltesting.NewClientBuilder().
+				WithObjects(tc.initialObjs...).
+				WithStatusSubresource(tc.initialObjs...).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
 			manager := NewManagerForUnitTests(client, nil, queueOptions...)
 
@@ -2523,7 +2536,10 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 	}
 
 	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
-	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil, queueOptions...)
+	cl := utiltesting.NewClientBuilder().
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	manager := NewManagerForUnitTests(cl, nil, queueOptions...)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -3958,14 +3974,18 @@ func TestForgetInflight(t *testing.T) {
 // TestRequeueWorkloadWhileInflight covers RequeueWorkload's exits for a
 // workload that changed while it was checked out.
 func TestRequeueWorkloadWhileInflight(t *testing.T) {
-	setup := func(t *testing.T) (context.Context, client.Client, *Manager, *Head) {
+	setupWithWorkload := func(t *testing.T, wl *kueue.Workload, extraObjs ...client.Object) (context.Context, client.Client, *Manager, *Head) {
 		t.Helper()
-		wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
 		cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 		lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
 		cq2 := utiltestingapi.MakeClusterQueue("cq2").Obj()
 		lq2 := utiltestingapi.MakeLocalQueue("bar", "earth").ClusterQueue("cq2").Obj()
-		cl := utiltesting.NewFakeClient(wl, lq, cq, lq2, cq2)
+		objs := append([]client.Object{wl, lq, cq, lq2, cq2}, extraObjs...)
+		cl := utiltesting.NewClientBuilder().
+			WithObjects(objs...).
+			WithStatusSubresource(objs...).
+			WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+			Build()
 		manager := NewManagerForUnitTests(cl, nil, WithClock(testingclock.NewFakeClock(time.Now())))
 		ctx, _ := utiltesting.ContextWithLog(t)
 		for _, q := range []*kueue.LocalQueue{lq, lq2} {
@@ -3979,10 +3999,14 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 			}
 		}
 		popped := popOneHead(t, manager, "cq")
-		if popped == nil || workload.Key(popped.Obj) != "earth/a" {
-			t.Fatalf("checked out %v, want earth/a", popped)
+		if popped == nil || workload.Key(popped.Obj) != workload.Key(wl) {
+			t.Fatalf("checked out %v, want %v", popped, workload.Key(wl))
 		}
 		return ctx, cl, manager, popped
+	}
+	setup := func(t *testing.T) (context.Context, client.Client, *Manager, *Head) {
+		t.Helper()
+		return setupWithWorkload(t, utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj())
 	}
 
 	t.Run("deleted while inflight", func(t *testing.T) {
@@ -4095,6 +4119,97 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		}
 		if got := manager.workloadAssignedQueues["earth/a"]; got != "earth/bar" {
 			t.Errorf("queue assignment = %q, want %q", got, "earth/bar")
+		}
+	})
+
+	t.Run("adjustment error cleared while inflight", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("a", "earth").
+			Queue("foo").
+			PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("kata").Obj()).
+			Obj()
+		ctx, cl, manager, popped := setupWithWorkload(t, wl)
+		if popped.AdjustmentErr == nil {
+			t.Fatal("expected popped workload to have AdjustmentErr for missing RuntimeClass")
+		}
+		rc := utiltesting.MakeRuntimeClass("kata", "kata-handler").Obj()
+		if err := cl.Create(ctx, rc); err != nil {
+			t.Fatalf("Failed creating RuntimeClass: %v", err)
+		}
+		if !manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Fatal("RequeueWorkload failed to requeue workload")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left in the ClusterQueue: %d", got)
+		}
+		if !manager.getClusterQueue("cq").workloads.inadmissible.hasKey("earth/a") {
+			t.Error("workload not present in the ClusterQueue inadmissible set")
+		}
+		if popped.AdjustmentErr != nil {
+			t.Errorf("expected AdjustmentErr to be cleared after RuntimeClass creation, got: %v", popped.AdjustmentErr)
+		}
+	})
+
+	t.Run("adjustment error encountered while inflight", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("a", "earth").
+			Queue("foo").
+			PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("kata").Obj()).
+			Obj()
+		rc := utiltesting.MakeRuntimeClass("kata", "kata-handler").Obj()
+		ctx, cl, manager, popped := setupWithWorkload(t, wl, rc)
+		if popped.AdjustmentErr != nil {
+			t.Fatalf("expected popped workload to have no AdjustmentErr, got: %v", popped.AdjustmentErr)
+		}
+		if err := cl.Delete(ctx, rc); err != nil {
+			t.Fatalf("Failed deleting RuntimeClass: %v", err)
+		}
+		if !manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Fatal("RequeueWorkload failed to requeue workload")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left in the ClusterQueue: %d", got)
+		}
+		if !manager.getClusterQueue("cq").workloads.inadmissible.hasKey("earth/a") {
+			t.Error("workload not present in the ClusterQueue inadmissible set")
+		}
+		if popped.AdjustmentErr == nil {
+			t.Error("expected AdjustmentErr to be recorded after RuntimeClass deletion")
+		} else if !apierrors.IsNotFound(popped.AdjustmentErr) {
+			t.Errorf("expected NotFound error, got: %v", popped.AdjustmentErr)
+		}
+	})
+
+	t.Run("adjustment error updated while inflight", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("a", "earth").
+			Queue("foo").
+			PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("kata").Obj()).
+			Obj()
+		ctx, cl, manager, popped := setupWithWorkload(t, wl)
+		if popped.AdjustmentErr == nil {
+			t.Fatal("expected popped workload to have AdjustmentErr for missing RuntimeClass kata")
+		}
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		runtimeClassName := "gvisor"
+		w.Spec.PodSets[0].Template.Spec.RuntimeClassName = &runtimeClassName
+		if err := cl.Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload: %v", err)
+		}
+		if !manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Fatal("RequeueWorkload failed to requeue workload")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left in the ClusterQueue: %d", got)
+		}
+		if !manager.getClusterQueue("cq").workloads.inadmissible.hasKey("earth/a") {
+			t.Error("workload not present in the ClusterQueue inadmissible set")
+		}
+		if popped.AdjustmentErr == nil {
+			t.Fatal("expected AdjustmentErr to be recorded for gvisor")
+		}
+		if !strings.Contains(popped.AdjustmentErr.Error(), "gvisor") {
+			t.Errorf("expected AdjustmentErr to reference gvisor, got: %v", popped.AdjustmentErr)
 		}
 	})
 }
