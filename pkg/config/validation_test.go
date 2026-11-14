@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -4650,25 +4651,26 @@ func TestValidateCustomLabels(t *testing.T) {
 // value its field path names.
 func TestValidateAdmissionFairSharingErrorValues(t *testing.T) {
 	cases := map[string]struct {
-		afs       *configapi.AdmissionFairSharing
-		wantField string
-		wantValue any
+		afs     *configapi.AdmissionFairSharing
+		wantErr field.ErrorList
 	}{
 		"half-life": {
 			afs: &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: -time.Second},
 				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
 			},
-			wantField: "admissionFairSharing.usageHalfLifeTime",
-			wantValue: metav1.Duration{Duration: -time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(afsPath.Child("usageHalfLifeTime"), metav1.Duration{Duration: -time.Second}, apimachineryvalidation.IsNegativeErrorMsg),
+			},
 		},
 		"sampling interval": {
 			afs: &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: -time.Second},
 			},
-			wantField: "admissionFairSharing.usageSamplingInterval",
-			wantValue: metav1.Duration{Duration: -time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(afsPath.Child("usageSamplingInterval"), metav1.Duration{Duration: -time.Second}, "must be greater than 0"),
+			},
 		},
 		"one resource weight of several": {
 			afs: &configapi.AdmissionFairSharing{
@@ -4678,21 +4680,16 @@ func TestValidateAdmissionFairSharingErrorValues(t *testing.T) {
 					corev1.ResourceMemory: 1,
 				},
 			},
-			wantField: "admissionFairSharing.resourceWeights[cpu]",
-			wantValue: float64(-0.5),
+			wantErr: field.ErrorList{
+				field.Invalid(afsResourceWeightsPath.Key(string(corev1.ResourceCPU)), float64(-0.5), apimachineryvalidation.IsNegativeErrorMsg),
+			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			errs := validateAdmissionFairSharing(&configapi.Configuration{AdmissionFairSharing: tc.afs})
-			if len(errs) != 1 {
-				t.Fatalf("got %d errors, want 1: %v", len(errs), errs)
-			}
-			if got := errs[0].Field; got != tc.wantField {
-				t.Errorf("Field = %q, want %q", got, tc.wantField)
-			}
-			if diff := cmp.Diff(tc.wantValue, errs[0].BadValue); diff != "" {
-				t.Errorf("BadValue mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantErr, errs); diff != "" {
+				t.Errorf("unexpected errors (-want +got):\n%s", diff)
 			}
 		})
 	}
