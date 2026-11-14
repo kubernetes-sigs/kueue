@@ -1,0 +1,28 @@
+title: Decouple the WaitForPodsReady mechanism from JobFramework controller to the dedicated controller
+kep-number: 15404
+authors:
+  - "@vic-comm"
+status: provisional
+creation-date: 2026-09-14
+reviewers:
+  - "@tenzen-y"
+approvers:
+  - "@tenzen-y"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.21"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.21"
+  beta: "v0.22"
+  stable: "v0.23"
+
+feature-gates:
+  - name: DecoupledWaitForPodsReady
+disable-supported: true
