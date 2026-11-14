@@ -83,6 +83,22 @@ func DeleteAllRayServicesInNamespace(ctx context.Context, c client.Client, ns *c
 	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayService{})
 }
 
+func DeleteAllRayClustersInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &rayv1.RayCluster{})
+}
+
+func DeleteAllTFJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.TFJob{})
+}
+
+func DeleteAllPaddleJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.PaddleJob{})
+}
+
+func DeleteAllXGBoostJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &kftraining.XGBoostJob{})
+}
+
 func DeleteAllSparkApplicationsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &sparkv1beta2.SparkApplication{})
 }
