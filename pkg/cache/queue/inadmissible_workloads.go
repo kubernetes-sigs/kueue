@@ -252,8 +252,8 @@ type requeueRequest struct {
 	Cohort       kueue.CohortReference
 }
 
-// workqueueRequeuer satisfies the inadmissibleRequeuer
-// interface, implemented via a workqueue.TypedDelayingQueue.
+// workqueueRequeuer satisfies the inadmissibleRequeuer interface.
+// It batches notifications and rate-limits failed Namespace lookups.
 type workqueueRequeuer struct {
 	manager     *Manager
 	queue       workqueue.TypedRateLimitingInterface[requeueRequest]
