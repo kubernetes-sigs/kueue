@@ -236,6 +236,8 @@ func syncLocalPodWithRemote(
 		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
 		Spec:       *localPod.Spec.DeepCopy(),
 	}
+	// The API server forbids ephemeralContainers on create; they are added only via the subresource.
+	remotePod.Spec.EphemeralContainers = nil
 
 	// Add prebuilt workload name and multikueue origin
 	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
