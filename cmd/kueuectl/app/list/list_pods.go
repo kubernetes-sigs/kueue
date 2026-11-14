@@ -219,11 +219,13 @@ func (o *PodOptions) completePodSelectors() error {
 	// whose gates are unrelated to those of the cluster that wrote the annotation.
 	if groupName := pod.Annotations[podconstants.GroupNameAnnotation]; groupName != "" {
 		// Label selectors cannot match annotations, so the members are listed without a
-		// pod group selector and filtered client-side instead.
+		// pod group selector and filtered client-side instead. A Pod group is
+		// namespace-scoped, so retain the anchor Pod namespace for the member scan.
 		o.PodLabelSelector = ""
 		o.PodAnnotationSelector = &podAnnotationSelector{
-			key:   podconstants.GroupNameAnnotation,
-			value: groupName,
+			key:       podconstants.GroupNameAnnotation,
+			value:     groupName,
+			namespace: pod.Namespace,
 		}
 		return nil
 	}
@@ -236,11 +238,12 @@ func (o *PodOptions) completePodSelectors() error {
 	return nil
 }
 
-// podAnnotationSelector identifies the pods of a group whose name lives in an annotation,
-// which the API server cannot select on.
+// podAnnotationSelector identifies the pods of a namespace-scoped group whose name lives in
+// an annotation, which the API server cannot select on.
 type podAnnotationSelector struct {
-	key   string
-	value string
+	key       string
+	value     string
+	namespace string
 }
 
 func (s *podAnnotationSelector) matches(annotations map[string]string) bool {
@@ -330,6 +333,8 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	trackingWriter := &trackingWriterWrapper{Delegate: o.Out}
 	tabWriter := printers.GetNewTabWriter(trackingWriter)
 
+	o.warnAnnotationBasedPodGroupScan()
+
 	infos, err := o.getPodsInfos(clientGetter)
 	if err != nil {
 		return err
@@ -365,6 +370,35 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	return nil
+}
+
+// warnAnnotationBasedPodGroupScan tells the user when listing a Pod group requires
+// fetching every Pod in its scope because the API server cannot select annotations.
+func (o *PodOptions) warnAnnotationBasedPodGroupScan() {
+	if o.PodAnnotationSelector == nil {
+		return
+	}
+
+	scanScope := fmt.Sprintf("namespace %q", o.PodAnnotationSelector.namespace)
+
+	selectors := make([]string, 0, 2)
+	if o.LabelSelector != "" {
+		selectors = append(selectors, fmt.Sprintf("label selector %q", o.LabelSelector))
+	}
+	if o.FieldSelector != "" {
+		selectors = append(selectors, fmt.Sprintf("field selector %q", o.FieldSelector))
+	}
+
+	scope := fmt.Sprintf("all Pods in %s", scanScope)
+	if len(selectors) > 0 {
+		scope = fmt.Sprintf("Pods matching %s in %s", strings.Join(selectors, " and "), scanScope)
+	}
+
+	message := fmt.Sprintf("Warning: Pod group %q is identified by an annotation, so listing %s and filtering them client-side.", o.PodAnnotationSelector.value, scope)
+	if len(selectors) == 0 {
+		message += " Use --selector to narrow the list when the group Pods share a label."
+	}
+	fmt.Fprintln(o.ErrOut, message)
 }
 
 func (o *PodOptions) shouldPrintPodList() bool {
@@ -416,12 +450,16 @@ func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
 // getPodsInfos gets the pods raw infos directly from the API server
 func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*resource.Info, error) {
 	namespace := o.Namespace
-	if o.AllNamespaces {
+	allNamespaces := o.AllNamespaces
+	if o.PodAnnotationSelector != nil {
+		namespace = o.PodAnnotationSelector.namespace
+		allNamespaces = false
+	} else if allNamespaces {
 		namespace = ""
 	}
 
 	r := clientGetter.NewResourceBuilder().Unstructured().
-		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
+		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(allNamespaces).
 		FieldSelectorParam(joinSelectors(o.FieldSelector, o.PodFieldSelector)).
 		LabelSelectorParam(joinSelectors(o.LabelSelector, o.PodLabelSelector)).
 		ResourceTypeOrNameArgs(true, "pods").

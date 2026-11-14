@@ -185,10 +185,17 @@ Kueue itself does not manage the `ClusterProfile` resources, which is the respon
 
 {{% /alert %}}
 
-### Enable the `MultiKueueClusterProfile` feature gate
+### The `MultiKueueClusterProfile` feature gate
 
-The `MultiKueueClusterProfile` feature gate has to be enabled for Kueue to consider `ClusterProfile` objects when connecting to clusters.
+Kueue considers `ClusterProfile` objects when connecting to clusters only if the `MultiKueueClusterProfile` feature gate is enabled.
+The feature gate is enabled by default since Kueue v0.21. In earlier versions, enable it explicitly.
 Refer to the [Installation guide](/docs/installation/#change-the-feature-gates-configuration) for instructions on configuring feature gates.
+
+Kueue detects the `clusterprofiles.multicluster.x-k8s.io` CRD only at startup.
+If you install the CRD while Kueue is running, restart kueue-controller-manager:
+```bash
+kubectl -n kueue-system rollout restart deployment kueue-controller-manager
+```
 
 {{% alert title="Note" color="primary" %}}
 
