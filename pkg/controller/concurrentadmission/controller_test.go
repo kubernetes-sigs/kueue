@@ -260,6 +260,134 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"parent workload spec updated; syncs updated spec to unadmitted variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonUpdatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-spot-a2342\" updated",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonUpdatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" updated",
+				},
+			},
+		},
+		"admitted variant does not update its spec": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+		},
+		"unadmitted variant with quota reservation does not update its spec from unreserved parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					Obj(),
+			},
+		},
 		"parent workload whose name has no separator creates variants": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl", "default").
 				Queue("lq").
@@ -611,6 +739,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-spot-only").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				// on-demand holds an open gate whose preemption timeout has NOT elapsed
@@ -637,6 +766,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-spot-only").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				// on-demand deleted; spot's gate is opened even though on-demand's gate
@@ -671,6 +801,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				// on-demand is the most-preferred flavor and already holds an open
@@ -696,6 +827,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -731,6 +863,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -753,6 +886,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -787,6 +921,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -809,6 +944,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -833,6 +969,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -854,6 +991,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -877,6 +1015,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -899,6 +1038,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -923,6 +1063,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -945,6 +1086,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -979,6 +1121,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -1001,6 +1144,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
@@ -1026,6 +1170,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
@@ -1056,6 +1201,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-migration-no-constraint").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
