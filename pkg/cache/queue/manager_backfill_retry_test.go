@@ -126,8 +126,8 @@ func TestAddClusterQueueListFailureDoesNotPublishPartialState(t *testing.T) {
 	if err != nil || pending != 1 {
 		t.Fatalf("Pending() = (%d, %v), want (1, nil)", pending, err)
 	}
-	if manager.hm.Cohort("cohort") == nil {
-		t.Fatal("successful ClusterQueue registration did not create the Cohort edge")
+	if hmCQ := manager.hm.ClusterQueue("cq"); hmCQ == nil || !hmCQ.HasParent() || hmCQ.Parent().GetName() != "cohort" {
+		t.Fatal("successful ClusterQueue registration did not attach to the Cohort")
 	}
 	if err := manager.AddClusterQueue(ctx, cq); err == nil {
 		t.Fatal("fully registered ClusterQueue accepted a duplicate registration")

@@ -1300,6 +1300,13 @@ func (m *Manager) removeUnadmittedWorkloadWithoutLock(log logr.Logger, wlKey wor
 	m.unadmittedWorkloads.remove(log, wlKey, m)
 }
 
+// ClusterQueueExists reports whether the queue manager has registered the ClusterQueue.
+func (m *Manager) ClusterQueueExists(cqRef kueue.ClusterQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	return m.hm.ClusterQueue(cqRef) != nil
+}
+
 func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
 	m.RLock()
 	defer m.RUnlock()

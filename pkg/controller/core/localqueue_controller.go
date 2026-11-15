@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -193,6 +194,15 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if ptr.Deref(queueObj.Spec.StopPolicy, kueue.None) != kueue.None {
 		err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, StoppedReason, localQueueIsInactiveMsg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Reconcile retries registration if the Create or Update event failed to
+	// list existing Workloads. The manager serializes concurrent registrations.
+	lqKey := utilqueue.Key(&queueObj)
+	if !r.queues.LocalQueueExists(lqKey) {
+		if err := r.queues.AddLocalQueue(ctx, &queueObj); err != nil && !r.queues.LocalQueueExists(lqKey) {
+			return ctrl.Result{}, fmt.Errorf("registering localQueue in queue manager: %w", err)
+		}
 	}
 
 	var cq kueue.ClusterQueue

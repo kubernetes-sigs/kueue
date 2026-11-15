@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"math"
 	"slices"
@@ -176,6 +177,16 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if cqObj.DeletionTimestamp.IsZero() {
+		// A failed initial LocalQueue list leaves the queue manager without this
+		// ClusterQueue. Reconcile retries the registration so recovery does not
+		// depend on another informer create event or a controller restart.
+		cqName := kueue.ClusterQueueReference(cqObj.Name)
+		if !r.qManager.ClusterQueueExists(cqName) {
+			if err := r.qManager.AddClusterQueue(ctx, &cqObj); err != nil && !r.qManager.ClusterQueueExists(cqName) {
+				return ctrl.Result{}, fmt.Errorf("registering clusterQueue in queue manager: %w", err)
+			}
+		}
+
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
 		if !controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
