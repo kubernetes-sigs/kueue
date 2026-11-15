@@ -511,10 +511,6 @@ func (w *wlReconciler) syncReplacedSliceTerminalStatus(
 		return nil
 	}
 	key := types.NamespacedName{Name: controllerName, Namespace: wl.Namespace}
-	owned, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteClient.getClient(), key, adapter.GVK(), w.origin)
-	if err != nil || !owned {
-		return err
-	}
 	synced, err := syncer.SyncTerminalJobStatus(ctx, w.client, remoteClient.getClient(), key, wl.Name, w.origin)
 	if err != nil {
 		return fmt.Errorf("syncing terminal status from replaced workload slice %s on worker %s: %w",
