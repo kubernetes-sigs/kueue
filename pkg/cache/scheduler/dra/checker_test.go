@@ -33,6 +33,7 @@ import (
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -96,6 +97,10 @@ func (p *passthroughChecker) AddCompositePodGroup(_ context.Context, _ *scheduli
 }
 
 func (p *passthroughChecker) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (p *passthroughChecker) BookWorkload(_ context.Context, _ *kueue.Workload) error {
 	return nil
 }
 

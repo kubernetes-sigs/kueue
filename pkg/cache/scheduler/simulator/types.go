@@ -159,7 +159,11 @@ func WithCommittedPreemptionVictims(targets []workload.Reference) ScheduleOption
 type SchedulingResult struct {
 	PodPlacements     PodPlacements
 	PreemptionVictims []workload.Reference
-	Error             error
+	// WaitingForPreemption reports that the placements are feasible only once
+	// preemption victims are gone: the new PreemptionVictims, or only the
+	// committed victims passed with WithCommittedPreemptionVictims.
+	WaitingForPreemption bool
+	Error                error
 }
 
 type PodPlacements map[client.ObjectKey]*PodPlacement

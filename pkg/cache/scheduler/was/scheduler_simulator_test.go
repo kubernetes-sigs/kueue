@@ -1275,7 +1275,10 @@ func TestScheduleWorkload(t *testing.T) {
 		scheduleOpts   []simulator.ScheduleOption
 		wantPlacements simulator.PodPlacements
 		wantPreempted  []workload.Reference
-		wantError      error
+		// wantWaitingForPreemption is whether the placements are feasible only
+		// once the committed or the new preemption victims are gone.
+		wantWaitingForPreemption bool
+		wantError                error
 	}{
 		"no pods: no placements": {
 			wantPlacements: simulator.PodPlacements{},
@@ -1465,6 +1468,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
+			wantWaitingForPreemption: true,
 		},
 		"duplicate names are de-duplicated": {
 			existingPods: []*corev1.Pod{
@@ -1495,6 +1499,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
 			},
+			wantWaitingForPreemption: true,
 		},
 		"committed victims are used before potential victims": {
 			existingPods: []*corev1.Pod{
@@ -1550,7 +1555,8 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("candidate1")},
+			wantPreempted:            []workload.Reference{wlRef("candidate1")},
+			wantWaitingForPreemption: true,
 		},
 		"pods blocked by committed preemption targets: pods blocked by other workloads are not placed": {
 			existingPods: []*corev1.Pod{
@@ -1617,7 +1623,8 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-wl")},
+			wantPreempted:            []workload.Reference{wlRef("victim-wl")},
+			wantWaitingForPreemption: true,
 		},
 		"preemption: reprieves candidate workload without pods when there is no filter": {
 			existingPods: []*corev1.Pod{
@@ -1637,7 +1644,8 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-wl")},
+			wantPreempted:            []workload.Reference{wlRef("victim-wl")},
+			wantWaitingForPreemption: true,
 		},
 		"preemption: workload fits after preempting ordered candidate workloads": {
 			nodes: []*corev1.Node{makeNode("node1", "10")},
@@ -1684,7 +1692,8 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-2")},
+			wantPreempted:            []workload.Reference{wlRef("victim-2")},
+			wantWaitingForPreemption: true,
 		},
 		"preemption: fails when candidate workloads do not free enough resources": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1761,7 +1770,8 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node2"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-2")},
+			wantPreempted:            []workload.Reference{wlRef("victim-2")},
+			wantWaitingForPreemption: true,
 		},
 		"preemption with filter: node-level fit needs one victim, filter requires both victims": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1804,7 +1814,8 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("victim-1"), wlRef("victim-2")},
+			wantPreempted:            []workload.Reference{wlRef("victim-1"), wlRef("victim-2")},
+			wantWaitingForPreemption: true,
 		},
 		"preemption with filter: preempts candidate workload without pods to free quota": {
 			nodes:     []*corev1.Node{makeNode("node1", "6")},
@@ -1819,7 +1830,8 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
-			wantPreempted: []workload.Reference{wlRef("podless-victim")},
+			wantPreempted:            []workload.Reference{wlRef("podless-victim")},
+			wantWaitingForPreemption: true,
 		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
@@ -1893,6 +1905,9 @@ func TestScheduleWorkload(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.wantPreempted, got.PreemptionVictims); diff != "" {
 					t.Errorf("attempt %d: unexpected preemption victims (-want,+got):\n%s", attempt, diff)
+				}
+				if got.WaitingForPreemption != tc.wantWaitingForPreemption {
+					t.Errorf("attempt %d: WaitingForPreemption = %v, want %v", attempt, got.WaitingForPreemption, tc.wantWaitingForPreemption)
 				}
 			}
 		})
@@ -2461,4 +2476,92 @@ func TestWASSimulatorFactory_VirtualPodsCaching(t *testing.T) {
 	if cacheLen != 0 {
 		t.Errorf("expected virtualPods to be pruned to 0, got %d", cacheLen)
 	}
+}
+
+func TestBookWorkload(t *testing.T) {
+	ctx := t.Context()
+	node1 := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+	// portSpec asks for host port 8080, so that two such Pods do not fit on one node.
+	portSpec := corev1.PodSpec{Containers: []corev1.Container{{
+		Name:  "c",
+		Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+	}}}
+	// booked makes a Workload of count Pods asking for host port 8080, all assigned to node1.
+	booked := func(name string, count int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "default").UID(types.UID(name + "-uid")).
+			PodSets(kueue.PodSet{
+				Name:     "main",
+				Count:    count,
+				Template: corev1.PodTemplateSpec{Spec: portSpec},
+			}).
+			Admission(utiltestingapi.MakeAdmission("cq").
+				PodSets(kueue.PodSetAssignment{
+					Name:  "main",
+					Count: new(count),
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, count).Obj()).
+						Obj(),
+				}).
+				Obj()).
+			Obj()
+	}
+	candidates := func(yield func(simulator.Candidate) bool) {
+		yield(&testCandidate{node: node1, id: utiltas.TopologyDomainID(node1.Name)})
+	}
+	// portFree reports whether a Pod asking for host port 8080 fits on node1.
+	portFree := func(sim simulator.SchedulerSimulator) bool {
+		t.Helper()
+		results, err := sim.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+			PodTemplate: &corev1.PodTemplateSpec{Spec: portSpec},
+		}, &simulator.NodeExclusionStats{})
+		if err != nil {
+			t.Fatalf("FindFeasibleNodes failed: %v", err)
+		}
+		return len(results) > 0
+	}
+	newSimulator := func() simulator.SchedulerSimulator {
+		t.Helper()
+		factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+		if err != nil {
+			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+		}
+		sim, err := factory.NewSimulator(ctx, []*corev1.Node{node1}, &podtracker.Tracker{})
+		if err != nil {
+			t.Fatalf("NewSimulator failed: %v", err)
+		}
+		return sim
+	}
+
+	t.Run("the Pods of the Workload take their node", func(t *testing.T) {
+		sim := newSimulator()
+		if err := sim.BookWorkload(ctx, booked("wl", 1)); err != nil {
+			t.Fatalf("BookWorkload failed: %v", err)
+		}
+		if portFree(sim) {
+			t.Error("The host port of the booked Pod is free")
+		}
+		// The booked Pods belong to their Workload.
+		if _, err := sim.PreemptWorkload(ctx, workload.NewReference("default", "wl")); err != nil {
+			t.Fatalf("PreemptWorkload failed: %v", err)
+		}
+		if !portFree(sim) {
+			t.Error("The host port is not free once the booked Workload is preempted")
+		}
+	})
+	t.Run("the Pods which do not fit are reported, the others stay", func(t *testing.T) {
+		sim := newSimulator()
+		if err := sim.BookWorkload(ctx, booked("wl", 2)); err == nil {
+			t.Error("BookWorkload succeeded for two Pods asking for the same host port on one node")
+		}
+		if portFree(sim) {
+			t.Error("The host port is free, although the Pod which fits should take it")
+		}
+	})
 }

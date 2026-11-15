@@ -49,12 +49,24 @@ type Plan struct {
 	Error error
 }
 
+// CanFit reports whether the Workload can be admitted with the assignment:
+// right away, once the preemption targets are evicted, or once the committed
+// preemption victims are gone. Waiting for residual TAS Pods does not count,
+// so that a reduced count which fits without preemption is preferred.
 func (p *Plan) CanFit() bool {
 	if p.Error != nil {
 		return false
 	}
-	arm := p.Assignment.RepresentativeMode()
-	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
+	switch p.Assignment.RepresentativeMode() {
+	case flavorassigner.Fit:
+		return true
+	case flavorassigner.Preempt:
+		return len(p.PreemptionTargets) > 0
+	case flavorassigner.DeferredFit:
+		return !p.Assignment.WaitingForResidualTASPods
+	default:
+		return false
+	}
 }
 
 type options struct{}

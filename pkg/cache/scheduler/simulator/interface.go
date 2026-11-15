@@ -95,6 +95,12 @@ type SchedulerSimulator interface {
 	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 	// RemoveCompositePodGroup removes a CompositePodGroup from the snapshot
 	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+	// BookWorkload places the Pods of the Workload on the nodes of its
+	// topology assignment, for the rest of the simulator's lifetime, so that
+	// later simulations account for them. It returns an error if some Pods
+	// could not be placed; those placed stay.
+	// The default implementation does not perform any logic here.
+	BookWorkload(ctx context.Context, wl *kueue.Workload) error
 }
 
 // PodPreemptingSimulator optionally supports temporary removal of individual

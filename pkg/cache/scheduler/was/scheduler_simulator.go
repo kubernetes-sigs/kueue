@@ -23,6 +23,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -264,8 +267,9 @@ func toSchedulingResult(workloadPods []*corev1.Pod, wasResult schedlib.WorkloadS
 	}
 
 	return simulator.SchedulingResult{
-		PodPlacements:     placements,
-		PreemptionVictims: toPreemptionVictims(wasResult.PreemptionVictims),
+		PodPlacements:        placements,
+		PreemptionVictims:    toPreemptionVictims(wasResult.PreemptionVictims),
+		WaitingForPreemption: wasResult.WaitingForPreemption,
 	}
 }
 
@@ -319,6 +323,36 @@ func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedul
 	}
 	delete(s.compositePodGroups, client.ObjectKeyFromObject(cpg))
 	return nil
+}
+
+// BookWorkload places the virtual Pods of the Workload on the nodes of its
+// topology assignment, one node at a time.
+func (s *wasSimulator) BookWorkload(ctx context.Context, wl *kueue.Workload) error {
+	byNode := make(map[string][]*corev1.Pod)
+	for _, pod := range VirtualPodsForWorkload(wl).Pods() {
+		byNode[pod.Spec.NodeName] = append(byNode[pod.Spec.NodeName], pod)
+	}
+	var errs []error
+	for _, node := range slices.Sorted(maps.Keys(byNode)) {
+		placement, err := s.wasSnapshot.MakePlacement([]string{node})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("node %s: %w", node, err))
+			continue
+		}
+		results, err := s.wasSnapshot.SchedulePods(ctx, copyWithDefaultScheduler(byNode[node]...), placement, schedlib.SchedulePodsOptions{})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("node %s: %w", node, err))
+			continue
+		}
+		for _, res := range results {
+			if !res.Status.IsSuccess() {
+				errs = append(errs, fmt.Errorf("pod %s does not fit on node %s: %s", res.Pod.Name, node, res.Status.Message()))
+				continue
+			}
+			s.pods.Track(res.Pod)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {

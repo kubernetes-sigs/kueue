@@ -565,6 +565,15 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
+		// With SchedulerLibraryDeepIntegration, the placement of a DeferredFit
+		// accounts for the workloads booked before in this cycle, unless one
+		// of them could not be placed in the scheduling simulator: a DeferredFit
+		// which then conflicts with it is dropped like a Fit.
+		if features.Enabled(features.SchedulerLibraryDeepIntegration) && !fits {
+			e.markSkipped("Workload no longer fits after processing another workload")
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+			return
+		}
 		if e.assignment.WaitingForResidualTASPods {
 			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
 		} else {
@@ -575,7 +584,7 @@ func (s *Scheduler) processEntry(
 		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		bookUsage(log, snapshot, cq, e)
+		bookUsage(ctx, log, snapshot, cq, e)
 		return
 	}
 
@@ -596,13 +605,19 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	bookUsage(log, snapshot, cq, e)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
 	// as a preemptible target during flavor assignment. However, it should be evicted rather than preempted.
 	// Note: it is valid for either or both preemptionTargets and oldWorkloadSlice to be nil.
-	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, e.preemptionTargets)
+	// The filtering works on a copy, as booking the usage needs the replaced slice.
+	preemptionTargets, oldWorkloadSlice := workloadslicing.FindReplacedSliceTarget(e.Obj, slices.Clone(e.preemptionTargets))
+	// The targets stay committed victims for the rest of the cycle, even if
+	// issuing their preemption fails: this only makes later decisions wait.
+	// Their Pods leave the scheduling simulator before the usage is booked,
+	// which places the Pods of this workload there.
+	snapshot.AddCommittedVictims(ctx, targetWorkloads(preemptionTargets)...)
+	bookUsage(ctx, log, snapshot, cq, e)
 
 	if mode == flavorassigner.Preempt {
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
@@ -870,7 +885,11 @@ func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *sch
 // slice replacement this completes the move from the replaced slice, which
 // stays in its ClusterQueue so that another replacement of the same slice
 // still conflicts with this one.
-func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
+// With SchedulerLibraryDeepIntegration, it also places the entry's Pods into
+// the scheduling simulator, so that the workloads processed later in the cycle
+// plan around them; except for a slice replacement, as the Pods of the
+// replaced slice still run there.
+func bookUsage(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
 	usage, replaced := e.bookedUsage(log)
 	if replaced != nil {
 		snapshot.ReleaseWorkloadUsage(replaced)
@@ -882,6 +901,12 @@ func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.Clus
 		}
 	}
 	snapshot.AddUsage(cq, usage)
+	if replaced == nil && features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		snapshot.BookInSimulator(ctx, e.Obj, &kueue.Admission{
+			ClusterQueue:      e.ClusterQueue,
+			PodSetAssignments: e.assignment.ToAPI(log, e.Obj),
+		})
+	}
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -1107,6 +1132,14 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 // out of the snapshot and returns the single undo.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
 	return snapshot.SimulateRemovals(ctx, log, slices.Collect(maps.Values(preemptedWorkloads)))
+}
+
+func targetWorkloads(targets []*preemption.Target) []*workload.Info {
+	workloads := make([]*workload.Info, 0, len(targets))
+	for _, target := range targets {
+		workloads = append(workloads, target.WorkloadInfo)
+	}
+	return workloads
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
@@ -1740,7 +1773,10 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
 		retryAt = nil
-		targets = append(slicePreemptTargets, targets...)
+		// A DeferredFit preempts nothing until the committed victims are gone.
+		if fullAssignment.RepresentativeMode() != flavorassigner.DeferredFit {
+			targets = append(slicePreemptTargets, targets...)
+		}
 	} else if err != nil {
 		retryAt = nil
 	}

@@ -68,6 +68,10 @@ type Snapshot struct {
 	// reservation covers them. Retained only for this scheduling cycle so the
 	// planner can distinguish eventual release from capacity to preempt.
 	residualTASPods []tasPodUsageValue
+
+	// committedVictims are the Workloads whose eviction is committed, see
+	// AddCommittedVictims.
+	committedVictims map[workload.Reference]*workload.Info
 }
 
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
@@ -209,6 +213,24 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 			s.AddWorkload(w)
 		}
 	}
+}
+
+// BookInSimulator places the Pods of the Workload, with the given admission,
+// into the scheduling simulator for the rest of the cycle, as its usage is
+// booked in the snapshot. It is a no-op without SchedulerLibraryDeepIntegration.
+func (s *Snapshot) BookInSimulator(ctx context.Context, wl *kueue.Workload, admission *kueue.Admission) {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) || s.SchedulerSimulator == nil {
+		return
+	}
+	booked := *wl
+	booked.Status.Admission = admission
+	if err := s.SchedulerSimulator.BookWorkload(ctx, &booked); err != nil {
+		// Later placements may then conflict with this Workload, which the
+		// fit checks against the snapshot still catch.
+		ctrl.LoggerFrom(ctx).V(3).Info("Could not book a Workload in the scheduling simulator",
+			"workload", klog.KObj(wl), "error", err)
+	}
+	s.forgetSimulatedFeasibility()
 }
 
 // forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
@@ -535,8 +557,11 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 // returns a function that puts them back.
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
-	// nothing to take out of it and nothing cached to drop.
-	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+	// nothing to take out of it and nothing cached to drop. With
+	// SchedulerLibraryDeepIntegration, the Pods of preempted Workloads, committed
+	// victims, have left the simulator for the whole cycle already.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) ||
+		features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))
