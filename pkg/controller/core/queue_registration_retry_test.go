@@ -24,7 +24,6 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -167,7 +166,8 @@ func TestLocalQueueReconcileDoesNotRestoreStoppedOrDeletedQueue(t *testing.T) {
 				if err := cl.Get(ctx, client.ObjectKeyFromObject(lq), current); err != nil {
 					t.Fatalf("reading LocalQueue before stopping: %v", err)
 				}
-				current.Spec.StopPolicy = ptr.To(kueue.Hold)
+				policy := kueue.Hold
+				current.Spec.StopPolicy = &policy
 				if err := cl.Update(ctx, current); err != nil {
 					t.Fatalf("stopping LocalQueue: %v", err)
 				}
@@ -258,4 +258,82 @@ func TestLocalQueueReconcileDoesNotRestoreStoppedOrDeletedQueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClusterQueueReconcileRegistersLatestCohortAfterConcurrentUpdate(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Generation(1).Obj()
+	cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+
+	snapshotRead := make(chan struct{})
+	resumeReconcile := make(chan struct{})
+	var paused atomic.Bool
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(cq, lq, wl).
+		WithStatusSubresource(cq, lq).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if err := delegate.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				if _, ok := obj.(*kueue.ClusterQueue); ok && paused.CompareAndSwap(false, true) {
+					close(snapshotRead)
+					<-resumeReconcile
+				}
+				return nil
+			},
+		}).
+		Build()
+	cache := schdcache.New(cl)
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("adding ClusterQueue to scheduler cache: %v", err)
+	}
+	manager := qcache.NewManagerForUnitTests(cl, cache)
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("adding LocalQueue: %v", err)
+	}
+	r := NewClusterQueueReconciler(cl, manager, cache)
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cq)}
+	reconcileErr := make(chan error, 1)
+	go func() {
+		_, err := r.Reconcile(ctx, req)
+		reconcileErr <- err
+	}()
+
+	select {
+	case <-snapshotRead:
+	case <-time.After(10 * time.Second):
+		close(resumeReconcile)
+		t.Fatal("Reconcile did not read the original ClusterQueue")
+	}
+
+	// The Update event runs before the paused Reconcile can register the
+	// ClusterQueue. An old snapshot would incorrectly attach cohort-a.
+	current := cq.DeepCopy()
+	current.Spec.CohortName = "cohort-b"
+	current.Generation = 2
+	if err := cl.Update(ctx, current); err != nil {
+		close(resumeReconcile)
+		t.Fatalf("updating ClusterQueue Cohort: %v", err)
+	}
+	r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: current})
+	close(resumeReconcile)
+	select {
+	case err := <-reconcileErr:
+		if err != nil {
+			t.Fatalf("Reconcile after cohort update: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Reconcile did not complete")
+	}
+
+	manager.RLock()
+	q := manager.ClusterQueueForWorkloadWithoutLock(wl)
+	if q == nil || !q.HasParent() || q.Parent().GetName() != "cohort-b" {
+		manager.RUnlock()
+		t.Fatal("recovered ClusterQueue did not attach to current Cohort")
+	}
+	manager.RUnlock()
 }
