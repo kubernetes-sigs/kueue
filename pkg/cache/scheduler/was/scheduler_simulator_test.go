@@ -1697,7 +1697,7 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []workload.Reference{wlRef("victim-wl")},
 		},
-		"preemption: skips candidate workload without pods": {
+		"preemption: reprieves candidate workload without pods when there is no filter": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("victim-pod", ns).
 					UID("victim-uid").
@@ -1884,6 +1884,21 @@ func TestScheduleWorkload(t *testing.T) {
 			},
 			wantPreempted: []workload.Reference{wlRef("victim-1"), wlRef("victim-2")},
 		},
+		"preemption with filter: preempts candidate workload without pods to free quota": {
+			nodes:     []*corev1.Node{makeNode("node1", "6")},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithPreemptionCandidates(slices.Values([]workload.Reference{wlRef("podless-victim")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[workload.Reference]) bool {
+					return preempted.Has(wlRef("podless-victim"))
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): {Node: "node1"},
+			},
+			wantPreempted: []workload.Reference{wlRef("podless-victim")},
+		},
 		"simulate empty: ignores pods managed by Kueue": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("managed-pod", ns).
@@ -1944,7 +1959,8 @@ func TestScheduleWorkload(t *testing.T) {
 			// the first call must not leave its Pods on the nodes.
 			for attempt := range 2 {
 				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts != nil && opts.PreemptionFilter != nil {
-					opts.PreemptionFilter.(*fakePreemptionFilter).preempted.Clear()
+					// The filter starts with the committed victims preempted.
+					opts.PreemptionFilter.(*fakePreemptionFilter).preempted = sets.New(opts.CommittedPreemptionVictims...)
 				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)
 				if diff := cmp.Diff(&tc.wantError, &got.Error, cmpErrorMessage); diff != "" {
