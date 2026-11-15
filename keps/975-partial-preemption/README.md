@@ -267,9 +267,9 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 - **Freed quota is not a freed node.** Kueue picks the Pods to evict without looking at nodes, so it
   can free a little on several nodes. Quota then fits the preemptor, but kube-scheduler may not be
   able to place it. Node-aware Pod selection is future work.
-- **Downgrade.** Older versions ungate up to the admitted count, so a shrunk Workload can over-use
-  quota. Before downgrading, turn the gate off and wait until no Workload has
-  `partialPreemption.retainedCount`, or evict those Workloads.
+- **Downgrade.** Older versions ignore `partialPreemption` and ungate up to the admitted count,
+   which is the count quota is charged at, so they don't over-use quota. An in-flight shrink stops:
+   the victim's replacement Pods are ungated back up to its admitted count.
 - **New permission.** kueue-controller-manager needs `create` on `pods/eviction`. It already has
   `delete` on Pods.
 - **Feature isolation.** All behavior is behind the `PartialPreemption` gate; when off, the
