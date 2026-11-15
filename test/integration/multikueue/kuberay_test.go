@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Eventually(func(g gomega.Gomega) {
 				child := &rayv1.RayCluster{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
-				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				child.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
@@ -365,14 +365,10 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(managerJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
 				g.Expect(managerJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				next := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementKey, next)).To(gomega.Succeed())
-				g.Expect(apimeta.IsStatusConditionTrue(next.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
-		ginkgo.By("cleaning up the replacement on the worker without additional worker quota", func() {
+		ginkgo.By("finishing the replacement and cleaning up the worker RayJob without additional worker quota", func() {
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(replacementKey, "")
+			behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, rayJob, false)
 		})
 	})
 

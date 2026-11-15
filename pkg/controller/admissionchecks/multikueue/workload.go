@@ -326,7 +326,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	// repoint a still-running remote job. It may nevertheless be the slice
 	// referenced by that worker when the job reaches a terminal state.
 	if !isDeleted && workloadslicing.IsElasticWorkload(wl) && workloadslicing.IsReplaced(wl.Status) {
-		return reconcile.Result{}, w.syncReplacedSliceTerminalStatus(ctx, wl, mkAc.Name, adapter, owner.Name)
+		return reconcile.Result{}, w.syncReplacedSliceTerminalStatus(ctx, wl, mkAc.Name, adapter)
 	}
 
 	grp, err := w.readGroup(ctx, wl, mkAc.Name, adapter, owner.Name)
@@ -494,7 +494,6 @@ func (w *wlReconciler) syncReplacedSliceTerminalStatus(
 	wl *kueue.Workload,
 	acName kueue.AdmissionCheckReference,
 	adapter jobframework.MultiKueueAdapter,
-	controllerName string,
 ) error {
 	syncer, ok := adapter.(jobframework.MultiKueueTerminalJobStatusSyncer)
 	if !ok || wl.Status.ClusterName == nil || *wl.Status.ClusterName == "" {
@@ -510,8 +509,7 @@ func (w *wlReconciler) syncReplacedSliceTerminalStatus(
 		// The admitting worker is disconnected or no longer configured.
 		return nil
 	}
-	key := types.NamespacedName{Name: controllerName, Namespace: wl.Namespace}
-	synced, err := syncer.SyncTerminalJobStatus(ctx, w.client, remoteClient.getClient(), key, wl.Name, w.origin)
+	synced, err := syncer.SyncTerminalJobStatus(ctx, w.client, remoteClient.getClient(), wl, w.origin)
 	if err != nil {
 		return fmt.Errorf("syncing terminal status from replaced workload slice %s on worker %s: %w",
 			workload.Key(wl), *wl.Status.ClusterName, err)

@@ -4198,17 +4198,16 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 type terminalSyncStubAdapter struct {
 	jobframework.MultiKueueAdapter
 	calls   int
-	synced  bool
 	syncErr error
 }
 
 var _ jobframework.MultiKueueTerminalJobStatusSyncer = (*terminalSyncStubAdapter)(nil)
 
 func (a *terminalSyncStubAdapter) SyncTerminalJobStatus(
-	_ context.Context, _, _ client.Client, _ types.NamespacedName, _, _ string,
+	_ context.Context, _, _ client.Client, _ *kueue.Workload, _ string,
 ) (bool, error) {
 	a.calls++
-	return a.synced, a.syncErr
+	return a.syncErr == nil, a.syncErr
 }
 
 // TestSyncReplacedSliceTerminalStatusGuards covers early exits and error
@@ -4222,19 +4221,19 @@ func TestSyncReplacedSliceTerminalStatusGuards(t *testing.T) {
 		wantCalls   int
 		wantError   error
 	}{
-		"missing worker cluster name": {},
-		"empty worker cluster name": {clusterName: ptr.To("")},
-		"unconfigured worker cluster": {clusterName: ptr.To("worker2"), connected: true},
-		"disconnected worker": {clusterName: ptr.To("worker1")},
-		"adapter without terminal sync is skipped": {clusterName: ptr.To("worker1"), connected: true, unsupported: true},
-		"connected worker reaches the syncer": {clusterName: ptr.To("worker1"), connected: true, wantCalls: 1},
+		"missing worker cluster name":              {},
+		"empty worker cluster name":                {clusterName: new("")},
+		"unconfigured worker cluster":              {clusterName: new("worker2"), connected: true},
+		"disconnected worker":                      {clusterName: new("worker1")},
+		"adapter without terminal sync is skipped": {clusterName: new("worker1"), connected: true, unsupported: true},
+		"connected worker reaches the syncer":      {clusterName: new("worker1"), connected: true, wantCalls: 1},
 		"worker ownership rejection propagates": {
-			clusterName: ptr.To("worker1"), connected: true,
-			syncErr: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			clusterName: new("worker1"), connected: true,
+			syncErr:   jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
 			wantCalls: 1, wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
 		},
 		"sync failure is wrapped": {
-			clusterName: ptr.To("worker1"), connected: true,
+			clusterName: new("worker1"), connected: true,
 			syncErr: errFake, wantCalls: 1, wantError: errFake,
 		},
 	}
@@ -4263,10 +4262,10 @@ func TestSyncReplacedSliceTerminalStatusGuards(t *testing.T) {
 			}
 			clusters.remoteClients["worker1"] = remote
 			reconciler := &wlReconciler{
-				client: managerClient,
-				helper: helper,
+				client:   managerClient,
+				helper:   helper,
 				clusters: clusters,
-				origin: defaultOrigin,
+				origin:   defaultOrigin,
 			}
 			wl := utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj()
 			wl.Status.ClusterName = tc.clusterName
@@ -4275,7 +4274,7 @@ func TestSyncReplacedSliceTerminalStatusGuards(t *testing.T) {
 			if tc.unsupported {
 				adapter = &deferredSyncStubAdapter{}
 			}
-			gotErr := reconciler.syncReplacedSliceTerminalStatus(ctx, wl, "ac1", adapter, "rayjob1")
+			gotErr := reconciler.syncReplacedSliceTerminalStatus(ctx, wl, "ac1", adapter)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}

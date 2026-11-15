@@ -57,9 +57,10 @@ type MultiKueueAdapter interface {
 // MultiKueueTerminalJobStatusSyncer is an optional adapter interface for
 // recovering terminal job status when a worker still references a replaced
 // elastic workload slice. Unlike SyncJob, it must not create or modify remote
-// objects, repoint slices, or copy nonterminal status.
+// objects, repoint slices, or copy nonterminal status. The slice identifies
+// the manager job by its owner UID. The result reports whether status changed.
 type MultiKueueTerminalJobStatusSyncer interface {
-	SyncTerminalJobStatus(ctx context.Context, localClient, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error)
+	SyncTerminalJobStatus(ctx context.Context, localClient, remoteClient client.Client, slice *kueue.Workload, origin string) (bool, error)
 }
 
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter

@@ -22,6 +22,7 @@ import (
 	"maps"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -279,13 +280,13 @@ func (a *adapter[PtrT, T]) SyncJob(
 }
 
 // SyncTerminalJobStatus copies only the status of a terminal worker job that
-// still references workloadName. It neither creates nor modifies any remote
+// still references the replaced slice. It neither creates nor modifies any remote
 // objects and never reflects autoscaling state or repoints a workload slice.
 func (a *adapter[PtrT, T]) SyncTerminalJobStatus(
 	ctx context.Context,
 	localClient, remoteClient client.Client,
-	key types.NamespacedName,
-	workloadName, origin string,
+	slice *kueue.Workload,
+	origin string,
 ) (bool, error) {
 	if a.isTerminal == nil {
 		return false, nil
@@ -293,6 +294,11 @@ func (a *adapter[PtrT, T]) SyncTerminalJobStatus(
 	if origin == "" {
 		return false, jobframework.ErrMultiKueueOriginEmpty
 	}
+	owner := metav1.GetControllerOfNoCopy(slice)
+	if owner == nil || owner.UID == "" {
+		return false, nil
+	}
+	key := types.NamespacedName{Namespace: slice.Namespace, Name: owner.Name}
 	remoteJob := PtrT(new(T))
 	if err := remoteClient.Get(ctx, key, remoteJob); err != nil {
 		return false, client.IgnoreNotFound(err)
@@ -301,21 +307,27 @@ func (a *adapter[PtrT, T]) SyncTerminalJobStatus(
 		return false, fmt.Errorf("%w: expected origin %q on remote %s %q",
 			jobframework.ErrRemoteObjectNotOwnedByMultiKueue, origin, a.gvk.Kind, key)
 	}
-	if jobframework.PrebuiltWorkloadNameFor(remoteJob) != workloadName || !a.isTerminal(remoteJob) {
+	if jobframework.PrebuiltWorkloadNameFor(remoteJob) != slice.Name || !a.isTerminal(remoteJob) {
 		return false, nil
 	}
 	localJob := PtrT(new(T))
 	if err := localClient.Get(ctx, key, localJob); err != nil {
-		return false, err
+		return false, client.IgnoreNotFound(err)
 	}
+	// A replaced slice can outlive its manager job, including across name reuse.
+	if localJob.GetUID() != owner.UID {
+		return false, nil
+	}
+	var changed bool
 	if err := clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
 		before := localJob.DeepCopyObject()
 		a.copyStatus(localJob, remoteJob)
-		return !equality.Semantic.DeepEqual(before, localJob), nil
+		changed = !equality.Semantic.DeepEqual(before, localJob)
+		return changed, nil
 	}); err != nil {
 		return false, err
 	}
-	return true, nil
+	return changed, nil
 }
 
 // needElasticSync reports whether the remote object must be updated to reflect
