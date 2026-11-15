@@ -45,7 +45,10 @@ func TestInadmissibleRequeueWorkerRetry(t *testing.T) {
 				Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 					if _, ok := obj.(*corev1.Namespace); ok {
 						read := reads.Add(1)
-						if read <= 2 || read == 4 {
+						if read == 1 {
+							return apierrors.NewNotFound(corev1.Resource("namespaces"), key.Name)
+						}
+						if read == 2 || read == 4 {
 							return apierrors.NewServiceUnavailable("injected transient failure")
 						}
 					}
@@ -226,20 +229,34 @@ func TestInadmissibleRequeueBackoffDoesNotRetry(t *testing.T) {
 	}
 }
 
-func TestInadmissibleRequeueDeletedNamespaceDoesNotRetry(t *testing.T) {
+// A cache miss should not consume the only requeue signal. The fake client
+// models an informer cache that learns about the Namespace after the first pass.
+func TestInadmissibleRequeueMissingNamespaceRetries(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewFakeClient()
 	r := NewRequeuer()
 	defer r.queue.ShutDown()
 	m := NewManager(cl, nil, r)
-	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns-deleted", "")
-	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns-deleted", "wl")
+	addInadmissibleTestQueue(ctx, t, m, "cq", "lq", "ns", "")
+	wl := addInadmissibleTestWorkload(ctx, t, m, cl, "cq", "lq", "ns", "wl")
 	req := requeueRequest{ClusterQueue: "cq"}
+
 	r.reconcile(ctx, req)
-	if got := r.queue.NumRequeues(req); got != 0 {
-		t.Errorf("deleted Namespace must not be rate-limited for retry, got %d retries", got)
+	if got := r.queue.NumRequeues(req); got != 1 {
+		t.Fatalf("Namespace cache miss: NumRequeues = %d, want 1", got)
 	}
 	if got := m.getClusterQueue("cq").workloads.GetInadmissible(workload.Key(wl)); got == nil {
-		t.Error("Workload in a deleted Namespace must remain inadmissible")
+		t.Fatal("Workload must remain inadmissible until its Namespace is visible")
+	}
+
+	if err := cl.Create(ctx, utiltesting.MakeNamespace("ns")); err != nil {
+		t.Fatalf("create Namespace in cache: %v", err)
+	}
+	r.reconcile(ctx, req)
+	if got := r.queue.NumRequeues(req); got != 0 {
+		t.Errorf("successful cache recovery: NumRequeues = %d, want 0", got)
+	}
+	if got := m.getClusterQueue("cq").workloads.GetActive(workload.Key(wl)); got == nil {
+		t.Error("Workload was not activated after Namespace became visible")
 	}
 }
