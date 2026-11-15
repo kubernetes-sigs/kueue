@@ -4197,8 +4197,8 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 
 type terminalSyncStubAdapter struct {
 	jobframework.MultiKueueAdapter
-	calls int
-	synced bool
+	calls   int
+	synced  bool
 	syncErr error
 }
 
@@ -4216,11 +4216,11 @@ func (a *terminalSyncStubAdapter) SyncTerminalJobStatus(
 func TestSyncReplacedSliceTerminalStatusGuards(t *testing.T) {
 	tests := map[string]struct {
 		clusterName *string
-		connected bool
+		connected   bool
 		unsupported bool
-		syncErr error
-		wantCalls int
-		wantError error
+		syncErr     error
+		wantCalls   int
+		wantError   error
 	}{
 		"missing worker cluster name": {},
 		"empty worker cluster name": {clusterName: ptr.To("")},
