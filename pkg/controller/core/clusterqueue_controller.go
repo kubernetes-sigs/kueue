@@ -63,7 +63,7 @@ type ClusterQueueUpdateWatcher interface {
 type ClusterQueueReconciler struct {
 	// registrationMu coordinates queue-manager registration with the informer
 	// create, update, and delete handlers so a stale reconcile cannot undo an update.
-	registrationMu       sync.Mutex
+	registrationMu        sync.Mutex
 	client                client.Client
 	logName               string
 	qManager              *qcache.Manager

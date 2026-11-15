@@ -213,9 +213,6 @@ func TestLocalQueueReconcileDoesNotRestoreStoppedOrDeletedQueue(t *testing.T) {
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("adding ClusterQueue to scheduler cache: %v", err)
 			}
-			if err := cache.AddLocalQueue(lq); err != nil {
-				t.Fatalf("adding LocalQueue to scheduler cache: %v", err)
-			}
 			manager := qcache.NewManagerForUnitTests(cl, cache)
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("adding ClusterQueue to manager: %v", err)
@@ -320,20 +317,24 @@ func TestClusterQueueReconcileRegistersLatestCohortAfterConcurrentUpdate(t *test
 	}
 	r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: current})
 	close(resumeReconcile)
+	var reconcileResult error
 	select {
-	case err := <-reconcileErr:
-		if err != nil {
-			t.Fatalf("Reconcile after cohort update: %v", err)
-		}
+	case reconcileResult = <-reconcileErr:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Reconcile did not complete")
 	}
 
+	var parent kueue.CohortReference
 	manager.RLock()
 	q := manager.ClusterQueueForWorkloadWithoutLock(wl)
-	if q == nil || !q.HasParent() || q.Parent().GetName() != "cohort-b" {
-		manager.RUnlock()
-		t.Fatal("recovered ClusterQueue did not attach to current Cohort")
+	if q != nil && q.HasParent() {
+		parent = q.Parent().GetName()
 	}
 	manager.RUnlock()
+	if parent != "cohort-b" {
+		t.Fatalf("recovered ClusterQueue Cohort = %q, want cohort-b (Reconcile error: %v)", parent, reconcileResult)
+	}
+	if reconcileResult != nil {
+		t.Fatalf("Reconcile after cohort update: %v", reconcileResult)
+	}
 }
