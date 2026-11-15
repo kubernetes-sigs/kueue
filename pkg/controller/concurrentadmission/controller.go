@@ -927,14 +927,28 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		if wlLog.Enabled() {
 			wlLog = wlLog.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
 		}
-		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
-			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		// In production, variant.Generation is >= 1 on a real API server and
+		// is bumped when syncVariant updates variant.Spec. Stale scheduling
+		// conditions whose ObservedGeneration is older than the current spec
+		// generation must not be used for preemption gate decisions until the
+		// scheduler re-evaluates the updated variant.
+		quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		if wl.Generation > 0 && quotaReserved != nil && quotaReserved.ObservedGeneration < wl.Generation {
+			wlLog.Info("Variant has not been evaluated for admission yet")
+			return nil
+		}
+		blockedCond := workload.BlockedOnPreemptionGatesCondition(wl)
+		if blockedCond == nil {
 			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
 				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}
 			wlLog.Info("Variant does not require preemption")
 			continue
+		}
+		if wl.Generation > 0 && blockedCond.ObservedGeneration < wl.Generation {
+			wlLog.Info("Variant has not been evaluated for admission yet")
+			return nil
 		}
 		wlLog.Info("Variant is the candidate for ungating")
 		return wl

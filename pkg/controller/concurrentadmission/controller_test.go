@@ -3137,6 +3137,87 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"preferred variant has non-blocked condition from older generation; does not open preemption gate on less preferred variant": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Generation(2).
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Inadmissible",
+						Message:            "Workload does not fit",
+						LastTransitionTime: metav1.NewTime(fakeNow),
+						ObservedGeneration: 1,
+					}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Generation(1).
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadBlockedOnPreemptionGates,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Workload requires preemption, but it's gated",
+						LastTransitionTime: metav1.NewTime(fakeNow),
+						ObservedGeneration: 1,
+					}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Generation(2).
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             "Inadmissible",
+						Message:            "Workload does not fit",
+						LastTransitionTime: metav1.NewTime(fakeNow),
+						ObservedGeneration: 1,
+					}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Generation(1).
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadBlockedOnPreemptionGates,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.PreemptionGated,
+						Message:            "Workload requires preemption, but it's gated",
+						LastTransitionTime: metav1.NewTime(fakeNow),
+						ObservedGeneration: 1,
+					}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: nil,
+		},
 	}
 
 	scenarios := []map[featuregate.Feature]bool{
@@ -3294,6 +3375,19 @@ func TestFirstCandidateVariant(t *testing.T) {
 		PreemptionGates(caGate()).
 		Condition(blockedOnPreemptionCondition(now)).
 		Obj()
+	freshCandidate := utiltestingapi.MakeWorkload("preferred", "default").
+		Generation(2).
+		AllowedFlavors("on-demand").
+		PreemptionGates(caGate()).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadBlockedOnPreemptionGates,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.PreemptionGated,
+			Message:            "Workload requires preemption, but it's gated",
+			LastTransitionTime: metav1.NewTime(now),
+			ObservedGeneration: 2,
+		}).
+		Obj()
 
 	testCases := map[string]struct {
 		first *kueue.Workload
@@ -3317,6 +3411,56 @@ func TestFirstCandidateVariant(t *testing.T) {
 				AllowedFlavors("on-demand").
 				PreemptionGates(caGate()).
 				Condition(evaluatedForAdmissionCondition(now)).
+				Obj(),
+			want: blocked,
+		},
+		"waits when the preferred variant has a stale quota reservation condition from an older generation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
+					Message:            "Workload does not fit",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+		},
+		"waits when the variant has a stale blocked-on-preemption condition from an older generation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+		},
+		"selects candidate variant when blocked-on-preemption condition matches current generation": {
+			first: freshCandidate,
+			want:  freshCandidate,
+		},
+		"skips a preferred variant with a fresh quota reservation condition matching current generation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             "Inadmissible",
+					Message:            "Workload does not fit",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 2,
+				}).
 				Obj(),
 			want: blocked,
 		},
