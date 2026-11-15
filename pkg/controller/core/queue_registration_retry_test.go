@@ -19,12 +19,16 @@ package core
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -148,5 +152,110 @@ func TestLocalQueueReconcileRecoversFailedInitialBackfill(t *testing.T) {
 	}
 	if failedLists != 1 {
 		t.Fatalf("injected failures = %d, want 1", failedLists)
+	}
+}
+
+func TestLocalQueueReconcileDoesNotRestoreStoppedOrDeletedQueue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remove func(t *testing.T, ctx context.Context, cl client.Client, r *LocalQueueReconciler, lq *kueue.LocalQueue)
+	}{
+		{
+			name: "stopped LocalQueue",
+			remove: func(t *testing.T, ctx context.Context, cl client.Client, r *LocalQueueReconciler, lq *kueue.LocalQueue) {
+				current := &kueue.LocalQueue{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(lq), current); err != nil {
+					t.Fatalf("reading LocalQueue before stopping: %v", err)
+				}
+				current.Spec.StopPolicy = ptr.To(kueue.Hold)
+				if err := cl.Update(ctx, current); err != nil {
+					t.Fatalf("stopping LocalQueue: %v", err)
+				}
+				r.Update(event.TypedUpdateEvent[*kueue.LocalQueue]{ObjectOld: lq, ObjectNew: current})
+			},
+		},
+		{
+			name: "deleted LocalQueue",
+			remove: func(t *testing.T, ctx context.Context, cl client.Client, r *LocalQueueReconciler, lq *kueue.LocalQueue) {
+				if err := cl.Delete(ctx, lq); err != nil {
+					t.Fatalf("deleting LocalQueue: %v", err)
+				}
+				r.Delete(event.TypedDeleteEvent[*kueue.LocalQueue]{Object: lq})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+			snapshotRead := make(chan struct{})
+			resumeReconcile := make(chan struct{})
+			var paused atomic.Bool
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(cq, lq, wl).
+				WithStatusSubresource(cq, lq).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, delegate client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if err := delegate.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if _, ok := obj.(*kueue.LocalQueue); ok && paused.CompareAndSwap(false, true) {
+							// The reconciler now holds the original active snapshot.
+							close(snapshotRead)
+							<-resumeReconcile
+						}
+						return nil
+					},
+				}).
+				Build()
+			cache := schdcache.New(cl)
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to scheduler cache: %v", err)
+			}
+			if err := cache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("adding LocalQueue to scheduler cache: %v", err)
+			}
+			manager := qcache.NewManagerForUnitTests(cl, cache)
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to manager: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("adding LocalQueue to manager: %v", err)
+			}
+			r := NewLocalQueueReconciler(cl, manager, cache)
+			reconcileErr := make(chan error, 1)
+			go func() {
+				_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(lq)})
+				reconcileErr <- err
+			}()
+
+			select {
+			case <-snapshotRead:
+			case <-time.After(10 * time.Second):
+				close(resumeReconcile)
+				t.Fatal("Reconcile did not read the initial LocalQueue snapshot")
+			}
+
+			// Process the stop/delete event while Reconcile still holds the old
+			// active snapshot, before it tries to recover a missing registration.
+			tc.remove(t, ctx, cl, r, lq)
+			if manager.LocalQueueExists(utilqueue.Key(lq)) {
+				close(resumeReconcile)
+				t.Fatal("stop/delete event did not remove the LocalQueue")
+			}
+			close(resumeReconcile)
+			select {
+			case err := <-reconcileErr:
+				if err != nil {
+					t.Fatalf("stale Reconcile returned an error: %v", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("stale Reconcile did not return")
+			}
+			if manager.LocalQueueExists(utilqueue.Key(lq)) {
+				t.Fatal("stale Reconcile restored a stopped or deleted LocalQueue")
+			}
+		})
 	}
 }
