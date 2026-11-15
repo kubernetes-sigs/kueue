@@ -300,16 +300,23 @@ func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
 	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 }
 
+// AddOrUpdateCohort adds the Cohort or updates its parent, and requeues the
+// inadmissible workloads of its tree. When the Cohort moves to another tree,
+// the tree it leaves is requeued too, since its quota is freed there.
 func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	m.Lock()
 	defer m.Unlock()
 	cohortName := kueue.CohortReference(cohort.Name)
 
+	oldRoot, hadRoot := rootOfTree(m.hm.Cohort(cohortName))
 	m.hm.AddCohort(cohortName)
 	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
-	c := m.hm.Cohort(cohortName)
-	if !hierarchy.HasCycle(c) {
-		m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
+	newRoot, hasRoot := rootOfTree(m.hm.Cohort(cohortName))
+	if hasRoot {
+		m.requeuer.notifyCohort(newRoot)
+	}
+	if hadRoot && oldRoot != newRoot {
+		m.requeuer.notifyCohort(oldRoot)
 	}
 }
 
@@ -417,6 +424,9 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
+// UpdateClusterQueue updates the ClusterQueue and its place in the Cohort
+// tree. With requeueInadmissibleWorkloads, it requeues the inadmissible
+// workloads of its tree, and of the tree it left if it moved.
 func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissibleWorkloads bool) error {
 	m.Lock()
 	defer m.Unlock()
@@ -431,6 +441,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
+	oldRoot, hadRoot := rootOfTree(cqImpl.Parent())
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
 	if requeueInadmissibleWorkloads {
@@ -438,6 +449,11 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 		// Immediate broadcast is no-op, as there are no workloads
 		// to process.
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
+		// A ClusterQueue that moved to another tree frees the quota it used
+		// in the tree it left.
+		if newRoot, _ := rootOfTree(cqImpl.Parent()); hadRoot && oldRoot != newRoot {
+			m.requeuer.notifyCohort(oldRoot)
+		}
 	}
 	becameActive := !oldActive && cqImpl.Active()
 	// CQ readiness changes the metric classification even if no workload moves.
@@ -1346,4 +1362,13 @@ func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
 func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) bool {
 	_, ok := m.localQueues[lqRef]
 	return ok
+}
+
+// rootOfTree returns the root of the Cohort tree that c belongs to, if c is
+// not nil and the tree has no cycle.
+func rootOfTree(c *cohort) (kueue.CohortReference, bool) {
+	if c == nil || hierarchy.HasCycle(c) {
+		return "", false
+	}
+	return c.getRootUnsafe().GetName(), true
 }
