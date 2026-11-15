@@ -109,7 +109,7 @@ the quota accounting correct throughout.
 
 Add per-PodSet partial-preemption configuration and status to the Workload API. A Job opts in to
 partial preemption with `kueue.x-k8s.io/partial-preemption: "true"`; an integration may also set
-`kueue.x-k8s.io/podset-partial-preemption-min-count` on the Job's PodTemplate to configure the
+`kueue.x-k8s.io/podset-partial-preemption-min-retained-count` on the Job's PodTemplate to configure the
 minimum for its PodSet. All integrations that configure a partial-preemption minimum use this same
 annotation name. Kueue copies the annotation values to the Workload it creates.
 
@@ -408,6 +408,39 @@ or `"false"`; only `"true"` opts the Job in. Kueue copies the annotation to the 
 for the Job, and it cannot be changed while the Workload holds quota. The annotation is alpha-level
 and ignored when the `PartialPreemption` feature gate is disabled.
 
+```go
+const (
+	// PartialPreemptionAnnotation is an annotation set on a Job to opt it in to
+	// partial preemption, in which Kueue shrinks a PodSet instead of evicting
+	// the whole Workload. The value must be "true" or "false", and only "true"
+	// opts the Job in.
+	//
+	// It takes effect only if the Job also has the kueue.x-k8s.io/elastic-job
+	// annotation set to "true". Kueue shrinks only the PodSets that have
+	// partialPreemption set in the Workload.
+	//
+	// Kueue copies the annotation to the Workload that it creates for the Job.
+	// It cannot be changed while the Workload holds quota.
+	//
+	// This annotation is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	PartialPreemptionAnnotation = "kueue.x-k8s.io/partial-preemption"
+
+	// PodSetPartialPreemptionMinRetainedCountAnnotation is the shared annotation key
+	// for a partial-preemption PodSet minimum. An integration reads its non-negative
+	// integer value from the Job's PodTemplate and copies it to the corresponding
+	// Workload PodSet's partialPreemption.minRetainedCount. All framework
+	// integrations use this same annotation name. If the annotation is absent, the
+	// integration does not configure partial preemption for the PodSet. Kueue copies
+	// the value when it creates a Workload or scale-up slice; a later annotation
+	// change applies only to subsequently created Workloads/slices.
+	//
+	// This annotation is alpha-level, and is ignored by Kueue when the
+	// PartialPreemption feature gate is disabled.
+	PodSetPartialPreemptionMinRetainedCountAnnotation = "kueue.x-k8s.io/podset-partial-preemption-min-retained-count"
+)
+```
+
 ### Partial-preemption minimum
 
 `PodSet.partialPreemption.minRetainedCount` sets the lowest number of Pods to which partial preemption may
@@ -415,7 +448,7 @@ shrink the PodSet. This minimum is independent of `PodSet.minCount`, which contr
 and of the framework's autoscaler minimum. It can differ from both.
 
 An integration reads the non-negative integer value of
-`kueue.x-k8s.io/podset-partial-preemption-min-count` from the job's PodTemplate and copies it to
+`kueue.x-k8s.io/podset-partial-preemption-min-retained-count` from the job's PodTemplate and copies it to
 `PodSet.partialPreemption.minRetainedCount`. All framework integrations use this same annotation name. If the
 annotation is absent, the integration does not configure partial preemption for the PodSet. The job
 webhook rejects a value that is not a non-negative integer. Kueue copies the value when it creates
@@ -638,7 +671,7 @@ Alpha covers batch/Job, RayCluster, RayJob, RayService and SparkApplication: the
 `ElasticJobsViaWorkloadSlices` and whose own controller recreates removed Pods. An integration
 copies the opt-in annotation and configures eligible PodSets for partial preemption; Kueue never
 creates Pods. All framework integrations use the same minimum annotation described above:
-`kueue.x-k8s.io/podset-partial-preemption-min-count`.
+`kueue.x-k8s.io/podset-partial-preemption-min-retained-count`.
 
 batch/Job is covered in Alpha through reactive downscaling. A Pod that Kueue evicts would count
 toward `backoffLimit`, so an opt-in Job must use `completionMode: Indexed`, `restartPolicy: Never`,
