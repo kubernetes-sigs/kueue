@@ -150,21 +150,29 @@ func (s *variantParentCounts) removeInflight(wInfo *workload.Info) {
 func (s *variantParentCounts) excess() (int, int) {
 	s.rwm.RLock()
 	defer s.rwm.RUnlock()
+	return variantExcess(s.active, s.inadmissible, s.inflight)
+}
+
+// variantExcess returns how many Variants in the active, inflight and
+// inadmissible per-Parent counts are beyond the first one of each Parent. A
+// Parent counts as active when any of its Variants is active or inflight, and
+// as inadmissible otherwise. A nil map counts as empty.
+func variantExcess(active, inadmissible, inflight map[types.UID]int) (int, int) {
 	var activeVariants, inadmissibleVariants int
-	activeParents := len(s.active)
-	for _, n := range s.active {
+	activeParents := len(active)
+	for _, n := range active {
 		activeVariants += n
 	}
-	for uid, n := range s.inflight {
+	for uid, n := range inflight {
 		activeVariants += n
-		if s.active[uid] == 0 {
+		if active[uid] == 0 {
 			activeParents++
 		}
 	}
 	inadmissibleParents := 0
-	for uid, n := range s.inadmissible {
+	for uid, n := range inadmissible {
 		inadmissibleVariants += n
-		if s.active[uid] == 0 && s.inflight[uid] == 0 {
+		if active[uid] == 0 && inflight[uid] == 0 {
 			inadmissibleParents++
 		}
 	}

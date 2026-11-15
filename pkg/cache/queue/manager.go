@@ -408,6 +408,11 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	if !features.Enabled(features.ConcurrentAdmission) {
 		return false
 	}
+	// The label doesn't depend on the ClusterQueue, which might not be added
+	// yet, for example while Kueue restarts.
+	if concurrentadmission.IsParent(wl) {
+		return true
+	}
 	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
@@ -521,6 +526,11 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		if !workload.IsAdmissible(&w) {
+			continue
+		}
+
+		// Parents are not queued, only their Variants are; see AddOrUpdateWorkload.
+		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(&w) {
 			continue
 		}
 
@@ -640,7 +650,7 @@ func (m *Manager) PendingWorkloads(q *kueue.LocalQueue) (int32, error) {
 		return 0, ErrLocalQueueDoesNotExistOrInactive
 	}
 
-	return int32(len(qImpl.items)), nil
+	return int32(qImpl.pendingCount()), nil
 }
 
 func (m *Manager) Pending(cq *kueue.ClusterQueue) (int, error) {
@@ -711,13 +721,13 @@ func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 func (m *Manager) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
-	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
-		return nil
-	}
 	return m.AddOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 }
 
 func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
+		return nil
+	}
 	if !workload.IsAdmissible(w) {
 		return errWorkloadIsInadmissible
 	}
@@ -928,7 +938,7 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Refe
 	if q == nil {
 		return
 	}
-	delete(q.items, wlKey)
+	q.delete(wlKey)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq != nil {
@@ -1048,7 +1058,7 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 	head := newHead(*wl, cq)
 	wlKey := workload.Key(wl.Obj)
 	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
-		delete(q.items, wlKey)
+		q.delete(wlKey)
 		reportLQPendingWorkloads(m, q)
 	}
 	return &head

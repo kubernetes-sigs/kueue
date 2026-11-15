@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -162,6 +163,11 @@ func TestPendingCountsEachParentOnce(t *testing.T) {
 			}
 			if got, want := cq.PendingTotal(), tc.wantActive+tc.wantInadmissible; got != want {
 				t.Errorf("PendingTotal() = %d, want %d", got, want)
+			}
+			// The LocalQueue counts include the inflight Variant in active.
+			lqActive, lqInadmissible := cq.PendingInLocalQueue(utilqueue.NewLocalQueueReference(defaultNamespace, "lq"))
+			if lqActive != tc.wantActive || lqInadmissible != tc.wantInadmissible {
+				t.Errorf("PendingInLocalQueue() = (%d, %d), want (%d, %d)", lqActive, lqInadmissible, tc.wantActive, tc.wantInadmissible)
 			}
 		})
 	}
