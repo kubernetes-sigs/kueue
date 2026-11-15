@@ -530,7 +530,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		// Parents are not queued, only their Variants are; see AddOrUpdateWorkload.
-		if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(&w) {
+		if m.IsConcurrentAdmissionParentWithoutLock(&w) {
 			continue
 		}
 

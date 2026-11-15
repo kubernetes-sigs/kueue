@@ -242,6 +242,47 @@ func TestLocalQueuePendingWorkloadsCountsEachParentOnce(t *testing.T) {
 	}
 }
 
+// TestAddLocalQueueSkipsUnlabeledParent covers a Parent that is not labeled
+// yet when its LocalQueue is added after its ClusterQueue.
+func TestAddLocalQueueSkipsUnlabeledParent(t *testing.T) {
+	cases := map[string]struct {
+		disableConcurrentAdmission bool
+		wantItems                  sets.Set[workload.Reference]
+	}{
+		"gate enabled": {
+			wantItems: sets.New[workload.Reference]("default/variant"),
+		},
+		"gate disabled": {
+			disableConcurrentAdmission: true,
+			wantItems:                  sets.New[workload.Reference]("default/parent", "default/variant"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, !tc.disableConcurrentAdmission)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			kClient := utiltesting.NewFakeClient(
+				lq.DeepCopy(),
+				utiltestingapi.MakeWorkload("parent", defaultNamespace).UID("parent").Queue("lq").Obj(),
+				utiltestingapi.MakeWorkload("variant", defaultNamespace).Queue("lq").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent").Obj(),
+			)
+			manager := NewManagerForUnitTests(kClient, nil)
+			cq := utiltestingapi.MakeClusterQueue("cq").ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).Obj()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantItems, workloadNamesFromLQ(manager.localQueues[queue.Key(lq)])); diff != "" {
+				t.Errorf("Unexpected items in LocalQueue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
