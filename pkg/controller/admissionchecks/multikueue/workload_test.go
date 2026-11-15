@@ -4194,3 +4194,94 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
 	}
 }
+
+type terminalSyncStubAdapter struct {
+	jobframework.MultiKueueAdapter
+	calls int
+	synced bool
+	syncErr error
+}
+
+var _ jobframework.MultiKueueTerminalJobStatusSyncer = (*terminalSyncStubAdapter)(nil)
+
+func (a *terminalSyncStubAdapter) SyncTerminalJobStatus(
+	_ context.Context, _, _ client.Client, _ types.NamespacedName, _, _ string,
+) (bool, error) {
+	a.calls++
+	return a.synced, a.syncErr
+}
+
+// TestSyncReplacedSliceTerminalStatusGuards covers early exits and error
+// propagation without requiring an admitted replacement or remote quota.
+func TestSyncReplacedSliceTerminalStatusGuards(t *testing.T) {
+	tests := map[string]struct {
+		clusterName *string
+		connected bool
+		unsupported bool
+		syncErr error
+		wantCalls int
+		wantError error
+	}{
+		"missing worker cluster name": {},
+		"empty worker cluster name": {clusterName: ptr.To("")},
+		"unconfigured worker cluster": {clusterName: ptr.To("worker2"), connected: true},
+		"disconnected worker": {clusterName: ptr.To("worker1")},
+		"adapter without terminal sync is skipped": {clusterName: ptr.To("worker1"), connected: true, unsupported: true},
+		"connected worker reaches the syncer": {clusterName: ptr.To("worker1"), connected: true, wantCalls: 1},
+		"worker ownership rejection propagates": {
+			clusterName: ptr.To("worker1"), connected: true,
+			syncErr: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantCalls: 1, wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+		"sync failure is wrapped": {
+			clusterName: ptr.To("worker1"), connected: true,
+			syncErr: errFake, wantCalls: 1, wantError: errFake,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			managerClient := getClientBuilder(ctx).
+				WithObjects(
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+					utiltestingapi.MakeAdmissionCheck("ac1").
+						ControllerName(kueue.MultiKueueControllerName).
+						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+						Obj(),
+				).Build()
+			helper, err := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clusters := newClustersReconciler(managerClient, TestNamespace)
+			remote := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", nil)
+			remote.client = NewNeverCachingClient(getClientBuilder(ctx).Build())
+			if tc.connected {
+				remote.connState.markConnected()
+			} else {
+				remote.connState.markDisconnected(time.Now())
+			}
+			clusters.remoteClients["worker1"] = remote
+			reconciler := &wlReconciler{
+				client: managerClient,
+				helper: helper,
+				clusters: clusters,
+				origin: defaultOrigin,
+			}
+			wl := utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj()
+			wl.Status.ClusterName = tc.clusterName
+			syncer := &terminalSyncStubAdapter{syncErr: tc.syncErr}
+			var adapter jobframework.MultiKueueAdapter = syncer
+			if tc.unsupported {
+				adapter = &deferredSyncStubAdapter{}
+			}
+			gotErr := reconciler.syncReplacedSliceTerminalStatus(ctx, wl, "ac1", adapter, "rayjob1")
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if syncer.calls != tc.wantCalls {
+				t.Errorf("terminal sync calls = %d, want %d", syncer.calls, tc.wantCalls)
+			}
+		})
+	}
+}
