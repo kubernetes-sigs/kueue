@@ -17,6 +17,8 @@ limitations under the License.
 package concurrentadmission
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -24,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +35,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -224,7 +228,19 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 
+	queuedParent := utiltestingapi.MakeWorkload("wl-12345", "default").
+		Queue("lq-spot-only").Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj())
+	reservedVariant := utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+		Queue("lq-spot-only").AllowedFlavors("spot").PreemptionGates(caGate()).
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+		SimpleReserveQuota("cq-spot-only", "spot", fakeNow)
+
+	deleteConflict := apierrors.NewConflict(kueue.Resource("workloads"), "wl-variant-spot", errors.New("concurrent update"))
 	testCases := map[string]struct {
+		interceptors         interceptor.Funcs
+		wantError            error
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
 		wantParentWorkload   *kueue.Workload
@@ -233,6 +249,70 @@ func TestReconcile(t *testing.T) {
 		wantResult           reconcile.Result
 		req                  reconcile.Request
 	}{
+		"stale reserved variant is deleted instead of promoting its admission": {
+			parentWorkload:     queuedParent.Clone().Obj(),
+			variantWorkloads:   []kueue.Workload{*reservedVariant.Clone().AdmittedAt(true, fakeNow).Obj()},
+			wantParentWorkload: queuedParent.Clone().Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+				EventType: corev1.EventTypeNormal, Reason: ReasonDeletedVariant,
+				Message: "Variant Workload \"default/wl-variant-spot\" deleted; reserved resource request no longer matches the parent",
+			}},
+		},
+		"stale reservation waiting on checks is deleted": {
+			parentWorkload:     queuedParent.Clone().Obj(),
+			variantWorkloads:   []kueue.Workload{*reservedVariant.Clone().Obj()},
+			wantParentWorkload: queuedParent.Clone().Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+				EventType: corev1.EventTypeNormal, Reason: ReasonDeletedVariant,
+				Message: "Variant Workload \"default/wl-variant-spot\" deleted; reserved resource request no longer matches the parent",
+			}},
+		},
+		"matching reservation is retained": {
+			parentWorkload:       queuedParent.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).Obj(),
+			variantWorkloads:     []kueue.Workload{*reservedVariant.Clone().Obj()},
+			wantParentWorkload:   queuedParent.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).Obj(),
+			wantVariantWorkloads: []kueue.Workload{*reservedVariant.Clone().Obj()},
+		},
+		"equivalent CPU quantity representations keep a matching reservation": {
+			parentWorkload:       queuedParent.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).Obj(),
+			variantWorkloads:     []kueue.Workload{*reservedVariant.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "0.1").Obj()).Obj()},
+			wantParentWorkload:   queuedParent.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).Obj(),
+			wantVariantWorkloads: []kueue.Workload{*reservedVariant.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "0.1").Obj()).Obj()},
+		},
+		"deleting candidate is not promoted while an external finalizer remains": {
+			parentWorkload: queuedParent.Clone().Obj(),
+			variantWorkloads: []kueue.Workload{*reservedVariant.Clone().AdmittedAt(true, fakeNow).
+				DeletionTimestamp(fakeNow).Finalizers("example.com/cleanup").Obj()},
+			wantParentWorkload: queuedParent.Clone().Obj(),
+			wantVariantWorkloads: []kueue.Workload{*reservedVariant.Clone().AdmittedAt(true, fakeNow).
+				DeletionTimestamp(fakeNow).Finalizers("example.com/cleanup").Obj()},
+		},
+		"parent holding quota keeps its reserved variant despite a spec difference": {
+			parentWorkload:       queuedParent.Clone().SimpleReserveQuota("cq-spot-only", "spot", fakeNow).AdmittedAt(true, fakeNow).Obj(),
+			variantWorkloads:     []kueue.Workload{*reservedVariant.Clone().AdmittedAt(true, fakeNow).Obj()},
+			wantParentWorkload:   queuedParent.Clone().SimpleReserveQuota("cq-spot-only", "spot", fakeNow).AdmittedAt(true, fakeNow).Obj(),
+			wantVariantWorkloads: []kueue.Workload{*reservedVariant.Clone().AdmittedAt(true, fakeNow).Obj()},
+		},
+		"delete conflict leaves stale candidate unpromoted for the next reconcile": {
+			parentWorkload:       queuedParent.Clone().Obj(),
+			variantWorkloads:     []kueue.Workload{*reservedVariant.Clone().UID("old-variant").AdmittedAt(true, fakeNow).Obj()},
+			wantParentWorkload:   queuedParent.Clone().Obj(),
+			wantVariantWorkloads: []kueue.Workload{*reservedVariant.Clone().UID("old-variant").AdmittedAt(true, fakeNow).Obj()},
+			interceptors: interceptor.Funcs{Delete: func(_ context.Context, _ client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				options := &client.DeleteOptions{}
+				for _, opt := range opts {
+					opt.ApplyToDelete(options)
+				}
+				if options.Preconditions == nil || options.Preconditions.UID == nil || *options.Preconditions.UID != obj.GetUID() ||
+					options.Preconditions.ResourceVersion == nil || *options.Preconditions.ResourceVersion != obj.GetResourceVersion() {
+					return errors.New("missing UID or resourceVersion delete precondition")
+				}
+				return deleteConflict
+			}},
+			wantError: deleteConflict,
+		},
 		"workload not found": {
 			req: reconcile.Request{
 				NamespacedName: types.NamespacedName{
@@ -1304,6 +1384,7 @@ func TestReconcile(t *testing.T) {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
@@ -1325,6 +1406,7 @@ func TestReconcile(t *testing.T) {
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
 				Admission(utiltestingapi.MakeAdmission("cq", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -3017,6 +3099,18 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
+	deletingRemoved := testCases["flavor removed from ClusterQueue; variant is deleted"]
+	deletingRemoved.variantWorkloads = append([]kueue.Workload(nil), deletingRemoved.variantWorkloads...)
+	for i := range deletingRemoved.variantWorkloads {
+		v := deletingRemoved.variantWorkloads[i].DeepCopy()
+		if concurrentadmission.GetVariantFlavor(v) == "stale" {
+			v.DeletionTimestamp = new(metav1.NewTime(fakeNow))
+			v.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+		}
+		deletingRemoved.variantWorkloads[i] = *v
+	}
+	testCases["removed flavor still finalizes a deleting variant"] = deletingRemoved
+
 	scenarios := []map[featuregate.Feature]bool{
 		{
 			features.UnadmittedWorkloadsObservability: false,
@@ -3041,6 +3135,7 @@ func TestReconcile(t *testing.T) {
 				cl := utiltesting.NewClientBuilder().
 					WithObjects(objects...).
 					WithStatusSubresource(objects...).
+					WithInterceptorFuncs(tc.interceptors).
 					Build()
 				preemptionExpectations := preemptexpectations.New()
 				qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
@@ -3111,8 +3206,8 @@ func TestReconcile(t *testing.T) {
 				}
 
 				got, err := r.Reconcile(t.Context(), req)
-				if err != nil {
-					t.Fatalf("Reconcile() unexpected error: %v", err)
+				if diff := cmp.Diff(tc.wantError, err, cmpopts.EquateErrors()); diff != "" {
+					t.Fatalf("Reconcile() unexpected error (-want +got): %s", diff)
 				}
 				if diff := cmp.Diff(tc.wantResult, got); diff != "" {
 					t.Errorf("Reconcile() unexpected result (-want +got):\n%s", diff)
