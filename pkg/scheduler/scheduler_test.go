@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -38,7 +39,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/klog/v2/ktesting"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -46,6 +49,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -11288,6 +11292,89 @@ func TestRequeueAndUpdate(t *testing.T) {
 				scheduler.requeueAndUpdate(ctx, tc.e)
 				if updates != tc.wantStatusUpdates {
 					t.Errorf("Observed %d status updates, want %d", updates, tc.wantStatusUpdates)
+				}
+			})
+		}
+	}
+}
+
+// TestStatusUpdateWhenWorkloadDeleted covers a pending Workload that is deleted
+// while a scheduling cycle holds it: the failed status write is expected, so it must
+// not be logged as an error, and no event is recorded for the deleted Workload.
+func TestStatusUpdateWhenWorkloadDeleted(t *testing.T) {
+	cases := map[string]struct {
+		podsReadyTracking bool
+		run               func(ctx context.Context, log logr.Logger, s *Scheduler, e *entry)
+	}{
+		"requeue after the workload did not fit": {
+			run: func(ctx context.Context, _ logr.Logger, s *Scheduler, e *entry) {
+				e.status = notNominated
+				e.inadmissibleMsg = "didn't fit"
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+				s.requeueAndUpdate(ctx, *e)
+			},
+		},
+		"block admission while admitted workloads are not ready": {
+			podsReadyTracking: true,
+			run: func(ctx context.Context, log logr.Logger, s *Scheduler, e *entry) {
+				// Cancelled so that WaitForPodsReady returns instead of blocking on the not-ready Workload.
+				ctx, cancel := context.WithCancel(ctx)
+				cancel()
+				s.waitForPodsReadyIfNeeded(ctx, log, e)
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, mergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/WorkloadRequestUseMergePatch=%t", name, mergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, mergePatch)
+				logger := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true)))
+				ctx := ctrl.LoggerInto(t.Context(), logger)
+
+				cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+				wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+				objs := []client.Object{wl, lq, utiltesting.MakeNamespace("ns")}
+				cl := utiltesting.NewClientBuilder().
+					WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(tc.podsReadyTracking))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
+				}
+				if tc.podsReadyTracking {
+					notReady := utiltestingapi.MakeWorkload("not-ready", "ns").SimpleReserveQuota(kueue.ClusterQueueReference(cq.Name), "default", time.Now()).Obj()
+					if !cqCache.AddOrUpdateWorkload(ctx, logger, notReady) {
+						t.Fatalf("Adding workload %s to cache", notReady.Name)
+					}
+				}
+
+				heads := qManager.Heads(ctx)
+				if len(heads) != 1 {
+					t.Fatalf("Got %d heads, want 1", len(heads))
+				}
+				if err := cl.Delete(ctx, wl); err != nil {
+					t.Fatalf("Deleting workload: %v", err)
+				}
+				tc.run(ctx, logger, scheduler, &entry{Head: heads[0]})
+
+				for _, entry := range logger.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+					if entry.Type == ktesting.LogError {
+						t.Errorf("Unexpected error log %q: %v", entry.Message, entry.Err)
+					}
+				}
+				if len(recorder.RecordedEvents) != 0 {
+					t.Errorf("Unexpected events: %+v", recorder.RecordedEvents)
 				}
 			})
 		}

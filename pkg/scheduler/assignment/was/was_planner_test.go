@@ -133,21 +133,21 @@ type testSimulator struct {
 
 var _ simulator.SchedulerSimulator = (*testSimulator)(nil)
 
-func (f *testSimulator) nextStep() simulationStep {
-	idx := len(f.receivedCalls)
+func (s *testSimulator) nextStep() simulationStep {
+	idx := len(s.receivedCalls)
 	switch {
-	case idx < len(f.steps):
-		return f.steps[idx]
-	case len(f.steps) > 0:
-		return f.steps[len(f.steps)-1]
+	case idx < len(s.steps):
+		return s.steps[idx]
+	case len(s.steps) > 0:
+		return s.steps[len(s.steps)-1]
 	default:
 		return simulationStep{}
 	}
 }
 
-func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	f.scheduledPods = append(f.scheduledPods, pods...)
-	step := f.nextStep()
+func (s *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
+	s.scheduledPods = append(s.scheduledPods, pods...)
+	step := s.nextStep()
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
 
 	victims := slices.Clone(step.nodeVictims)
@@ -166,7 +166,7 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 		}
 	}
 
-	f.receivedCalls = append(f.receivedCalls, scheduleWorkloadCall{
+	s.receivedCalls = append(s.receivedCalls, scheduleWorkloadCall{
 		consumedCandidates: consumedCandidates,
 		simulateEmpty:      scheduleOpts.SimulateEmpty,
 	})
@@ -228,52 +228,52 @@ func reprievePreemptionCandidates(
 	return finalPreempted
 }
 
-func (f *testSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	f.addPGCalls++
-	if f.addPGCalls == f.failAddPGAt {
+func (s *testSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	s.addPGCalls++
+	if s.addPGCalls == s.failAddPGAt {
 		return errSimulator
 	}
-	if f.SchedulerSimulator != nil {
-		if err := f.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+	if s.SchedulerSimulator != nil {
+		if err := s.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
 			return err
 		}
 	}
-	f.addedPGs = append(f.addedPGs, pg)
+	s.addedPGs = append(s.addedPGs, pg)
 	return nil
 }
 
-func (f *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	f.removedPGs = append(f.removedPGs, pg)
-	if f.removeErr != nil {
-		return f.removeErr
+func (s *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	s.removedPGs = append(s.removedPGs, pg)
+	if s.removeErr != nil {
+		return s.removeErr
 	}
-	if f.SchedulerSimulator != nil {
-		return f.SchedulerSimulator.RemovePodGroup(ctx, pg)
+	if s.SchedulerSimulator != nil {
+		return s.SchedulerSimulator.RemovePodGroup(ctx, pg)
 	}
 	return nil
 }
 
-func (f *testSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	f.addCPGCalls++
-	if f.addCPGCalls == f.failAddCPGAt {
+func (s *testSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	s.addCPGCalls++
+	if s.addCPGCalls == s.failAddCPGAt {
 		return errSimulator
 	}
-	if f.SchedulerSimulator != nil {
-		if err := f.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
+	if s.SchedulerSimulator != nil {
+		if err := s.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
 			return err
 		}
 	}
-	f.addedCPGs = append(f.addedCPGs, cpg)
+	s.addedCPGs = append(s.addedCPGs, cpg)
 	return nil
 }
 
-func (f *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
-	f.removedCPGs = append(f.removedCPGs, cpg)
-	if f.removeErr != nil {
-		return f.removeErr
+func (s *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	s.removedCPGs = append(s.removedCPGs, cpg)
+	if s.removeErr != nil {
+		return s.removeErr
 	}
-	if f.SchedulerSimulator != nil {
-		return f.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg)
+	if s.SchedulerSimulator != nil {
+		return s.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg)
 	}
 	return nil
 }

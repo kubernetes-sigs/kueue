@@ -119,6 +119,20 @@ func TestReconcileGenericJob(t *testing.T) {
 	wantRunningAdmittedElasticWorkload := runningAdmittedElasticWorkload.DeepCopy()
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
 	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
+	runningPrebuiltJobWithRuntimeClass := baseJob.Clone().Suspend(false).Active(1).PrebuiltWorkloadLabel("job-test-job-1")
+	runningPrebuiltJobWithRuntimeClass.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runningAdmittedPrebuiltWorkload := baseWl.Clone().Name("job-test-job-1").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("default-cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+				Obj(),
+			reservedAt,
+		).
+		AdmittedAt(true, reservedAt).
+		Obj()
+	wantRunningAdmittedPrebuiltWorkload := runningAdmittedPrebuiltWorkload.DeepCopy()
+	wantRunningAdmittedPrebuiltWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
+	wantRunningAdmittedPrebuiltWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
 
 	elasticJob := baseJob.Clone().
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -146,8 +160,26 @@ func TestReconcileGenericJob(t *testing.T) {
 		wantWorkloadNames []string
 		wantPodSets       []podset.PodSetInfo
 		namespaceMissing  bool
+		workloadCreateErr error
 		wantErr           func(error) bool
 	}{
+		"job whose workload the cache has not seen yet is not an error": {
+			req:               baseReq,
+			job:               baseJob.DeepCopy(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-ce737"),
+			wantWorkloads:     []kueue.Workload{},
+		},
+		"elastic job whose workload slice the cache has not seen yet is not an error either": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets:           basePodSets,
+			workloadCreateErr: apierrors.NewAlreadyExists(kueue.Resource("workloads"), "job-test-job-3991b"),
+			wantWorkloads:     []kueue.Workload{},
+		},
 		"requeue job when its namespace is not in the cache yet": {
 			req:              baseReq,
 			job:              baseJob.DeepCopy(),
@@ -508,6 +540,17 @@ func TestReconcileGenericJob(t *testing.T) {
 				*wantRunningAdmittedElasticWorkload,
 			},
 			wantEvents: nil,
+		},
+		"running prebuilt job keeps its workload after a runtime class comparison upgrade": {
+			req:     baseReq,
+			job:     runningPrebuiltJobWithRuntimeClass.Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).RuntimeClass("kata").Obj()},
+			objs: []client.Object{
+				runningAdmittedPrebuiltWorkload.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*wantRunningAdmittedPrebuiltWorkload,
+			},
 		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
@@ -1100,6 +1143,16 @@ func TestReconcileGenericJob(t *testing.T) {
 			if !tc.namespaceMissing {
 				clBuilder = clBuilder.WithObjects(utiltesting.MakeNamespace(tc.req.Namespace))
 			}
+			if tc.workloadCreateErr != nil {
+				clBuilder = clBuilder.WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							return tc.workloadCreateErr
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				})
+			}
 			cl := clBuilder.
 				WithObjects(tc.objs...).
 				WithObjects(tc.job).
@@ -1108,7 +1161,10 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			res, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
+			if tc.workloadCreateErr != nil && tc.wantErr == nil && res != (controllerruntime.Result{}) {
+				t.Errorf("Unexpected requeue %+v: the Workload's own event requeues the Job", res)
+			}
 			if tc.wantErr != nil {
 				if !tc.wantErr(err) {
 					t.Fatalf("Unexpected error from Reconcile GenericJob: %v", err)
@@ -1496,6 +1552,16 @@ func TestEquivalentToWorkload(t *testing.T) {
 			kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
 		).Obj(), time.Now().Truncate(time.Hour)).
 		AdmittedAt(true, time.Now().Truncate(time.Hour))
+	runtimeClassJob := baseJob()
+	runtimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runtimeClassJob.Spec.Suspend = new(true)
+	runningRuntimeClassJob := baseJob()
+	runningRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	runningRuntimeClassJob.Spec.Suspend = new(false)
+	stoppingRuntimeClassJob := baseJob()
+	stoppingRuntimeClassJob.Spec.Template.Spec.RuntimeClassName = new("kata")
+	stoppingRuntimeClassJob.Spec.Suspend = new(true)
+	stoppingRuntimeClassJob.Status.Active = 1
 
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -1629,6 +1695,41 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"admitted workload with matching running pod sets": {
 			job: baseJob(),
 			wl: admittedWl.Clone().Name("owned-admitted").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"suspended job with a different runtime class is out of sync": {
+			job: runtimeClassJob,
+			wl: baseWl.Clone().Name("owned-runtime-class-suspended").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"admitted but suspended job with no active pods is out of sync": {
+			job: runtimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-admitted-suspended").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"running job without a reservation is out of sync": {
+			job: runningRuntimeClassJob,
+			wl: baseWl.Clone().Name("owned-runtime-class-running-unreserved").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"running admitted job retains its older runtime class comparison": {
+			job: runningRuntimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-running-admitted").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"suspended admitted job with active pods retains its reservation": {
+			job: stoppingRuntimeClassJob,
+			wl: admittedWl.Clone().Name("owned-runtime-class-stopping-admitted").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: true,

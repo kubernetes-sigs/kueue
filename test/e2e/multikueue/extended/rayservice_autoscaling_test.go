@@ -108,13 +108,7 @@ app = HelloWorld.bind()`,
 		VolumeMounts(rayv1.HeadNode, []corev1.VolumeMount{codeMount}).
 		TerminationGracePeriod(1).
 		Obj()
-	rayService.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
-		IdleTimeoutSeconds: new(int32(1)),
-		Env: []corev1.EnvVar{{
-			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
-			Value: "1",
-		}},
-	}
+	rayService.Spec.RayClusterSpec.AutoscalerOptions = fastAutoscalerOptions()
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(0))
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(0))
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))

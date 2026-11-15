@@ -791,7 +791,11 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 		)
 		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
 	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-		log.Error(err, "Could not update Workload status")
+		if apierrors.IsNotFound(err) {
+			log.V(3).Info("Workload status not updated because it was deleted")
+		} else {
+			log.Error(err, "Could not update Workload status")
+		}
 	}
 	s.cache.WaitForPodsReady(ctx)
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
@@ -1386,6 +1390,10 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 			}
 			return updated, nil
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(3).Info("Workload status not updated because it was deleted")
+				return
+			}
 			log.Error(err, "Could not update Workload status")
 		}
 		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))

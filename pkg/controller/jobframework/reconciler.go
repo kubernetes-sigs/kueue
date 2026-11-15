@@ -448,6 +448,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if wl == nil {
 		log.V(3).Info("The workload is nil, handle job with no workload")
 		if err := r.handleJobWithNoWorkload(ctx, job, object); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				// The informer cache has not yet seen the Workload an earlier
+				// reconcile created for this Job. The Workload's creation event
+				// requeues the Job through the Workload watch, so this is not an
+				// error.
+				log.V(3).Info("Workload already exists but is not in the cache yet")
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, fmt.Errorf("handling job with no Workload: %w", err)
 		}
 		return ctrl.Result{}, nil
@@ -1955,9 +1963,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 3)
+	opts := make([]equality.ComparePodSetsOption, 0, 4)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	// A running Job may have been admitted before RuntimeClassName became part
+	// of this comparison. Keep its reservation while Pods may still be running;
+	// otherwise an upgrade could finish the Workload and release its quota first.
+	if workload.HasQuotaReservation(wl) && (!job.IsSuspended() || job.IsActive()) {
+		opts = append(opts, equality.WithIgnoreRuntimeClassName())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) || admittedWithoutTAS(wl) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
