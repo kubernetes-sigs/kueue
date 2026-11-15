@@ -2515,10 +2515,13 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with unhealthyNode annotation; second pass; another assigned node is cordoned; keeps the stale check for slice requests": {
 			// Slices of 2 per rack: x1 and the cordoned x2 in r1, the failed x3 and x4
 			// in r2. Ignoring x2 would put x3's replacement on x5 and split a slice (3+1).
+			// The stale check relies on the gate-off node cache dropping the cordoned x2;
+			// with SchedulerLibraryIntegration x2 stays at hostname level.
 			featureGates: map[featuregate.Feature]bool{
 				features.TASReplaceMultipleFailedNodes:    false,
 				features.TASPartialSlices:                 false,
 				features.TASFailedNodeReplacementFailFast: false,
+				features.SchedulerLibraryIntegration:      false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").

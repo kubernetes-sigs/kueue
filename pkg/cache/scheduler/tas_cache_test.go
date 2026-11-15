@@ -538,11 +538,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 
 	// x1 failed and x2 is cordoned, so both are missing from the snapshot, but only x1 is recorded as unhealthy.
 	// x2 is merged by its hostname alone, so it sorts after x3 and x4.
+	// With SchedulerLibraryIntegration enabled, both stay in the snapshot and the scheduler library rejects them.
 	cordonedNodeReplacementNodes := []corev1.Node{
 		*testingnode.MakeNode("x1").
 			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
 			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-			NotReady().Obj(),
+			NotReady().Taints(notReadyTaint).Obj(),
 		*testingnode.MakeNode("x2").
 			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
 			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -11679,11 +11680,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"node replacement: a cordoned node missing from the snapshot does not make the assignment stale when gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: false},
-			nodes:        cordonedNodeReplacementNodes,
-			levels:       defaultThreeLevels,
-			workload:     cordonedNodeReplacementWorkload.Clone().Obj(),
-			pods:         cordonedNodeReplacementPods,
+			// Only the gate-off node cache drops the cordoned node from the snapshot.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes: false,
+				features.SchedulerLibraryIntegration:   false,
+			},
+			nodes:    cordonedNodeReplacementNodes,
+			levels:   defaultThreeLevels,
+			workload: cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:     cordonedNodeReplacementPods,
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
@@ -11700,11 +11705,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"node replacement: a cordoned node missing from the snapshot does not make the assignment stale when gate is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
-			nodes:        cordonedNodeReplacementNodes,
-			levels:       defaultThreeLevels,
-			workload:     cordonedNodeReplacementWorkload.Clone().Obj(),
-			pods:         cordonedNodeReplacementPods,
+			// Only the gate-off node cache drops the cordoned node from the snapshot.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes: true,
+				features.SchedulerLibraryIntegration:   false,
+			},
+			nodes:    cordonedNodeReplacementNodes,
+			levels:   defaultThreeLevels,
+			workload: cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:     cordonedNodeReplacementPods,
 			podSets: []PodSetTestCase{{
 				podSetName:      "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
@@ -11716,6 +11725,56 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Count: 1, Values: []string{"x3"}},
 						{Count: 1, Values: []string{"x4"}},
 						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"node replacement: a cordoned node does not make the assignment stale when gate is disabled; SchedulerLibraryIntegration": {
+			// The cordoned x2 stays in the snapshot, so it keeps its place in the order.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes: false,
+				features.SchedulerLibraryIntegration:   true,
+			},
+			nodes:    cordonedNodeReplacementNodes,
+			levels:   defaultThreeLevels,
+			workload: cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:     cordonedNodeReplacementPods,
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
+					},
+				},
+			}},
+		},
+		"node replacement: a cordoned node does not make the assignment stale when gate is enabled; SchedulerLibraryIntegration": {
+			// The cordoned x2 stays in the snapshot, so it keeps its place in the order.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes: true,
+				features.SchedulerLibraryIntegration:   true,
+			},
+			nodes:    cordonedNodeReplacementNodes,
+			levels:   defaultThreeLevels,
+			workload: cordonedNodeReplacementWorkload.Clone().Obj(),
+			pods:     cordonedNodeReplacementPods,
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
 					},
 				},
 			}},
