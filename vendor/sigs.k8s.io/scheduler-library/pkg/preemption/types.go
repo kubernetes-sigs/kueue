@@ -23,9 +23,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// PreemptionVictim is an atomic unit of preemption, which can contain 1 or more pods.
+// PreemptionVictim is an atomic unit of preemption, which can contain 0 or more pods.
 type PreemptionVictim interface {
-	// Pods can contain 1 or more pods.
+	// Pods can contain 0 or more pods.
+	// A victim with 0 pods represents a preemptible unit with no scheduled pods in the
+	// cluster snapshot (for example, a pending workload holding external quota tracked
+	// by [PreemptionFilter]).
 	// The returned pods must not overlap across victims.
 	Pods() []*v1.Pod
 }
@@ -69,16 +72,23 @@ type WorkloadPreemptionOptions struct {
 	// workload, ordered from least to most valuable.
 	// It is consumed during stage 1 to find the smallest prefix of victims needed for the
 	// workload to fit, after which stage 2 attempts to reprieve victims from that prefix.
-	// Provided victims must be present in the snapshot with Spec.NodeName set.
+	// Each victim must be non-nil, and any pods it contains must be non-nil and present in
+	// the snapshot with Spec.NodeName set. Victims with 0 pods do not free node capacity and
+	// only affect scheduling through [WorkloadPreemptionOptions.PreemptionFilter] (when
+	// PreemptionFilter is nil, they are always reprieved during stage 2).
 	// If nil or empty, no additional victims are considered during stage 1.
 	PotentialVictims iter.Seq[PreemptionVictim]
 
 	// CommittedVictims are victims that have already been preempted by an earlier workload
-	// and removed from the snapshot by the caller before invoking ScheduleWorkload.
+	// and whose pods (if any) have been removed from the snapshot by the caller before
+	// invoking ScheduleWorkload. Each victim must be non-nil, and any pods it contains must
+	// be non-nil and have Spec.NodeName set.
 	// ScheduleWorkload first attempts to schedule the workload with nodes occupied by
-	// CommittedVictims filtered out (and CommittedVictims temporarily unpreempted in
+	// CommittedVictims' pods filtered out (and CommittedVictims temporarily unpreempted in
 	// PreemptionFilter, if set); if that fails, it retries across all nodes with
 	// CommittedVictims active and sets WaitingForPreemption = true if the workload fits.
+	// Victims with 0 pods do not occupy any nodes, so they only affect this check through
+	// [WorkloadPreemptionOptions.PreemptionFilter].
 	// If the caller also uses [WorkloadPreemptionOptions.PreemptionFilter], the filter
 	// must initially consider CommittedVictims as preempted and allow them to be
 	// temporarily unpreempted via [PreemptionFilter.UnpreemptVictim] and re-preempted via

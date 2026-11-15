@@ -49,14 +49,12 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[workload.Reference],
 			if committedVictims.Has(wlKey) {
 				continue
 			}
-			// TODO: Handle podless victims (e.g. workloads waiting on AdmissionChecks that only hold quota).
-			pods := s.pods.PodsForWorkload(wlKey)
-			if len(pods) == 0 {
-				continue
-			}
+			// Victims without Pods, e.g. Workloads waiting on AdmissionChecks
+			// which only hold quota, free no node capacity, but their quota is
+			// freed through the PreemptionFilter.
 			v := &preemptionVictim{
 				wlKey: wlKey,
-				pods:  pods,
+				pods:  s.pods.PodsForWorkload(wlKey),
 			}
 			if !yield(v) {
 				return
@@ -76,12 +74,11 @@ func (s *wasSimulator) committedVictims(victimWorkloads []workload.Reference) []
 			continue
 		}
 		present.Insert(preemptedWlKey)
-		if victimPods := s.pods.PodsForWorkload(preemptedWlKey); len(victimPods) > 0 {
-			cv = append(cv, &preemptionVictim{
-				wlKey: preemptedWlKey,
-				pods:  victimPods,
-			})
-		}
+		// Victims without Pods occupy no node, but they still hold quota.
+		cv = append(cv, &preemptionVictim{
+			wlKey: preemptedWlKey,
+			pods:  s.pods.PodsForWorkload(preemptedWlKey),
+		})
 	}
 	return cv
 }
