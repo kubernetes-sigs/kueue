@@ -21,7 +21,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -34,7 +33,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const requeueBatchPeriod = time.Second
+const (
+	requeueBatchPeriod = time.Second
+	// Namespace cache misses should retry without continuously scanning
+	// inadmissible Workloads during informer propagation delays.
+	namespaceLookupRetryBaseDelay = 5 * time.Second
+	namespaceLookupRetryMaxDelay  = 2 * time.Minute
+)
 
 type requeuerOptions struct {
 	batchPeriod time.Duration
@@ -191,7 +196,9 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 		ns := corev1.Namespace{}
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil {
-			if !apierrors.IsNotFound(err) && ctx.Err() == nil {
+			// A Namespace can be missing from the informer cache even when its
+			// Workload is present. Retry NotFound along with other read errors.
+			if ctx.Err() == nil {
 				retry = true
 			}
 			continue
@@ -269,7 +276,7 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	}
 	return &workqueueRequeuer{
 		queue: workqueue.NewTypedRateLimitingQueue(
-			workqueue.NewTypedItemExponentialFailureRateLimiter[requeueRequest](5*time.Second, 2*time.Minute),
+			workqueue.NewTypedItemExponentialFailureRateLimiter[requeueRequest](namespaceLookupRetryBaseDelay, namespaceLookupRetryMaxDelay),
 		),
 		batchPeriod: options.batchPeriod,
 	}
