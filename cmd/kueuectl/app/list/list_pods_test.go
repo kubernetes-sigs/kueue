@@ -293,7 +293,7 @@ No resources found in default namespace.
 dev-team-a   group-pod-1   1/1     Running   0          <unknown>
 dev-team-b   group-pod-2   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; use --namespace or --selector to narrow the search.
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; omit --all-namespaces and use --namespace or add --selector to narrow the search.
 `,
 		}, {
 			name: "list pods of a pod group identified by annotation with selector",
@@ -337,7 +337,7 @@ group-pod-1   1/1     Running   0          <unknown>
 			wantOut: `NAMESPACE    NAME          READY   STATUS    RESTARTS   AGE
 dev-team-a   group-pod-1   1/1     Running   0          <unknown>
 `,
-			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces; use --namespace to narrow the search.
+			wantOutErr: `warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces after applying the server-side selectors.
 `,
 		}, {
 			name: "list a standalone pod by name",

@@ -528,14 +528,15 @@ func (o *PodOptions) printNoResourcesFound() {
 }
 
 func (o *PodOptions) printAnnotationScanWarning() {
+	selectorSpecified := o.LabelSelector != "" || o.FieldSelector != ""
 	if o.AllNamespaces {
-		if o.LabelSelector != "" {
-			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces; use --namespace to narrow the search.")
+		if selectorSpecified {
+			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods across all namespaces after applying the server-side selectors.")
 		} else {
-			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; use --namespace or --selector to narrow the search.")
+			fmt.Fprintln(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods across all namespaces; omit --all-namespaces and use --namespace or add --selector to narrow the search.")
 		}
 	} else {
-		if o.LabelSelector != "" {
+		if selectorSpecified {
 			fmt.Fprintf(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning Pods in the %s namespace.\n", o.Namespace)
 		} else {
 			fmt.Fprintf(o.ErrOut, "warning: Kubernetes cannot select Pods by annotation on the server. Scanning all Pods in the %s namespace; use --selector to narrow the search.\n", o.Namespace)
