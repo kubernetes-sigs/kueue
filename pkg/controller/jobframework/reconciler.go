@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -81,6 +82,7 @@ const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
 	scaleUpProbeExtra           = "scale-up-probe"
+	jobOnHoldMessage            = "Job is on hold"
 )
 
 var (
@@ -674,34 +676,11 @@ func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl 
 		}
 		return false, ctrl.Result{}, nil
 	}
-	if wl == nil {
-		return true, ctrl.Result{}, nil
-	}
-	const message = "Job is on hold"
 	if resumable {
-		// Stop the job so that it starts again only after its Workload is re-admitted,
-		// and keep the quota until the job is no longer active, as for evictions.
-		if err := r.stopJob(ctx, job, wl, StopReasonOnHold, message); err != nil {
-			return true, ctrl.Result{}, fmt.Errorf("stopping job on hold: %w", err)
-		}
-		if job.IsActive() {
-			return true, ctrl.Result{}, nil
-		}
+		return true, ctrl.Result{}, r.holdResumableJob(ctx, job, wl)
 	}
-	if workload.HasQuotaReservation(wl) {
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			changed := workload.UnsetQuotaReservationWithCondition(
-				wl,
-				kueue.WorkloadOnHold,
-				message,
-				r.clock.Now(),
-			)
-			return changed, nil
-		})
-		if err != nil {
-			return true, ctrl.Result{}, fmt.Errorf("putting workload on hold: %w", err)
-		}
-		ctrl.LoggerFrom(ctx).V(3).Info("Released quota reservation because the job is on hold", "workload", klog.KObj(wl))
+	if wl != nil && workload.HasQuotaReservation(wl) {
+		return true, ctrl.Result{}, r.putOnHold(ctx, wl)
 	}
 	return true, ctrl.Result{}, nil
 }
@@ -709,6 +688,54 @@ func (r *JobReconciler) reconcileOnHold(ctx context.Context, job GenericJob, wl 
 func isHoldResumable(job GenericJob) bool {
 	resumable, ok := job.(JobWithResumableHold)
 	return ok && resumable.IsHoldResumable()
+}
+
+// holdResumableJob stops the job and puts its Workloads on hold, so that the job
+// starts again only after its Workload is re-admitted.
+func (r *JobReconciler) holdResumableJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+	// While a scale-up waits for quota, the slice that holds the quota is kept
+	// alongside its pending replacement, and wl is the replacement, or nil when
+	// the replacement is not created yet.
+	var retained *kueue.Workload
+	if WorkloadSliceEnabled(job) && (wl == nil || !workload.HasQuotaReservation(wl)) {
+		var err error
+		retained, err = workloadslicing.FindLatestActiveWorkload(ctx, r.client, job.Object(), job.GVK())
+		if err != nil {
+			return fmt.Errorf("finding the workload slice that holds the quota: %w", err)
+		}
+	}
+	if wl == nil && retained == nil {
+		return nil
+	}
+	// The job runs with the slice that holds the quota, so stop it with that slice.
+	if err := r.stopJob(ctx, job, cmp.Or(retained, wl), StopReasonOnHold, jobOnHoldMessage); err != nil {
+		return fmt.Errorf("stopping job on hold: %w", err)
+	}
+	active := job.IsActive()
+	// wl goes first, so that it is not admitted with the quota released by retained.
+	for _, w := range []*kueue.Workload{wl, retained} {
+		// A Workload keeps its quota until the job is no longer active, as for evictions.
+		if w == nil || workload.IsOnHold(w) || (active && workload.HasQuotaReservation(w)) {
+			continue
+		}
+		if err := r.putOnHold(ctx, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// putOnHold releases the quota reservation of a Workload, if it has one, and
+// makes the Workload inadmissible.
+func (r *JobReconciler) putOnHold(ctx context.Context, wl *kueue.Workload) error {
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadOnHold, jobOnHoldMessage, r.clock.Now()), nil
+	})
+	if err != nil {
+		return fmt.Errorf("putting workload on hold: %w", err)
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Put the workload on hold because the job is on hold", "workload", klog.KObj(wl))
+	return nil
 }
 
 // clearOnHold makes a Workload that was put on hold admissible again.

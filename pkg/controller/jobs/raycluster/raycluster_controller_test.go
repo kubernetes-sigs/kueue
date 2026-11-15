@@ -43,6 +43,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -52,6 +53,9 @@ var (
 	}
 	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
+			return a.Name < b.Name
+		}),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
@@ -445,6 +449,31 @@ func TestReconciler(t *testing.T) {
 		PodSets(utiltestingapi.MakePodSetAssignment("head").Obj(), utiltestingapi.MakePodSetAssignment("workers-group-0").Obj()).
 		Obj()
 
+	// An elastic cluster that is scaled up to a second worker, and the pending
+	// workload slice that replaces baseWorkloadWrapper for that scale-up.
+	elasticJobWrapper := baseJobWrapper.Clone().
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ScaleFirstWorkerGroup(2)
+	replacementWorkloadWrapper := baseWorkloadWrapper.Clone().
+		Name("test-replacement").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(baseWorkloadWrapper.Obj())))
+	replacementWorkloadWrapper.Spec.PodSets[1].Count = 2
+
+	onHoldCondition := metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadOnHold,
+		Message:            "Job is on hold",
+		ObservedGeneration: 1,
+	}
+	noReservationCondition := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionFalse,
+		Reason:             "NoReservation",
+		Message:            "The workload has no reservation",
+		ObservedGeneration: 1,
+	}
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		featureGates      map[featuregate.Feature]bool
@@ -737,21 +766,108 @@ func TestReconciler(t *testing.T) {
 				*baseWorkloadWrapper.Clone().
 					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
 					PastAdmittedTime(1).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadOnHold,
-						Message:            "Job is on hold",
-						ObservedGeneration: 1,
-					}).
+					Condition(onHoldCondition).
 					AdmittedAt(true, now).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-						ObservedGeneration: 1,
-					}).
+					Condition(noReservationCondition).
+					Obj(),
+			},
+		},
+		"when an idle-suspended cluster has a pending workload, the workload is put on hold": {
+			featureGates: map[featuregate.Feature]bool{features.RayClusterIdleSuspend: true},
+			job:          *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
+			workloads:    []kueue.Workload{*baseWorkloadWrapper.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
+			},
+		},
+		"when an idle-suspended elastic cluster has a pending scale-up, both workload slices are put on hold": {
+			featureGates: map[featuregate.Feature]bool{
+				features.RayClusterIdleSuspend:        true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: *elasticJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				Obj(),
+			wantJob: *elasticJobWrapper.Clone().
+				IdleSuspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now.Add(-time.Second)).
+					Obj(),
+				*replacementWorkloadWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					PastAdmittedTime(1).
+					Condition(onHoldCondition).
+					AdmittedAt(true, now).
+					Condition(noReservationCondition).
+					Obj(),
+				*replacementWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
+			},
+		},
+		"when an idle-suspended elastic cluster with a pending scale-up is still active, the admitted slice keeps its quota": {
+			featureGates: map[featuregate.Feature]bool{
+				features.RayClusterIdleSuspend:        true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: *elasticJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				State(rayv1.Ready).
+				Obj(),
+			wantJob: *elasticJobWrapper.Clone().
+				IdleSuspend(true).
+				State(rayv1.Ready).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*replacementWorkloadWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*replacementWorkloadWrapper.Clone().Condition(onHoldCondition).Condition(noReservationCondition).Obj(),
+			},
+		},
+		"when an idle-suspended elastic cluster has a scale-up without a workload slice, the admitted slice is put on hold": {
+			featureGates: map[featuregate.Feature]bool{
+				features.RayClusterIdleSuspend:        true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: *elasticJobWrapper.Clone().
+				Suspend(false).
+				IdleSuspend(true).
+				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
+				Obj(),
+			wantJob: *elasticJobWrapper.Clone().
+				IdleSuspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					AdmittedAt(true, now.Add(-time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					ReserveQuotaAt(baseAdmission.DeepCopy(), now).
+					PastAdmittedTime(1).
+					Condition(onHoldCondition).
+					AdmittedAt(true, now).
+					Condition(noReservationCondition).
 					Obj(),
 			},
 		},
@@ -761,20 +877,8 @@ func TestReconciler(t *testing.T) {
 			wantJob:      *baseJobWrapper.Clone().IdleSuspend(false).Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadOnHold,
-						Message:            "Job is on hold",
-						ObservedGeneration: 1,
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-						ObservedGeneration: 1,
-					}).
+					Condition(onHoldCondition).
+					Condition(noReservationCondition).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -786,13 +890,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Job is no longer on hold",
 						ObservedGeneration: 1,
 					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-						ObservedGeneration: 1,
-					}).
+					Condition(noReservationCondition).
 					Obj(),
 			},
 		},
@@ -825,20 +923,8 @@ func TestReconciler(t *testing.T) {
 			wantJob:      *baseJobWrapper.Clone().IdleSuspend(true).Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadOnHold,
-						Message:            "Job is on hold",
-						ObservedGeneration: 1,
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-						ObservedGeneration: 1,
-					}).
+					Condition(onHoldCondition).
+					Condition(noReservationCondition).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -850,13 +936,7 @@ func TestReconciler(t *testing.T) {
 						Message:            "Job is no longer on hold",
 						ObservedGeneration: 1,
 					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-						ObservedGeneration: 1,
-					}).
+					Condition(noReservationCondition).
 					Obj(),
 			},
 		},

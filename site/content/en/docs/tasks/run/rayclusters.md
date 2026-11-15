@@ -73,6 +73,8 @@ Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is 
 
 KubeRay v1.8 and later can suspend a RayCluster that has no Ray driver connected. With `spec.idleTerminationOptions` and the `Suspend` policy, the Ray autoscaler sets `spec.idleSuspend` to `true` and KubeRay deletes the Pods.
 
+KubeRay accepts `spec.idleTerminationOptions` only when the RayCluster uses in-tree autoscaling (`spec.enableInTreeAutoscaling: true`), the v2 autoscaler (`spec.autoscalerOptions.version: v2`), and Ray 2.60.0 or later. In Kueue, in-tree autoscaling requires an elastic RayCluster, see [Limitations](#d-limitations).
+
 When the `RayClusterIdleSuspend` [feature gate](/docs/installation/#change-the-feature-gates-configuration) is set to `true`, Kueue releases the quota of the RayCluster while `spec.idleSuspend` is `true`. Kueue also sets `spec.suspend` to `true`, so that the RayCluster starts again only after it is admitted.
 
 To resume the RayCluster, clear `spec.idleSuspend`. Kueue queues the RayCluster again and unsuspends it once it is admitted.

@@ -30,6 +30,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -81,6 +82,15 @@ var _ = ginkgo.Describe("RayCluster idle suspend", ginkgo.Label("job:ray", "area
 			g.Expect(rayCluster.Spec.HeadGroupSpec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
 			g.Expect(rayCluster.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	}
+	// deleteRayCluster also deletes the Workload of the RayCluster, because there
+	// is no garbage collection in integration tests.
+	deleteRayCluster := func(rayCluster *rayv1.RayCluster) {
+		ginkgo.GinkgoHelper()
+		wl := &kueue.Workload{}
+		gomega.Expect(k8sClient.Get(ctx, workloadKey(rayCluster), wl)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rayCluster, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 	}
 	expectOnHold := func(wlKey client.ObjectKey) {
 		ginkgo.GinkgoHelper()
@@ -171,11 +181,7 @@ var _ = ginkgo.Describe("RayCluster idle suspend", ginkgo.Label("job:ray", "area
 		})
 
 		ginkgo.By("deleting the second RayCluster", func() {
-			waitingWorkload := &kueue.Workload{}
-			gomega.Expect(k8sClient.Get(ctx, workloadKey(waitingCluster), waitingWorkload)).Should(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, waitingCluster, true)
-			// There is no garbage collection in integration tests.
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, waitingWorkload, true)
+			deleteRayCluster(waitingCluster)
 		})
 
 		ginkgo.By("checking the first RayCluster is admitted and started again", func() {
@@ -218,6 +224,51 @@ var _ = ginkgo.Describe("RayCluster idle suspend", ginkgo.Label("job:ray", "area
 		ginkgo.By("resuming the RayCluster, which starts on the second flavor", func() {
 			setIdleSuspend(idleCluster, false)
 			expectStarted(idleCluster, onDemandFlavor)
+		})
+	})
+
+	ginkgo.It("Should not admit a pending RayCluster while it is idle-suspended", func() {
+		runningCluster := testingraycluster.MakeCluster("running", ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "4").
+			RequestWorkerGroup(corev1.ResourceCPU, "4").
+			Obj()
+		pendingCluster := testingraycluster.MakeCluster("pending", ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "2").
+			RequestWorkerGroup(corev1.ResourceCPU, "2").
+			Obj()
+
+		ginkgo.By("admitting a RayCluster that uses the quota of both flavors", func() {
+			behavioral.MustCreate(ctx, k8sClient, runningCluster)
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, workloadKey(runningCluster))
+		})
+
+		ginkgo.By("creating a second RayCluster that has to wait for quota", func() {
+			behavioral.MustCreate(ctx, k8sClient, pendingCluster)
+			behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, workloadKey(pendingCluster))
+		})
+
+		ginkgo.By("idle-suspending the second RayCluster", func() {
+			setIdleSuspend(pendingCluster, true)
+			expectOnHold(workloadKey(pendingCluster))
+		})
+
+		ginkgo.By("deleting the first RayCluster", func() {
+			deleteRayCluster(runningCluster)
+		})
+
+		ginkgo.By("checking the second RayCluster is not admitted with the released quota", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, workloadKey(pendingCluster), wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadOnHold))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("resuming the second RayCluster, which is admitted and started", func() {
+			setIdleSuspend(pendingCluster, false)
+			expectStarted(pendingCluster, spotFlavor)
 		})
 	})
 
@@ -281,6 +332,90 @@ var _ = ginkgo.Describe("RayCluster idle suspend", ginkgo.Label("job:ray", "area
 		ginkgo.By("resuming the RayCluster, which is admitted and started again", func() {
 			setIdleSuspend(rayCluster, false)
 			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+			expectStarted(rayCluster, spotFlavor)
+		})
+	})
+
+	ginkgo.It("Should release the quota of an idle-suspended elastic RayCluster that has a pending scale-up", func() {
+		rayCluster := testingraycluster.MakeCluster("elastic", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			Obj()
+		// Uses the quota that the elastic RayCluster leaves on both flavors.
+		otherCluster := testingraycluster.MakeCluster("other", ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "1500m").
+			RequestWorkerGroup(corev1.ResourceCPU, "4").
+			Obj()
+		// The name of an elastic workload slice is not derived from the job alone.
+		var admittedSliceKey, pendingSliceKey client.ObjectKey
+
+		ginkgo.By("admitting an elastic RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				admittedSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			expectStarted(rayCluster, spotFlavor)
+		})
+
+		ginkgo.By("filling the rest of the quota with another RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, otherCluster)
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, workloadKey(otherCluster))
+		})
+
+		ginkgo.By("scaling up the elastic RayCluster, whose new workload slice has to wait for quota", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).Should(gomega.Succeed())
+				rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+				g.Expect(k8sClient.Update(ctx, rayCluster)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				for i := range workloads.Items {
+					if workloadslicing.ScaledUp(&workloads.Items[i]) {
+						pendingSliceKey = client.ObjectKeyFromObject(&workloads.Items[i])
+					}
+				}
+				g.Expect(pendingSliceKey.Name).ShouldNot(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, pendingSliceKey)
+		})
+
+		ginkgo.By("idle-suspending the elastic RayCluster", func() {
+			setIdleSuspend(rayCluster, true)
+			expectStopped(rayCluster)
+			expectOnHold(pendingSliceKey)
+		})
+
+		ginkgo.By("checking the quota of the admitted workload slice is released", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, admittedSliceKey, wl)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl)).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("deleting the other RayCluster", func() {
+			deleteRayCluster(otherCluster)
+		})
+
+		ginkgo.By("resuming the elastic RayCluster, which is admitted with two workers and started", func() {
+			setIdleSuspend(rayCluster, false)
+			// Either workload slice can be the one that is kept for the RayCluster.
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.ContainElement(gomega.Satisfy(func(wl kueue.Workload) bool {
+					return workload.IsAdmitted(&wl) && wl.Spec.PodSets[1].Count == 2
+				})))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			expectStarted(rayCluster, spotFlavor)
 		})
 	})
