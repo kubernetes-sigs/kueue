@@ -37,7 +37,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	core "sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -3541,6 +3543,160 @@ func TestFirstCandidateVariant(t *testing.T) {
 			got := firstCandidateVariant(ctrl.Log, []*kueue.Workload{tc.first, blocked})
 			if got != tc.want {
 				t.Errorf("firstCandidateVariant() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPreemptionGateAfterSpecUpdateAndCoreReconcile(t *testing.T) {
+	now := time.Now()
+	blockedCond := blockedOnPreemptionCondition(now)
+	blockedCond.ObservedGeneration = 1
+
+	testCases := map[string]struct {
+		preferredObsGen       int64
+		wantQuotaReason       string
+		wantSecondaryGateOpen bool
+	}{
+		"waits when preferred variant holds stale WaitingForQuota from older generation across core reconcile": {
+			preferredObsGen:       1,
+			wantQuotaReason:       kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			wantSecondaryGateOpen: false,
+		},
+		"ungates secondary variant when preferred variant holds fresh WaitingForQuota for current generation across core reconcile": {
+			preferredObsGen:       2,
+			wantQuotaReason:       kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+			wantSecondaryGateOpen: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+
+			parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+				Generation(2).
+				Queue("lq-hold").
+				Request(corev1.ResourceCPU, "2").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj()
+			parent.UID = "parent-uid"
+
+			preferredVariant := utiltestingapi.MakeWorkload("parent-wl-variant-on-demand", "default").
+				Generation(2).
+				Queue("lq-hold").
+				Request(corev1.ResourceCPU, "2").
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parent.Name, string(parent.UID)).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message:            "insufficient CPU in ClusterQueue cq-hold",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: tc.preferredObsGen,
+				}).
+				Condition(blockedCond).
+				Obj()
+
+			secondaryVariant := utiltestingapi.MakeWorkload("parent-wl-variant-spot", "default").
+				Generation(1).
+				Queue("lq-hold").
+				Request(corev1.ResourceCPU, "1").
+				AllowedFlavors("spot").
+				PreemptionGates(caGate()).
+				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parent.Name, string(parent.UID)).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Condition(blockedCond).
+				Obj()
+
+			cq := utiltestingapi.MakeClusterQueue("cq-hold").
+				Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "1").Obj(),
+				).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionRetainFirstAdmission).
+				Obj()
+			onDemandRF := utiltestingapi.MakeResourceFlavor("on-demand").Obj()
+			spotRF := utiltestingapi.MakeResourceFlavor("spot").Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq-hold", "default").
+				ClusterQueue(cq.Name).
+				Obj()
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+
+			objs := []client.Object{ns, onDemandRF, spotRF, cq, lq, parent, preferredVariant, secondaryVariant}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...).
+				Build()
+
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(ctrl.Log, onDemandRF)
+			cqCache.AddOrUpdateResourceFlavor(ctrl.Log, spotRF)
+			if err := cqCache.AddClusterQueue(t.Context(), cq); err != nil {
+				t.Fatalf("AddClusterQueue (cache) failed: %v", err)
+			}
+			if !cqCache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name)) {
+				t.Fatalf("expected ClusterQueue %q to be active in scheduler cache", cq.Name)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			if err := qManager.AddClusterQueue(t.Context(), cq); err != nil {
+				t.Fatalf("AddClusterQueue (queues) failed: %v", err)
+			}
+			if err := qManager.AddLocalQueue(t.Context(), lq); err != nil {
+				t.Fatalf("AddLocalQueue failed: %v", err)
+			}
+			for _, wl := range []*kueue.Workload{preferredVariant, secondaryVariant} {
+				if err := qManager.AddOrUpdateWorkload(t.Context(), ctrl.Log, wl.DeepCopy()); err != nil {
+					t.Fatalf("AddOrUpdateWorkload failed: %v", err)
+				}
+			}
+
+			recorder := &utiltesting.EventRecorder{}
+			coreReconciler := core.NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+			vr := &variantReconciler{
+				logName:     ConcurrentAdmissionController,
+				client:      cl,
+				queues:      qManager,
+				roleTracker: roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+				clock:       testingclock.NewFakeClock(now),
+				recorder:    recorder,
+			}
+
+			// Simulate core WorkloadReconciler running on the preferred variant before
+			// concurrentadmission checks candidate preemption gates.
+			if _, err := coreReconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(preferredVariant)}); err != nil {
+				t.Fatalf("coreReconciler.Reconcile() unexpected error: %v", err)
+			}
+			if _, err := vr.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(parent)}); err != nil {
+				t.Fatalf("variantReconciler.Reconcile() unexpected error: %v", err)
+			}
+
+			var gotPreferred kueue.Workload
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(preferredVariant), &gotPreferred); err != nil {
+				t.Fatalf("failed to get preferred variant: %v", err)
+			}
+			quotaCond := apimeta.FindStatusCondition(gotPreferred.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if quotaCond == nil || quotaCond.Reason != tc.wantQuotaReason || quotaCond.ObservedGeneration != gotPreferred.Generation {
+				t.Errorf("expected preferred variant QuotaReserved reason %q at generation %d, got %+v", tc.wantQuotaReason, gotPreferred.Generation, quotaCond)
+			}
+
+			var gotSecondary kueue.Workload
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(secondaryVariant), &gotSecondary); err != nil {
+				t.Fatalf("failed to get secondary variant: %v", err)
+			}
+			if got := workload.HasOpenPreemptionGate(&gotSecondary, constants.ConcurrentAdmissionPreemptionGate); got != tc.wantSecondaryGateOpen {
+				t.Errorf("secondary variant HasOpenPreemptionGate = %t, want %t", got, tc.wantSecondaryGateOpen)
 			}
 		})
 	}

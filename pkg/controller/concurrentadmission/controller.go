@@ -937,10 +937,9 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		// QuotaReserved, but it only sets or refreshes BlockedOnPreemptionGates
 		// if the variant is nominated for preemption. If re-evaluation determines
 		// the variant is not nominated (e.g. Inadmissible), BlockedOnPreemptionGates
-		// is left untouched with an older ObservedGeneration. We treat such a
-		// stale condition as absent once QuotaReserved has been refreshed to a
-		// non-PreemptionGated reason (QuotaReserved still carrying PreemptionGated
-		// means the controller preserved an older scheduler reason across the spec update).
+		// is left untouched with an older ObservedGeneration. Treat such a stale
+		// condition as absent once QuotaReserved has been refreshed to a
+		// non-PendingEvaluation, non-PreemptionGated reason.
 		quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		if wl.Generation > 0 && quotaReserved != nil && quotaReserved.ObservedGeneration < wl.Generation {
 			wlLog.Info("Variant has not been evaluated for admission yet")
