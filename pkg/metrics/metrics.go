@@ -475,9 +475,10 @@ Globally configured custom ClusterQueue labels are also appended to the base lab
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "scheduling_assignment_recomputations_total",
-			Help: `The total number of assignment recomputations within a scheduling cycle, by assignment mode before and after recomputation and triggering reason.
+			Help: `The total number of completed assignment recomputations within a scheduling cycle, by assignment mode before and after recomputation and triggering reason.
 The reason 'NoTAS' indicates that the nominated topology assignment no longer fits; 'OverlappingPreemptionTargets' indicates that preemption targets overlap with those selected earlier in the cycle.
-Each recomputation is counted once, including when the mode is unchanged. If both reasons apply, 'OverlappingPreemptionTargets' takes precedence, matching the scheduler.
+Each completed recomputation is counted once, including when the mode is unchanged. Attempts that return a planner error are excluded because they have no final assignment mode.
+If both reasons apply, 'OverlappingPreemptionTargets' takes precedence, matching the scheduler.
 The after_mode includes any DeferredFit adjustment and does not imply that the workload was admitted.
 Globally configured custom ClusterQueue labels are also appended to the base labels.`,
 		}, append([]string{"cluster_queue", "before_mode", "after_mode", "reason", "replica_role"}, clusterQueueMetricsLabels...),
@@ -1673,7 +1674,7 @@ func ReportPreemptionTargetRecomputation(cqName kueue.ClusterQueueReference, res
 	PreemptionTargetRecomputationsTotal.WithLabelValues(labels...).Inc()
 }
 
-// ReportAssignmentRecomputation records the mode transition of an in-cycle recomputation.
+// ReportAssignmentRecomputation records the mode transition of a completed in-cycle recomputation.
 func ReportAssignmentRecomputation(
 	cqName kueue.ClusterQueueReference,
 	beforeMode, afterMode string,

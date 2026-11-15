@@ -36,9 +36,9 @@ func TestReportAssignmentRecomputation(t *testing.T) {
 		role         string
 		customLabels bool
 	}{
-		"unchanged TAS assignment":    {beforeMode: "Fit", afterMode: "Fit", reason: AssignmentRecomputationReasonNoTAS, role: roletracker.RoleStandalone},
-		"failed TAS assignment":       {beforeMode: "Fit", afterMode: "NoFit", reason: AssignmentRecomputationReasonNoTAS, role: roletracker.RoleLeader},
-		"deferred overlap assignment": {beforeMode: "Preempt", afterMode: "DeferredFit", reason: AssignmentRecomputationReasonOverlappingPreemptionTargets, role: roletracker.RoleFollower},
+		"unchanged TAS assignment":             {beforeMode: "Fit", afterMode: "Fit", reason: AssignmentRecomputationReasonNoTAS, role: roletracker.RoleStandalone},
+		"completed TAS assignment with no fit": {beforeMode: "Fit", afterMode: "NoFit", reason: AssignmentRecomputationReasonNoTAS, role: roletracker.RoleLeader},
+		"deferred overlap assignment":          {beforeMode: "Preempt", afterMode: "DeferredFit", reason: AssignmentRecomputationReasonOverlappingPreemptionTargets, role: roletracker.RoleFollower},
 		"custom ClusterQueue labels": {
 			beforeMode:   "Preempt",
 			afterMode:    "Preempt",
