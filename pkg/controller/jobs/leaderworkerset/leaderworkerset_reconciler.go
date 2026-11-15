@@ -350,7 +350,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 
 	err = r.client.Create(ctx, createdWorkload)
 	if apierrors.IsAlreadyExists(err) {
-		// An earlier reconcile created it, and the Workload cache has not caught up yet.
+		log.V(3).Info("Workload already exists but is not in the cache yet")
 		return nil
 	}
 	if err != nil {
