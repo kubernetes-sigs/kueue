@@ -47,13 +47,17 @@ func EvaluateWorkloadPreemption(
 	baseSchedulingFunc fwk.PodGroupSchedulingFunc,
 	opts WorkloadPreemptionOptions,
 ) (*fwk.PodGroupAssignments, []PreemptionVictim, *fwk.Status) {
+	pm, ok := schedFramework.PreemptionManager().(*prefixPreemptionManager)
+	if !ok {
+		return nil, nil, fwk.AsStatus(fmt.Errorf(
+			"unexpected PreemptionManager type %T, want one from NewPrefixPreemptionManager",
+			schedFramework.PreemptionManager()))
+	}
 	if opts.PotentialVictims == nil {
 		return nil, nil, fwk.NewStatus(fwk.Unschedulable)
 	}
-
-	pm := newPrefixPreemptionManager(opts.PreemptionFilter)
-	schedFramework.SetPreemptionManager(pm)
-	defer schedFramework.SetPreemptionManager(&NoopPreemptionManager{})
+	pm.preemptionFilter = opts.PreemptionFilter
+	defer pm.reset()
 
 	var lastAssignments *fwk.PodGroupAssignments
 	pgSchedulingFunc := func(ctx context.Context) (*fwk.PodGroupAssignments, *fwk.Status) {
@@ -159,16 +163,31 @@ type simPreemptionVictim struct {
 
 var _ upstreampreemption.PreemptionVictim = (*simPreemptionVictim)(nil)
 
+func validateVictim(v PreemptionVictim) error {
+	if v == nil {
+		return fmt.Errorf("preemption victim cannot be nil")
+	}
+	if len(v.Pods()) == 0 {
+		return fmt.Errorf("preemption victim cannot be empty")
+	}
+	for _, p := range v.Pods() {
+		if p == nil {
+			return fmt.Errorf("preemption victim pod cannot be nil")
+		}
+		if p.Spec.NodeName == "" {
+			return fmt.Errorf("preemption victim pod cannot be unscheduled")
+		}
+	}
+	return nil
+}
+
 func newSimPreemptionVictim(v PreemptionVictim) (*simPreemptionVictim, error) {
-	if v == nil || len(v.Pods()) == 0 {
-		return nil, fmt.Errorf("preemption victim cannot be nil nor empty")
+	if err := validateVictim(v); err != nil {
+		return nil, err
 	}
 	rawPods := v.Pods()
 	podInfos := make([]fwk.PodInfo, 0, len(rawPods))
 	for _, p := range rawPods {
-		if p == nil {
-			return nil, fmt.Errorf("preemption victim pod cannot be nil")
-		}
 		pi, err := framework.NewPodInfo(p)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PodInfo for victim pod: %w", err)
@@ -194,7 +213,6 @@ func (v *simPreemptionVictim) NumPDBViolations() int {
 // prefixPreemptionManager provides candidate victims and creates a ReprieveFilter
 // for prefix-search and reprieval preemption simulations.
 type prefixPreemptionManager struct {
-	NoopPreemptionManager
 	victims          []*simPreemptionVictim
 	cursor           int
 	preemptionFilter PreemptionFilter
@@ -203,10 +221,17 @@ type prefixPreemptionManager struct {
 
 var _ upstreampreemption.PreemptionManager = (*prefixPreemptionManager)(nil)
 
-func newPrefixPreemptionManager(filter PreemptionFilter) *prefixPreemptionManager {
-	return &prefixPreemptionManager{
-		preemptionFilter: filter,
-	}
+// NewPrefixPreemptionManager is the PreemptionManagerFactory that EvaluateWorkloadPreemption requires
+// the PreemptionFramework to be built with. Between EvaluateWorkloadPreemption calls the
+// PreemptionManager it creates holds no victims and allows no reprieval.
+func NewPrefixPreemptionManager(_ upstreampreemption.Handle) upstreampreemption.PreemptionManager {
+	return &prefixPreemptionManager{}
+}
+
+// reset returns the manager to the state NewPrefixPreemptionManager creates. It does not
+// unpreempt victims, because callers read the filter's final state.
+func (pm *prefixPreemptionManager) reset() {
+	*pm = prefixPreemptionManager{}
 }
 
 // moveCursor moves the active prefix boundary to target (clamped to [0, len(pm.victims)]),
@@ -248,6 +273,12 @@ func (pm *prefixPreemptionManager) NewReprieveFilter(
 		allowReprieve: pm.allowReprieve,
 		filter:        pm.preemptionFilter,
 	}
+}
+
+// Executor returns a PreemptionExecutor that actuates nothing, because simulations only report
+// the victims to the caller.
+func (pm *prefixPreemptionManager) Executor() upstreampreemption.PreemptionExecutor {
+	return &noopExecutor{}
 }
 
 // preemptedVictims returns all non-reprieved victims from the active prefix pm.victims[:pm.cursor].
@@ -304,60 +335,33 @@ func (rf *workloadReprieveFilter) OnVictimReprieved(
 	return nil
 }
 
-// NoopPreemptionManager is a no-op implementation of PreemptionManager, PreemptionExecutor, and ReprieveFilter
-// used as the default simulation neutralizer when workload preemption is not active.
-type NoopPreemptionManager struct{}
+// noopExecutor is a no-op implementation of PreemptionExecutor, returned by
+// prefixPreemptionManager.Executor.
+type noopExecutor struct{}
 
-var _ upstreampreemption.PreemptionManager = &NoopPreemptionManager{}
-var _ upstreampreemption.PreemptionExecutor = &NoopPreemptionManager{}
-var _ upstreampreemption.ReprieveFilter = &NoopPreemptionManager{}
-
-// GenerateVictims is a no-op implementation of GenerateVictims from PreemptionManager interface.
-func (s *NoopPreemptionManager) GenerateVictims(_ context.Context, _ fwk.PodGroupInfo) ([]upstreampreemption.PreemptionVictim, *fwk.Status) {
-	return nil, nil
-}
-
-// Executor returns PreemptionExecutor from PreemptionManager interface.
-func (s *NoopPreemptionManager) Executor() upstreampreemption.PreemptionExecutor {
-	return s
-}
-
-// NewReprieveFilter is a no-op implementation of NewReprieveFilter from PreemptionManager interface.
-func (s *NoopPreemptionManager) NewReprieveFilter(_ context.Context, _ []upstreampreemption.PreemptionVictim) upstreampreemption.ReprieveFilter {
-	return s
-}
+var _ upstreampreemption.PreemptionExecutor = &noopExecutor{}
 
 // IsPodRunningPreemption is a no-op implementation of IsPodRunningPreemption from PreemptionExecutor interface.
-func (s *NoopPreemptionManager) IsPodRunningPreemption(_ types.UID) bool {
+func (s *noopExecutor) IsPodRunningPreemption(_ types.UID) bool {
 	return false
 }
 
 // IsPodGroupRunningPreemption is a no-op implementation of IsPodGroupRunningPreemption from PreemptionExecutor interface.
-func (s *NoopPreemptionManager) IsPodGroupRunningPreemption(_ types.UID) bool {
+func (s *noopExecutor) IsPodGroupRunningPreemption(_ types.UID) bool {
 	return false
 }
 
 // IsPodGroupWaitingForVictims is a no-op implementation of IsPodGroupWaitingForVictims from PreemptionExecutor interface.
-func (s *NoopPreemptionManager) IsPodGroupWaitingForVictims(_ fwk.PodGroupInfo) bool {
+func (s *noopExecutor) IsPodGroupWaitingForVictims(_ fwk.PodGroupInfo) bool {
 	return false
 }
 
 // ActuatePodPreemption is a no-op implementation of ActuatePodPreemption from PreemptionExecutor interface.
-func (s *NoopPreemptionManager) ActuatePodPreemption(_ context.Context, _ upstreampreemption.PreemptionCandidate, _ *v1.Pod, _ string) *fwk.Status {
+func (s *noopExecutor) ActuatePodPreemption(_ context.Context, _ upstreampreemption.PreemptionCandidate, _ *v1.Pod, _ string) *fwk.Status {
 	return nil
 }
 
 // ActuatePodGroupPreemption is a no-op implementation of ActuatePodGroupPreemption from PreemptionExecutor interface.
-func (s *NoopPreemptionManager) ActuatePodGroupPreemption(_ context.Context, _ upstreampreemption.PreemptionCandidate, _ fwk.PodGroupInfo, _ string) *fwk.Status {
-	return nil
-}
-
-// ShouldAttemptReprieval is a no-op implementation of ShouldAttemptReprieval from ReprieveFilter interface.
-func (s *NoopPreemptionManager) ShouldAttemptReprieval(_ context.Context, _ upstreampreemption.PreemptionVictim) (bool, error) {
-	return false, nil
-}
-
-// OnVictimReprieved is a no-op implementation of OnVictimReprieved from ReprieveFilter interface.
-func (s *NoopPreemptionManager) OnVictimReprieved(_ context.Context, _ upstreampreemption.PreemptionVictim) error {
+func (s *noopExecutor) ActuatePodGroupPreemption(_ context.Context, _ upstreampreemption.PreemptionCandidate, _ fwk.PodGroupInfo, _ string) *fwk.Status {
 	return nil
 }

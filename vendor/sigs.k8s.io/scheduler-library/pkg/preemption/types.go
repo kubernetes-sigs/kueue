@@ -26,14 +26,12 @@ import (
 // PreemptionVictim is an atomic unit of preemption, which can contain 1 or more pods.
 type PreemptionVictim interface {
 	// Pods can contain 1 or more pods.
-	// The returned pods must not overlap across victims and must be present in the
-	// snapshot with Spec.NodeName set.
+	// The returned pods must not overlap across victims.
 	Pods() []*v1.Pod
 }
 
 // PreemptionFilter provides a fast pre-check to skip expensive scheduling evaluations
-// (including the initial scheduling attempt) when the current set of preempted victims
-// is known to be insufficient.
+// when the current set of preempted victims is known to be insufficient.
 type PreemptionFilter interface {
 	// UnpreemptVictim is called whenever a victim has been removed from the current victim set.
 	UnpreemptVictim(PreemptionVictim)
@@ -41,14 +39,13 @@ type PreemptionFilter interface {
 	// PreemptVictim is called whenever a victim has been added to the current victim set.
 	PreemptVictim(PreemptionVictim)
 
-	// MayFit reports whether the preemptor could potentially fit given
-	// the current victim set. It is called before the initial scheduling
-	// attempt (before any victims are preempted) as well as during prefix
-	// search and reprieval.
+	// MayFit reports whether the preemptor could potentially fit given the current
+	// set of preempted victims (even if empty). It is called before each scheduling
+	// evaluation of the workload, including during prefix search and reprieval.
 	//
 	// If it returns true, the scheduler runs a scheduling evaluation for the preemptor.
 	// If it returns false, the current victim set is treated as insufficient and
-	// the scheduling evaluation (including the initial scheduling attempt) is skipped.
+	// the scheduling evaluation is skipped.
 	//
 	// Implementations must rely only on internal state updated via
 	// [PreemptionFilter.PreemptVictim] and [PreemptionFilter.UnpreemptVictim],
@@ -72,19 +69,30 @@ type WorkloadPreemptionOptions struct {
 	// workload, ordered from least to most valuable.
 	// It is consumed during stage 1 to find the smallest prefix of victims needed for the
 	// workload to fit, after which stage 2 attempts to reprieve victims from that prefix.
+	// Provided victims must be present in the snapshot with Spec.NodeName set.
 	// If nil or empty, no additional victims are considered during stage 1.
 	PotentialVictims iter.Seq[PreemptionVictim]
 
-	// CommittedVictims are victims that are preempted after the initial scheduling attempt
-	// fails (or is skipped by [PreemptionFilter.MayFit]), but before stage 1 begins.
-	// Unlike PotentialVictims, they are never candidates for reprieval in stage 2.
-	// Each committed victim is passed to [PreemptionFilter.PreemptVictim] before stage 1.
-	// If nil or empty, no victims are preempted upfront.
+	// CommittedVictims are victims that have already been preempted by an earlier workload
+	// and removed from the snapshot by the caller before invoking ScheduleWorkload.
+	// ScheduleWorkload first attempts to schedule the workload with nodes occupied by
+	// CommittedVictims filtered out (and CommittedVictims temporarily unpreempted in
+	// PreemptionFilter, if set); if that fails, it retries across all nodes with
+	// CommittedVictims active and sets WaitingForPreemption = true if the workload fits.
+	// If the caller also uses [WorkloadPreemptionOptions.PreemptionFilter], the filter
+	// must initially consider CommittedVictims as preempted and allow them to be
+	// temporarily unpreempted via [PreemptionFilter.UnpreemptVictim] and re-preempted via
+	// [PreemptionFilter.PreemptVictim].
 	CommittedVictims []PreemptionVictim
 
-	// PreemptionFilter is an optional fast pre-check used before the initial scheduling
-	// attempt and during both prefix search and reprieval to skip scheduling evaluations
-	// when the current victim set is known to be insufficient.
+	// PreemptionFilter is an optional fast pre-check used before each scheduling
+	// evaluation of the workload to skip evaluations when the current set of
+	// preempted victims is known to be insufficient.
+	// When the workload fits (directly or via preemption), PreemptionFilter is left
+	// with [WorkloadPreemptionOptions.CommittedVictims] plus any newly selected victims
+	// from [WorkloadPreemptionOptions.PotentialVictims] marked as preempted. If
+	// evaluating [WorkloadPreemptionOptions.PotentialVictims] fails or an error occurs,
+	// its state is indeterminate.
 	// If nil, no pre-check filter is applied.
 	PreemptionFilter PreemptionFilter
 }

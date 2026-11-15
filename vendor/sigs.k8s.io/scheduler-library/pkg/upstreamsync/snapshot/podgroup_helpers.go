@@ -25,7 +25,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	fwk "k8s.io/kube-scheduler/framework"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
@@ -184,6 +186,9 @@ func buildHierarchy(
 
 	for _, podGroupInfo := range podGroupInfosMap {
 		parentCompositePodGroupName := podGroupInfo.PodGroup.Spec.ParentCompositePodGroupName
+		if parentCompositePodGroupName != nil && *parentCompositePodGroupName != "" && !utilfeature.DefaultFeatureGate.Enabled(features.CompositePodGroup) {
+			return nil, fmt.Errorf("pod group %s/%s references parent composite pod group %q, but the %s feature gate is disabled", namespace, podGroupInfo.Name, *parentCompositePodGroupName, features.CompositePodGroup)
+		}
 		child := podGroupInfo
 		visited := sets.New[string]()
 
@@ -234,12 +239,4 @@ func buildHierarchy(
 	}
 
 	return root, nil
-}
-
-// getEntityKey returns the EntityKey for a PodGroupInfo.
-func getEntityKey(pgi *framework.PodGroupInfo) fwk.EntityKey {
-	if pgi.PodGroup != nil {
-		return fwk.PodGroupKey(pgi.PodGroup.Namespace, pgi.PodGroup.Name)
-	}
-	return fwk.CompositePodGroupKey(pgi.CompositePodGroup.Namespace, pgi.CompositePodGroup.Name)
 }
