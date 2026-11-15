@@ -7357,6 +7357,137 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "high-pob", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
 			},
 		},
+		// pobmix-cq borrows cpu from pobmix-lender, which has no memory to lend,
+		// so the same flavor needs both borrowing (cpu) and preemption (memory).
+		"PreemptionOverBorrowing preference: preempt for one resource while borrowing another in the same flavor": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("pobmix-cq").
+					Cohort("pobmix-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					FlavorFungibility(kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+						Preference:     new(kueue.PreemptionOverBorrowing),
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "4").
+							Resource(corev1.ResourceMemory, "4Gi").Obj(),
+					).Obj(),
+				*utiltestingapi.MakeClusterQueue("pobmix-lender").
+					Cohort("pobmix-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "4").
+							Resource(corev1.ResourceMemory, "0").Obj(),
+					).Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("pobmix-queue", "default").ClusterQueue("pobmix-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("low-pobmix", "default").
+					Queue("pobmix-queue").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "4Gi").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pobmix-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Assignment(corev1.ResourceMemory, "on-demand", "4Gi").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("high-pobmix", "default").
+					UID("wl-high-pobmix").
+					JobUID("job-high-pobmix").
+					Queue("pobmix-queue").
+					Priority(0).
+					Request(corev1.ResourceCPU, "6").
+					Request(corev1.ResourceMemory, "2Gi").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("high-pobmix", "default").
+					UID("wl-high-pobmix").
+					JobUID("job-high-pobmix").
+					Queue("pobmix-queue").
+					Priority(0).
+					Request(corev1.ResourceCPU, "6").
+					Request(corev1.ResourceMemory, "2Gi").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for memory in flavor on-demand, 2Gi more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("6"),
+							corev1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("low-pobmix", "default").
+					Queue("pobmix-queue").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "4Gi").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pobmix-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1").
+							Assignment(corev1.ResourceMemory, "on-demand", "4Gi").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-high-pobmix, JobUID: job-high-pobmix) due to prioritization in the ClusterQueue; preemptor path: /pobmix-cohort/pobmix-cq; preemptee path: /pobmix-cohort/pobmix-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-high-pobmix, JobUID: job-high-pobmix) due to prioritization in the ClusterQueue; preemptor path: /pobmix-cohort/pobmix-cq; preemptee path: /pobmix-cohort/pobmix-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"pobmix-cq": {"default/high-pobmix"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/low-pobmix": *utiltestingapi.MakeAdmission("pobmix-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1").
+						Assignment(corev1.ResourceMemory, "on-demand", "4Gi").
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "low-pobmix", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "low-pobmix", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "high-pobmix", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "high-pobmix", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
 		//     nopc-root (spot: 5)
 		//         |
 		//     nopc-mid
