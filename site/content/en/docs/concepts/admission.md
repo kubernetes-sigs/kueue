@@ -29,13 +29,29 @@ The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admissio
   - The system **releases** the reserved quota immediately.
   - It **requeues** the workload.
   - It triggers exponential backoff retries via [`retryStrategy`](/docs/concepts/admission_check/provisioning_request/#retry-strategy) in [ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig).
-  - Kueue creates new `ProvisioningRequest` with `-attempt<N>` suffix each retry.
+  - Kueue creates a new `ProvisioningRequest` for each retry, named
+    `<workload>-<admission-check>-<attempt>`.
 
 - For permanent failures:
   - The system marks the AdmissionCheck as `Rejected`
   - It evicts the Workload.
   - It releases the reserved quota. 
-  - It deactivates the Workload and to requeue it, the user needs to set the `.status.active` field to `true`.
+  - It sets the Workload's `.spec.active` field to `false`. To requeue it, the user needs to set the field to `true`.
+
+The following diagram shows the complete admission cycle for a Workload that uses the
+[`ProvisioningRequest`](/docs/concepts/admission_check/provisioning_request/) AdmissionCheck,
+including the retry loop:
+
+<div class="diagram-surface p-3 rounded-3 border text-center">
+  <img src="/images/prov-req-admission-cycle.svg" class="img-fluid"
+       alt="Admission cycle for a Workload that uses a ProvisioningRequest, including the path from Accepted to Failed and the retry loop after a Failed request or a BookingExpired request that has not been admitted">
+</div>
+
+Because the Workload is requeued between attempts, the quota reserved for the previous
+attempt is released before the next one starts. Each retry creates a new
+`ProvisioningRequest` named `<workload>-<admission-check>-<attempt>`, and the backoff
+is controlled by
+[`retryStrategy`](/docs/concepts/admission_check/provisioning_request/#retry-strategy).
 
 ## What's Next?
 

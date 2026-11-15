@@ -50,6 +50,7 @@ var (
 	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	podIndexLabelAnnotationPath    = annotationsPath.Key(kueue.PodGroupPodIndexLabelAnnotation)
 )
 
 type PodWebhook struct {
@@ -183,11 +184,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		gate(&pod.pod)
 
 		if features.Enabled(features.TopologyAwareScheduling) {
-			if val, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
-				if pod.pod.Labels == nil {
-					pod.pod.Labels = make(map[string]string, 1)
+			if labelKey, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
+				// Copy the index only when it survives the read that Workload construction
+				// performs later. A value that fails there arrives as an invalid index
+				// rather than as "no index", and that fails the whole group.
+				index, err := pod.readPodIndex(labelKey)
+				if err != nil {
+					log.V(3).Info("Ignoring unusable Pod index label", "label", labelKey, "error", err)
+				} else {
+					pod.pod.Labels[kueue.PodGroupPodIndexLabel] = index
 				}
-				pod.pod.Labels[kueue.PodGroupPodIndexLabel] = pod.pod.Labels[val]
 			}
 			utilpod.Gate(&pod.pod, kueue.TopologySchedulingGate)
 		}
@@ -214,6 +220,8 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 
 	allErrs := jobframework.ValidateJobOnCreate(pod, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(pod)...)
+	// Create only: a Pod that predates the gate being turned on must stay updatable.
+	allErrs = append(allErrs, validatePodGroupPodIndexLabel(pod)...)
 
 	if warn := warningForPodManagedLabel(w.integrationManager, pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -309,6 +317,38 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+// readPodIndex returns the index held by labelKey, and the error Workload construction would report for it.
+func (p *Pod) readPodIndex(labelKey string) (string, error) {
+	index := p.pod.Labels[labelKey]
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		// Outside a group there is no count to bound the index against.
+		_, err := utilpod.ReadUIntFromLabel(p.Object(), labelKey)
+		return index, err
+	}
+	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), labelKey, groupTotalCount)
+	return index, err
+}
+
+// validatePodGroupPodIndexLabel checks that the index-label annotation resolves to the Pod's index.
+func validatePodGroupPodIndexLabel(p *Pod) field.ErrorList {
+	// Without TAS the index is never read, so a Pod that cannot resolve one is no
+	// worse off for it. The gate is on by default and so cannot declare TAS as a
+	// dependency: that would fail config validation wherever TAS is turned off.
+	if !features.Enabled(features.TopologyAwareScheduling) ||
+		!features.Enabled(features.TASRejectInvalidPodIndexLabel) {
+		return nil
+	}
+	labelKey, ok := p.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]
+	if !ok {
+		return nil
+	}
+	if _, err := p.readPodIndex(labelKey); err != nil {
+		return field.ErrorList{field.Invalid(podIndexLabelAnnotationPath, labelKey, err.Error())}
+	}
+	return nil
 }
 
 func validateTopologyRequest(pod *Pod) field.ErrorList {

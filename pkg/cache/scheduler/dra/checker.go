@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // Checker drops candidate nodes that cannot supply a Pod's ResourceClaims. It
@@ -66,8 +67,16 @@ func (c *Checker) Simulate(ctx context.Context, fn func()) error {
 // allocator is built once per snapshot from the ResourceClaims as they stand. So
 // preemption cannot make a Workload device-feasible, and the check stays restrictive
 // rather than over-admitting. Releasing them is Beta work in keps/2941-DRA.
-func (c *Checker) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+func (c *Checker) PreemptWorkload(ctx context.Context, wlKey workload.Reference) (func() error, error) {
 	return c.inner.PreemptWorkload(ctx, wlKey)
+}
+
+func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
+	inner, ok := c.inner.(simulator.PodPreemptingSimulator)
+	if !ok {
+		return nil, errors.New("underlying simulator cannot preempt individual Pods")
+	}
+	return inner.PreemptPods(ctx, pods)
 }
 
 func (c *Checker) FindFeasibleNodes(

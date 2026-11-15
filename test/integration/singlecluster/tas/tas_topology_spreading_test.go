@@ -100,18 +100,11 @@ func blockAndRackSpreadingAnnotation(blockMaxShare, rackMaxShare string, enforce
 	)
 }
 
-var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("TAS topology spreading", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup())
-	})
-
-	ginkgo.AfterAll(func() {
-		fwk.StopManager(ctx)
-	})
-
 	ginkgo.BeforeEach(func() {
+		fwk.StartManagerForSpec(ctx, cfg, managerSetup())
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-topology-spreading-")
 	})
 

@@ -148,6 +148,73 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 			),
+			ginkgo.Entry("Default ConcurrentAdmissionPolicy migration mode",
+				kueue.ClusterQueue{
+					Name: "foo",
+					Spec: kueue.ClusterQueueSpec{
+						ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+							Migration: kueue.ConcurrentAdmissionMigration{
+								Constraints: &kueue.ConcurrentAdmissionConstraints{
+									LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("default-flavor")),
+								},
+							},
+						},
+					},
+				},
+				kueue.ClusterQueue{
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy:  kueue.BestEffortFIFO,
+						StopPolicy:        new(kueue.None),
+						FlavorFungibility: defaultFlavorFungibility,
+						Preemption: &kueue.ClusterQueuePreemption{
+							WithinClusterQueue:  kueue.PreemptionPolicyNever,
+							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyNever,
+							},
+						},
+						ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+							Migration: kueue.ConcurrentAdmissionMigration{
+								Mode: new(kueue.ConcurrentAdmissionTryPreferredFlavors),
+								Constraints: &kueue.ConcurrentAdmissionConstraints{
+									LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("default-flavor")),
+								},
+							},
+						},
+					},
+				},
+			),
+			ginkgo.Entry("Default ConcurrentAdmissionPolicy with empty policy",
+				kueue.ClusterQueue{
+					Name: "foo",
+					Spec: kueue.ClusterQueueSpec{
+						ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{},
+					},
+				},
+				kueue.ClusterQueue{
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy:  kueue.BestEffortFIFO,
+						StopPolicy:        new(kueue.None),
+						FlavorFungibility: defaultFlavorFungibility,
+						Preemption: &kueue.ClusterQueuePreemption{
+							WithinClusterQueue:  kueue.PreemptionPolicyNever,
+							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyNever,
+							},
+						},
+						ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+							Migration: kueue.ConcurrentAdmissionMigration{
+								Mode: new(kueue.ConcurrentAdmissionTryPreferredFlavors),
+							},
+						},
+					},
+				},
+			),
 		)
 
 		ginkgo.It("Should have qualified flavor names when updating", func() {

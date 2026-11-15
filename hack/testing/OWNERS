@@ -4,7 +4,13 @@ filters:
   ".*":
     approvers:
       - test-approvers
+    reviewers:
+      - test-reviewers
+    emeritus_approvers:
+      - test-emeritus-approvers
 
   "Dockerfile$":
     approvers:
       - dependency-approvers
+    emeritus_approvers:
+      - dependency-emeritus-approvers

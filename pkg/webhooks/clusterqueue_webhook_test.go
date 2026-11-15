@@ -464,6 +464,46 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy constraints with nil migration mode is allowed",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+					Obj()
+				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+					Migration: kueue.ConcurrentAdmissionMigration{
+						Constraints: &kueue.ConcurrentAdmissionConstraints{
+							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("flavor1")),
+						},
+					},
+				}
+				return cq
+			}(),
+		},
+		{
+			name: "ConcurrentAdmissionPolicy constraints with nil migration mode and invalid LastAcceptableFlavorName",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+					Obj()
+				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+					Migration: kueue.ConcurrentAdmissionMigration{
+						Constraints: &kueue.ConcurrentAdmissionConstraints{
+							LastAcceptableFlavorName: new(kueue.ResourceFlavorReference("non-existent-flavor")),
+						},
+					},
+				}
+				return cq
+			}(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					specPath.Child("concurrentAdmissionPolicy").Child("migration").Child("constraints").Child("lastAcceptableFlavorName"),
+					kueue.ResourceFlavorReference("non-existent-flavor"),
+					"must be one of the flavors defined in the ClusterQueue: [flavor1]"),
+			},
+			wantDetail:   "must be one of the flavors defined in the ClusterQueue: [flavor1]",
+			wantBadValue: "non-existent-flavor",
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -641,7 +681,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"),
 					&kueue.ConcurrentAdmissionPolicy{
 						Migration: kueue.ConcurrentAdmissionMigration{
-							Mode: kueue.ConcurrentAdmissionTryPreferredFlavors}},
+							Mode: new(kueue.ConcurrentAdmissionTryPreferredFlavors)}},
 					"field is immutable"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},

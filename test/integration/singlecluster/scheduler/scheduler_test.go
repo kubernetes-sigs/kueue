@@ -705,6 +705,40 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
 		})
 
+		ginkgo.It("when PriorityBoost is enabled, boosting an admitted Workload without a WorkloadPriorityClass, re-evaluates pending Workloads", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
+
+			wlAdmitted := utiltestingapi.MakeWorkload("wl-admitted-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlAdmitted)
+
+			wlPending := utiltestingapi.MakeWorkload("wl-pending-no-class", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlAdmitted), &wl)).To(gomega.Succeed())
+				if wl.Annotations == nil {
+					wl.Annotations = make(map[string]string)
+				}
+				wl.Annotations[controllerconstants.PriorityBoostAnnotationKey] = "-100"
+				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlAdmitted)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlAdmitted)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlPending)
+		})
+
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
 				lqsStopPolicy = new(kueue.Hold)
@@ -2140,11 +2174,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 
-			ginkgo.By("Creating two workloads")
+			ginkgo.By("Creating the first workload and waiting for its quota reservation")
 			behavioral.MustCreate(ctx, k8sClient, wl1)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl1)
+
+			ginkgo.By("Creating the second workload, which stays pending")
 			behavioral.MustCreate(ctx, k8sClient, wl2)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl1)
 			behavioral.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
 			behavioral.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
 			behavioral.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
@@ -2674,6 +2710,55 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.It("preserves assumed quota across a pending informer update", func() {
+		cq := createQueue(utiltestingapi.MakeClusterQueue("assumed-quota").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).Obj())
+		assumed := make(chan struct{})
+		release := make(chan struct{})
+		namespace := ns.Name
+		var signaled atomic.Bool
+		released := false
+		defer func() {
+			if !released {
+				close(release)
+			}
+			setFakeSubResourcePatchSpec(nil)
+		}()
+		setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
+			wl, ok := obj.(*kueue.Workload)
+			if ok && wl.Namespace == namespace && wl.Name == "assumed" && wl.Status.Admission != nil {
+				if signaled.CompareAndSwap(false, true) {
+					close(assumed)
+				}
+				<-release
+			}
+			return fallThrough, nil
+		})
+		first := utiltestingapi.MakeWorkload("assumed", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "2").Obj()
+		behavioral.MustCreate(ctx, k8sClient, first)
+		gomega.Eventually(assumed, behavioral.Timeout, behavioral.Interval).Should(gomega.BeClosed())
+
+		ginkgo.By("Updating the informer object while its admission write is blocked")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(first), first)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(first)).To(gomega.BeFalse())
+			first.Annotations = map[string]string{"test.kueue.x-k8s.io/pending-update": "observed"}
+			g.Expect(k8sClient.Update(ctx, first)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		second := utiltestingapi.MakeWorkload("competitor", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, second)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), second)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(second)).To(gomega.BeFalse())
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		close(release)
+		released = true
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+	})
+
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue
@@ -2802,6 +2887,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.Entry(
 				"request over pod limits",
 				testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
+			),
+			ginkgo.Entry(
+				"limits over pod limits",
+				testParams{reqCPU: "1", limitCPU: "3", maxCPU: "2", limitType: corev1.LimitTypePod, wantedStatus: "resources didn't satisfy LimitRange constraints:"},
 			),
 			ginkgo.Entry(
 				"request under pod limits",
@@ -3627,7 +3716,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectPendingWorkloadsMetric(cq1, 0, 0)
 		})
 	})
-	ginkgo.When("Using multiple flavours", ginkgo.Ordered, func() {
+	ginkgo.When("Using multiple flavours", func() {
 		var (
 			f1  *kueue.ResourceFlavor
 			f2  *kueue.ResourceFlavor
@@ -3635,16 +3724,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			cq2 *kueue.ClusterQueue
 		)
 
-		ginkgo.BeforeAll(func() {
+		ginkgo.BeforeEach(func() {
 			f1 = utiltestingapi.MakeResourceFlavor("f1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, f1)
 			f2 = utiltestingapi.MakeResourceFlavor("f2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, f2)
-		})
-
-		ginkgo.AfterAll(func() {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, f1, true)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, f2, true)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -3654,6 +3738,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			if cq2 != nil {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 			}
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, f1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, f2, true)
 		})
 
 		ginkgo.When("Multiple flavors can be considered for preemption", func() {
@@ -4481,13 +4567,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 4, behavioral.Timeout)
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
 			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
@@ -4510,13 +4590,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota after scale-up (should be 8 CPU)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 8, behavioral.Timeout)
 
 			ginkgo.By("Test in-place scale-down: update workload slice to reduce coordinator from 3 to 2 (8 -> 6 CPU)")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -4527,13 +4601,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota after in-place scale-down (should be 6 CPU: 2 workers @ 1 + 2 coordinators @ 2)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("6")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 6, behavioral.Timeout)
 		})
 
 		ginkgo.It("should not double-count quota for unchanged podSets during workload slicing", func() {
@@ -4551,13 +4619,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify workload is admitted with correct initial quota consumption (4 CPU)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("4")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 4, behavioral.Timeout)
 
 			ginkgo.By("Trigger workload slicing by creating a replacement workload (scaling coordinator from 1 to 3)")
 			wlSlice := utiltestingapi.MakeWorkload("multi-podset-wl-slice", ns.Name).
@@ -4580,13 +4642,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verify quota is NOT double-counted (should be 8 CPU, not 12)")
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources).Should(gomega.HaveLen(1))
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("8")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 8, behavioral.Timeout)
 
 			ginkgo.By("Create additional workloads to verify quota enforcement prevents over-admission")
 			wl2 := utiltestingapi.MakeWorkload("multi-podset-wl-slice-2", ns.Name).
@@ -4602,11 +4658,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Verify first workload is admitted (8+2=10, at quota limit)")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
-			gomega.Eventually(func(g gomega.Gomega) {
-				cq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("10")))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourceCPU, 10, behavioral.Timeout)
 
 			ginkgo.By("Verify second workload remains pending (10+2=12 exceeds quota limit of 10)")
 			createdWl := &kueue.Workload{}

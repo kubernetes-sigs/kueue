@@ -28,6 +28,7 @@ Configurable Preemption is driven by the cluster-scoped **`PreemptionConfig`** c
 
 1. **Activation Policy (`activationPolicy`)**: The trigger that activates the rule during a scheduling cycle.
 2. **Candidate Selectors (`candidateSelectors`)**: One or more criteria that identify which running workloads may be considered for preemption.
+3. **Preemptor Selectors (`preemptorSelector` & `preemptorPriorityClassSelector`)** *(Optional)*: Criteria that restrict which incoming workloads can activate the rule.
 
 Here is a complete example of a `PreemptionConfig` resource:
 
@@ -95,7 +96,23 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
   - `GreaterThan`: Candidate priority > Preemptor priority.
   - `GreaterThanOrEqual`: Candidate priority >= Preemptor priority.
 
-### 3. Custom Numeric Labels (`numericLabels`)
+### 3. Priority Class Selector (`priorityClassSelector`)
+
+**Optional.** Filters candidate workloads by their priority class (`Workload.spec.priorityClassRef`, populated by Kueue for both `WorkloadPriorityClass` and Pod `PriorityClass`). When both `sourceRef` and `nameExpressions` are specified, a candidate must satisfy both:
+
+- **`sourceRef`** (Optional): Filters workloads by the API `group` and `kind` of their priority class:
+  - `group: kueue.x-k8s.io` and `kind: WorkloadPriorityClass`: Matches workloads using a Kueue `WorkloadPriorityClass`.
+  - `group: scheduling.k8s.io` and `kind: PriorityClass`: Matches workloads using a Kubernetes Pod `PriorityClass`.
+  - Workloads without a `priorityClassRef` do not match when `sourceRef` is set. If omitted, priority classes of either source match.
+- **`nameExpressions`** (Optional): A non-empty list of selector requirements (up to 16 items) matched against `Workload.spec.priorityClassRef.name` (all requirements must be satisfied):
+  - **`operator`** (Required):
+    - `In`: Candidate's `spec.priorityClassRef.name` must match one of the listed `values` (workloads without a `priorityClassRef` do not match).
+    - `NotIn`: Candidate's `spec.priorityClassRef.name` must not match any of the listed `values` (workloads without a `priorityClassRef` always match).
+  - **`values`** (Required): A non-empty set of priority class names (up to 16 items).
+
+When `WorkloadPriorityClassDefaulting` is enabled and a `"default"` `WorkloadPriorityClass` exists, or when a `globalDefault` Pod `PriorityClass` is configured, its name (e.g., `"default"`) can be used in `nameExpressions` to match or exclude workloads that do not explicitly specify a priority class.
+
+### 4. Custom Numeric Labels (`numericLabels`)
 
 **Optional.** A list of numeric label constraints allowing candidate filtering based on integer workload labels (e.g., number of GPUs/TPUs, slice index, or node count). Multiple numeric label constraints in a selector are joined using an AND rule (all constraints must be satisfied):
 
@@ -108,11 +125,18 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not automatically copied to the Kueue `Workload` resource unless their keys are listed in `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2). Ensure your custom numeric label keys are configured for copying.
 {{% /alert %}}
 
-### 4. Label Selectors (`labelSelector` & `clusterQueueSelector`)
+### 5. Label Selectors (`labelSelector` & `clusterQueueSelector`)
 
 **Optional.** Standard Kubernetes label selectors:
 - **`labelSelector`**: Filters candidate `Workload` metadata.
 - **`clusterQueueSelector`**: Filters target `ClusterQueue` metadata.
+
+## Preemptor Selectors
+
+**Optional.** A rule can also restrict which incoming (preempting) workloads are allowed to activate it. When both selectors are specified, an incoming workload must satisfy both. If omitted, any incoming workload in the queue can trigger the rule:
+
+- **`preemptorSelector`**: A standard Kubernetes label selector filtering incoming `Workload` metadata.
+- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef` using `sourceRef` and `nameExpressions` (with the same semantics as [`priorityClassSelector`](#3-priority-class-selector-priorityclassselector) in candidate selectors).
 
 ---
 

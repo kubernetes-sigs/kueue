@@ -1,0 +1,47 @@
+{
+    "golangci-lint": {
+        "module": "github.com/golangci/golangci-lint/v2",
+        "package": "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+        "repository": "golangci/golangci-lint",
+        "asset": "golangci-lint-{number}-{goos}-{goarch}.tar.gz",
+        "checksum": "golangci-lint-{number}-checksums.txt"
+    },
+    "kustomize": {
+        "module": "sigs.k8s.io/kustomize/kustomize/v5",
+        "repository": "kubernetes-sigs/kustomize",
+        "tag": "kustomize/{version}",
+        "asset": "kustomize_{version}_{goos}_{goarch}.tar.gz",
+        "checksum": "checksums.txt"
+    },
+    "gotestsum": {
+        "module": "gotest.tools/gotestsum",
+        "repository": "gotestyourself/gotestsum",
+        "asset": "gotestsum_{number}_{goos}_{goarch}.tar.gz",
+        "checksum": "gotestsum-{number}-checksums.txt"
+    },
+    "kind": {
+        "module": "sigs.k8s.io/kind",
+        "repository": "kubernetes-sigs/kind",
+        "asset": "kind-{goos}-{goarch}",
+        "checksum": "kind-{goos}-{goarch}.sha256sum"
+    },
+    "yq": {
+        "module": "github.com/mikefarah/yq/v4",
+        "repository": "mikefarah/yq",
+        "asset": "yq_{goos}_{goarch}",
+        "checksum": "checksums-bsd"
+    },
+    "mdtoc": {
+        "module": "sigs.k8s.io/mdtoc",
+        "repository": "kubernetes-sigs/mdtoc",
+        "asset": "mdtoc-{goarch}-{goos}",
+        "checksum": "checksums.txt"
+    },
+    "helm-docs": {
+        "module": "github.com/norwoodj/helm-docs",
+        "package": "github.com/norwoodj/helm-docs/cmd/helm-docs",
+        "repository": "norwoodj/helm-docs",
+        "asset": "helm-docs_{number}_{platform}_{arch}.tar.gz",
+        "checksum": "checksums.txt"
+    }
+}

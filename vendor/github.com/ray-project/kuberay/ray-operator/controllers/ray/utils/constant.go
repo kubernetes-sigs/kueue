@@ -32,7 +32,8 @@ const (
 	RayJobSubmissionModeLabelKey             = "ray.io/job-submission-mode"
 	// DisableProvisionedHeadRestartAnnotationKey marks RayClusters created for sidecar-mode RayJobs to skip head Pod recreation after provisioning.
 	DisableProvisionedHeadRestartAnnotationKey = "ray.io/disable-provisioned-head-restart"
-
+	// Finalizer for Idle Termination cleanup
+	IdleTerminationCleanupFinalizer = "ray.io/idle-termination-cleanup-finalizer"
 	// Labels for feature RayMultihostIndexing
 	//
 	// RayWorkerReplicaNameKey label is the unique name for the replica in a specific worker group. It is made up
@@ -67,6 +68,9 @@ const (
 	// However, the generated `ray start` command will still be stored in the container's environment variable
 	// `KUBERAY_GEN_RAY_START_CMD`.
 	RayOverwriteContainerCmdAnnotationKey = "ray.io/overwrite-container-cmd"
+
+	// RayNodeLabelsAnnotationKey holds the node labels delivered to a worker pod, as a JSON object keyed by Ray label key
+	RayNodeLabelsAnnotationKey = "ray.io/node-labels"
 
 	// RayServiceInitializingTimeoutAnnotation specifies the timeout for RayService initialization.
 	// Accepts Go duration format (e.g., "30m", "1h") or integer seconds.
@@ -157,6 +161,11 @@ const (
 	KUBERAY_GEN_RAY_START_CMD               = "KUBERAY_GEN_RAY_START_CMD"
 	KUBERAY_GEN_AUTOSCALER_START_CMD        = "KUBERAY_GEN_AUTOSCALER_START_CMD"
 	RAY_START_ULIMIT_OPEN_FILES             = "RAY_START_ULIMIT_OPEN_FILES"
+
+	// RAY_NODE_LABELS_JSON is a downward API pointer to the RayNodeLabelsAnnotationKey pod annotation
+	RAY_NODE_LABELS_JSON = "RAY_NODE_LABELS_JSON"
+	// RayNodeLabelsFilePath is the file the Ray container writes RAY_NODE_LABELS_JSON to before `ray start`
+	RayNodeLabelsFilePath = "/tmp/ray-labels.yaml"
 
 	// TLS-related environment variables for Ray. See: https://docs.ray.io/en/latest/ray-core/configure.html#tls-authentication
 	RAY_USE_TLS         = "RAY_USE_TLS"
@@ -341,7 +350,25 @@ const (
 	// BasePythonHealthCommand checks a single health URL; args: url, timeout_sec.
 	// This is used when wget is not available (e.g. slim Ray images).
 	BasePythonHealthCommand = `python -c "import urllib.request; r=urllib.request.urlopen('%s', timeout=%d); exit(0 if b'success' in r.read() else 1)"`
-	RayNodeHealthPath       = "/api/healthz"
+	// K8sJobDashboardHealthCommand checks dashboard health using submitter environment overrides.
+	// Args: health path (no leading slash), timeout_sec, generated fallback Service URL.
+	// Prefers RAY_API_SERVER_ADDRESS over RAY_ADDRESS, then the fallback address, following Ray's get_address_for_submission_client:
+	// https://github.com/ray-project/ray/blob/9634fa77aab2ece9759b380d20d315d4e27c912b/python/ray/dashboard/utils.py#L726-L734
+	K8sJobDashboardHealthCommand = `python -c '
+import os
+import sys
+import urllib.request
+
+address = (
+    os.environ.get("RAY_API_SERVER_ADDRESS")
+    or os.environ.get("RAY_ADDRESS")
+    or sys.argv[1]
+)
+health_url = address.rstrip("/") + "/%s"
+with urllib.request.urlopen(health_url, timeout=%d) as response:
+    sys.exit(0 if b"success" in response.read() else 1)
+' '%s'`
+	RayNodeHealthPath = "/api/healthz"
 
 	// Finalizers for RayJob
 	RayJobStopJobFinalizer = "ray.io/rayjob-finalizer"
@@ -362,7 +389,7 @@ const (
 	// The version is included in the RAY_USAGE_STATS_EXTRA_TAGS environment variable
 	// as well as the user-agent. This constant is updated before release.
 	// TODO: Update KUBERAY_VERSION to be a build-time variable.
-	KUBERAY_VERSION = "v1.7.0"
+	KUBERAY_VERSION = "v1.8.0-rc.0"
 
 	// KubeRayController represents the value of the default job controller
 	KubeRayController = "ray.io/kuberay-operator"
@@ -379,6 +406,7 @@ const (
 	// MaxRayJobNameLength is the maximum RayJob name to make sure it pass the RayCluster validation
 	// Minus 6 since we append 6 characters to the RayJob name to create the cluster (GenerateRayClusterName).
 	MaxRayJobNameLength = MaxRayClusterNameLength - 6
+
 	// MaxRayCronJobNameLength is the maximum RayCronJob name to make sure its child RayJob passes
 	// validation. Minus 11 for the "-<minuteHash>" suffix (dash + up to a 10-digit Unix-minute hash)
 	// appended to create the child RayJob name (getRayJobName).
@@ -431,6 +459,7 @@ const (
 	InvalidRayClusterStatus   K8sEventType = "InvalidRayClusterStatus"
 	InvalidRayClusterSpec     K8sEventType = "InvalidRayClusterSpec"
 	InvalidRayClusterMetadata K8sEventType = "InvalidRayClusterMetadata"
+	DeletedIdleRayCluster     K8sEventType = "DeletedIdleRayCluster"
 	// Head Pod event list
 	CreatedHeadPod        K8sEventType = "CreatedHeadPod"
 	FailedToCreateHeadPod K8sEventType = "FailedToCreateHeadPod"
@@ -472,6 +501,7 @@ const (
 	// RayCronJob event list
 	InvalidRayCronJobSpec K8sEventType = "InvalidRayCronJobSpec"
 	SuspendedRayCronJob   K8sEventType = "SuspendedRayCronJob"
+	FailedToCreateRayJob  K8sEventType = "FailedToCreateRayJob"
 
 	// RayService event list
 	CreatedGateway                  K8sEventType = "CreatedGateway"
@@ -491,6 +521,7 @@ const (
 	FailedToCreateGateway           K8sEventType = "FailedToCreateGateway"
 	FailedToUpdateGateway           K8sEventType = "FailedToUpdateGateway"
 	FailedToDeleteGateway           K8sEventType = "FailedToDeleteGateway"
+	FailedToGetGateway              K8sEventType = "FailedToGetGateway"
 	FailedToCreateHTTPRoute         K8sEventType = "FailedToCreateHTTPRoute"
 	FailedToUpdateHTTPRoute         K8sEventType = "FailedToUpdateHTTPRoute"
 	FailedToDeleteHTTPRoute         K8sEventType = "FailedToDeleteHTTPRoute"
@@ -559,6 +590,7 @@ const (
 	CreateAction    K8sEventAction = "Create"
 	DeleteAction    K8sEventAction = "Delete"
 	UpdateAction    K8sEventAction = "Update"
+	GetAction       K8sEventAction = "Get"
 	ValidateAction  K8sEventAction = "Validate"
 	ReconcileAction K8sEventAction = "Reconcile"
 	CleanupAction   K8sEventAction = "Cleanup"

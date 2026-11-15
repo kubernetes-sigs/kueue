@@ -44,6 +44,7 @@ import (
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
+	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -374,7 +375,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			ginkgo.By("the admission data is restored from kueue's runtime patch", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
-					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainJob)
+					kueueRuntimePatch := utiltrainjob.KueueRuntimePatch(trainJob)
 					g.Expect(kueueRuntimePatch).NotTo(gomega.BeNil())
 					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs).To(gomega.BeNil())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -644,7 +645,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
 			g.Expect(*createdTrainJob.Spec.Suspend).Should(gomega.BeFalse())
-			kueuePatch := testingtrainjob.KueueRuntimePatch(createdTrainJob)
+			kueuePatch := utiltrainjob.KueueRuntimePatch(createdTrainJob)
 			g.Expect(kueuePatch).ShouldNot(gomega.BeNil())
 			rJobs := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
 			g.Expect(rJobs).To(gomega.HaveLen(2))

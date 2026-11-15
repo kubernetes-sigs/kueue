@@ -19,6 +19,7 @@ package concurrentadmission
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -215,6 +217,13 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return r.cleanupParentAndVariants(ctx, log, parent, variants, flavorOrder)
+	}
+	if workloadfinish.IsFinished(parent) {
+		return ctrl.Result{}, r.syncFinished(ctx, parent, variants)
+	}
+	// The garbage collector deletes the variants of a deleting parent, so recreating them only races it.
+	if !parent.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
 	}
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
@@ -410,8 +419,8 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 	variant := &kueue.Workload{
 		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
 		Namespace:     parent.Namespace,
-		Labels:        parent.Labels,
-		Annotations:   parent.Annotations,
+		Labels:        maps.Clone(parent.Labels),
+		Annotations:   maps.Clone(parent.Annotations),
 		ManagedFields: parent.ManagedFields,
 		Spec:          parent.Spec,
 		Status:        parent.Status,
@@ -938,9 +947,12 @@ func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
 }
 
 func migrationMode(cq *kueue.ClusterQueue) kueue.ConcurrentAdmissionMigrationMode {
-	if cq.Spec.ConcurrentAdmissionPolicy == nil ||
-		cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode == "" {
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return kueue.ConcurrentAdmissionTryPreferredFlavors
 	}
-	return cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
+	mode := ptr.Deref(cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode, "")
+	if mode == "" {
+		return kueue.ConcurrentAdmissionTryPreferredFlavors
+	}
+	return mode
 }

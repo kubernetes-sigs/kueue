@@ -1413,7 +1413,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		"sibling TAS flavor usage is updated for overlapping preemption targets": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:                         true,
-				features.TASHandleOverlappingFlavors:                     true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 				features.TASCachingRemainingResources:                    true,

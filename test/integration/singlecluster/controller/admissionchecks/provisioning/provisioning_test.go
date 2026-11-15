@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -32,7 +33,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -40,11 +40,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -843,6 +845,97 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.When("A second provisioning check is added", func() {
+			var (
+				ac2         *kueue.AdmissionCheck
+				provReqKey2 types.NamespacedName
+			)
+
+			ginkgo.JustBeforeEach(func() {
+				ac2 = utiltestingapi.MakeAdmissionCheck("ac-prov2").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc2.Name).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, ac2)
+				behavioral.ExpectAdmissionChecksToBeActive(ctx, k8sClient, ac2)
+				provReqKey2 = types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac2.Name), 1),
+				}
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy.AdmissionChecks = append(
+						cq.Spec.AdmissionChecksStrategy.AdmissionChecks,
+						kueue.AdmissionCheckStrategyRule{Name: kueue.AdmissionCheckReference(ac2.Name)},
+					)
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				// The check keeps its in-use finalizer while the queue still lists it.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy.AdmissionChecks = slices.DeleteFunc(cq.Spec.AdmissionChecksStrategy.AdmissionChecks,
+						func(r kueue.AdmissionCheckStrategyRule) bool {
+							return r.Name == kueue.AdmissionCheckReference(ac2.Name)
+						})
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
+			})
+
+			ginkgo.It("Should keep syncing the other checks after a ready check loses its request", func() {
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac2.Name, kueue.CheckStatePending)
+				})
+
+				ginkgo.By("Setting the first provisioning request as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
+
+				// A ready check gets no replacement request, so from here on the
+				// first check has none while the second still has a pending one.
+				ginkgo.By("Deleting the first provisioning request", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Delete(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Setting the second provisioning request as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking both checks are ready", func() {
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac2.Name, kueue.CheckStateReady)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
+			})
+		})
 	})
 
 	ginkgo.When("Workload uses a provision admission check with BackoffLimitCount=1", func() {
@@ -1522,6 +1615,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			ac             *kueue.AdmissionCheck
 			prc            *kueue.ProvisioningRequestConfig
 			rf             *kueue.ResourceFlavor
+			workerFlavor   *kueue.ResourceFlavor
 			cq             *kueue.ClusterQueue
 			lq             *kueue.LocalQueue
 			admission      *kueue.Admission
@@ -1604,6 +1698,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workerFlavor, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
 		})
@@ -1641,6 +1736,95 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Expect(mergedTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(mergedTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
 				gomega.Expect(mergedTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
+
+		expectNodeSelector := func(podSet autoscaling.PodSet, want map[string]string) {
+			ginkgo.GinkgoHelper()
+			template := &corev1.PodTemplate{}
+			templateKey := types.NamespacedName{
+				Namespace: createdRequest.Namespace,
+				Name:      podSet.PodTemplateRef.Name,
+			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, templateKey, template)).Should(gomega.Succeed())
+				g.Expect(template.Template.Spec.NodeSelector).To(gomega.BeComparableTo(want))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.It("Should keep PodSets in separate PodTemplates when their flavors have different node labels", func() {
+			workerFlavor = utiltestingapi.MakeResourceFlavor("worker-flavor").NodeLabel("ns1", "ns1-worker").Obj()
+			behavioral.MustCreate(ctx, k8sClient, workerFlavor)
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("master").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(workerFlavor.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(workerFlavor.Name), "2Gi").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that each PodSet requests capacity on the nodes of its flavor", func() {
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				expectNodeSelector(createdRequest.Spec.PodSets[0], map[string]string{"ns1": "ns1v"})
+				gomega.Expect(createdRequest.Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+				expectNodeSelector(createdRequest.Spec.PodSets[1], map[string]string{"ns1": "ns1-worker"})
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
+
+		ginkgo.It("Should merge PodSets into one PodTemplate when different flavors have the same node labels", func() {
+			workerFlavor = utiltestingapi.MakeResourceFlavor("worker-flavor").NodeLabel("ns1", "ns1v").Obj()
+			behavioral.MustCreate(ctx, k8sClient, workerFlavor)
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("master").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(rf.Name), "2Gi").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(workerFlavor.Name), "1").
+							Assignment(corev1.ResourceMemory, kueue.ResourceFlavorReference(workerFlavor.Name), "2Gi").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the provision request is created", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that the PodSets share one PodTemplate", func() {
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(3)))
+				expectNodeSelector(createdRequest.Spec.PodSets[0], map[string]string{"ns1": "ns1v"})
 			})
 
 			ginkgo.By("Removing the quota reservation from the workload", func() {
@@ -1851,6 +2035,35 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	})
 })
 
+var _ = ginkgo.Describe("ProvisioningRequestConfig retry strategy validation", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config-validation").ProvisioningClass("provisioning-class")
+
+	ginkgo.DescribeTable("Creating a ProvisioningRequestConfig with a retry strategy field",
+		func(prc *kueue.ProvisioningRequestConfig, wantInvalid bool) {
+			if wantInvalid {
+				gomega.Expect(k8sClient.Create(ctx, prc)).Should(utiltesting.BeInvalidError())
+				return
+			}
+			behavioral.MustCreate(ctx, k8sClient, prc)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+			})
+		},
+		ginkgo.Entry("rejects negative backoffBaseSeconds",
+			baseConfig.Clone().BaseBackoff(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffBaseSeconds",
+			baseConfig.Clone().BaseBackoff(0).Obj(), false),
+		ginkgo.Entry("rejects negative backoffMaxSeconds",
+			baseConfig.Clone().MaxBackoff(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffMaxSeconds",
+			baseConfig.Clone().MaxBackoff(0).Obj(), false),
+		ginkgo.Entry("rejects negative backoffLimitCount",
+			baseConfig.Clone().RetryLimit(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffLimitCount",
+			baseConfig.Clone().RetryLimit(0).Obj(), false),
+	)
+})
+
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
 	var (
 		ns             *corev1.Namespace
@@ -1886,7 +2099,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config").ProvisioningClass("provisioning-class")
 
 	ginkgo.JustBeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController))
+		fwk.StartManager(ctx, cfg, managerSetup(runScheduler, runJobController, runStatefulSetController))
 	})
 
 	ginkgo.JustBeforeEach(func() {
@@ -1930,6 +2143,185 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 
 	ginkgo.AfterEach(func() {
 		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("A StatefulSet mounts a volumeClaimTemplate", func() {
+		ginkgo.It("Should create the ProvisioningRequest although the pod template has no volume for the mount", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			ginkgo.By("submit a StatefulSet whose container mounts a volumeClaimTemplate", func() {
+				// The API server accepts the mount without a matching volume in the pod template:
+				// StatefulSet validation adds the volumeClaimTemplate volumes only to a copy, and
+				// the StatefulSet controller adds them to each Pod it creates.
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+					Queue(lq.Name).
+					Replicas(1).
+					Request(corev1.ResourceCPU, "500m").
+					VolumeMount(corev1.VolumeMount{Name: "state", MountPath: "/state"}).
+					VolumeClaimTemplate(corev1.PersistentVolumeClaim{
+						Name: "state",
+						Spec: corev1.PersistentVolumeClaimSpec{
+							AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+							Resources: corev1.VolumeResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					}).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sts, true)
+				})
+				wl1Key = types.NamespacedName{Name: workloadstatefulset.GetWorkloadName(sts.UID, sts.Name), Namespace: ns.Name}
+			})
+
+			ginkgo.By("await for the workload to have QuotaReserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusQuotaReserved))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the PodTemplate has a placeholder volume while the Workload does not", func() {
+				stateMount := gomega.HaveField("VolumeMounts", gomega.ConsistOf(gomega.And(
+					gomega.HaveField("Name", "state"),
+					gomega.HaveField("MountPath", "/state"),
+				)))
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				createdTemplate := &corev1.PodTemplate{}
+				templateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}
+				gomega.Expect(k8sClient.Get(ctx, templateKey, createdTemplate)).Should(gomega.Succeed())
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
+				gomega.Expect(createdTemplate.Template.Spec.Volumes).To(gomega.ConsistOf(
+					gomega.And(
+						gomega.HaveField("Name", "state"),
+						gomega.HaveField("EmptyDir", gomega.Not(gomega.BeNil())),
+					),
+				))
+
+				gomega.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+				gomega.Expect(wlObj.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Containers).To(gomega.ConsistOf(stateMount))
+				gomega.Expect(wlObj.Spec.PodSets[0].Template.Spec.Volumes).To(gomega.BeEmpty())
+			})
+		})
+	})
+
+	ginkgo.When("A PodSet has containers without an image", func() {
+		ginkgo.It("Should fill empty sidecar images on the ProvisioningRequest PodTemplate and admit the Workload", func() {
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, cq)
+				behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+				behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			const headImage = "ray:2.9.0"
+			ginkgo.By("submit a Workload whose head PodSet has imageless sidecars", func() {
+				wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					PodSets(*utiltestingapi.MakePodSet("head", 1).
+						Containers(
+							corev1.Container{
+								Name:  "ray-head",
+								Image: headImage,
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+							corev1.Container{Name: "autoscaler"},
+							corev1.Container{Name: "ray-job-submitter"},
+						).
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				wl1Key = client.ObjectKeyFromObject(wl)
+			})
+
+			ginkgo.By("await for the ProvisioningRequest to be created", func() {
+				provReqKey = types.NamespacedName{
+					Namespace: wl1Key.Namespace,
+					Name:      provisioning.ProvisioningRequestName(wl1Key.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wl1Key, &wlObj)).Should(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(wlObj.Status.AdmissionChecks, ac1Ref)
+					g.Expect(check).NotTo(gomega.BeNil())
+					// Makes a timeout report the PodTemplate creation error instead of a NotFound for the ProvisioningRequest.
+					g.Expect(check.Message).NotTo(gomega.ContainSubstring("Error creating PodTemplate"))
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("check the sidecars get the placeholder image", func() {
+				createdTemplate := &corev1.PodTemplate{}
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[0].PodTemplateRef.Name,
+				}, createdTemplate)).To(gomega.Succeed())
+				container := func(name, image string) gomega.OmegaMatcher {
+					return gomega.And(gomega.HaveField("Name", name), gomega.HaveField("Image", image))
+				}
+				gomega.Expect(createdTemplate.Template.Spec.Containers).To(gomega.ConsistOf(
+					container("ray-head", headImage),
+					container("autoscaler", "kueue.x-k8s.io/placeholder-image:placeholder"),
+					container("ray-job-submitter", "kueue.x-k8s.io/placeholder-image:placeholder"),
+				))
+			})
+
+			ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the admission check is Ready and the Workload is admitted", func() {
+				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wl1Key, ac1.Name, kueue.CheckStateReady)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &wlObj)
+			})
+		})
 	})
 
 	ginkgo.When("A workload is preempted from a flavor which uses an admission check", func() {
@@ -2433,7 +2825,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2475,7 +2867,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job again to 6 workers before the intermediate request is provisioned", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](6)
+					job.Spec.Parallelism = new(int32(6))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2650,7 +3042,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -2837,7 +3229,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 			ginkgo.By("scaling the Job up to 4 workers", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-					job.Spec.Parallelism = ptr.To[int32](4)
+					job.Spec.Parallelism = new(int32(4))
 					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})

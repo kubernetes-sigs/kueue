@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -168,12 +167,12 @@ func TestNewCandidateFilters(t *testing.T) {
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:           "tpu-size",
-						FallbackValue: ptr.To[int32](1),
-						Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
+						FallbackValue: new(int32(1)),
+						Comparison:    new(kueuealpha.LessThanOrEqual),
 					},
 					{
 						Key:      "priority-boost",
-						MinValue: ptr.To[int32](10),
+						MinValue: new(int32(10)),
 					},
 				},
 			},
@@ -190,15 +189,15 @@ func TestNewCandidateFilters(t *testing.T) {
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:           "tpu-size",
-							FallbackValue: ptr.To[int32](1),
-							Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
+							FallbackValue: new(int32(1)),
+							Comparison:    new(kueuealpha.LessThanOrEqual),
 						},
-						preemptorVal: ptr.To[int32](8),
+						preemptorVal: new(int32(8)),
 					},
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:      "priority-boost",
-							MinValue: ptr.To[int32](10),
+							MinValue: new(int32(10)),
 						},
 						preemptorVal: nil,
 					},
@@ -233,7 +232,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:        "tpu-size",
-						Comparison: ptr.To(kueuealpha.LessThan),
+						Comparison: new(kueuealpha.LessThan),
 					},
 				},
 			},
@@ -256,9 +255,9 @@ func TestNewCandidateFilters(t *testing.T) {
 					&numericLabelFilter{
 						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 							Key:        "tpu-size",
-							Comparison: ptr.To(kueuealpha.LessThan),
+							Comparison: new(kueuealpha.LessThan),
 						},
-						preemptorVal: ptr.To[int32](8),
+						preemptorVal: new(int32(8)),
 					},
 					&priorityFilter{
 						mode:              kueuealpha.Base,
@@ -499,7 +498,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
 						Key:        "tpu-size",
-						Comparison: ptr.To(kueuealpha.NumericComparison("InvalidComparison")),
+						Comparison: new(kueuealpha.NumericComparison("InvalidComparison")),
 					},
 				},
 			},

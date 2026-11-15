@@ -32,6 +32,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
@@ -40,7 +42,9 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -243,6 +247,29 @@ func waitForKueueAvailability(ctx context.Context, k8sClient client.Client, chec
 	waitForDeploymentAvailability(ctx, k8sClient, kcmKey, checkNoRestarts)
 	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
 	waitForLeaderElection(ctx, k8sClient)
+	waitForGarbageCollectorToWatchWorkloads(ctx, k8sClient)
+}
+
+// waitForGarbageCollectorToWatchWorkloads waits until the garbage collector of
+// kube-controller-manager watches Workloads. It picks up new CRDs only on its
+// periodic discovery resync. Until then, deleting a Job with the Orphan
+// propagation policy keeps the owner reference on its Workload, so the garbage
+// collector deletes the Workload once it starts watching Workloads.
+func waitForGarbageCollectorToWatchWorkloads(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	waitStart := time.Now()
+	ginkgo.By("Waiting for the garbage collector to watch Workloads")
+
+	owner := &corev1.ConfigMap{GenerateName: "gc-probe-", Namespace: metav1.NamespaceDefault}
+	behavioral.MustCreate(ctx, k8sClient, owner)
+	wl := utiltestingapi.MakeWorkloadWithGeneratedName("gc-probe-", owner.Namespace).
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), owner.Name, string(owner.UID)).
+		Obj()
+	behavioral.MustCreate(ctx, k8sClient, wl)
+	gomega.Expect(k8sClient.Delete(ctx, owner)).To(gomega.Succeed())
+	behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, wl, false, behavioral.LongTimeout)
+
+	ginkgo.GinkgoLogr.Info("Garbage collector watches Workloads", "waitingTime", time.Since(waitStart))
 }
 
 // waitForLeaderElection waits for the kueue controller to acquire the leader lease
@@ -406,5 +433,23 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// ExpectVisibilityAPIServiceToVerifyTLS checks that the API server reaches the visibility
+// server through a CA bundle instead of skipping TLS verification.
+func ExpectVisibilityAPIServiceToVerifyTLS(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	apiService := &unstructured.Unstructured{}
+	apiService.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiregistration.k8s.io", Version: "v1", Kind: "APIService"})
+	key := client.ObjectKey{Name: visibility.SchemeGroupVersion.Version + "." + visibility.SchemeGroupVersion.Group}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, apiService)).To(gomega.Succeed())
+		g.Expect(apiService.Object).NotTo(gomega.HaveKeyWithValue("spec", gomega.HaveKey("insecureSkipTLSVerify")))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("spec", gomega.HaveKeyWithValue("caBundle", gomega.Not(gomega.BeEmpty()))))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("status", gomega.HaveKeyWithValue("conditions", gomega.ContainElement(gomega.And(
+			gomega.HaveKeyWithValue("type", "Available"),
+			gomega.HaveKeyWithValue("status", "True"),
+		)))))
 	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
