@@ -24,8 +24,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
@@ -38,11 +40,69 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+// TestCommittedVictimsOfEarlierCycles checks which Workloads of the snapshot are
+// committed victims of earlier scheduling cycles.
+func TestCommittedVictimsOfEarlierCycles(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	admitted := func(name string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "ns").UID(types.UID(name+"-uid")).
+			Request(corev1.ResourceCPU, "1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now)
+	}
+	evicted := func(name, reason string) *kueue.Workload {
+		return admitted(name).Condition(metav1.Condition{
+			Type:               kueue.WorkloadEvicted,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			LastTransitionTime: metav1.NewTime(now),
+		}).Obj()
+	}
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()); err != nil {
+		t.Fatalf("adding ClusterQueue: %v", err)
+	}
+	for _, w := range []*kueue.Workload{
+		admitted("running").Obj(),
+		admitted("preemption-issued").Obj(),
+		admitted("recreated").Obj(),
+		evicted("preempted", kueue.WorkloadEvictedByPreemption),
+		evicted("pods-ready-timeout", kueue.WorkloadEvictedByPodsReadyTimeout),
+	} {
+		if !cache.AddOrUpdateWorkload(ctx, log, w) {
+			t.Fatalf("adding workload %s", w.Name)
+		}
+	}
+	snap, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	preemptionExpectations := preemptexpectations.New()
+	preemptionExpectations.ExpectUIDs(log, types.NamespacedName{Namespace: "ns", Name: "preemption-issued"}, []types.UID{"preemption-issued-uid"})
+	// The preemption was issued for an earlier Workload of the same name.
+	preemptionExpectations.ExpectUIDs(log, types.NamespacedName{Namespace: "ns", Name: "recreated"}, []types.UID{"recreated-old-uid"})
+	s := New(nil, cache, utiltesting.NewFakeClient(), &utiltesting.EventRecorder{}, WithPreemptionExpectations(preemptionExpectations))
+
+	var got []workload.Reference
+	for _, wl := range s.committedVictimsOfEarlierCycles(snap) {
+		got = append(got, workload.Key(wl.Obj))
+	}
+	want := []workload.Reference{"ns/pods-ready-timeout", "ns/preempted", "ns/preemption-issued"}
+	if diff := cmp.Diff(want, got, cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b })); diff != "" {
+		t.Errorf("Unexpected committed victims of earlier cycles (-want,+got):\n%s", diff)
+	}
+}
 
 // TestGetAssignmentsWithCommittedVictims checks how getAssignments accounts for
 // committed preemption victims with SchedulerLibraryDeepIntegration, using the
