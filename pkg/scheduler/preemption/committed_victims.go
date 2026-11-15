@@ -17,10 +17,22 @@ limitations under the License.
 package preemption
 
 import (
+	"slices"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+// HasPendingPreemption reports whether the preemption of the Workload was
+// issued, but its eviction has not been observed yet.
+func (p *Preemptor) HasPendingPreemption(wl *kueue.Workload) bool {
+	return p.preemptionExpectations != nil &&
+		slices.Contains(p.preemptionExpectations.ExpectedUIDs(client.ObjectKeyFromObject(wl)), wl.UID)
+}
 
 // CommittedVictimsFilter is the PreemptionFilter of the search for preemption
 // targets, which runs with the committed victims removed from the snapshot (see
