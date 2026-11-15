@@ -39,7 +39,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	core "sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -3632,7 +3632,7 @@ func TestPreemptionGateAfterSpecUpdateAndCoreReconcile(t *testing.T) {
 			lq := utiltestingapi.MakeLocalQueue("lq-hold", "default").
 				ClusterQueue(cq.Name).
 				Obj()
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+			ns := &corev1.Namespace{Name: "default"}
 
 			objs := []client.Object{ns, onDemandRF, spotRF, cq, lq, parent, preferredVariant, secondaryVariant}
 			cl := utiltesting.NewClientBuilder().
