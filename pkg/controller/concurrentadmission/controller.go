@@ -20,11 +20,13 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -400,7 +402,28 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 	for i := range variants {
 		v := &variants[i]
 		flavor := concurrentadmission.GetVariantFlavor(v)
-		if _, ok := flavorOrder[flavor]; ok {
+		_, flavorExists := flavorOrder[flavor]
+		// Keep finalizing removed flavors, but do not reuse a deleting candidate.
+		if flavorExists && !v.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if flavorExists && !workload.HasQuotaReservation(parent) && workload.HasQuotaReservation(v) && !sameResourceRequest(parent, v) {
+			// Replace the stale reservation instead of mutating reserved demand.
+			// Re-creation also discards the old admission checks.
+			if err := workload.RemoveFinalizer(ctx, r.client, v); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return nil, err
+			}
+			if err := r.client.Delete(ctx, v, client.Preconditions{UID: &v.UID, ResourceVersion: &v.ResourceVersion}); err != nil && !apierrors.IsNotFound(err) {
+				return nil, fmt.Errorf("deleting variant with stale reservation %s: %w", klog.KObj(v), err)
+			}
+			r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonDeletedVariant, ReasonDeletedVariant,
+				"Variant Workload %q deleted; reserved resource request no longer matches the parent", klog.KObj(v))
+			continue
+		}
+		if flavorExists {
 			freshVariants = append(freshVariants, *v)
 			continue
 		}
@@ -411,6 +434,18 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 			"Variant Workload %q deleted; flavor %q no longer in ClusterQueue", klog.KObj(v), flavor)
 	}
 	return freshVariants, nil
+}
+
+// sameResourceRequest compares the demand represented by a candidate, excluding
+// independently managed fields such as activation and preemption gates.
+func sameResourceRequest(parent, variant *kueue.Workload) bool {
+	if parent.Spec.QueueName != variant.Spec.QueueName {
+		return false
+	}
+	// Most candidates are exact copies. Avoid semantic comparison's allocations
+	// unless representations differ (for example, equivalent resource quantities).
+	return reflect.DeepEqual(parent.Spec.PodSets, variant.Spec.PodSets) ||
+		equality.Semantic.DeepEqual(parent.Spec.PodSets, variant.Spec.PodSets)
 }
 
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
@@ -767,6 +802,11 @@ func (r *variantReconciler) syncAdmissionStatus(
 			log.V(3).Info("Evicted parent because its admitted flavor is no longer in the ClusterQueue")
 		}
 	case admittedVariant != nil && !workload.IsAdmitted(parent):
+		// This function is also used when ConcurrentAdmission is disabled. Never
+		// transfer a deleting or outdated candidate's admission to a queued Parent.
+		if !admittedVariant.DeletionTimestamp.IsZero() || !sameResourceRequest(parent, admittedVariant) {
+			return nil
+		}
 		log.V(5).Info("Syncing WaitForPodsReady condition", "admittedVariant", klog.KObj(admittedVariant))
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, admittedVariant, r.clock, func(wl *kueue.Workload) (bool, error) {
 			return r.syncPodsReadyCond(parent, wl), nil
