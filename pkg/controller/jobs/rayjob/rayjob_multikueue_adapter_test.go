@@ -250,27 +250,27 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			operation: terminalSyncOperation(true),
 			wantManagersRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 		},
 		"terminal: failed job with complete deployment": {
@@ -278,27 +278,27 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			operation: terminalSyncOperation(true),
 			wantManagersRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 		},
 		"terminal: failed deployment": {
@@ -306,27 +306,27 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusFailed)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusFailed).
+					Obj(),
 			},
 			operation: terminalSyncOperation(true),
 			wantManagersRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusFailed)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusFailed).
+					Obj(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusFailed)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusFailed)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusFailed).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusFailed).
+					Obj(),
 			},
 		},
 		"terminal: running status is ignored": {
@@ -334,22 +334,22 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusRunning)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
 			},
 			operation: terminalSyncOperation(false),
 			wantManagersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusRunning)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusRunning).
+					Obj(),
 			},
 		},
 		"terminal: already repointed worker is ignored": {
@@ -357,24 +357,24 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("replacement-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("replacement-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			operation: terminalSyncOperation(false),
 			wantManagersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("replacement-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("replacement-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 		},
 		"terminal: foreign worker is rejected": {
@@ -382,12 +382,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 			adapterOptions: []ray.Option[*rayv1.RayJob, rayv1.RayJob]{terminalStatusOption},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "another-origin")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "another-origin").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			operation: terminalSyncOperation(false),
 			wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
@@ -395,12 +395,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*rayJobBuilder.DeepCopy(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "another-origin")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "another-origin").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 		},
 		"terminal: missing remote is ignored": {
@@ -416,24 +416,24 @@ func TestMultiKueueAdapter(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{*rayJobBuilder.DeepCopy()},
 			workerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 			operation: terminalSyncOperation(false),
 			wantManagersRayJobs: []rayv1.RayJob{
 				*rayJobBuilder.DeepCopy(),
 			},
 			wantWorkerRayJobs: []rayv1.RayJob{
-				*rayJobBuilder.Clone()
-					.PrebuiltWorkloadLabel("old-slice")
-					.Label(kueue.MultiKueueOriginLabel, "origin1")
-					.JobStatus(rayv1.JobStatusSucceeded)
-					.JobDeploymentStatus(rayv1.JobDeploymentStatusComplete)
-					.Obj(),
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobStatus(rayv1.JobStatusSucceeded).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
 			},
 		},
 	}
