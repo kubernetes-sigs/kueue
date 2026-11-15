@@ -810,6 +810,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	draRequestsRefreshed := false
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
 		// rebuilt here, because the spec carries resourceClaims rather than the quota
@@ -822,6 +823,16 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
 			return false, w.DeepCopy()
 		}
+		// AddOrUpdateWorkload updates the LocalQueue's copy even while the
+		// ClusterQueue keeps the workload checked out. DRA preprocessing can
+		// therefore refresh TotalRequests during the checkout without changing
+		// metadata.generation (for example, after a DeviceClass update). Keep
+		// those newer charges when putting the checked-out Info back in the queue.
+		if queuedInfo := q.items[workload.Key(info.Obj)]; queuedInfo != nil && queuedInfo != info {
+			draRequestsRefreshed = draRequestsChanged(info, queuedInfo)
+			info.TotalRequests = queuedInfo.TotalRequests
+			info.SchedulingHash = ""
+		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(ctrl.LoggerFrom(ctx), &w, options...)
@@ -832,7 +843,12 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		return false, nil
 	}
 
-	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	var added bool
+	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
+		added = cq.requeueIfNotPresent(ctrl.LoggerFrom(ctx), info, true, reason, quotaReservedReason)
+	} else {
+		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
+	}
 	reportCQPendingWorkloads(m, cq)
 	reportLQPendingWorkloads(m, q)
 	if added {
