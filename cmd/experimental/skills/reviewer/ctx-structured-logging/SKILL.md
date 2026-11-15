@@ -26,7 +26,10 @@ interface.
 ## Do not flag
 
 - A method that implements an interface or a callback type whose signature requires
-  `context.Context`. Use `_ context.Context` there; it is not a defect.
+  `context.Context`, and that does not need the context for any logging or context-aware call.
+  Use `_ context.Context` there; it is not a defect. Do flag such a method when it ignores
+  `ctx` but calls a context-aware API with `context.Background()`, which drops the caller's
+  cancellation and deadlines.
 - A no-op, stub, or fake implementation, including test doubles.
 - A deliberate discard that a comment explains, for example detaching from the caller's
   cancellation on purpose (prefer `context.WithoutCancel(ctx)` over dropping `ctx`).
