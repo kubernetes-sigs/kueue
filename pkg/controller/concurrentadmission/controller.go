@@ -444,34 +444,20 @@ func (r *variantReconciler) syncVariantSpecs(ctx context.Context, parent *kueue.
 
 func (r *variantReconciler) syncVariant(ctx context.Context, parent, variant *kueue.Workload) (bool, error) {
 	flavor := concurrentadmission.GetVariantFlavor(variant)
+	desired := generateVariant(parent, flavor)
+	desired.Spec.Active = variant.Spec.Active
 
-	desiredSpec := *parent.Spec.DeepCopy()
-	desiredSpec.Active = variant.Spec.Active
-
-	tempWl := &kueue.Workload{Spec: desiredSpec}
-	workload.EnsurePreemptionGateOnSpec(tempWl, controllerconsts.ConcurrentAdmissionPreemptionGate)
-	desiredSpec = tempWl.Spec
-
-	desiredLabels := maps.Clone(parent.Labels)
-	delete(desiredLabels, controllerconsts.ConcurrentAdmissionParentLabelKey)
-
-	desiredAnnotations := maps.Clone(parent.Annotations)
-	if desiredAnnotations == nil {
-		desiredAnnotations = make(map[string]string)
-	}
-	desiredAnnotations[controllerconsts.WorkloadAllowedResourceFlavorAnnotation] = string(flavor)
-
-	specChanged := !equality.Semantic.DeepEqual(variant.Spec, desiredSpec)
-	labelsChanged := !maps.Equal(variant.Labels, desiredLabels)
-	annotationsChanged := !maps.Equal(variant.Annotations, desiredAnnotations)
+	specChanged := !equality.Semantic.DeepEqual(variant.Spec, desired.Spec)
+	labelsChanged := !maps.Equal(variant.Labels, desired.Labels)
+	annotationsChanged := !maps.Equal(variant.Annotations, desired.Annotations)
 
 	if !specChanged && !labelsChanged && !annotationsChanged {
 		return false, nil
 	}
 
-	variant.Spec = desiredSpec
-	variant.Labels = desiredLabels
-	variant.Annotations = desiredAnnotations
+	variant.Spec = desired.Spec
+	variant.Labels = desired.Labels
+	variant.Annotations = desired.Annotations
 
 	if err := r.client.Update(ctx, variant); err != nil {
 		return false, fmt.Errorf("updating variant %s to match parent spec: %w", klog.KObj(variant), err)
@@ -488,10 +474,9 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Labels:        maps.Clone(parent.Labels),
 		Annotations:   maps.Clone(parent.Annotations),
 		ManagedFields: parent.ManagedFields,
-		Spec:          parent.Spec,
+		Spec:          *parent.Spec.DeepCopy(),
 		Status:        parent.Status,
 	}
-	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
 	delete(variant.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, controllerconsts.WorkloadAllowedResourceFlavorAnnotation, string(flavor))

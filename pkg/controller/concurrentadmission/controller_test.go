@@ -470,6 +470,72 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"parent workload labels and annotations updated; syncs labels and annotations to unadmitted variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Label("custom-label", "custom-value").
+				Annotation("custom-annotation", "custom-value").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Label("custom-label", "custom-value").
+				Annotation("custom-annotation", "custom-value").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					Label("custom-label", "custom-value").
+					Annotation("custom-annotation", "custom-value").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					Label("custom-label", "custom-value").
+					Annotation("custom-annotation", "custom-value").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonUpdatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-spot-a2342\" updated",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonUpdatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" updated",
+				},
+			},
+		},
 		"admitted variant does not update its spec": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-spot-only").
@@ -537,6 +603,54 @@ func TestReconcile(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					Obj(),
+			},
+		},
+		"reserved parent skips spec sync to unreserved variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				SimpleReserveQuota("cq", "spot", fakeNow).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq", "spot", fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "100m").Obj()).
+				SimpleReserveQuota("cq", "spot", fakeNow).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-a2342", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq", "spot", fakeNow).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-480a3", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 			},
 		},
@@ -3403,6 +3517,8 @@ func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
 	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
 		Label(constants.ConcurrentAdmissionParentLabelKey, "true").
 		Annotation("example.com/key", "value").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "100m").Obj()).
+		PreemptionGates(caGate()).
 		Obj()
 	original := parent.DeepCopy()
 
@@ -3412,6 +3528,9 @@ func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
 	if diff := cmp.Diff(original.ObjectMeta, parent.ObjectMeta); diff != "" {
 		t.Errorf("generateVariant() modified the parent metadata (-want,+got):\n%s", diff)
 	}
+	if diff := cmp.Diff(original.Spec, parent.Spec); diff != "" {
+		t.Errorf("generateVariant() modified the parent spec (-want,+got):\n%s", diff)
+	}
 	if got := concurrentadmission.GetVariantFlavor(spot); got != "spot" {
 		t.Errorf("spot variant flavor = %q, want %q", got, "spot")
 	}
@@ -3420,5 +3539,11 @@ func TestGenerateVariantDoesNotShareMetadata(t *testing.T) {
 	}
 	if _, found := spot.Labels[constants.ConcurrentAdmissionParentLabelKey]; found {
 		t.Errorf("spot variant has the %q label", constants.ConcurrentAdmissionParentLabelKey)
+	}
+
+	// Verify deep copy: mutating variant spec must not affect parent spec.
+	spot.Spec.PodSets[0].Count = 99
+	if parent.Spec.PodSets[0].Count != 1 {
+		t.Errorf("mutating spot variant PodSets modified parent PodSets: got %d, want 1", parent.Spec.PodSets[0].Count)
 	}
 }
