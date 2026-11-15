@@ -932,23 +932,31 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		// conditions whose ObservedGeneration is older than the current spec
 		// generation must not be used for preemption gate decisions until the
 		// scheduler re-evaluates the updated variant.
+		//
+		// When the scheduler re-evaluates a variant, it always refreshes
+		// QuotaReserved, but it only sets or refreshes BlockedOnPreemptionGates
+		// if the variant is nominated for preemption. If re-evaluation determines
+		// the variant is not nominated (e.g. Inadmissible), BlockedOnPreemptionGates
+		// is left untouched with an older ObservedGeneration. We treat such a
+		// stale condition as absent once QuotaReserved has been refreshed to a
+		// non-PreemptionGated reason (QuotaReserved still carrying PreemptionGated
+		// means the controller preserved an older scheduler reason across the spec update).
 		quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		if wl.Generation > 0 && quotaReserved != nil && quotaReserved.ObservedGeneration < wl.Generation {
 			wlLog.Info("Variant has not been evaluated for admission yet")
 			return nil
 		}
 		blockedCond := workload.BlockedOnPreemptionGatesCondition(wl)
-		if blockedCond == nil {
-			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
+		staleBlocked := blockedCond != nil && wl.Generation > 0 && blockedCond.ObservedGeneration < wl.Generation
+		if blockedCond == nil || staleBlocked {
+			if quotaReserved == nil ||
+				quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation ||
+				quotaReserved.Reason == kueue.PreemptionGated {
 				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}
 			wlLog.Info("Variant does not require preemption")
 			continue
-		}
-		if wl.Generation > 0 && blockedCond.ObservedGeneration < wl.Generation {
-			wlLog.Info("Variant has not been evaluated for admission yet")
-			return nil
 		}
 		wlLog.Info("Variant is the candidate for ungating")
 		return wl

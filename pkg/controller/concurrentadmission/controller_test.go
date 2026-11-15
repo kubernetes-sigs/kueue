@@ -3464,6 +3464,76 @@ func TestFirstCandidateVariant(t *testing.T) {
 				Obj(),
 			want: blocked,
 		},
+		"skips a preferred variant with a fresh quota reservation condition even if it has a stale blocked-on-preemption condition": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             "Inadmissible",
+					Message:            "Workload does not fit",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			want: blocked,
+		},
+		"waits when the preferred variant has a stale blocked-on-preemption condition and quota reservation still carries PreemptionGated": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+		},
+		"waits when the preferred variant has a stale blocked-on-preemption condition and quota reservation is PendingEvaluation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				Generation(2).
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message:            "Workload is pending evaluation in the scheduling queue",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.PreemptionGated,
+					Message:            "Workload requires preemption, but it's gated",
+					LastTransitionTime: metav1.NewTime(now),
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
