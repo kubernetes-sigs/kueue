@@ -10476,6 +10476,102 @@ func TestFindTopologyAssignments(t *testing.T) {
 					`. Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
 			}},
 		},
+		"node replacement: a cordoned node missing from the snapshot does not make the assignment stale": {
+			// x1 failed and x2 is cordoned, so both are missing from the snapshot, but only x1 is recorded as unhealthy.
+			// x2 is merged by its hostname alone, so it sorts after x3 and x4.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Taints(corev1.Taint{Key: corev1.TaintNodeUnschedulable, Effect: corev1.TaintEffectNoSchedule}).
+					Ready().Unschedulable().Obj(),
+				*testingnode.MakeNode("x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(3).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-x2", "test-ns").NodeName("x2").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("pod-x3", "test-ns").NodeName("x3").Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"node replacement: rejects when only a cordoned node is left to pin the required rack": {
+			// x1 failed and x2 is cordoned, both in r1. Nothing in the snapshot pins r1, and x3 is in r2.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Taints(corev1.Taint{Key: corev1.TaintNodeUnschedulable, Effect: corev1.TaintEffectNoSchedule}).
+					Ready().Unschedulable().Obj(),
+				*testingnode.MakeNode("x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-x2", "test-ns").NodeName("x2").Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantReason:      "cannot replace the node: required topology domain of the remaining assignment cannot be determined",
+			}},
+		},
 		"rack required packs smaller parent block first, preserving larger block for block-required podset": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
