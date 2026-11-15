@@ -54,6 +54,14 @@ func TestPreviousOwnerSubtreeCoverage(t *testing.T) {
 			root: cohortRoot, kind: kueuealpha.CohortSubtreeRootRefKind, name: "child",
 			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj(), utiltestingapi.MakeCohort("child").Parent("old-root").Obj()}, covered: true,
 		},
+		"queue under nested cohort of old root": {
+			root: cohortRoot, kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "target",
+			objects: []client.Object{
+				utiltestingapi.MakeCohort("old-root").Parent("implicit").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("old-root").Obj(),
+				utiltestingapi.MakeClusterQueue("target").Cohort("child").Obj(),
+			}, covered: true,
+		},
 		"queue moved outside old root": {
 			root: cohortRoot,
 			kind: kueuealpha.ClusterQueueSubtreeRootRefKind,
@@ -73,9 +81,17 @@ func TestPreviousOwnerSubtreeCoverage(t *testing.T) {
 			root: cohortRoot, kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "target",
 			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj()}, covered: true,
 		},
-		"missing intermediate is inconclusive": {
+		"implicit parent terminates the hierarchy": {
 			root: cohortRoot, kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "target",
-			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj(), utiltestingapi.MakeClusterQueue("target").Cohort("missing").Obj()}, covered: true,
+			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj(), utiltestingapi.MakeClusterQueue("target").Cohort("implicit").Obj()}, covered: false,
+		},
+		"cohort under implicit parent is outside old root": {
+			root: cohortRoot, kind: kueuealpha.CohortSubtreeRootRefKind, name: "target",
+			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj(), utiltestingapi.MakeCohort("target").Parent("implicit").Obj()}, covered: false,
+		},
+		"missing cohort target is inconclusive": {
+			root: cohortRoot, kind: kueuealpha.CohortSubtreeRootRefKind, name: "target",
+			objects: []client.Object{utiltestingapi.MakeCohort("old-root").Obj()}, covered: true,
 		},
 		"cycle is inconclusive": {
 			root: cohortRoot,
@@ -106,6 +122,73 @@ func TestPreviousOwnerSubtreeCoverage(t *testing.T) {
 				t.Fatalf("subtreeCovers() = %t, %v; want %t, nil", got, err, tc.covered)
 			}
 		})
+	}
+}
+
+func TestStrictAncestorWithImplicitParentsAndCycles(t *testing.T) {
+	cohort := func(name string) kueuealpha.CapacityDistributionSubtreeRootRef {
+		return kueuealpha.CapacityDistributionSubtreeRootRef{Kind: kueuealpha.CohortSubtreeRootRefKind, Name: name}
+	}
+	queue := func(name string) kueuealpha.CapacityDistributionSubtreeRootRef {
+		return kueuealpha.CapacityDistributionSubtreeRootRef{Kind: kueuealpha.ClusterQueueSubtreeRootRefKind, Name: name}
+	}
+	tests := map[string]struct {
+		candidate kueuealpha.CapacityDistributionSubtreeRootRef
+		target    kueuealpha.CapacityDistributionSubtreeRootRef
+		objects   []client.Object
+		want      bool
+	}{
+		"implicit parent is an ancestor of a queue": {
+			candidate: cohort("implicit"), target: queue("target"),
+			objects: []client.Object{utiltestingapi.MakeClusterQueue("target").Cohort("implicit").Obj()}, want: true,
+		},
+		"implicit parent is an ancestor of a cohort": {
+			candidate: cohort("implicit"), target: cohort("child"),
+			objects: []client.Object{utiltestingapi.MakeCohort("child").Parent("implicit").Obj()}, want: true,
+		},
+		"separate implicit parent is not an ancestor": {
+			candidate: cohort("other"), target: cohort("child"),
+			objects: []client.Object{utiltestingapi.MakeCohort("child").Parent("implicit").Obj()},
+		},
+		"missing target is not established as a descendant": {
+			candidate: cohort("other"), target: cohort("missing"),
+		},
+		"cycle does not establish an unrelated ancestor": {
+			candidate: cohort("other"), target: cohort("child"),
+			objects: []client.Object{utiltestingapi.MakeCohort("child").Parent("parent").Obj(), utiltestingapi.MakeCohort("parent").Parent("child").Obj()},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			r := NewReconciler(utiltesting.NewClientBuilder().WithObjects(tc.objects...).Build())
+			got, err := r.isStrictAncestor(ctx, tc.candidate, tc.target)
+			if err != nil || got != tc.want {
+				t.Fatalf("isStrictAncestor() = %t, %v; want %t, nil", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestSubtreeCoveragePropagatesAncestorReadError(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	lookupErr := errors.New("injected ancestor lookup failure")
+	cl := utiltesting.NewClientBuilder().WithObjects(
+		utiltestingapi.MakeCohort("old-root").Obj(),
+		utiltestingapi.MakeClusterQueue("target").Cohort("parent").Obj(),
+	).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*kueue.Cohort); ok && key.Name == "parent" {
+				return lookupErr
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+	r := NewReconciler(cl)
+	root := kueuealpha.CapacityDistributionSubtreeRootRef{Kind: kueuealpha.CohortSubtreeRootRefKind, Name: "old-root"}
+	_, err := r.subtreeCovers(ctx, root, kueuealpha.ClusterQueueSubtreeRootRefKind, "target")
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("subtreeCovers() error = %v, want %v", err, lookupErr)
 	}
 }
 

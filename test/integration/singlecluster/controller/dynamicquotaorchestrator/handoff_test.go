@@ -18,7 +18,6 @@ package dynamicquotaorchestrator
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -35,19 +34,33 @@ import (
 )
 
 var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label("controller:dynamicquotaorchestrator", "area:dynamicquotaorchestration"), func() {
-	for _, moveCohort := range []bool{false, true} {
+	for _, tc := range []struct{ moveCohort, implicitParent bool }{
+		{false, false}, {false, true}, {true, false}, {true, true},
+	} {
+		moveCohort, implicitParent := tc.moveCohort, tc.implicitParent
 		mode := "ClusterQueue"
 		if moveCohort {
 			mode = "Cohort"
 		}
-		ginkgo.It(fmt.Sprintf("updates destination quotas after moving a %s between active subtrees", mode), func() {
+		parentType := "independent roots"
+		if implicitParent {
+			parentType = "shared implicit parent"
+		}
+		ginkgo.It(fmt.Sprintf("updates destination quotas after moving a %s between active subtrees with %s", mode, parentType), func() {
 			prefix := "handoff-queue-"
 			if moveCohort {
 				prefix = "handoff-cohort-"
 			}
+			if implicitParent {
+				prefix += "implicit-"
+			}
 			name := func(s string) string { return prefix + s }
 			rootA := utiltestingapi.MakeCohort(kueue.CohortReference(name("a"))).Obj()
 			rootB := utiltestingapi.MakeCohort(kueue.CohortReference(name("b"))).Obj()
+			if implicitParent {
+				rootA.Spec.ParentName = kueue.CohortReference(name("org"))
+				rootB.Spec.ParentName = kueue.CohortReference(name("org"))
+			}
 			createHandoffObject(rootA)
 			createHandoffObject(rootB)
 			parent := rootA.Name
@@ -130,7 +143,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label
 			setCapacityProviderCapacity(ctx, k8sClient, cpB, utiltestingalpha.MakeNormalizedCapacity().Flavors(
 				utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "40").Obj()).Obj())
 			gomega.Eventually(check("100", dqoB.Name, "20", "20"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			gomega.Consistently(check("100", dqoB.Name, "20", "20"), 2*time.Second, 200*time.Millisecond).Should(gomega.Succeed())
+			gomega.Consistently(check("100", dqoB.Name, "20", "20"), behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			move(rootA.Name)
 			gomega.Eventually(check("50", dqoA.Name, "50", "40"), behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
@@ -198,7 +211,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator subtree handoff", ginkgo.Label
 		}
 		ginkgo.By("verifying the already-existing destination is blocked by A's ancestor root")
 		gomega.Eventually(blocked, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		gomega.Consistently(blocked, time.Second, 200*time.Millisecond).Should(gomega.Succeed())
+		gomega.Consistently(blocked, behavioral.ShortTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("retargeting A without modifying either ClusterQueue, Cohort, or provider")
 		gomega.Eventually(func(g gomega.Gomega) {

@@ -36,14 +36,26 @@ import (
 )
 
 func TestClusterQueueMovedToAnotherDQOSubtree(t *testing.T) {
-	testMovedToAnotherDQOSubtree(t, false)
+	for _, implicitParent := range []bool{false, true} {
+		name := "explicit parent"
+		if implicitParent {
+			name = "implicit parent"
+		}
+		t.Run(name, func(t *testing.T) { testMovedToAnotherDQOSubtree(t, false, implicitParent) })
+	}
 }
 
 func TestCohortMovedToAnotherDQOSubtree(t *testing.T) {
-	testMovedToAnotherDQOSubtree(t, true)
+	for _, implicitParent := range []bool{false, true} {
+		name := "explicit parent"
+		if implicitParent {
+			name = "implicit parent"
+		}
+		t.Run(name, func(t *testing.T) { testMovedToAnotherDQOSubtree(t, true, implicitParent) })
+	}
 }
 
-func testMovedToAnotherDQOSubtree(t *testing.T, moveCohort bool) {
+func testMovedToAnotherDQOSubtree(t *testing.T, moveCohort, implicitParent bool) {
 	t.Helper()
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
 
@@ -72,7 +84,6 @@ func testMovedToAnotherDQOSubtree(t *testing.T, moveCohort bool) {
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "team-b").Obj(),
 		provider("cp-a", "pool-a"),
 		provider("cp-b", "pool-b"),
-		utiltestingapi.MakeCohort("org").Obj(),
 		utiltestingapi.MakeCohort("team-a").Parent("org").Obj(),
 		utiltestingapi.MakeCohort("team-b").Parent("org").Obj(),
 		utiltestingapi.MakeClusterQueue("cq-a1").Cohort("team-a").
@@ -81,6 +92,9 @@ func testMovedToAnotherDQOSubtree(t *testing.T, moveCohort bool) {
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("pool-a").Resource(corev1.ResourceCPU, "50").Obj()).Obj(),
 		utiltestingapi.MakeClusterQueue("cq-b1").Cohort("team-b").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("pool-b").Resource(corev1.ResourceCPU, "50").Obj()).Obj(),
+	}
+	if !implicitParent {
+		objs = append(objs, utiltestingapi.MakeCohort("org").Obj())
 	}
 	if moveCohort {
 		objs = append(objs, utiltestingapi.MakeCohort("squad").Parent("team-a").Obj())

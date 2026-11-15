@@ -1429,11 +1429,16 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 			expectClusterQueueOwnedBy(g, cqYKey, dqo.Name, wantInitialQuota)
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("Moving X to an unresolved Cohort and leaving its orchestratorRef", func() {
+		// A cycle keeps the previous owner's coverage inconclusive until A becomes inactive.
+		childCohort = utiltestingapi.MakeCohort("leftover-cycle-a").Parent("leftover-cycle-b").Obj()
+		grandchildCohort = utiltestingapi.MakeCohort("leftover-cycle-b").Parent("leftover-cycle-a").Obj()
+		behavioral.MustCreate(ctx, k8sClient, childCohort)
+		behavioral.MustCreate(ctx, k8sClient, grandchildCohort)
+		ginkgo.By("Moving X to a cyclic Cohort hierarchy and leaving its orchestratorRef", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var latest kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, cqXKey, &latest)).Should(gomega.Succeed())
-				latest.Spec.CohortName = "leftover-missing"
+				latest.Spec.CohortName = kueue.CohortReference(childCohort.Name)
 				g.Expect(k8sClient.Update(ctx, &latest)).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {

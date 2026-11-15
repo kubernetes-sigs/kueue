@@ -224,8 +224,9 @@ func (r *Reconciler) checkManagedConflict(
 	return fmt.Sprintf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name), nil
 }
 
-// subtreeCovers conservatively treats an incomplete or cyclic hierarchy as covered:
-// it cannot prove that the previous owner has stopped managing the target.
+// subtreeCovers conservatively treats a missing root or target, or a cyclic
+// hierarchy, as covered: it cannot prove that the previous owner has stopped
+// managing the target.
 func (r *Reconciler) subtreeCovers(ctx context.Context, root kueuealpha.CapacityDistributionSubtreeRootRef, kind kueuealpha.SubtreeRootRefKind, name string) (bool, error) {
 	var rootObj client.Object
 	switch root.Kind {
@@ -249,41 +250,9 @@ func (r *Reconciler) subtreeCovers(ctx context.Context, root kueuealpha.Capacity
 		return false, nil
 	}
 
-	var current string
-	switch kind {
-	case kueuealpha.ClusterQueueSubtreeRootRefKind:
-		var cq kueue.ClusterQueue
-		if err := r.client.Get(ctx, types.NamespacedName{Name: name}, &cq); err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
-			}
-			return false, err
-		}
-		current = string(cq.Spec.CohortName)
-	case kueuealpha.CohortSubtreeRootRefKind:
-		current = name
-	default:
-		return true, nil
-	}
-	visited := sets.New[string]()
-	for current != "" {
-		if current == root.Name {
-			return true, nil
-		}
-		if visited.Has(current) {
-			return true, nil
-		}
-		visited.Insert(current)
-		var cohort kueue.Cohort
-		if err := r.client.Get(ctx, types.NamespacedName{Name: current}, &cohort); err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
-			}
-			return false, err
-		}
-		current = string(cohort.Spec.ParentName)
-	}
-	return false, nil
+	target := kueuealpha.CapacityDistributionSubtreeRootRef{Kind: kind, Name: name}
+	result, err := r.ancestry(ctx, root, target)
+	return result != ancestorAbsent, err
 }
 
 // isDistributedFalse reports whether Distributed is present and False.
@@ -612,49 +581,73 @@ func (r *Reconciler) resolveSubtree(
 	return nil, nil, fmt.Errorf("unsupported subtree root kind %q", rootRef.Kind)
 }
 
+type ancestryResult int
+
+const (
+	ancestorAbsent ancestryResult = iota
+	ancestorPresent
+	ancestorUnknown
+)
+
 // isStrictAncestor returns true if candidate is a strict ancestor of target in the cohort hierarchy.
 func (r *Reconciler) isStrictAncestor(
 	ctx context.Context,
 	candidate kueuealpha.CapacityDistributionSubtreeRootRef,
 	target kueuealpha.CapacityDistributionSubtreeRootRef,
 ) (bool, error) {
+	result, err := r.ancestry(ctx, candidate, target)
+	return result == ancestorPresent, err
+}
+
+// ancestry distinguishes an absent ancestor from an unresolved target or cycle.
+// A referenced Cohort without an object is an implicit root with no parent.
+func (r *Reconciler) ancestry(
+	ctx context.Context,
+	candidate kueuealpha.CapacityDistributionSubtreeRootRef,
+	target kueuealpha.CapacityDistributionSubtreeRootRef,
+) (ancestryResult, error) {
 	if candidate.Kind != kueuealpha.CohortSubtreeRootRefKind || candidate == target {
-		return false, nil
+		return ancestorAbsent, nil
 	}
 
 	currentName := target.Name
-	if target.Kind == kueuealpha.ClusterQueueSubtreeRootRefKind {
+	switch target.Kind {
+	case kueuealpha.ClusterQueueSubtreeRootRefKind:
 		var cq kueue.ClusterQueue
 		if err := r.client.Get(ctx, types.NamespacedName{Name: target.Name}, &cq); err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
-		if cq.Spec.CohortName == "" {
-			return false, nil
-		}
-		if string(cq.Spec.CohortName) == candidate.Name {
-			return true, nil
+			if apierrors.IsNotFound(err) {
+				return ancestorUnknown, nil
+			}
+			return ancestorUnknown, err
 		}
 		currentName = string(cq.Spec.CohortName)
+	case kueuealpha.CohortSubtreeRootRefKind:
+	default:
+		return ancestorUnknown, nil
 	}
 
-	visited := sets.New(currentName)
+	visited := sets.New[string]()
 	for currentName != "" {
+		if currentName == candidate.Name {
+			return ancestorPresent, nil
+		}
+		if visited.Has(currentName) {
+			return ancestorUnknown, nil
+		}
+		visited.Insert(currentName)
 		var cohort kueue.Cohort
 		if err := r.client.Get(ctx, types.NamespacedName{Name: currentName}, &cohort); err != nil {
-			return false, client.IgnoreNotFound(err)
+			if !apierrors.IsNotFound(err) {
+				return ancestorUnknown, err
+			}
+			if target.Kind == kueuealpha.CohortSubtreeRootRefKind && currentName == target.Name {
+				return ancestorUnknown, nil
+			}
+			return ancestorAbsent, nil
 		}
-		parentName := string(cohort.Spec.ParentName)
-		if parentName == "" || visited.Has(parentName) {
-			return false, nil
-		}
-		if parentName == candidate.Name {
-			return true, nil
-		}
-		visited.Insert(parentName)
-		currentName = parentName
+		currentName = string(cohort.Spec.ParentName)
 	}
-
-	return false, nil
+	return ancestorAbsent, nil
 }
 
 // hasPrecedence returns true if a has precedence over b (i.e. created earlier, breaking ties with UID).
