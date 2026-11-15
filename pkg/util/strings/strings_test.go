@@ -64,6 +64,43 @@ func TestStringContainsSubstrings(t *testing.T) {
 	}
 }
 
+func TestTruncateNamePrefix(t *testing.T) {
+	cases := map[string]struct {
+		s    string
+		n    int
+		want string
+	}{
+		"shorter than limit is unchanged": {
+			s:    "job-my-job",
+			n:    20,
+			want: "job-my-job",
+		},
+		"cut at limit": {
+			s:    "job-my-job",
+			n:    6,
+			want: "job-my",
+		},
+		"trailing dot after cut is dropped": {
+			s:    "job-my.job",
+			n:    7,
+			want: "job-my",
+		},
+		"trailing hyphen after cut is kept": {
+			s:    "job-my-job",
+			n:    7,
+			want: "job-my-",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := TruncateNamePrefix(tc.s, tc.n); got != tc.want {
+				t.Errorf("TruncateNamePrefix(%q, %d) = %q, want %q", tc.s, tc.n, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestJoinMap(t *testing.T) {
 	cases := map[string]struct {
 		m           map[string][]int

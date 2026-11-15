@@ -57,6 +57,7 @@ import (
 	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
+	utilstrings "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -1104,7 +1105,7 @@ func limitObjectNameWithReservedSuffix(fullName string, reservedSuffixLen int) s
 	h := sha1.New()
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
-	return fmt.Sprintf("%s-%s", fullName[:maxPrefixLen], hashBytes[:objNameHashLength])
+	return fmt.Sprintf("%s-%s", utilstrings.TruncateNamePrefix(fullName, maxPrefixLen), hashBytes[:objNameHashLength])
 }
 
 type MergedPodSet struct {
