@@ -3604,7 +3604,7 @@ func TestPreemptionGateAfterSpecUpdateAndCoreReconcile(t *testing.T) {
 			secondaryVariant := utiltestingapi.MakeWorkload("parent-wl-variant-spot", "default").
 				Generation(1).
 				Queue("lq-hold").
-				Request(corev1.ResourceCPU, "1").
+				Request(corev1.ResourceCPU, "2").
 				AllowedFlavors("spot").
 				PreemptionGates(caGate()).
 				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parent.Name, string(parent.UID)).
@@ -3680,6 +3680,11 @@ func TestPreemptionGateAfterSpecUpdateAndCoreReconcile(t *testing.T) {
 			}
 			if _, err := vr.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(parent)}); err != nil {
 				t.Fatalf("variantReconciler.Reconcile() unexpected error: %v", err)
+			}
+			for _, ev := range recorder.RecordedEvents {
+				if ev.Reason == ReasonUpdatedVariant {
+					t.Fatalf("unexpected variant spec sync event during gate-selection check: %+v", ev)
+				}
 			}
 
 			var gotPreferred kueue.Workload
