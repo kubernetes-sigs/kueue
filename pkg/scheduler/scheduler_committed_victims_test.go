@@ -265,6 +265,22 @@ func TestGetAssignmentsWithCommittedVictims(t *testing.T) {
 // including the victims which the Workload could not preempt itself. Here,
 // the Workload borrows, so it may only preempt in its own ClusterQueue.
 func TestOverlapRecomputeWithCommittedVictims(t *testing.T) {
+	cases := map[string]struct {
+		// freeNode adds a node which B fits on right away.
+		freeNode bool
+	}{
+		"fits on the node of the victims once they are gone": {},
+		// B is placed right away, but only on the quota of the victims.
+		"fits on a free node, but on the quota of the victims": {freeNode: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			testOverlapRecomputeWithCommittedVictims(t, tc.freeNode)
+		})
+	}
+}
+
+func testOverlapRecomputeWithCommittedVictims(t *testing.T, freeNode bool) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		kubefeatures.GenericWorkload:                             true,
 		features.TopologyAwareScheduling:                         true,
@@ -296,12 +312,18 @@ func TestOverlapRecomputeWithCommittedVictims(t *testing.T) {
 	cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
 	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas").
 		NodeLabel("tas-node", "true").TopologyName("topology").Obj())
-	cache.TASCache().SyncNode(testingnode.MakeNode("n1").
-		Label("tas-node", "true").Label(corev1.LabelHostname, "n1").
-		StatusAllocatable(corev1.ResourceList{
-			corev1.ResourceCPU:  resource.MustParse("6"),
-			corev1.ResourcePods: resource.MustParse("32"),
-		}).Ready().Obj())
+	nodes := []string{"n1"}
+	if freeNode {
+		nodes = append(nodes, "n2")
+	}
+	for _, node := range nodes {
+		cache.TASCache().SyncNode(testingnode.MakeNode(node).
+			Label("tas-node", "true").Label(corev1.LabelHostname, node).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("6"),
+				corev1.ResourcePods: resource.MustParse("32"),
+			}).Ready().Obj())
+	}
 	// The victims run in cq-b, on the quota which cq-a lends it.
 	for _, cq := range []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("cq-a").Cohort("cohort").

@@ -883,6 +883,12 @@ func (e *entry) bookedUsage(log logr.Logger) (workload.Usage, *workload.Info) {
 
 func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, preemptedWorkloads preemption.PreemptedWorkloads) schdcache.FitsCheck {
 	usage, _ := e.bookedUsage(log)
+	// With SchedulerLibraryDeepIntegration, a Fit is admitted right away, so
+	// it must fit the cluster as it is: the victims of the preemptions issued
+	// earlier in this cycle still hold their usage.
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) && e.assignment.RepresentativeMode() == flavorassigner.Fit {
+		preemptedWorkloads = nil
+	}
 	return fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 }
 
@@ -1042,10 +1048,19 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 
 	e.recordAssignment(newAssignment, newTargets, newRetryAt)
 	e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
-	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
+	deep := features.Enabled(features.SchedulerLibraryDeepIntegration)
+	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit && !deep {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
 	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	// The recompute counts on the usage of the other victims. With
+	// SchedulerLibraryDeepIntegration, a Fit which also fits while they still
+	// hold it is admitted right away; any other waits for them.
+	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit && deep &&
+		fitsCheck != schdcache.FitsCheckOk {
+		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+		fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	}
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 
 	// Determine the overlap recomputation result for metrics reporting.
