@@ -771,6 +771,55 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("A flavor is removed from a ClusterQueue while its workloads keep running", func() {
+		var (
+			cohortName kueue.CohortReference
+			cqA        *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			cohortName = kueue.CohortReference("removed-flavor-" + ns.Name)
+			createCohort(utiltestingapi.MakeCohort(cohortName).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("removed-flavor-cq-a-"+ns.Name).
+				Cohort(cohortName).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "4").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+		})
+
+		ginkgo.It("lets a ClusterQueue that got the flavor's quota reclaim it", func() {
+			ginkgo.By("Admitting a workload on flavor1 in cqA")
+			wlA := createWorkload(cqA.Name, "4")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+
+			ginkgo.By("Removing flavor1 from cqA while the workload stays admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				createdCqA.Spec.ResourceGroups[0].Flavors = createdCqA.Spec.ResourceGroups[0].Flavors[1:]
+				g.Expect(k8sClient.Update(ctx, createdCqA)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Giving flavor1's quota to cqB")
+			cqB := createQueue(utiltestingapi.MakeClusterQueue("removed-flavor-cq-b-" + ns.Name).
+				Cohort(cohortName).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "4").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			ginkgo.By("Reclaiming cqB's nominal quota from the workload in cqA")
+			wlB := createWorkload(cqB.Name, "4")
+			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+		})
+	})
+
 	ginkgo.When("A ClusterQueue with 0 weight borrows a resource its Cohort has nothing lendable for", func() {
 		var cqA *kueue.ClusterQueue
 		ginkgo.BeforeEach(func() {
