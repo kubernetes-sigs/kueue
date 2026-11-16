@@ -452,7 +452,6 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:             true,
 				features.TASRejectFalseUnconstrainedTopology: true,
 			},
 		},
@@ -1224,7 +1223,6 @@ func TestValidateUpdate(t *testing.T) {
 					Field: "spec.template.metadata.annotations",
 				},
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"correcting invalid TAS annotations is accepted": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
@@ -1236,7 +1234,6 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue").
 				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"conflicting TAS annotations are accepted when TAS is disabled": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
