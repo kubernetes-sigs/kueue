@@ -813,6 +813,89 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
+	ginkgo.It("Should refresh the topology request when a StatefulSet scales up from zero", ginkgo.Label("feature:tas"), func() {
+		const block = "cloud.example/block"
+		ginkgo.By("Creating a StatefulSet with the original topology request")
+		sts := testingstatefulset.MakeStatefulSet("tas-sts", ns.Name).Queue(lq.Name).Replicas(2).
+			Request(corev1.ResourceCPU, "1").PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, block).Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Namespace: ns.Name, Name: statefulset.GetWorkloadName(sts.UID, sts.Name)}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(block), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		originalUID := wl.UID
+
+		ginkgo.By("Scaling to zero and waiting for OnHold")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Replicas = new(int32(0))
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(workload.IsOnHold(wl)).To(gomega.BeTrue())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Restoring two replicas while changing the required topology to hostname")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Replicas = new(int32(2))
+			sts.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation] = corev1.LabelHostname
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.UID).To(gomega.Equal(originalUID))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest.Required).To(gomega.Equal(new(corev1.LabelHostname)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest.PodIndexLabel).To(gomega.Equal(new(appsv1.PodIndexLabel)))
+			g.Expect(workload.IsOnHold(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+	ginkgo.It("Should refresh the topology request of a pending StatefulSet Workload without scaling", ginkgo.Label("feature:tas"), func() {
+		const block = "cloud.example/block"
+		sts := testingstatefulset.MakeStatefulSet("tas-pending-sts", ns.Name).Queue(lq.Name).Replicas(2).
+			Request(corev1.ResourceCPU, "1").PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, block).Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{Namespace: ns.Name, Name: statefulset.GetWorkloadName(sts.UID, sts.Name)}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(block), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		originalUID := wl.UID
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+			sts.Spec.Template.Annotations[kueue.PodSetRequiredTopologyAnnotation] = corev1.LabelHostname
+			g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(wl.UID).To(gomega.Equal(originalUID))
+			g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			g.Expect(wl.Spec.PodSets[0].TopologyRequest).To(gomega.Equal(&kueue.PodSetTopologyRequest{
+				Required: new(corev1.LabelHostname), PodIndexLabel: new(appsv1.PodIndexLabel),
+			}))
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+			g.Expect(workload.IsOnHold(wl)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should set WorkloadAnnotation on the Pod when SchedulerLibraryIntegration is enabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
