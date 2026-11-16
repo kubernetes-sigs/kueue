@@ -332,8 +332,9 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
   is not supported.
 - **Kueue does not validate DeviceClass existence at config load time.** Admins should
   create DeviceClasses before submitting workloads but strict ordering is not enforced.
-  A workload whose ResourceClaimTemplate names a missing DeviceClass is not admitted, and
-  Kueue re-evaluates it when the DeviceClass is created.
+  Except on a MultiKueue manager, a workload whose ResourceClaimTemplate names a missing
+  DeviceClass is not admitted. Kueue re-evaluates a pending workload when a DeviceClass is
+  created or deleted.
 
 - **When a DeviceClass is referenced by both `deviceClassMappings` and has an
   `extendedResourceName`, Kueue unifies quota** using the `deviceClassMappings` logical
@@ -1027,8 +1028,10 @@ is treated as a normal (non-DRA) extended resource and may become inadmissible i
 ClusterQueue only has quota for the DeviceClass-mapped logical name.
 
 The workload controller watches DeviceClass objects for create, update, and delete events.
-When a DeviceClass changes, only the pending workloads requesting the specific
-`extendedResourceName` from that DeviceClass are requeued for re-evaluation. Workloads
+When a DeviceClass changes, the pending workloads requesting the specific
+`extendedResourceName` from that DeviceClass are requeued for re-evaluation. When a
+DeviceClass is created or deleted, every pending workload that uses ResourceClaimTemplates
+is also requeued, so Kueue checks again that the DeviceClasses it names exist. Workloads
 with domain-qualified resources that are not DRA-backed (e.g., `example.com/gpu` without
 a corresponding DeviceClass) skip DRA processing entirely.
 
