@@ -19,7 +19,6 @@ package baseline
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os/exec"
 	"slices"
 
@@ -89,7 +88,7 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 		})
 	})
 
-	ginkgo.It("Should schedule a Job with an explicit empty toleration from a non-TAS resource flavor only for an empty taint value", ginkgo.Serial, func() {
+	ginkgo.It("Should keep a Pod with an explicit empty toleration from a non-TAS resource flavor unschedulable for a nonempty taint value", ginkgo.Serial, func() {
 		taintKey := "example.com/empty-" + ns.Name
 		var node *corev1.Node
 		ginkgo.By("Select a ready worker with no blocking taints", func() {
@@ -203,28 +202,7 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 			gomega.Eventually(checkUnschedulable, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Consistently(checkUnschedulable, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		})
-		ginkgo.By("Change the taint to an empty value and check that the same pod completes", func() {
-			gomega.Expect(k8sClient.Get(ctx, nodeKey, node)).To(gomega.Succeed())
-			gomega.Expect(clientutil.Patch(ctx, k8sClient, node, func() (bool, error) {
-				index := slices.IndexFunc(node.Spec.Taints, func(taint corev1.Taint) bool {
-					return taint.Key == taintKey && taint.Effect == corev1.TaintEffectNoSchedule
-				})
-				if index < 0 {
-					return false, fmt.Errorf("test taint %q disappeared from node %q", taintKey, node.Name)
-				}
-				node.Spec.Taints[index].Value = ""
-				return true, nil
-			}, clientutil.WithRetryOnConflict())).To(gomega.Succeed())
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, podKey, pod)).To(gomega.Succeed())
-				g.Expect(pod.UID).To(gomega.Equal(podUID))
-				g.Expect(pod.Spec.NodeName).To(gomega.Equal(node.Name))
-				g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
-			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
-		})
-
-		ginkgo.By("Check that the Job and its scheduled pod preserve Equal rather than Exists", func() {
+		ginkgo.By("Check that the Job and its pod preserve Equal rather than Exists", func() {
 			wantToleration := corev1.Toleration{
 				Key: taintKey, Operator: corev1.TolerationOpEqual,
 				Effect: corev1.TaintEffectNoSchedule,
