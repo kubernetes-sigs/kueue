@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -278,15 +279,19 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			// Validate CEL selectors against actual devices in the cluster.
-			celBasePath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
-			if celErrs := validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, celBasePath); len(celErrs) > 0 {
-				for _, celErr := range celErrs {
+			// Validate the claim against the DeviceClasses and devices in the cluster.
+			claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
+			deviceErrs := validateDeviceClassesExist(ctx, cl, spec, claimPath)
+			if len(deviceErrs) == 0 {
+				deviceErrs = validateCELSelectorsAgainstDevices(ctx, cl, sliceCache, mapper, spec, claimPath)
+			}
+			if len(deviceErrs) > 0 {
+				for _, deviceErr := range deviceErrs {
 					allErrs = append(allErrs, &field.Error{
-						Type:     celErr.Type,
-						Field:    celErr.Field,
-						BadValue: celErr.BadValue,
-						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, celErr.Detail),
+						Type:     deviceErr.Type,
+						Field:    deviceErr.Field,
+						BadValue: deviceErr.BadValue,
+						Detail:   fmt.Sprintf("ResourceClaimTemplate %s: %s", *prc.ResourceClaimTemplateName, deviceErr.Detail),
 					})
 				}
 				return nil, allErrs
@@ -323,6 +328,41 @@ func GetResourceRequestsForResourceClaimTemplates(
 	}
 
 	return perPodSet, nil
+}
+
+// validateDeviceClassesExist returns an error for each DeviceClass the claim names that
+// does not exist, because kube-scheduler fails the whole claim when one is missing.
+func validateDeviceClassesExist(ctx context.Context, cl client.Client, claimSpec *resourcev1.ResourceClaimSpec, basePath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	reqsPath := basePath.Child("devices", "requests")
+	for i, req := range claimSpec.Devices.Requests {
+		if req.Exactly != nil {
+			if err := validateDeviceClassExists(ctx, cl, req.Exactly.DeviceClassName, reqsPath.Index(i).Child("exactly", "deviceClassName")); err != nil {
+				allErrs = append(allErrs, err)
+			}
+		}
+		for k, sub := range req.FirstAvailable {
+			if err := validateDeviceClassExists(ctx, cl, sub.DeviceClassName, reqsPath.Index(i).Child("firstAvailable").Index(k).Child("deviceClassName")); err != nil {
+				allErrs = append(allErrs, err)
+			}
+		}
+	}
+	return allErrs
+}
+
+func validateDeviceClassExists(ctx context.Context, cl client.Client, className string, fldPath *field.Path) *field.Error {
+	if className == "" {
+		return nil
+	}
+	err := cl.Get(ctx, client.ObjectKey{Name: className}, &resourcev1.DeviceClass{})
+	switch {
+	case err == nil:
+		return nil
+	case apierrors.IsNotFound(err):
+		return &field.Error{Type: field.ErrorTypeNotFound, Field: fldPath.String(), BadValue: className, Detail: "DeviceClass does not exist"}
+	default:
+		return field.InternalError(fldPath, fmt.Errorf("failed to get DeviceClass %s: %w", className, err))
+	}
 }
 
 // validateCELSelectors compiles each CEL expression in the given selectors using

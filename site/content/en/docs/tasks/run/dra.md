@@ -222,5 +222,11 @@ your workload. If it was created after your workload was rejected, the workload
 may not be re-evaluated until another cluster event triggers requeuing.
 Delete and re-create the workload to force re-evaluation.
 
+For the `ResourceClaimTemplate` path, Kueue does not admit the workload while a
+`DeviceClass` that the template names is missing. The message of the
+`QuotaReserved` condition includes `DeviceClass does not exist`. Kueue
+re-evaluates the workload when the class is created, so you do not need to
+re-create it.
+
 For general troubleshooting, see the
 [troubleshooting guide](/docs/tasks/troubleshooting).

@@ -450,6 +450,8 @@ mapping, not the request, decides which devices share a budget.
   is not supported.
 - **Kueue does not validate DeviceClass existence at config load time.** Admins should
   create DeviceClasses before submitting workloads but strict ordering is not enforced.
+  A workload whose ResourceClaimTemplate names a missing DeviceClass is not admitted, and
+  Kueue re-evaluates it when the DeviceClass is created.
 
 - **When a DeviceClass is referenced by both `deviceClassMappings` and has an
   `extendedResourceName`, Kueue unifies quota** using the `deviceClassMappings` logical
@@ -847,6 +849,9 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
    - Read the ResourceClaimTemplate from the same namespace as the workload
    - Extract deviceClassName from each request in the template spec
    - Look up the corresponding resource name using the device class mappings from the Configuration API
+   - Reject workloads that name a DeviceClass, in a request or in any `firstAvailable` alternative, that
+     does not exist. kube-scheduler fails the whole claim in this case. The MultiKueue manager skips this
+     check, as it skips the CEL device check.
 5. CEL Selector Validation: For requests with CEL selectors:
    - Compile CEL expressions and reject workloads with invalid syntax
    - Evaluate CEL selectors against actual devices from ResourceSlices, pre-filtering by DeviceClass
