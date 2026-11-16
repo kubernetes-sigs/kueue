@@ -595,6 +595,97 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
+		// cq has no quota for spot any more, e.g. after the flavor was removed
+		// from its spec, but its admitted Workloads still use 4 cpu there.
+		"usage on a flavor without quota in the ClusterQueue is borrowed": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "spot", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("spot").
+						ResourceQuotaWrapper("cpu").NominalQuota("10").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{
+					Name:      "cq",
+					NodeType:  nodeTypeCq,
+					DrName:    corev1.ResourceCPU,
+					DrValue:   400, // (4 / 10) * 1000
+					Borrowing: true,
+				},
+				{
+					Name:      "lending-cq",
+					NodeType:  nodeTypeCq,
+					DrName:    "",
+					DrValue:   0,
+					Borrowing: false,
+				},
+				{
+					Name:      "test-cohort",
+					NodeType:  nodeTypeCohort,
+					DrName:    "",
+					DrValue:   0,
+					Borrowing: false,
+				},
+			},
+		},
+		// Same as above one level down: no node in child-cohort has quota for spot.
+		"usage on a flavor without quota in the Cohort subtree is borrowed": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "spot", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("2")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("spot").
+						ResourceQuotaWrapper("cpu").NominalQuota("10").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{
+					Name:      "cq",
+					NodeType:  nodeTypeCq,
+					DrName:    corev1.ResourceCPU,
+					DrValue:   400, // (4 / 10) * 1000
+					Borrowing: true,
+				},
+				{
+					Name:      "child-cohort",
+					NodeType:  nodeTypeCohort,
+					DrName:    corev1.ResourceCPU,
+					DrValue:   200, // (4 / 10) * 1000 / 2
+					Borrowing: true,
+				},
+				{
+					Name:      "root",
+					NodeType:  nodeTypeCohort,
+					DrName:    "",
+					DrValue:   0,
+					Borrowing: false,
+				},
+			},
+		},
 		"cohort has resource share": {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(10),
