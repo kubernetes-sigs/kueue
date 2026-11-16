@@ -4283,6 +4283,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				StartTime(now).
@@ -4300,6 +4301,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -4313,6 +4315,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+			acknowledgeSuspension: true,
 			job: baseJobWrapper.Clone().
 				Suspend(true).
 				NodeSelector("provisioning", "spot").
@@ -4329,6 +4332,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				Active(10).
 				Obj(),
 			wantWorkloads: []kueue.Workload{

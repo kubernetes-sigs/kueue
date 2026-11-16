@@ -179,7 +179,9 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 	waitForSuspension := stopReason == jobframework.StopReasonWorkloadEvicted &&
 		(j.Spec.ManagedBy == nil || *j.Spec.ManagedBy == batchv1.JobControllerName)
 
-	if !ptr.Deref(j.Spec.Suspend, false) {
+	alreadySuspended := ptr.Deref(j.Spec.Suspend, false)
+	if !alreadySuspended || (waitForSuspension && j.Annotations[StoppingAnnotation] != "true" &&
+		!isJobStatusConditionTrue(j.Status.Conditions, batchv1.JobSuspended)) {
 		if waitForSuspension {
 			// Clear an acknowledgement from an earlier suspension before requesting a new one.
 			if err := clientutil.PatchStatus(ctx, c, object, func() (bool, error) {
@@ -204,11 +206,11 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}); err != nil {
 			return false, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = true
+		stoppedNow = !alreadySuspended
 	}
 
 	// A zero active count can precede pod creation. Retain the stop marker
-	// until the native controller has observed suspension and deleted pods.
+	// until the native controller has observed suspension and initiated pod deletion.
 	if waitForSuspension && j.Annotations[StoppingAnnotation] == "true" &&
 		!isJobStatusConditionTrue(j.Status.Conditions, batchv1.JobSuspended) {
 		return stoppedNow, nil

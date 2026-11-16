@@ -4334,6 +4334,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("checking the workload is requeued")
+			acknowledgeJobSuspensionIfNeeded(ctx, client.ObjectKeyFromObject(job), wlKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
@@ -4378,6 +4379,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("checking the workload is evicted by deactivated due to PodsReadyTimeout")
+			acknowledgeJobSuspensionIfNeeded(ctx, client.ObjectKeyFromObject(job), wlKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Spec.Active).ShouldNot(gomega.BeNil())
@@ -4850,6 +4852,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", func() {
 				job.Status.Active = 0
 				g.Expect(k8sClient.Status().Update(ctx, job)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKeyFromObject(job))
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, other)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(other), other)).To(gomega.Succeed())
 			gomega.Expect(slices.Collect(tas.LowestLevelValues(other.Status.Admission.PodSetAssignments[0].TopologyAssignment))).To(gomega.ConsistOf(nodes[0].Labels[tasBlockLabel]))
