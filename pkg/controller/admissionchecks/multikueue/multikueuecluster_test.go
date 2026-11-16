@@ -2314,4 +2314,31 @@ func TestReconnectResync(t *testing.T) {
 		cmpopts.SortSlices(func(a, b enqueued) bool { return a.name < b.name })); diff != "" {
 		t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 	}
+
+	// The re-established watch replays existing remote objects as ADDED events, which
+	// are requeued at low priority too, while changes on the worker keep the default priority.
+	nextEnqueued := func() enqueued {
+		t.Helper()
+		select {
+		case e := <-reconciler.wlUpdateCh:
+			return enqueued{name: e.Object.workload.Name, priority: ptr.Deref(e.Object.priority, 0)}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for a workload event")
+			return enqueued{}
+		}
+	}
+	remoteWl := utiltestingapi.MakeWorkload("running", TestNamespace).Label(kueue.MultiKueueOriginLabel, defaultOrigin).Obj()
+	if err := rc.client.Create(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error creating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: handler.LowPriority}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for an added remote workload (-want/+got):\n%s", diff)
+	}
+	remoteWl.Labels["changed"] = "true"
+	if err := rc.client.Update(ctx, remoteWl); err != nil {
+		t.Fatalf("unexpected error updating the remote workload: %v", err)
+	}
+	if diff := cmp.Diff(enqueued{name: "running", priority: 0}, nextEnqueued(), cmp.AllowUnexported(enqueued{})); diff != "" {
+		t.Errorf("unexpected event for a modified remote workload (-want/+got):\n%s", diff)
+	}
 }

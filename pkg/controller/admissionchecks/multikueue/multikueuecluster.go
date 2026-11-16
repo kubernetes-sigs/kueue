@@ -599,8 +599,15 @@ func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r
 			log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 			return
 		}
+		// A new watch starts with an ADDED event for every existing remote object, so
+		// after a reconnect these events replay the whole worker. Enqueue them at low
+		// priority, like the reconnect resync, so they do not delay other workloads.
+		var priority *int
+		if r.Type == watch.Added {
+			priority = new(handler.LowPriority)
+		}
 		for _, wlKey := range wlKeys {
-			rc.queueWorkloadEvent(ctx, wlKey, nil)
+			rc.queueWorkloadEvent(ctx, wlKey, priority)
 		}
 	}
 }
