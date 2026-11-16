@@ -56,7 +56,6 @@ import (
 // replace semantics would absorb the duplicate, but the guard keeps the push and
 // its rollback paired to one reservation.
 func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 
 	now := time.Now().Truncate(time.Second)

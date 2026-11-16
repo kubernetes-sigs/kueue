@@ -1025,7 +1025,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		"flavor stickiness with RecomputePreemptionTargetsUponOverlap and TAS recomputation disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
-				features.TopologyAwareScheduling:                         true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     false,
 			},
 			enableFairSharing: true,
@@ -1394,7 +1393,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		},
 		"sibling TAS flavor usage is updated for overlapping preemption targets": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                         true,
 				features.TASHandleOverlappingFlavors:                     true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,

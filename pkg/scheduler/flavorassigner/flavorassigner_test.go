@@ -4833,9 +4833,6 @@ func TestAssignFlavors(t *testing.T) {
 			},
 		},
 		"multiple TAS flavors assigned to different resources in the same PodSet leads to NoFit": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
 				utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
@@ -7144,9 +7141,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				RequiredTopologyRequest("rack").
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a": "NoMatchingFlavor",
@@ -7161,9 +7155,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			resourceFlavors: tasFlavors,
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
 			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
@@ -7182,9 +7173,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			topologies: []*kueue.Topology{
 				utiltestingapi.MakeTopology("topology-tas").Levels("rack").Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			wantNoFitReason: "NoMatchingFlavor",
 			wantFlavorAttempts: map[kueue.ResourceFlavorReference]string{
 				"flavor-a":   "NoMatchingFlavor",
@@ -7193,9 +7181,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			},
 		},
 		"tas placement fails": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			resourceFlavors: tasFlavors,
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
@@ -7213,9 +7198,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			},
 		},
 		"tas placement fails, cohort has no capacity": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-			},
 			resourceFlavors: tasFlavors,
 			cq:              tasCQ,
 			topologies: []*kueue.Topology{
@@ -7234,8 +7216,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 		},
 		"tas placement fails, but queue has available capacity (waiting for preemption)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
-				features.ConcurrentAdmission:     true,
+				features.ConcurrentAdmission: true,
 			},
 			resourceFlavors: tasFlavors,
 			cq:              tasCQ,
@@ -7468,8 +7449,6 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 // even when they are not adjacent in the Workload. Each PodSet must keep its own flavor and
 // count, and the admission's order must not change, as the Workload webhook rejects that.
 func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"tas-a":   utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
 		"tas-b":   utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
@@ -8295,7 +8274,6 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
@@ -8393,7 +8371,6 @@ func TestRecomputeRecordsTriedFlavors(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, true)
 			features.SetFeatureGateDuringTest(t, features.RecomputeAssignmentUponPreemptionTargetsOverlap, false)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
@@ -8529,7 +8506,6 @@ func TestAssignFlavors_ResumesScanForNonAdjacentPodSetGroup(t *testing.T) {
 }
 
 func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 	cases := map[string]struct {
