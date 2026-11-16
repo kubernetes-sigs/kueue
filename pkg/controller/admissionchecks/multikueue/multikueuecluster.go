@@ -466,7 +466,7 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 		}
 		// Low priority, so that requeueing every workload of the worker does not delay
 		// other workloads. A real event for the workload still raises its priority.
-		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl), ptr.To(handler.LowPriority))
+		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(wl), new(handler.LowPriority))
 	}
 	return nil
 }
