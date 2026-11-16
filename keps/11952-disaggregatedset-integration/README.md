@@ -1084,6 +1084,8 @@ reconciler. If the DisaggregatedSet, the child LWS or the
 StatefulSet is gone, for example after a delete with `--cascade=orphan`, Kueue no
 longer manages the Pods. The Kueue DisaggregatedSet reconciler then removes the Kueue
 scheduling gates, so the Pods do not stay gated forever, as the LWS integration does.
+An owner recreated under the same name, with another UID, did not create the Pod.
+The Pod stays gated until the garbage collector removes it.
 This differs from a Pod that fails the
 [Pod adoption](#pod-adoption) checks while its owners exist, which stays gated.
 
