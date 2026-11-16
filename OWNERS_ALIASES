@@ -20,6 +20,8 @@ aliases:
     - mbobrovskyi
   kueuectl-reviewers:
     - henry3260
+  concurrent-admission-reviewers:
+    - ivnovakov
   deployment-integration-approvers:
     - mbobrovskyi
   deployment-integration-reviewers:
