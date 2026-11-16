@@ -155,6 +155,28 @@ func TestPodSets(t *testing.T) {
 				}
 			},
 		},
+		"without required and preferred topology annotation if TAS is disabled": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 1,
+						Annotations: map[string]string{
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			wantPodSets: func(job *kftraining.JAXJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
+						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
+						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -223,6 +245,21 @@ func TestValidate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			},
+		},
+		"invalid TAS request is accepted if TAS is disabled": {
+			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
+				JAXReplicaSpecs(
+					testingJAXjob.JAXReplicaSpecRequirement{
+						ReplicaType:  kftraining.JAXJobReplicaTypeWorker,
+						ReplicaCount: 3,
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/rack",
+							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingJAXjob.MakeJAXJob("JAXjob", "ns").
