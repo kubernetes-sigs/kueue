@@ -25,7 +25,7 @@ PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export YQ="${YQ:-$PROJECT_DIR/bin/yq}"
 SET_IMAGE="$PROJECT_DIR/hack/kustomization-set-image.sh"
 TEST_DIR=$(mktemp -d)
-trap 'rm -r "$TEST_DIR"' EXIT
+trap 'chmod -R u+w "$TEST_DIR" && rm -r "$TEST_DIR"' EXIT
 
 header='resources:
 - deployment.yaml
@@ -159,6 +159,22 @@ $backend
   name: controller
   newName: example.com/kueue/controller
 $frontend"
+
+# Like kustomize, only the file needs to be writable, not its directory. The
+# appwrapper manifests are copied from the read-only Go module cache.
+case_number=$((case_number + 1))
+dir="$TEST_DIR/$case_number"
+mkdir "$dir"
+printf '%s\n' "$base" > "$dir/kustomization.yaml"
+chmod a-w "$dir"
+"$SET_IMAGE" "$dir" backend=registry.example.com/backend:v1.2.3 || {
+  echo "fails when the directory is read-only" >&2
+  exit 1
+}
+if ! grep -q 'newTag: v1.2.3' "$dir/kustomization.yaml"; then
+  echo "did not set the image when the directory is read-only" >&2
+  exit 1
+fi
 
 expect_set_image_fails "rejects an image without a tag or digest" backend=example.com/kueue/backend
 expect_set_image_fails "rejects an empty digest" backend=example.com/kueue/backend@

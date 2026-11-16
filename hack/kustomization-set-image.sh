@@ -57,11 +57,17 @@ if [[ -z $new_name || (-z $new_tag && -z $digest) ]]; then
   invalid_image
 fi
 
+# yq -i needs to write a temporary file next to the kustomization file, and
+# kustomize only needs to write the file itself. Write the result elsewhere
+# and copy it into the file, so a read-only directory works too.
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
 # Like kustomize, replace the whole entry, so a tag or digest that is not
 # given is removed, and write its keys in kustomize's order. Add the entry
 # when it does not exist, and keep the list sorted by name.
 NAME="$name" NEW_NAME="$new_name" NEW_TAG="$new_tag" DIGEST="$digest" \
-  "$YQ" -i --yaml-compact-seq-indent '
+  "$YQ" --yaml-compact-seq-indent '
     ((if strenv(DIGEST) == "" then {} else {"digest": strenv(DIGEST)} end)
       + {"name": strenv(NAME), "newName": strenv(NEW_NAME)}
       + (if strenv(NEW_TAG) == "" then {} else {"newTag": strenv(NEW_TAG)} end)) as $image
@@ -70,4 +76,5 @@ NAME="$name" NEW_NAME="$new_name" NEW_TAG="$new_tag" DIGEST="$digest" \
       else
         .images = ((.images // []) + [$image] | sort_by(.name))
       end
-  ' "$kustomization"
+  ' "$kustomization" > "$tmp"
+cat "$tmp" > "$kustomization"
