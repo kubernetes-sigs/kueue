@@ -1307,7 +1307,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -1323,7 +1322,6 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
