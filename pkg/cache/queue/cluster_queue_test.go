@@ -1669,6 +1669,10 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 			wantInadmissible: false,
 			wantSticky:       true,
 		},
+		"waiting for evictions": {
+			reason:           RequeueReasonWaitingForEvictions,
+			wantInadmissible: true,
+		},
 		"preemption failed": {
 			reason:           RequeueReasonPreemptionFailed,
 			wantInadmissible: false,

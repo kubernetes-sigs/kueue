@@ -65,6 +65,10 @@ const (
 	RequeueReasonNoFit                  RequeueReason = "NoFit"
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
 	RequeueReasonSnapshotFailed         RequeueReason = "SnapshotFailed"
+	// RequeueReasonWaitingForEvictions is for a workload which fits once the
+	// eviction of other workloads completes. Unlike RequeueReasonPendingPreemption,
+	// it does not make the workload the preemptor of its ClusterQueue.
+	RequeueReasonWaitingForEvictions RequeueReason = "WaitingForEvictions"
 )
 
 // QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
