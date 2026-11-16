@@ -613,9 +613,22 @@ and group of the slice.
 Mitigations:
 - The documentation describes this and asks users to set `recoveryTimeout` above
   the expected rollout time of a slice. With the alpha
-  `WorkloadLevelWaitForPodsReady` feature gate, users can instead set
-  `recoveryTimeout: 0s` on one DisaggregatedSet through the workload-level
-  `waitForPodsReady` annotation.
+  `WorkloadLevelWaitForPodsReady` feature gate, users can set it on one
+  DisaggregatedSet through the workload-level `waitForPodsReady` annotation.
+  Validation requires that value to be above 0 and at most
+  `waitForPodsReady.maxTimeoutOnWorkload`, which defaults to 2h. A longer rollout
+  also needs the admin to raise that limit.
+- With the alpha `WaitForPodsReadyMaxNotReady` feature gate, users can instead keep
+  the slice ready while a rollout replaces groups. They set the
+  `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation to the same value in
+  every leader and worker template. To cover a rollout, the value is the sum over
+  roles of `maxUnavailable × size`, and it must be below the Pod count of the slice.
+  The pod-group reconciler uses the lowest value across the Pods of the slice, so a
+  template without the annotation means 0. The value counts not-ready Pods across
+  all roles of the slice: a value that covers a rollout also keeps the slice ready
+  while every Pod of a small role is down. The documentation states this trade-off.
+  Changing the value starts a rollout, because the templates are part of the
+  DisaggregatedSet revision.
 - An e2e test rolls out a new image on two roles with `waitForPodsReady` enabled. It
   shows whether the slice becomes ready between groups, and that a
   `recoveryTimeout` above the rollout time completes the rollout without eviction.
@@ -1082,7 +1095,8 @@ keeps its own code until the helpers are reviewed against a second user.
 | Kueue feature | Behavior with DisaggregatedSet |
 | :--- | :--- |
 | Topology Aware Scheduling | Supported on role templates, without rank-based ordering in alpha. See [Placement policy and Topology Aware Scheduling](#placement-policy-and-topology-aware-scheduling) and [TAS rank ordering](#tas-rank-ordering). |
-| `waitForPodsReady` | A slice Workload is ready when every Pod of the slice is Ready, so model loading counts toward `timeout`. Rollouts and group restarts make it not ready again. `recoveryTimeout`, which defaults to `timeout`, then evicts the whole slice. One unready Pod in any role evicts every role and group of the slice, where the LWS integration evicts only one group. Users set `timeout` above the model loading time, and `recoveryTimeout` above the rollout time of a slice, as described in [`waitForPodsReady` can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout). |
+| `waitForPodsReady` | A slice Workload is ready when every Pod of the slice is Ready, so model loading counts toward `timeout`. Rollouts and group restarts make it not ready again. `recoveryTimeout`, which defaults to `timeout`, then evicts the whole slice. One unready Pod in any role evicts every role and group of the slice, where the LWS integration evicts only one group. Users set `timeout` above the model loading time, and `recoveryTimeout` above the rollout time of a slice, or use `WaitForPodsReadyMaxNotReady`, as described in [`waitForPodsReady` can evict a slice during a rollout](#waitforpodsready-can-evict-a-slice-during-a-rollout). |
+| `WaitForPodsReadyMaxNotReady` | With the feature gate enabled, the `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation in the role templates reaches every Pod of the slice, and the slice Workload stays ready while at most that many Pods of the slice are not Ready. The count spans all roles of the slice, not each role. With the gate disabled, the annotation has no effect. |
 | `WorkloadLevelWaitForPodsReady` | With the feature gate enabled and `DisableWaitForPodsReady` disabled, the Kueue DisaggregatedSet webhook validates the workload-level `waitForPodsReady` annotation, and the Kueue DisaggregatedSet reconciler copies it to every slice Workload. Otherwise, Kueue ignores the annotation. |
 | `AdmissionGatedBy` | With the feature gate enabled, the Kueue DisaggregatedSet webhook validates the admission-gate annotation, the Kueue DisaggregatedSet reconciler copies it to every slice Workload, and a slice is not admitted while the annotation is set. With the gate disabled, Kueue ignores the annotation. |
 | Admission checks, such as ProvisioningRequest | Apply to the slice Workload. Their PodSet updates are applied to each Pod when it is ungated, as for other pod groups. |
@@ -1252,6 +1266,10 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
   adopted, and get a `PodNotAdopted` event;
 - with `waitForPodsReady`, a slice becomes ready only when all its Pods are Ready,
   and losing readiness for longer than `recoveryTimeout` evicts the whole slice;
+- with `WaitForPodsReadyMaxNotReady` enabled and the max-not-ready annotation in
+  every role template, a slice with that many unready Pods across its roles stays
+  ready, and a role template without the annotation makes the slice require every
+  Pod to be Ready;
 - PodSet updates from an admission check reach the matching leader and worker
   Pods;
 - gated Pods are ungated when the DisaggregatedSet, the child LWS or the
