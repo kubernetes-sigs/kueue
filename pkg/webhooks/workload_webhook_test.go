@@ -1292,7 +1292,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}).Obj(),
 		},
 		"TopologyAssignment can be mutated": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1338,7 +1337,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"PodSets cannot be removed from admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
@@ -1373,7 +1371,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"PodSets cannot be added to admission": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 3).Obj(),
