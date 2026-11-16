@@ -938,6 +938,16 @@ function cluster_kind_load_image {
     cluster_kind_load_image_impl "$cluster" "$image"
 }
 
+# Same as `kustomize edit add patch --path $2 [--kind $3]` for the kustomization.yaml file $1.
+# $1 kustomization.yaml, $2 patch path, $3 optional target kind
+function kustomization_add_patch() {
+    if [[ -n "${3:-}" ]]; then
+        PATCH_PATH="$2" PATCH_KIND="$3" $YQ -i '.patches += [{"path": strenv(PATCH_PATH), "target": {"kind": strenv(PATCH_KIND)}}]' "$1"
+    else
+        PATCH_PATH="$2" $YQ -i '.patches += [{"path": strenv(PATCH_PATH)}]' "$1"
+    fi
+}
+
 # $1 kubeconfig
 function deploy_with_certmanager() {
     local crd_kust="${ROOT_DIR}/config/components/crd/kustomization.yaml"
@@ -947,23 +957,17 @@ function deploy_with_certmanager() {
     local default_backup
     default_backup="$(<"$default_kust")"
 
-    (
-        cd "${ROOT_DIR}/config/components/crd" || exit
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_clusterqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_cohorts.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_localqueues.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_resourceflavors.yaml"
-        $KUSTOMIZE edit add patch --path "patches/cainjection_in_workloads.yaml"
-    )
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_clusterqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_cohorts.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_localqueues.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_resourceflavors.yaml"
+    kustomization_add_patch "$crd_kust" "patches/cainjection_in_workloads.yaml"
 
-    (
-        cd "${ROOT_DIR}/config/default" || exit
-        $KUSTOMIZE edit add patch --path "mutating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "validating_webhookcainjection_patch.yaml"
-        $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
-        $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-    )
+    kustomization_add_patch "$default_kust" "mutating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "validating_webhookcainjection_patch.yaml"
+    kustomization_add_patch "$default_kust" "cert_metrics_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "cert_visibility_manager_patch.yaml" Deployment
+    kustomization_add_patch "$default_kust" "apiservice_cainjection_patch.yaml" APIService
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
 
@@ -1635,11 +1639,11 @@ INITIAL_IMAGE=$($YQ '.images[] | select(.name == "controller") | [.newName, .new
 export INITIAL_IMAGE
 
 function set_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$IMAGE_TAG")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$IMAGE_TAG"
 }
 
 function restore_managers_image {
-    (cd "${ROOT_DIR}/config/components/manager" && $KUSTOMIZE edit set image controller="$INITIAL_IMAGE")
+    "${ROOT_DIR}/hack/kustomization-set-image.sh" "${ROOT_DIR}/config/components/manager" controller="$INITIAL_IMAGE"
 }
 
 function kueue_deploy {
