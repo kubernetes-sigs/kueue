@@ -17,6 +17,8 @@ limitations under the License.
 package kueuectl
 
 import (
+	"os"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/listlimit"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -38,6 +41,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		os.Unsetenv(listlimit.KueuectlListRequestLimitEnvName)
 	})
 
 	ginkgo.When("Deleting a Workload", func() {
@@ -106,6 +110,27 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 				var fetched kueue.Workload
 				err := k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: wlName}, &fetched)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			})
+		})
+
+		// Simple client set that are using on unit tests not allow paging.
+		ginkgo.It("Should delete all workloads with paging", func() {
+			wl1 := utiltestingapi.MakeWorkload("wl-page-1", ns.Name).Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-page-2", ns.Name).Obj()
+
+			ginkgo.By("Create two standalone workloads", func() {
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+			})
+
+			ginkgo.By("Run kueuectl delete workload --all with KUEUECTL_LIST_REQUEST_LIMIT=1", func() {
+				os.Setenv(listlimit.KueuectlListRequestLimitEnvName, "1")
+				executeKueuectl(cfg, []string{"delete", "workload", "--all", "--namespace", ns.Name, "--yes"})
+			})
+
+			ginkgo.By("Verify both workloads are removed", func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, false)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl2, false)
 			})
 		})
 	})
