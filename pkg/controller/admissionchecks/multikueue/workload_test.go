@@ -41,7 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -4667,6 +4669,40 @@ func TestAdmissionCheckHandlerUpdate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadEventHandler(t *testing.T) {
+	cases := map[string]struct {
+		priority         *int
+		expectedPriority int
+	}{
+		"default priority": {
+			expectedPriority: 0,
+		},
+		"low priority": {
+			priority:         new(handler.LowPriority),
+			expectedPriority: handler.LowPriority,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			q := priorityqueue.New[reconcile.Request]("test")
+			defer q.ShutDown()
+
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).Obj()
+			workloadEventHandler(0).Generic(ctx, event.TypedGenericEvent[workloadEvent]{Object: workloadEvent{workload: wl, priority: tc.priority}}, q)
+
+			req, priority, _ := q.GetWithPriority()
+			if diff := cmp.Diff(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}, req); diff != "" {
+				t.Errorf("unexpected queued request (-want/+got):\n%s", diff)
+			}
+			if priority != tc.expectedPriority {
+				t.Errorf("unexpected priority: want %d, got %d", tc.expectedPriority, priority)
 			}
 		})
 	}
