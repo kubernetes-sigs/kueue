@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/validate/content"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -70,10 +71,10 @@ func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, rf *kueue.Re
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, _, newRF *kueue.ResourceFlavor) (admission.Warnings, error) {
+func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldRF, newRF *kueue.ResourceFlavor) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating update")
-	return nil, ValidateResourceFlavor(newRF).ToAggregate()
+	return nil, validateResourceFlavor(newRF, oldRF).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -82,6 +83,10 @@ func (w *ResourceFlavorWebhook) ValidateDelete(_ context.Context, _ *kueue.Resou
 }
 
 func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
+	return validateResourceFlavor(rf, nil)
+}
+
+func validateResourceFlavor(rf, oldRF *kueue.ResourceFlavor) field.ErrorList {
 	var allErrs field.ErrorList
 
 	specPath := field.NewPath("spec")
@@ -89,6 +94,30 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 	allErrs = append(allErrs, validateNodeTaints(rf.Spec.NodeTaints, specPath.Child("nodeTaints"))...)
 	allErrs = append(allErrs, validateTolerations(rf.Spec.Tolerations, specPath.Child("tolerations"))...)
+	// ResourceFlavors created before the value check may hold an invalid value.
+	// Check the values only when the tolerations change, so that such a
+	// ResourceFlavor can still be updated, for example to remove its finalizer.
+	if oldRF == nil || !equality.Semantic.DeepEqual(oldRF.Spec.Tolerations, rf.Spec.Tolerations) {
+		allErrs = append(allErrs, validateTolerationValues(rf.Spec.Tolerations, specPath.Child("tolerations"))...)
+	}
+	return allErrs
+}
+
+// validateTolerationValues checks that the value of each Equal toleration is a
+// valid label value, as kube-apiserver does for Pods. Kueue adds the
+// ResourceFlavor tolerations to the Pod templates of the Jobs it admits, so an
+// invalid value would only be rejected then, and those Jobs could not start.
+func validateTolerationValues(tolerations []corev1.Toleration, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	for i, toleration := range tolerations {
+		// An empty operator means Equal.
+		if toleration.Operator != corev1.TolerationOpEqual && toleration.Operator != "" {
+			continue
+		}
+		if errs := content.IsLabelValue(toleration.Value); len(errs) != 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath.Index(i).Child("value"), toleration.Value, strings.Join(errs, ";")))
+		}
+	}
 	return allErrs
 }
 
