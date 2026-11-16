@@ -1302,6 +1302,119 @@ func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
 	}
 }
 
+func TestUpdateElasticWorkloadWithClearedAdmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	now := time.Now().Truncate(time.Second)
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(1).TopologyAssignment(
+				utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj(),
+			).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now).Obj()
+	newWl := oldWl.DeepCopy()
+	newWl.Status.Admission = nil
+	apimeta.RemoveStatusCondition(&newWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	updated := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWl, ObjectNew: newWl})
+
+	if !updated {
+		t.Fatal("Update rejected an elastic workload with cleared admission")
+	}
+}
+
+func TestUpdateRequeuesAfterTopologyAssignmentShrinks(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	originalAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 2).Obj(),
+			utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	shrunkAssignment := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 2).Obj()).Obj()
+	cases := map[string]struct {
+		assignment   *kueue.TopologyAssignment
+		count        int
+		elasticTAS   bool
+		wantRequeued bool
+	}{
+		"topology reservation shrinks": {
+			assignment:   shrunkAssignment,
+			count:        2,
+			elasticTAS:   true,
+			wantRequeued: true,
+		},
+		"topology reservation is cleared": {
+			elasticTAS:   true,
+			wantRequeued: true,
+		},
+		"topology reservation is unchanged": {
+			assignment: originalAssignment,
+			count:      2,
+			elasticTAS: true,
+		},
+		"elastic TAS is disabled": {
+			assignment: shrunkAssignment,
+			count:      2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
+			ctx, log := utiltesting.ContextWithLog(t)
+			waiter := utiltestingapi.MakeWorkload("waiter", "ns").Queue("lq").Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), waiter).
+				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).Build()
+			cqCache := schdcache.New(cl)
+			qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, nil,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(), false)
+			setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+			holder := utiltestingapi.MakeWorkload("holder", "ns").Queue("lq").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", tc.count).Obj())
+			oldWl := holder.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment("main").Count(4).TopologyAssignment(originalAssignment).Obj(),
+			).Obj(), now).AdmittedAt(true, now).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, holder.Obj()); err != nil {
+				t.Fatalf("Could not add holder: %v", err)
+			}
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: holder.Obj(), ObjectNew: oldWl})
+			requeuer.ProcessRequeues(ctx)
+
+			if err := qManager.AddOrUpdateWorkload(ctx, log, waiter); err != nil {
+				t.Fatalf("Could not add waiter: %v", err)
+			}
+			heads := qManager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Got %d queue heads, want 1", len(heads))
+			}
+			qManager.RequeueWorkload(ctx, &heads[0].Info, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
+			if !workloadRefInDump(qManager.DumpInadmissible(), "cq", workload.Key(waiter)) {
+				t.Fatal("Waiter was not placed in the inadmissible queue")
+			}
+
+			// Only the topology assignment changes; no count, reclaim, or priority event can wake the waiter.
+			newWl := oldWl.DeepCopy()
+			newWl.Status.Admission.PodSetAssignments[0].TopologyAssignment = tc.assignment
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWl, ObjectNew: newWl})
+			requeuer.ProcessRequeues(ctx)
+			if got := workloadRefInDump(qManager.Dump(), "cq", workload.Key(waiter)); got != tc.wantRequeued {
+				t.Errorf("Waiter in active queue = %v, want %v", got, tc.wantRequeued)
+			}
+		})
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
