@@ -15,17 +15,17 @@
 # limitations under the License.
 
 # Sets an image in DIR/kustomization.yaml with yq, the same as
-# `kustomize edit set image NAME=NEW_NAME:NEW_TAG` run in DIR. Only this
-# form is supported: images with a digest or without a tag are rejected.
+# `kustomize edit set image NAME=NEW_NAME[:NEW_TAG][@DIGEST]` run in DIR.
+# The image needs a tag, a digest or both.
 #
-# Usage: kustomization-set-image.sh DIR NAME=NEW_NAME:NEW_TAG
+# Usage: kustomization-set-image.sh DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]
 
 set -o errexit
 set -o nounset
 set -o pipefail
 
 if [[ $# -ne 2 || $2 != *=* ]]; then
-  echo "Usage: $0 DIR NAME=NEW_NAME:NEW_TAG" >&2
+  echo "Usage: $0 DIR NAME=NEW_NAME[:NEW_TAG][@DIGEST]" >&2
   exit 1
 fi
 
@@ -34,18 +34,40 @@ kustomization="$1/kustomization.yaml"
 name="${2%%=*}"
 image="${2#*=}"
 
-if [[ $image == *@* || ! $image =~ ^(.+):([^:/]+)$ ]]; then
-  echo "$0: image \"$image\" must have the form NEW_NAME:NEW_TAG" >&2
+invalid_image() {
+  echo "$0: image \"$image\" must have the form NEW_NAME:NEW_TAG, NEW_NAME@DIGEST or NEW_NAME:NEW_TAG@DIGEST" >&2
   exit 1
+}
+
+new_name="$image"
+new_tag=""
+digest=""
+if [[ $new_name == *@* ]]; then
+  digest="${new_name#*@}"
+  new_name="${new_name%%@*}"
+  if [[ -z $digest || $digest == *@* ]]; then
+    invalid_image
+  fi
+fi
+if [[ $new_name =~ ^(.+):([^:/]+)$ ]]; then
+  new_name="${BASH_REMATCH[1]}"
+  new_tag="${BASH_REMATCH[2]}"
+fi
+if [[ -z $new_name || (-z $new_tag && -z $digest) ]]; then
+  invalid_image
 fi
 
-# Update the entry when it exists. Otherwise add it and keep the list
-# sorted by name, as kustomize does.
-NAME="$name" NEW_NAME="${BASH_REMATCH[1]}" NEW_TAG="${BASH_REMATCH[2]}" \
+# Like kustomize, replace the whole entry, so a tag or digest that is not
+# given is removed, and write its keys in kustomize's order. Add the entry
+# when it does not exist, and keep the list sorted by name.
+NAME="$name" NEW_NAME="$new_name" NEW_TAG="$new_tag" DIGEST="$digest" \
   "$YQ" -i --yaml-compact-seq-indent '
-    if ((.images // []) | any_c(.name == strenv(NAME))) then
-      (.images[] | select(.name == strenv(NAME))) |= (del(.digest) | .newName = strenv(NEW_NAME) | .newTag = strenv(NEW_TAG))
-    else
-      .images = ((.images // []) + [{"name": strenv(NAME), "newName": strenv(NEW_NAME), "newTag": strenv(NEW_TAG)}] | sort_by(.name))
-    end
+    ((if strenv(DIGEST) == "" then {} else {"digest": strenv(DIGEST)} end)
+      + {"name": strenv(NAME), "newName": strenv(NEW_NAME)}
+      + (if strenv(NEW_TAG) == "" then {} else {"newTag": strenv(NEW_TAG)} end)) as $image
+    | if ((.images // []) | any_c(.name == strenv(NAME))) then
+        (.images[] | select(.name == strenv(NAME))) |= $image
+      else
+        .images = ((.images // []) + [$image] | sort_by(.name))
+      end
   ' "$kustomization"

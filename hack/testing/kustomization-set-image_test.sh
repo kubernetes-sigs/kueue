@@ -138,7 +138,30 @@ kind: Kustomization
 images:
 $controller"
 
-expect_set_image_fails "rejects an image without a tag" backend=example.com/kueue/backend
+digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+expect_set_image "sets a digest and removes the tag" "$base" "backend=example.com/kueue/backend@$digest" "$header
+- digest: $digest
+  name: backend
+  newName: example.com/kueue/backend
+$frontend"
+
+expect_set_image "sets a tag and a digest" "$base" "backend=localhost:5000/backend:v2@$digest" "$header
+- digest: $digest
+  name: backend
+  newName: localhost:5000/backend
+  newTag: v2
+$frontend"
+
+expect_set_image "adds an image with a digest in sorted order" "$base" "controller=example.com/kueue/controller@$digest" "$header
+$backend
+- digest: $digest
+  name: controller
+  newName: example.com/kueue/controller
+$frontend"
+
+expect_set_image_fails "rejects an image without a tag or digest" backend=example.com/kueue/backend
+expect_set_image_fails "rejects an empty digest" backend=example.com/kueue/backend@
 expect_set_image_fails "rejects an argument without NAME=" example.com/kueue/backend:v1
 
 # Setting the images that the repository's kustomization files already have
