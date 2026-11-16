@@ -131,6 +131,12 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
+// isHeldBackByDRA reports whether DRA processing set Requeued=False on the Workload.
+func isHeldBackByDRA(wl *kueue.Workload) bool {
+	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+	return requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible
+}
+
 // handleDRA preprocesses DRA-backed resources for a pending workload. It does not
 // queue the workload; Reconcile does that once with the returned queueOptions.
 // Returns done=true when reconciliation should stop (error or terminal DRA outcome).
@@ -206,8 +212,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
 	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
 	var conditionsChanged bool
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible {
+	if isHeldBackByDRA(wl) {
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			conditionsChanged = workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true)
 			return conditionsChanged, nil
@@ -1785,7 +1790,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, wqh).
 		Watches(&kueue.LocalQueue{}, wqh)
-	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	if features.Enabled(features.KueueDRAIntegration) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(resourcev1.SchemeGroupVersion.WithKind("DeviceClass").GroupKind()); err != nil && apimeta.IsNoMatchError(err) {
 			r.logger().V(1).Info("DeviceClass API not available, skipping DeviceClass watcher")
 		} else if err != nil {
@@ -2148,6 +2153,10 @@ type deviceClassHandler struct {
 }
 
 func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.requeueWorkloadsHeldBackByDRA(ctx, q)
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	dc := e.Object.(*resourcev1.DeviceClass)
 	if ern := extendedResourceName(dc); ern != "" {
 		h.r.draBackedResources.Add(corev1.ResourceName(ern), dc.Name)
@@ -2156,6 +2165,9 @@ func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q 
 }
 
 func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
 	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
 	if oldERN := extendedResourceName(oldDC); oldERN != "" {
@@ -2168,6 +2180,9 @@ func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 }
 
 func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return
+	}
 	dc := e.Object.(*resourcev1.DeviceClass)
 	if ern := extendedResourceName(dc); ern != "" {
 		h.r.draBackedResources.Remove(corev1.ResourceName(ern), dc.Name)
@@ -2176,6 +2191,25 @@ func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q 
 }
 
 func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+// requeueWorkloadsHeldBackByDRA reconciles the pending Workloads that DRA processing held back.
+// handleDRA does not queue them, so a Workload that named a missing DeviceClass is never retried otherwise.
+func (h *deviceClassHandler) requeueWorkloadsHeldBackByDRA(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	log := h.r.logger()
+	lst := kueue.WorkloadList{}
+	if err := h.r.client.List(ctx, &lst, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)}); err != nil {
+		log.Error(err, "Could not list workloads held back by DRA")
+		return
+	}
+	for i := range lst.Items {
+		w := &lst.Items[i]
+		if !workload.HasResourceClaimTemplates(w) || !isHeldBackByDRA(w) {
+			continue
+		}
+		log.V(3).Info("Requeuing workload held back by DRA due to DeviceClass creation", "workload", klog.KObj(w))
+		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: w.Name, Namespace: w.Namespace}}, time.Second)
+	}
 }
 
 func extendedResourceName(dc *resourcev1.DeviceClass) string {
