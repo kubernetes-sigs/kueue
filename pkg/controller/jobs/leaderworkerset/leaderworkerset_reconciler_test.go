@@ -1277,9 +1277,6 @@ func TestReconciler(t *testing.T) {
 		// maxSurge > 0 alone would cause filterWorkloads to use stale status.Replicas, keeping the
 		// excess workload in toUpdate instead of toDelete.
 		"should delete excess workload on scale down with maxSurge configured but no active rolling update": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
 				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Replicas(1).Obj()
 				lws.Status.Replicas = 2
@@ -1340,9 +1337,6 @@ func TestReconciler(t *testing.T) {
 		// must be kept. This, paired with the test above, proves that maxSurge > 0 alone is
 		// not sufficient — the UpdatedReplicas check is needed to distinguish the two cases.
 		"should keep surge workloads during active rolling update with maxSurge": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
 				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Replicas(2).Obj()
 				lws.Status.Replicas = 3
@@ -1435,9 +1429,6 @@ func TestReconciler(t *testing.T) {
 		// LeaderWorkerSet documents maxSurge as an absolute number or a percentage of the
 		// replicas at the start of the update, so the case above has to hold in both forms.
 		"should keep surge workloads during active rolling update with a percentage maxSurge": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
 				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Replicas(2).Obj()
 				lws.Status.Replicas = 3
@@ -1528,9 +1519,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should delete LeaderWorkerSet ownerReference from the redundant prebuilt workload": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
 				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
@@ -1714,7 +1702,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"should not propagate WaitForPodsReadyAnnotation annotation to an existing workload nor emit an event when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:       false,
 				features.WorkloadLevelWaitForPodsReady: false,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
