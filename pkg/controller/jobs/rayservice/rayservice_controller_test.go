@@ -196,7 +196,6 @@ func TestPodSets(t *testing.T) {
 					SubGroupCount(new(int32(1))).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with NumOfHosts > 1": {
 			rayService: (*RayService)(&rayv1.RayService{
