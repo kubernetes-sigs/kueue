@@ -470,6 +470,43 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 	}
 }
 
+func TestWorkloadCmdListRequestLimitOnlyForAll(t *testing.T) {
+	streams, _, out, outErr := genericiooptions.NewTestIOStreams()
+	wl := utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj()
+	clientset := fake.NewSimpleClientset(wl)
+	tcg := cmdtesting.NewTestClientGetter().
+		WithKueueClientset(clientset).
+		WithDynamicClient(dynamicfake.NewSimpleDynamicClient(k8sscheme.Scheme)).
+		WithRESTMapper(meta.NewDefaultRESTMapper([]schema.GroupVersion{}))
+
+	t.Run("named delete ignores invalid list request limit", func(t *testing.T) {
+		t.Setenv(listlimit.KueuectlListRequestLimitEnvName, "invalid")
+		cmd := NewWorkloadCmd(tcg, streams)
+		cmd.SetOut(out)
+		cmd.SetErr(outErr)
+		cmd.SetArgs([]string{"wl1", "-y"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("named delete failed with invalid %s: %v", listlimit.KueuectlListRequestLimitEnvName, err)
+		}
+	})
+
+	t.Run("delete --all rejects invalid list request limit", func(t *testing.T) {
+		t.Setenv(listlimit.KueuectlListRequestLimitEnvName, "invalid")
+		cmd := NewWorkloadCmd(tcg, streams)
+		cmd.SetOut(out)
+		cmd.SetErr(outErr)
+		cmd.SetArgs([]string{"--all", "-y"})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("expected error for invalid %s with --all", listlimit.KueuectlListRequestLimitEnvName)
+		}
+		want := `invalid list request limit: KUEUECTL_LIST_REQUEST_LIMIT="invalid" must be a non-negative integer`
+		if err.Error() != want {
+			t.Fatalf("error = %q, want %q", err.Error(), want)
+		}
+	})
+}
+
 // prependPagedListReactor makes List calls for workloads return the given pages
 // in order. The first request must not send a continue token; later requests must
 // pass the previous page's Continue. Every request must also send wantLimit.

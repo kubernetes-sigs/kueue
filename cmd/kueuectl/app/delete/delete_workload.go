@@ -174,9 +174,13 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 		return err
 	}
 
-	o.Limit, err = listlimit.ListRequestLimit()
-	if err != nil {
-		return err
+	// ListRequestLimit is only used by --all paging. Named deletes call Get, so an
+	// invalid KUEUECTL_LIST_REQUEST_LIMIT must not break kueuectl delete workload wl1.
+	if o.DeleteAll {
+		o.Limit, err = listlimit.ListRequestLimit()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
