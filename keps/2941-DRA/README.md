@@ -1362,7 +1362,8 @@ with multi-host support in future work.
 #### Path Interactions
 
 A `deviceClassMappings` entry uses either device-count or source-based quota, determined
-by whether `sources` is set. A DeviceClass appears in exactly one mapping entry.
+by whether `sources` is set. A DeviceClass appears in exactly one mapping entry, unless every
+mapping that names it has counter sources with distinct counter names.
 
 When a counter source is set, the charge comes from the matched device's `consumesCounters`.
 If the device has no `consumesCounters`, the workload is marked inadmissible.
@@ -1415,19 +1416,23 @@ borrowing only operates within the same resource.
 
 - At config load time: each counter source requires the `KueueDRAIntegrationPartitionableDevices`
   feature gate; each capacity source requires `KueueDRAIntegrationConsumableCapacity`.
-  At most one counter source is allowed per mapping; multiple capacity sources are allowed
-  (see [Consumable Capacity Validation](#validation-1) for the full cardinality rules).
+  A mapping can have several counter sources or several capacity sources, and their charges
+  sum into one quota resource (see [Consumable Capacity Validation](#validation-1)).
   Counter and capacity sources must not be mixed within the same mapping. Each source is validated for
   required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
   is compiled at config load time using the upstream `dracel` compiler to catch syntax
   and type errors early. Exactly one source type must be set per entry.
 - Duplicate `(driver, name)` tuples within a single mapping's `sources` are
-  rejected. Across different mappings, the same `(driver, name)` is allowed
-  since DeviceClass uniqueness already prevents double-counting. This supports separate
-  quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
+  rejected. Mappings for different DeviceClasses can use the same `(driver, name)`, because a
+  request names one DeviceClass and is charged only by that class's mappings. Mappings for the
+  same DeviceClass cannot share a counter name, so no counter is charged twice. This supports
+  separate quota for GPU models that share a driver and counter name (e.g., A100 vs H100).
 - At runtime: no cross-validation between `name` and actual ResourceSlice counter
   names. This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: for each source, at least the requested count of devices in the ResourceSlices
+  must match its driver and selector together with the DeviceClass and request selectors.
+  Otherwise the Workload is not admitted, and Kueue retries it with backoff.
 - `KueueDRAIntegrationPartitionableDevices` requires `KueueDRAIntegration` to be enabled. Validated
   at startup in `pkg/config/validation.go`.
 - Tightened driver name max length from 253 to 63 to match resourcev1.DriverNameMaxLength since Kueue v0.19.0
@@ -1695,15 +1700,19 @@ inadmissible workload requeuing. No new controller logic is needed.
 
 - At config load time: when a `capacity` source is present on a `deviceClassMappings`
   entry, the `KueueDRAIntegrationConsumableCapacity` feature gate must be enabled.
-  Each source entry must be either a counter or a capacity source (not both). At most
-  one counter source is allowed per mapping. Multiple capacity sources are allowed per
-  mapping (summed into one quota resource). Counter and capacity sources must not be
-  mixed within the same mapping. Each source is validated for required fields (`name`,
-  `driver`, `deviceSelector`). The `deviceSelector` CEL expression is compiled at config
-  load time using the upstream `dracel` compiler to catch syntax and type errors early.
+  Each source entry must be either a counter or a capacity source (not both). Multiple
+  counter sources or multiple capacity sources are allowed per mapping (summed into one
+  quota resource). Two sources with the same `(driver, name)` are rejected. Counter and
+  capacity sources must not be mixed within the same mapping. Each source is validated for
+  required fields (`name`, `driver`, `deviceSelector`). The `deviceSelector` CEL expression
+  is compiled at config load time using the upstream `dracel` compiler to catch syntax and
+  type errors early.
 - At runtime: no cross-validation between `name` and actual ResourceSlice capacity keys.
   This is consistent with how `deviceClassMappings` does not validate DeviceClass
   existence at config load time.
+- At runtime: each capacity source must match at least the requested count of devices in the
+  ResourceSlices, as for counter sources. Otherwise the Workload is not admitted, and Kueue
+  retries it with backoff.
 - `KueueDRAIntegrationConsumableCapacity` requires `KueueDRAIntegration` to be enabled.
   Validated at startup in `pkg/config/validation.go`.
 
