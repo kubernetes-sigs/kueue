@@ -1210,7 +1210,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		"legacy overlap skip with RecomputePreemptionTargetsUponOverlap disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: false,
-				features.TopologyAwareScheduling:                         false,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     false,
 			},
 			enableFairSharing: true,
