@@ -15,7 +15,6 @@
 # limitations under the License.
 
 export E2E_BIN_DIR="${E2E_BIN_DIR:-${ROOT_DIR}/bin}"
-export KUSTOMIZE="${E2E_BIN_DIR}/kustomize"
 export GINKGO="${E2E_BIN_DIR}/ginkgo"
 export KIND="${E2E_BIN_DIR}/kind"
 export YQ="${E2E_BIN_DIR}/yq"
@@ -1058,7 +1057,7 @@ function cluster_kueue_deploy {
 #    so that Helm and kustomize installs share them
 function helm_install {
     local manifests manager_config replicas alpha_apis=false
-    manifests=$($KUSTOMIZE build "$3")
+    manifests=$(kubectl kustomize "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$manager_config'" RETURN
@@ -1068,7 +1067,7 @@ function helm_install {
     # The chart's enableAlphaAPIs installs all CRDs of config/components/crd/alpha,
     # so turn it on if the build contains any of them.
     if $YQ -N 'select(.kind == "CustomResourceDefinition") | .metadata.name' <<<"$manifests" |
-        grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
+        grep -Fx -f <(kubectl kustomize "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
         alpha_apis=true
     fi
     local network_policies=false
@@ -1094,7 +1093,7 @@ function helm_install {
 # $2 kustomization config
 function build_and_apply_kueue_manifests {
     local build_output
-    build_output=$($KUSTOMIZE build "$2")
+    build_output=$(kubectl kustomize "$2")
     # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
     build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
 
@@ -1564,7 +1563,7 @@ function install_prometheus_operator {
 # $1 kubeconfig option
 function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
-    $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
+    kubectl kustomize "${ROOT_DIR}/config/prometheus" | \
         kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 }
 
