@@ -158,6 +158,74 @@ func TestAddPlaceholderVolumes(t *testing.T) {
 	}
 }
 
+func TestFillEmptyContainerImages(t *testing.T) {
+	cases := map[string]struct {
+		spec corev1.PodSpec
+		want corev1.PodSpec
+	}{
+		"fills empty containers and init containers with the placeholder": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "ray:2.9.0"},
+					{Name: "autoscaler"},
+					{Name: "ray-job-submitter"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: placeholderImage}},
+				Containers: []corev1.Container{
+					{Name: "ray-head", Image: "ray:2.9.0"},
+					{Name: "autoscaler", Image: placeholderImage},
+					{Name: "ray-job-submitter", Image: placeholderImage},
+				},
+			},
+		},
+		"keeps images that are already set": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: "init:1"}},
+				Containers: []corev1.Container{
+					{Name: "a", Image: "a:1"},
+					{Name: "b", Image: "b:1"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: "init:1"}},
+				Containers: []corev1.Container{
+					{Name: "a", Image: "a:1"},
+					{Name: "b", Image: "b:1"},
+				},
+			},
+		},
+		"fills a spec whose every image is empty": {
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init"}},
+				Containers: []corev1.Container{
+					{Name: "a"},
+					{Name: "b"},
+				},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Name: "init", Image: placeholderImage}},
+				Containers: []corev1.Container{
+					{Name: "a", Image: placeholderImage},
+					{Name: "b", Image: placeholderImage},
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := tc.spec.DeepCopy()
+			fillEmptyContainerImages(spec)
+			if diff := cmp.Diff(&tc.want, spec); diff != "" {
+				t.Errorf("Unexpected pod spec (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 var (
 	wlCmpOptions = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -581,7 +649,8 @@ func TestReconcile(t *testing.T) {
 	baseTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 		Containers(corev1.Container{
-			Name: "c",
+			Name:  "c",
+			Image: placeholderImage,
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("1"),
@@ -599,7 +668,8 @@ func TestReconcile(t *testing.T) {
 	baseTemplate2 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps2", TestNamespace).
 		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 		Containers(corev1.Container{
-			Name: "c",
+			Name:  "c",
+			Image: placeholderImage,
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceMemory: resource.MustParse("1M"),
@@ -734,6 +804,47 @@ func TestReconcile(t *testing.T) {
 			Count: new(int32(1)),
 		},
 	}
+
+	logsMount := []corev1.VolumeMount{{Name: "logs", MountPath: "/logs"}}
+	workloadWithEmptyImage := baseWorkload.DeepCopy()
+	workloadWithEmptyImage.Spec.PodSets[0].Template.Spec.Containers = []corev1.Container{
+		{
+			Name:  "c",
+			Image: "ray:2.9.0",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			Name:         "autoscaler",
+			VolumeMounts: logsMount,
+		},
+	}
+	filledImageTemplate := baseTemplate1.Clone().
+		Containers(
+			corev1.Container{
+				Name:  "c",
+				Image: "ray:2.9.0",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			},
+			corev1.Container{
+				Name:         "autoscaler",
+				Image:        placeholderImage,
+				VolumeMounts: logsMount,
+			},
+		).
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	filledImageTemplate.Template.Spec.Volumes = []corev1.Volume{{
+		Name:         "logs",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
 
 	cases := map[string]struct {
 		interceptorFuncsGet    func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
@@ -1624,7 +1735,8 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.Clone().
 					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1"),
@@ -2532,7 +2644,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps1": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1"),
@@ -2551,7 +2664,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
@@ -2565,7 +2679,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
@@ -2653,7 +2768,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps1": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1"),
@@ -2673,7 +2789,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps3": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps3", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
@@ -2687,7 +2804,8 @@ func TestReconcile(t *testing.T) {
 				"ppt-wl-check1-1-ps5": utiltesting.MakePodTemplate("ppt-wl-check1-1-ps5", TestNamespace).
 					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
 					Containers(corev1.Container{
-						Name: "c",
+						Name:  "c",
+						Image: placeholderImage,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceMemory: resource.MustParse("1M"),
@@ -2741,6 +2859,32 @@ func TestReconcile(t *testing.T) {
 			configs:            []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).Obj()},
 			flavors:            []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantReconcileError: errInconsistentPodSetAssignments,
+		},
+		"fills empty container images on the PodTemplate and leaves the Workload unchanged": {
+			workload: workloadWithEmptyImage.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				"wl": workloadWithEmptyImage.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: filledImageTemplate,
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
 		},
 	}
 
