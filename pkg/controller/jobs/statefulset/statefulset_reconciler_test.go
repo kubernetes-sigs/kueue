@@ -366,9 +366,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload when replicas > 0 and workload doesn't exist": {
-			wantEvents:   createdWorkloadEvents,
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			wantEvents: createdWorkloadEvents,
+			stsKey:     client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -389,6 +388,9 @@ func TestReconciler(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
 						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -400,8 +402,7 @@ func TestReconciler(t *testing.T) {
 		"should copy configured labels and annotations into the created workload when CustomMetricLabels is enabled": {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.CustomMetricLabels:      true,
+				features.CustomMetricLabels: true,
 			},
 			labelKeysToCopy:   sets.New("toCopyKey"),
 			annotationsToCopy: sets.New("toCopyAnnotation"),
@@ -433,6 +434,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
@@ -447,8 +451,7 @@ func TestReconciler(t *testing.T) {
 		"should copy configured labels but not annotations into the created workload when CustomMetricLabels is disabled": {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.CustomMetricLabels:      false,
+				features.CustomMetricLabels: false,
 			},
 			labelKeysToCopy:   sets.New("toCopyKey"),
 			annotationsToCopy: sets.New("toCopyAnnotation"),
@@ -480,6 +483,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
@@ -612,8 +618,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create new UID-named workload and leave legacy workload unadopted when fallback disabled": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("lq").
@@ -661,6 +666,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
@@ -780,8 +788,7 @@ func TestReconciler(t *testing.T) {
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.AdmissionGatedBy:        true,
+				features.AdmissionGatedBy: true,
 			},
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -806,6 +813,9 @@ func TestReconciler(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
 						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -818,8 +828,7 @@ func TestReconciler(t *testing.T) {
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
 			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-				features.AdmissionGatedBy:        true,
+				features.AdmissionGatedBy: true,
 			},
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -843,6 +852,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
@@ -999,7 +1011,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
 			wantEvents:   createdWorkloadEvents,
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.AdmissionGatedBy: false},
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
@@ -1022,6 +1034,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
@@ -1063,7 +1078,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"statefulset with WaitForPodsReadyAnnotation annotation but feature gate disabled should not propagate annotation": {
 			wantEvents:   createdWorkloadEvents,
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.WorkloadLevelWaitForPodsReady: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
@@ -1086,6 +1101,9 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
