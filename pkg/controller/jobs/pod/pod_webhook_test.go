@@ -96,9 +96,6 @@ func TestDefault(t *testing.T) {
 		wantErr                      error
 	}{
 		"pod with suspend by parent annotation should skip finalizer": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				SuspendedByParent("test").
@@ -108,12 +105,12 @@ func TestDefault(t *testing.T) {
 				SuspendedByParent("test").
 				Queue("test-queue").
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				Obj(),
 		},
 		"pod with queue nil ns selector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			initObjects:  []client.Object{defaultNamespace},
+			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Obj(),
@@ -121,13 +118,13 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"pod with queue matching ns selector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			initObjects:  []client.Object{defaultNamespace},
+			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Obj(),
@@ -137,13 +134,13 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"pod without queue matching ns selector manage jobs without queue name": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			initObjects:  []client.Object{defaultNamespace},
+			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Obj(),
 			manageJobsWithoutQueueName: true,
@@ -152,12 +149,12 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"pod with owner managed by kueue (Job) while not enabled": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects: []client.Object{
 				defaultNamespace,
 				testingjob.MakeJob("parent-job", defaultNamespace.Name).UID("parent-job").Queue("test-queue").Obj(),
@@ -172,6 +169,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
@@ -352,7 +350,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"pod with a group name label, but without group total count label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -366,11 +363,11 @@ func TestDefault(t *testing.T) {
 				RoleHash("a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
 		},
 		"pod with a group name label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			podSelector:       &metav1.LabelSelector{},
 			namespaceSelector: defaultNamespaceSelector,
@@ -384,6 +381,7 @@ func TestDefault(t *testing.T) {
 				RoleHash("a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
 		},
@@ -431,7 +429,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"default queue is created, pod has no queue label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			defaultLqExist:    true,
 			podSelector:       &metav1.LabelSelector{},
@@ -442,6 +439,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
@@ -458,7 +456,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"default queue is created, pod has queue label": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			defaultLqExist:    true,
 			podSelector:       &metav1.LabelSelector{},
@@ -470,12 +467,12 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"the namespace matches the selector": {
-			featureGates:                 map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:                  []client.Object{defaultNamespace},
 			managedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
@@ -485,6 +482,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
@@ -503,7 +501,6 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"the namespace matches the namespace selector": {
-			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
@@ -514,6 +511,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
 		},
@@ -531,9 +529,8 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		"the pod matches the pod selector": {
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-			initObjects:  []client.Object{defaultNamespace},
-			podSelector:  defaultPodSelector,
+			initObjects: []client.Object{defaultNamespace},
+			podSelector: defaultPodSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Label(corev1.LabelMetadataName, "test-pod").
 				Queue("queue").
@@ -544,6 +541,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				KueueFinalizer().
 				Obj(),
 		},
@@ -562,7 +560,6 @@ func TestDefault(t *testing.T) {
 		},
 		"default WorkloadPriorityClass is applied when feature gate is enabled and pod has no priority class label": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:         false,
 				features.WorkloadPriorityClassDefaulting: true,
 			},
 			initObjects: []client.Object{
@@ -579,13 +576,13 @@ func TestDefault(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"default WorkloadPriorityClass is not applied when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:         false,
 				features.WorkloadPriorityClassDefaulting: false,
 			},
 			initObjects: []client.Object{
@@ -601,13 +598,13 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"default WorkloadPriorityClass is not applied when pod already has a priority class label": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:         false,
 				features.WorkloadPriorityClassDefaulting: true,
 			},
 			initObjects: []client.Object{
@@ -625,13 +622,13 @@ func TestDefault(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "high").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
 		"default WorkloadPriorityClass is not applied when default WorkloadPriorityClass does not exist": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:         false,
 				features.WorkloadPriorityClassDefaulting: true,
 			},
 			initObjects:       []client.Object{defaultNamespace},
@@ -644,6 +641,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
+				TopologySchedulingGate().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
 				Obj(),
