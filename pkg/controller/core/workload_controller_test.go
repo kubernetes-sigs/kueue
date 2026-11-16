@@ -3433,7 +3433,8 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						},
 						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 							if tc.listErr != nil {
-								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
+								switch list.(type) {
+								case *resourcev1.ResourceSliceList, *corev1.PodList:
 									return tc.listErr
 								}
 							}

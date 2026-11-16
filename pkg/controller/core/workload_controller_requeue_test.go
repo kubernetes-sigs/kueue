@@ -19,8 +19,10 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +41,61 @@ import (
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+func TestTruncateAtRuneBoundary(t *testing.T) {
+	cases := map[string]struct {
+		input string
+		limit int
+		want  string
+	}{
+		"shorter than the limit is unchanged": {
+			input: "Insufficient cpu",
+			limit: 20,
+			want:  "Insufficient cpu",
+		},
+		"exactly at the limit is unchanged": {
+			input: strings.Repeat("a", 10),
+			limit: 10,
+			want:  strings.Repeat("a", 10),
+		},
+		"one byte over the limit is truncated with the ellipsis inside the limit": {
+			input: strings.Repeat("a", 11),
+			limit: 10,
+			want:  strings.Repeat("a", 7) + "...",
+		},
+		"multibyte character straddling the boundary is dropped whole": {
+			// "é" is 2 bytes. The 7-byte prefix would end after the first byte of the
+			// 4th "é", so the cut moves back to the previous character boundary.
+			input: strings.Repeat("a", 6) + strings.Repeat("é", 4),
+			limit: 10,
+			want:  strings.Repeat("a", 6) + "...",
+		},
+		"multibyte character ending exactly at the boundary is kept": {
+			input: strings.Repeat("a", 5) + strings.Repeat("é", 4),
+			limit: 10,
+			want:  strings.Repeat("a", 5) + "é" + "...",
+		},
+		"limit smaller than the ellipsis still returns valid text": {
+			input: "ééé",
+			limit: 2,
+			want:  "...",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := truncateAtRuneBoundary(tc.input, tc.limit)
+			if got != tc.want {
+				t.Errorf("truncateAtRuneBoundary(%q, %d) = %q, want %q", tc.input, tc.limit, got, tc.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("result %q is not valid UTF-8", got)
+			}
+			if len(tc.input) > tc.limit && tc.limit >= len("...") && len(got) > tc.limit {
+				t.Errorf("result has %d bytes, want at most %d", len(got), tc.limit)
+			}
+		})
+	}
+}
 
 func TestReconcileRequeue(t *testing.T) {
 	errStatus := errors.New("status write failed")
@@ -474,6 +531,109 @@ func TestReconcileRequeue(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
 					Message:   "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.",
+				},
+			},
+		},
+		"evict with the WaitForScheduling cause without the reason when listing the Pods fails": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			listErr: errors.New("pod list failed"),
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     30 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			additionalObjects: []client.Object{
+				utiltestingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:    corev1.PodScheduled,
+						Status:  corev1.ConditionFalse,
+						Reason:  corev1.PodReasonUnschedulable,
+						Message: "0/3 nodes are available: 3 Insufficient cpu.",
+					}).
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForScheduling,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
 				},
 			},
 		},
