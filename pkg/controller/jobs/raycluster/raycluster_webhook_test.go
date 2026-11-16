@@ -254,7 +254,6 @@ func TestValidateCreate(t *testing.T) {
 		"elastic job with required topology is accepted without ElasticJobsViaWorkloadSlicesWithTAS": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
-				features.TopologyAwareScheduling:      true,
 			},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -298,7 +297,6 @@ func TestValidateCreate(t *testing.T) {
 					rayv1.WorkerGroupSpec{GroupName: "wg3"},
 				).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid topology request": {
 			job: testingrayutil.MakeCluster("raycluster", "ns").Queue("queue").
@@ -339,7 +337,6 @@ func TestValidateCreate(t *testing.T) {
 					`must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 						`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid slice topology request - slice size larger than number of podsets": {
 			job: testingrayutil.MakeCluster("raycluster", "ns").Queue("queue").
@@ -392,7 +389,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.workerGroupSpecs[1].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-slice-size"), "20", "must not be greater than pod set count 10"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"valid PodSet grouping request": {
 			job: testingrayutil.MakeCluster("raycluster", "ns").Queue("queue").
@@ -421,7 +417,6 @@ func TestValidateCreate(t *testing.T) {
 					},
 				).
 				Obj(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - groups of size other than 2": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
@@ -485,7 +480,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.workerGroupSpecs[2].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "3podsets", "can only define groups of exactly 2 pod sets, got: 3 pod set(s)"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - no leader in group": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
@@ -522,7 +516,6 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(field.NewPath("spec.workerGroupSpecs[1].template.metadata.annotations").
 					Key("kueue.x-k8s.io/podset-group-name"), "groupname", "can only define groups where at least one pod set has only 1 replica, got: 5 replica(s) and 10 replica(s) in the group"),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - required topology does not match": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
@@ -564,7 +557,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - preferred topology does not match": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
@@ -606,7 +598,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"invalid PodSet grouping request - different topology annotations within group": {
 			job: testingrayutil.MakeCluster("rayjob", "ns").Queue("queue").
@@ -648,7 +639,6 @@ func TestValidateCreate(t *testing.T) {
 					"must specify 'kueue.x-k8s.io/podset-required-topology' or 'kueue.x-k8s.io/podset-preferred-topology' topology consistent with 'spec.headGroupSpec.template.metadata.annotations' in group 'groupname'",
 				),
 			}.ToAggregate(),
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"valid with prebuilt workload annotation, WorkloadIdentifierAnnotations enabled": {
 			job: testingrayutil.MakeCluster("raycluster", "ns").
