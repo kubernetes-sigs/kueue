@@ -551,7 +551,7 @@ the old Pod is gone.
 The pod-group reconciler counts a terminating Pod that runs on a node as a member.
 For a prebuilt Workload, it marks the Workload `Finished` with reason `OutOfSync`
 when a role has more members than its PodSet count. A finished slice Workload is
-never admitted again.
+never admitted again, and its Pods keep running after its quota is released.
 
 Mitigations:
 - The Kueue DisaggregatedSet reconciler adopts a Pod only while its role in the
@@ -559,6 +559,10 @@ Mitigations:
   [Pod reconciliation](#pod-reconciliation). A new-revision Pod stays gated and
   is not adopted until the Pod it replaces is gone. The cost is a later start of
   the new Pod, not extra quota or Pod churn.
+- The adoption check reads a cache, so a race can still over-count a role. The
+  Kueue DisaggregatedSet reconciler then recovers the slice: it stops the slice's
+  Pods and recreates the Workload, as described in
+  [Creation, deletion and replacement](#creation-deletion-and-replacement).
 - An integration test overlaps a terminating Pod with its replacement, and the
   e2e tests cover a full image rollout.
 
@@ -884,6 +888,23 @@ at that point, nothing is created. A slice Workload that a user deactivated, wit
 the annotation, is left alone. A user who sets the annotation and deactivates a
 slice Workload triggers the same replacement, which has the effect of an eviction.
 
+The Kueue DisaggregatedSet reconciler also recovers a slice Workload that the
+pod-group reconciler marked `Finished` with reason `OutOfSync`, as described in
+[Rollout churn](#rollout-churn). A finished Workload has already released its quota
+but cannot be admitted again, and its Pods keep running.
+The recovery follows the replacement steps above:
+
+1. The Kueue DisaggregatedSet reconciler deletes the ungated Pods of the slice.
+2. Once no ungated Pod of the slice remains, it deletes the Workload and creates a
+   new one from the current spec.
+3. It emits a `WorkloadRecreated` event on the DisaggregatedSet.
+4. The StatefulSets recreate the Pods gated, and the new Workload waits for
+   admission like any other.
+
+Each recovery stops the slice and sends it back through admission, so it cannot loop
+faster than the slice is re-admitted.
+A slice Workload finished for any other reason is left alone.
+
 #### Queue and priority updates
 
 The Kueue DisaggregatedSet reconciler updates the queue name of existing Workloads.
@@ -1112,8 +1133,8 @@ keeps its own code until the helpers are reviewed against a second user.
 
 There are no new metrics in alpha. Admission, eviction and preemption are visible
 through the standard Workload metrics and conditions. The Kueue DisaggregatedSet
-reconciler emits events on the DisaggregatedSet when a Workload is created, deleted
-or replaced, and when the workload-level annotations are updated. It emits a
+reconciler emits events on the DisaggregatedSet when a Workload is created, deleted,
+replaced or recreated after `OutOfSync`, and when the workload-level annotations are updated. It emits a
 `PodNotAdopted` event on a Pod that fails the [Pod adoption](#pod-adoption) checks.
 The existing `PodExceedsRoleRequests` event of the pod-group reconciler marks an
 adopted Pod that stays gated because it requests more than its PodSet reserves.
@@ -1261,6 +1282,10 @@ In the controller suite, which runs the Kueue reconcilers, scheduler and webhook
 - during a rollout, a new-revision Pod is not adopted while the Pod it replaces
   is terminating on a node, and joins the slice once that Pod is gone, without
   finishing the slice Workload;
+- a slice Workload finished with reason `OutOfSync` is recovered: the slice's
+  ungated Pods are deleted, a new Workload is created and admitted, and a
+  `WorkloadRecreated` event is emitted. A slice Workload finished for another
+  reason is left alone;
 - Pods with a forged `disaggregatedset.x-k8s.io/name` label are not adopted;
 - Pods owned by a real StatefulSet but with an unexpected name or labels are not
   adopted, and get a `PodNotAdopted` event;
