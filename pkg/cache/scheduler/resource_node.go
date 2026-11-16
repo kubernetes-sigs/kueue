@@ -252,15 +252,19 @@ func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
 }
 
 func accumulateFromChild(parent *cohort, child flatResourceNode) {
-	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
-		delta := childQuota.Sub(child.getResourceNode().localQuota(fr))
+	accumulateResourceNode(parent.resourceNode, child.getResourceNode())
+}
+
+func accumulateResourceNode(parent, child resourceNode) {
+	for fr, childQuota := range child.SubtreeQuota {
+		delta := childQuota.Sub(child.localQuota(fr))
 		// Amount addition stays exact past int64, so accumulating large
 		// children cannot wrap the parent's SubtreeQuota negative.
-		parent.resourceNode.SubtreeQuota[fr] = parent.resourceNode.SubtreeQuota[fr].Add(delta)
+		parent.SubtreeQuota[fr] = parent.SubtreeQuota[fr].Add(delta)
 	}
-	for fr, childUsage := range child.getResourceNode().Usage {
-		delta := resources.MaxAmount(resources.NewAmount(0), childUsage.Sub(child.getResourceNode().localQuota(fr)))
-		parent.resourceNode.Usage[fr] = parent.resourceNode.Usage[fr].Add(delta)
+	for fr, childUsage := range child.Usage {
+		delta := resources.MaxAmount(resources.NewAmount(0), childUsage.Sub(child.localQuota(fr)))
+		parent.Usage[fr] = parent.Usage[fr].Add(delta)
 	}
 }
 
