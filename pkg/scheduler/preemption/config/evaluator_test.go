@@ -665,7 +665,6 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.ConfigurablePreemptions:     true,
-				features.TopologyAwareScheduling:     true,
 				features.TASHandleOverlappingFlavors: !tc.disableOverlappingFlavors,
 			})
 			ctx, log := utiltesting.ContextWithLog(t)

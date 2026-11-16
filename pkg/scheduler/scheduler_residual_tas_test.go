@@ -77,7 +77,6 @@ func TestDeferredFitFlavorScanWithResidualTASPods(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, tc.fungibility)
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserve)
 			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, false)
@@ -168,7 +167,6 @@ func TestPartialAdmissionWithResidualTASPods(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ClassicalPreemptionCandidateOrderCache, cacheEnabled)
 			for name, tc := range cases {
 				t.Run(name, func(t *testing.T) {
-					features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 					features.SetFeatureGateDuringTest(t, features.PartialAdmission, tc.partial)
 					features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
 					ctx, log := utiltesting.ContextWithLog(t)
@@ -291,7 +289,6 @@ func TestMultiVictimPreemptionWithResidualTASPods(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ClassicalPreemptionCandidateOrderCache, cacheEnabled)
 			for name, tc := range cases {
 				t.Run(name, func(t *testing.T) {
-					features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 					ctx, log := utiltesting.ContextWithLog(t)
 					cl := utiltesting.NewFakeClient()
 					cache := schdcache.New(cl)
